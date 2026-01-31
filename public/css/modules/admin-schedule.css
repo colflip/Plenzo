@@ -1,0 +1,362 @@
+/* ==========================================================================
+   Admin Schedule Page - Modern Design System
+   Based on Admin Statistics Design
+   ========================================================================== */
+
+/* --- 1. Design Tokens & Variables --- */
+:root {
+    /* Primary Colors */
+    --sch-primary: #2ECC71;
+    /* Brand Green matching stats */
+    --sch-primary-hover: #27AE60;
+    --sch-primary-light: #E8F5E9;
+    /* Background tint */
+
+    /* Neutral Colors */
+    --sch-bg: #F3F4F6;
+    /* Overall Page Background */
+    --sch-surface: #FFFFFF;
+    /* Card Background */
+    --sch-border: #E5E7EB;
+    /* Border Color */
+
+    /* Text Colors */
+    --sch-text-main: #1F2937;
+    /* Headings */
+    --sch-text-body: #4B5563;
+    /* Body Text */
+    --sch-text-muted: #9CA3AF;
+    /* Secondary/Placeholder */
+
+    /* Shadows */
+    --sch-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --sch-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --sch-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+    /* Typography */
+    --sch-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Spacing */
+    --sch-radius-sm: 6px;
+    --sch-radius-md: 12px;
+    --sch-radius-lg: 16px;
+}
+
+/* --- 2. Global Resets for Schedule Section --- */
+#schedule {
+    font-family: var(--sch-font-family);
+    color: var(--sch-text-body);
+    background-color: transparent;
+}
+
+/* --- 3. Header Toolbar Areas --- */
+.schedule-controls {
+    background: var(--sch-surface);
+    border: 1px solid var(--sch-border);
+    border-radius: var(--sch-radius-md);
+    padding: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: var(--sch-shadow-sm);
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+/* Left Controls (Week Navigation) */
+.sch-controls-left {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.week-navigation {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #F9FAFB;
+    padding: 4px 8px;
+    border-radius: var(--sch-radius-md);
+    border: 1px solid var(--sch-border);
+}
+
+.week-navigation .nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--sch-text-body);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--sch-radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.week-navigation .nav-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: var(--sch-text-main);
+}
+
+.week-navigation #weekRange,
+.week-navigation #avWeekRange {
+    font-weight: 600;
+    color: var(--sch-text-main);
+    font-size: 15px;
+    white-space: nowrap;
+    min-width: 180px;
+    text-align: center;
+}
+
+/* Add Button (Primary Action) */
+.schedule-controls .add-btn {
+    background-color: var(--sch-primary);
+    color: white;
+    border: none;
+    border-radius: var(--sch-radius-sm);
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background-color 0.2s, transform 0.1s;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+}
+
+.schedule-controls .add-btn:hover {
+    background-color: var(--sch-primary-hover);
+    transform: translateY(-1px);
+}
+
+.schedule-controls .add-btn:active {
+    transform: translateY(0);
+}
+
+/* Filters Group (Right Side) */
+.schedule-filters {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--sch-text-main);
+}
+
+.filter-group select {
+    padding: 6px 12px;
+    border: 1px solid rgba(203, 213, 225, 0.6);
+    border-radius: var(--sch-radius-sm);
+    background-color: #FFFFFF;
+    font-size: 13px;
+    color: var(--sch-text-main);
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s ease;
+    min-width: 120px;
+}
+
+.filter-group select:hover {
+    border-color: rgba(46, 204, 113, 0.4);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.filter-group select:focus {
+    border-color: var(--sch-primary);
+    box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.1);
+}
+
+/* --- 4. Main Schedule Card --- */
+/* Wrapper for the table */
+.schedule-unified-card {
+    background: var(--sch-surface);
+    border: 1px solid var(--sch-border);
+    border-radius: var(--sch-radius-lg);
+    box-shadow: var(--sch-shadow-sm);
+    overflow: hidden;
+    padding: 0;
+}
+
+.weekly-view {
+    padding: 0;
+}
+
+.weekly-table-container {
+    overflow-x: auto;
+    width: 100%;
+}
+
+/* Table Styles - Modernized */
+.weekly-schedule-table {
+    width: 100%;
+    border-collapse: separate;
+    /* Changed for border-radius on cells if needed, but usually collapse is better for grids */
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.weekly-schedule-table th,
+.weekly-schedule-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--sch-border);
+    border-right: 1px solid var(--sch-border);
+    vertical-align: top;
+}
+
+/* Header Cells */
+.weekly-schedule-table thead th {
+    background-color: #FAFAFA;
+    color: var(--sch-text-main);
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+    padding: 16px 12px;
+    border-bottom: 2px solid var(--sch-border);
+}
+
+/* First column (Student name) */
+.weekly-schedule-table thead th:first-child,
+.weekly-schedule-table tbody td:first-child {
+    width: 120px;
+    /* Fixed width for student column */
+    background-color: #FFFFFF;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    font-weight: 600;
+    color: var(--sch-text-main);
+    border-right: 2px solid var(--sch-border);
+    /* Stronger separator */
+}
+
+/* Table Body Cells */
+.weekly-schedule-table tbody td {
+    background-color: #FFFFFF;
+    transition: background-color 0.2s;
+    height: 100px;
+    /* Minimum height for visual balance */
+}
+
+.weekly-schedule-table tbody tr:hover td {
+    background-color: #FCFCFD;
+}
+
+.weekly-schedule-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.weekly-schedule-table tbody td:last-child,
+.weekly-schedule-table thead th:last-child {
+    border-right: none;
+}
+
+/* --- 5. Schedule Cards (Items inside table) --- */
+.schedule-item {
+    background-color: #F0FDF4;
+    /* Light green bg by default */
+    border-left: 3px solid var(--sch-primary);
+    border-radius: 4px;
+    /* Slightly rounded */
+    padding: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--sch-text-body);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.schedule-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+    background-color: #DCFCE7;
+    /* Slightly darker light green */
+}
+
+.schedule-item .time {
+    font-weight: 700;
+    color: var(--sch-text-main);
+    margin-bottom: 2px;
+    display: block;
+}
+
+.schedule-item .type {
+    display: inline-block;
+    padding: 2px 6px;
+    background-color: rgba(46, 204, 113, 0.15);
+    border-radius: 4px;
+    color: #108043;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+/* Status variants for cards */
+.schedule-item.status-pending {
+    border-left-color: #F59E0B;
+    /* Orange */
+    background-color: #FFFBEB;
+}
+
+.schedule-item.status-pending .type {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #B45309;
+}
+
+.schedule-item.status-completed {
+    border-left-color: #64748B;
+    /* Slate */
+    background-color: #F8FAFC;
+    opacity: 0.8;
+}
+
+.schedule-item.status-completed .type {
+    background-color: #E2E8F0;
+    color: #475569;
+}
+
+.schedule-item.status-cancelled {
+    border-left-color: #EF4444;
+    /* Red */
+    background-color: #FEF2F2;
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+/* --- 6. Mobile Responsiveness --- */
+@media (max-width: 1024px) {
+    .schedule-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .sch-controls-left {
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .schedule-filters {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .filter-group {
+        flex: 1;
+        min-width: 140px;
+    }
+
+    .filter-group select {
+        width: 100%;
+    }
+}

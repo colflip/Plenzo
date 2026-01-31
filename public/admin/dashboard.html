@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员仪表盘 - schedule-widget</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+    <link rel="stylesheet" href="/css/core/global.css">
+    <link rel="stylesheet" href="/css/modules/dashboard.css">
+    <link rel="stylesheet" href="/css/modules/admin-statistics.css">
+    <link rel="stylesheet" href="/css/modules/admin-schedule.css">
+    <style>
+        /* 全局样式 */
+        :root {
+            --primary-color: #3b82f6;
+            --secondary-color: #64748b;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+            --info-color: #0ea5e9;
+            --light-bg: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 按钮加载状态样式 */
+        .search-btn {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .search-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .btn-loading {
+            display: none;
+        }
+
+        .search-btn:disabled .btn-loading {
+            display: inline;
+        }
+
+        .search-btn:disabled .btn-text {
+            display: none;
+        }
+
+        /* 反馈消息样式 */
+        .feedback {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+
+
+
+        /* 主按钮样式 - 查询按钮 - 与用户管理按钮样式一致 */
+        .primary-btn {
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 90px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+
+        .primary-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .primary-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* 信息按钮样式 - 导出按钮 - 与用户管理按钮样式一致 */
+        .info-btn {
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 90px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+
+        .info-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .info-btn:active {
+            transform: translateY(1px);
+        }
+
+        .info-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 1200px) {
+            .statistics-controls .inline-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .inline-tabs {
+                margin: 8px 0;
+                justify-content: center;
+            }
+        }
+
+        .feedback.info {
+            background-color: #e1f0fa;
+            border: 1px solid #beddf6;
+            color: #1e40af;
+        }
+
+        .feedback.error {
+            background-color: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+        }
+
+        .feedback.success {
+            background-color: #dcfce7;
+            border: 1px solid #bbf7d0;
+            color: #15803d;
+        }
+
+        /* 数据导出功能样式 */
+        .export-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-top: 0;
+            padding: 16px 0;
+            background-color: transparent;
+            border-radius: 0;
+            border: none;
+        }
+
+        .time-range-preset {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .time-range-preset label {
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .time-range-preset select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: white;
+            font-size: 14px;
+            min-width: 100px;
+            cursor: pointer;
+        }
+
+        .export-buttons {
+            display: flex;
+            gap: 12px;
+            margin-left: auto;
+        }
+
+        .export-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            white-space: nowrap;
+            position: relative;
+            min-width: 90px;
+            justify-content: center;
+        }
+
+        .export-btn:hover:not(:disabled) {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .export-btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        .export-btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+
+        .export-btn.loading {
+            pointer-events: none;
+        }
+
+        .export-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        .export-btn[data-type="student"] {
+            background-color: #2ECC71;
+        }
+
+        .export-btn[data-type="student"]:hover:not(:disabled) {
+            background-color: #27AE60;
+        }
+
+        .export-btn .spinner {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .export-btn .spinner .material-icons-round {
+            font-size: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .export-loading {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background-color: var(--secondary-color);
+            color: white;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .export-loading .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="logo">
+                <span class="logo-icon material-icons-round">schedule</span>
+                <span class="logo-text">schedule-widget</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-section="overview">
+                    <span class="material-icons-round">dashboard</span>
+                    <span class="nav-text">总览</span>
+                </a>
+                <a href="#" class="nav-item" data-section="users">
+                    <span class="material-icons-round">people</span>
+                    <span class="nav-text">用户管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="schedule-types">
+                    <span class="material-icons-round">category</span>
+                    <span class="nav-text">课程类型管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="availability">
+                    <span class="material-icons-round">event_available</span>
+                    <span class="nav-text">教师空闲时段</span>
+                </a>
+                <a href="#" class="nav-item" data-section="schedule">
+                    <span class="material-icons-round">event_note</span>
+                    <span class="nav-text">排课管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="statistics">
+                    <span class="material-icons-round">insights</span>
+                    <span class="nav-text">数据统计</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="toggle-sidebar">
+                    <span class="material-icons-round">chevron_left</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 主要内容区 -->
+        <div class="main-content">
+            <header class="dashboard-header">
+                <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="打开菜单">
+                    <span class="material-icons-round">menu</span>
+                </button>
+                <h2>管理员总览</h2>
+                <div class="user-info">
+                    <span class="user-name" id="adminName">管理员</span>
+                    <span class="role-badge" id="adminRole">(管理员)</span>
+                    <button class="logout-btn" id="logout">退出登录</button>
+                </div>
+            </header>
+
+            <!-- 内容部分 -->
+            <div class="content-area">
+                <!-- 总览部分 -->
+                <section id="overview" class="dashboard-section active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>总教师数</h3>
+                            <p id="teacherCount">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>总学生数</h3>
+                            <p id="studentCount">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>本月排课数</h3>
+                            <p id="monthlySchedules">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>待确认排课</h3>
+                            <p id="pendingConfirmations">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>总排课数</h3>
+                            <p id="totalSchedules">-</p>
+                        </div>
+                    </div>
+
+                    <!-- Today's Schedules Section -->
+                    <!-- Today's Schedules Section -->
+                    <div class="today-schedule-card">
+                        <div class="card-header">
+                            <div class="header-title-group">
+                                <h3>今日排课</h3>
+                            </div>
+                            <button id="refreshTodaySchedulesBtn" class="refresh-btn">
+                                <span class="material-icons-round">refresh</span> 刷新
+                            </button>
+                        </div>
+                        <div id="todayScheduleList" class="card-content">
+                            <div class="no-data">-</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 用户管理部分 -->
+                <section id="users" class="dashboard-section">
+                    <div class="header-toolbar statistics-controls">
+                        <div class="statistics-tabs">
+                            <div class="tab-btn-group inline-tabs" id="userRoleTabs">
+                                <button class="tab-btn active" data-type="teacher" title="查看教师列表">教师</button>
+                                <button class="tab-btn" data-type="student" title="查看学生列表">学生</button>
+                                <button class="tab-btn" data-type="admin" title="查看管理员列表">管理员</button>
+                            </div>
+                            <button id="addUserBtn" class="primary-btn user-manage-add-btn" style="margin-left: 12px;">
+                                <span class="material-icons-round">add</span> 添加用户
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table id="usersTable">
+                            <thead>
+                                <tr></tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <!-- 用户数据将通过 JavaScript 动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 用户表单模态 -->
+                    <div id="modalOverlay" class="modal-overlay" style="display:none"></div>
+                    <div id="userFormContainer" class="form-container" style="display: none;">
+                        <div class="form-header">
+                            <h3 id="userFormTitle">添加用户</h3>
+                            <button class="close-btn" onclick="closeUserFormModal()"></button>
+                        </div>
+                        <form id="userForm" data-mode="add" data-id="">
+                            <!-- 1. 用户类型放在首位 -->
+                            <div class="form-group">
+                                <label for="userType">用户类型</label>
+                                <select id="userType" required>
+                                    <option value="admin">管理员</option>
+                                    <option value="teacher">教师</option>
+                                    <option value="student">学生</option>
+                                </select>
+                            </div>
+                            <!-- 2. 用户名 -->
+                            <div class="form-group">
+                                <label for="userUsername">用户名</label>
+                                <input type="text" id="userUsername" required>
+                            </div>
+                            <!-- 3. 密码 -->
+                            <div class="form-group">
+                                <label for="userPassword">密码</label>
+                                <input type="password" id="userPassword" required>
+                            </div>
+                            <!-- 4. 其他信息 -->
+                            <div class="form-group">
+                                <label for="userName">姓名</label>
+                                <input type="text" id="userName" required>
+                            </div>
+                            <div class="form-group" id="userPermissionLevelGroup" style="display:block;">
+                                <label for="userPermissionLevel">权限级别</label>
+                                <input type="number" id="userPermissionLevel" min="1" max="3"
+                                    placeholder="请输入权限级别(1-3)">
+                            </div>
+                            <div class="form-group" id="userEmailGroup" style="display:block;">
+                                <label for="userEmail">邮箱</label>
+                                <input type="email" id="userEmail" placeholder="管理员邮箱">
+                            </div>
+                            <div class="form-group" id="userContactGroup" style="display:none;">
+                                <label for="userContact">联系方式</label>
+                                <input type="text" id="userContact">
+                            </div>
+                            <div class="form-group" id="userProfessionGroup" style="display:none;">
+                                <label for="userProfession">职业</label>
+                                <input type="text" id="userProfession" placeholder="教师/学生职业">
+                            </div>
+                            <div class="form-group" id="userWorkLocationGroup" style="display:none;">
+                                <label for="userWorkLocation">工作地点</label>
+                                <input type="text" id="userWorkLocation" placeholder="仅教师填写">
+                            </div>
+                            <div class="form-group" id="userHomeAddressGroup" style="display:none;">
+                                <label for="userHomeAddress">家庭地址</label>
+                                <input type="text" id="userHomeAddress">
+                            </div>
+                            <div class="form-group" id="userVisitLocationGroup" style="display:none;">
+                                <label for="userVisitLocation">探访地点</label>
+                                <input type="text" id="userVisitLocation" placeholder="仅学生填写">
+                            </div>
+                            <!-- 新增：账号状态（教师/学生可见） -->
+                            <div class="form-group" id="userStatusGroup" style="display:none;">
+                                <label for="userStatus">账号状态</label>
+                                <select id="userStatus">
+                                    <option value="1">正常</option>
+                                    <option value="0">暂停</option>
+                                    <option value="-1">删除</option>
+                                </select>
+                            </div>
+                            <!-- 新增：教师排课限制（仅教师可见） -->
+                            <div class="form-group" id="userRestrictionGroup" style="display:none;">
+                                <label for="userRestriction">排课限制</label>
+                                <select id="userRestriction">
+                                    <option value="0">无限制 (0)</option>
+                                    <option value="1" selected>检测可用时间 (1)</option>
+                                    <option value="2">限制级别 2</option>
+                                    <option value="3">限制级别 3</option>
+                                    <option value="4">限制级别 4</option>
+                                    <option value="5">限制级别 5</option>
+                                </select>
+                                <small style="color:#666; display:block; margin-top:4px;">0=不限，1=需匹配空闲时段</small>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" onclick="closeUserFormModal()">取消</button>
+                                <button type="submit" id="userFormSubmit">保存</button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- 课程类型管理部分 -->
+                <section id="schedule-types" class="dashboard-section">
+                    <div class="header-toolbar">
+                        <div class="toolbar-actions" style="margin-left: 0;">
+                            <button id="addScheduleTypeBtn" class="primary-btn">
+                                <span class="material-icons-round" style="font-size: 18px;">add</span> 添加类型
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table id="scheduleTypesTable">
+                            <thead>
+                                <tr>
+                                    <th>类型名称</th>
+                                    <th>描述</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scheduleTypesTableBody">
+                                <!-- 通过 JS 动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 课程类型表单模态，复用现有的样式结构 -->
+                    <div id="scheduleTypeFormContainer" class="form-container" style="display: none;">
+                        <div class="form-header">
+                            <h3 id="scheduleTypeFormTitle">添加课程类型</h3>
+                            <button class="close-btn" onclick="closeScheduleTypeFormModal()"></button>
+                        </div>
+                        <form id="scheduleTypeForm" data-mode="add" data-id="">
+                            <div class="form-group">
+                                <label for="scheduleTypeName">类型名称</label>
+                                <input type="text" id="scheduleTypeName" required placeholder="例如：入户、试教">
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleTypeDescription">描述</label>
+                                <textarea id="scheduleTypeDescription" rows="3" placeholder="可选：对该类型的简单描述"></textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" onclick="closeScheduleTypeFormModal()">取消</button>
+                                <button type="submit" id="scheduleTypeFormSubmit">保存</button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- 排课管理部分 -->
+                <section id="schedule" class="dashboard-section">
+                    <!-- 周视图标题：合并为一行显示筛选、周导航与新建按钮 -->
+                    <!-- 周视图标题：合并为一行显示筛选、周导航与新建按钮 -->
+                    <div class="header-toolbar schedule-controls">
+                        <!-- Left: Nav + Add Button -->
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
+                            <div class="week-navigation">
+                                <button id="prevWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_left</span>
+                                </button>
+                                <span id="weekRange">加载中...</span>
+                                <button id="nextWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_right</span>
+                                </button>
+                            </div>
+                            <button id="addScheduleBtn" class="add-btn" onclick="window.showAddScheduleModal()">
+                                <span class="material-icons-round">add</span> 添加排课
+                            </button>
+                        </div>
+
+                        <!-- Right: Filters -->
+
+                    </div>
+                    <div class="schedule-unified-card">
+                        <div class="weekly-view">
+
+                            <div class="weekly-table-container">
+                                <table class="weekly-schedule-table">
+                                    <thead id="weeklyHeader">
+                                        <!-- 通过 JS 渲染：学生 | 08/周一 | 09/周二 | ... -->
+                                    </thead>
+                                    <tbody id="weeklyBody">
+                                        <!-- 通过 JS 渲染学生行与每天的排课列表 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 排课详情弹窗 -->
+                    <div id="scheduleModal" class="modal">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3 id="modalTitle">排课详情</h3>
+                                <span class="close">&times;</span>
+                            </div>
+                            <div class="modal-body">
+                                <div class="schedule-info">
+                                    <div class="info-row">
+                                        <label>学生:</label>
+                                        <span id="modalStudent">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>教师:</label>
+                                        <span id="modalTeacher">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>日期:</label>
+                                        <span id="modalDate">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>时间:</label>
+                                        <span id="modalTime">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>入户地点:</label>
+                                        <span id="modalLocation">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>类型:</label>
+                                        <span id="modalType">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>状态:</label>
+                                        <span id="modalStatus">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <label>备注:</label>
+                                        <span id="modalNotes">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button id="editScheduleBtn" class="btn btn-primary">编辑</button>
+                                <button id="deleteScheduleBtn" class="btn btn-danger">删除</button>
+                                <button id="closeModalBtn" class="btn btn-secondary">关闭</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 排课表单 -->
+                    <div id="scheduleFormContainer" class="form-container" style="display: none;">
+                        <div class="form-header">
+                            <h3 id="scheduleFormTitle">添加排课</h3>
+                            <button class="close-btn"
+                                onclick="document.getElementById('scheduleFormContainer').style.display='none'"></button>
+                        </div>
+                        <form id="scheduleForm" data-mode="add" data-id="">
+                            <!-- 第一行：学生 与 日期（并排） -->
+                            <div class="form-group">
+                                <label for="scheduleStudent">学生</label>
+                                <select id="scheduleStudent" required>
+                                    <option value="">选择学生</option>
+                                </select>
+                                <div id="scheduleStudentReadonly" class="readonly-field" style="display:none"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleDate">日期</label>
+                                <input type="date" id="scheduleDate" required>
+                                <div id="scheduleDateReadonly" class="readonly-field" style="display:none"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleStartTime">开始时间</label>
+                                <input type="time" id="scheduleStartTime" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleEndTime">结束时间</label>
+                                <input type="time" id="scheduleEndTime" required>
+                            </div>
+
+                            <!-- 第二行开始：老师、类型、入户地点、状态 -->
+                            <div class="form-group">
+                                <label for="scheduleTeacher">教师</label>
+                                <select id="scheduleTeacher" required>
+                                    <option value="">选择教师</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleTypeSelect">类型</label>
+                                <select id="scheduleTypeSelect" required>
+                                    <option value="">选择类型</option>
+                                    <!-- Dynamic Options from store -->
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scheduleLocation">入户地点</label>
+                                <textarea id="scheduleLocation" placeholder="默认使用学生探访地点" rows="1"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="scheduleStatus">状态</label>
+                                <select id="scheduleStatus">
+                                    <option value="pending">待确认</option>
+                                    <option value="confirmed">已确认</option>
+                                    <option value="completed">已完成</option>
+                                    <option value="cancelled">已取消</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="document.getElementById('scheduleFormContainer').style.display='none'">取消</button>
+                                <button type="button" id="scheduleFormDelete" class="btn btn-danger"
+                                    style="display:none">删除</button>
+                                <button type="submit" id="scheduleFormSubmit" class="btn btn-primary">保存</button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- 教师空闲时段部分 -->
+                <section id="availability" class="dashboard-section">
+                    <div class="header-toolbar schedule-controls">
+                        <div class="week-navigation">
+                            <button id="avPrevWeek" class="nav-btn">
+                                <span class="material-icons-round">chevron_left</span>
+                            </button>
+                            <span id="avWeekRange">加载中...</span>
+                            <button id="avNextWeek" class="nav-btn">
+                                <span class="material-icons-round">chevron_right</span>
+                            </button>
+                        </div>
+
+                    </div>
+                    <div class="weekly-view">
+                        <div class="weekly-table-container">
+                            <table class="weekly-schedule-table" id="availabilityTable">
+                                <thead id="availabilityHeader">
+                                    <!-- 通过 JS 渲染 -->
+                                </thead>
+                                <tbody id="availabilityBody">
+                                    <!-- 通过 JS 渲染 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+
+
+                <!-- 数据统计部分 -->
+                <!-- 数据统计部分 -->
+                <section id="statistics" class="dashboard-section">
+                    <div class="header-toolbar statistics-controls">
+                        <div class="statistics-tabs">
+                            <div class="tab-btn-group inline-tabs">
+                                <button class="tab-btn active" data-view="overview" title="查看总体概览">总体概览</button>
+                                <button class="tab-btn" data-view="teacher" title="查看教师统计详情">教师统计</button>
+                                <button class="tab-btn" data-view="student" title="查看学生统计详情">学生统计</button>
+                            </div>
+                            <button id="openExportDialogBtn" class="export-data-btn" title="打开数据导出配置对话框"
+                                style="margin-left: 12px;">
+                                <span class="material-icons-round">file_download</span>
+                                <span>导出数据</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="statistics-container">
+                        <div id="statsOverview" class="stats-view active">
+                            <!-- 整体背景卡片容器 -->
+                            <div class="stats-unified-card">
+                                <!-- 第一部分：查询组件（上方） -->
+                                <div class="query-section">
+                                    <div class="query-controls">
+                                        <div class="date-range-group">
+                                            <label for="statsStartDate"></label>
+                                            <input type="date" id="statsStartDate">
+                                            <span>至</span>
+                                            <input type="date" id="statsEndDate">
+                                        </div>
+
+                                        <div class="action-group">
+                                            <button class="search-btn" id="statisticsSearchBtn" title="查询该日期范围内的统计数据">
+                                                <span class="material-icons-round">search</span>
+                                                <span class="btn-text">查询</span>
+                                                <span class="btn-loading" style="display: none;">加载中...</span>
+                                            </button>
+
+                                            <div class="preset-buttons">
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="yesterday">昨天</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-week">上周</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-month">上月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-quarter">上季度</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-year">上年</button>
+                                                <button type="button" class="preset-btn" data-preset="today">今天</button>
+                                                <button type="button" class="preset-btn" data-preset="week">本周</button>
+                                                <button type="button" class="preset-btn" data-preset="month">本月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="quarter">本季度</button>
+                                                <button type="button" class="preset-btn" data-preset="year">本年</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 第二部分：三个图表组件（下方） -->
+                                <div class="charts-section">
+                                    <div class="chart-container">
+                                        <canvas id="scheduleTypeChart"></canvas>
+                                    </div>
+                                    <div class="chart-container">
+                                        <canvas id="teacherTypeStackedChart"></canvas>
+                                    </div>
+                                    <div class="chart-container">
+                                        <canvas id="studentParticipationChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="statsTeacher" class="stats-view">
+                            <div class="stats-unified-card">
+                                <!-- Query Section -->
+                                <div class="query-section">
+                                    <div class="query-controls">
+                                        <div class="date-range-group">
+                                            <label for="teacherStartDate"></label>
+                                            <input type="date" id="teacherStartDate">
+                                            <span>至</span>
+                                            <input type="date" id="teacherEndDate">
+                                        </div>
+                                        <div class="action-group">
+                                            <button class="search-btn" id="teacherStatsSearchBtn" title="查询该日期范围内的统计数据">
+                                                <span class="material-icons-round">search</span>
+                                                <span class="btn-text">查询</span>
+                                            </button>
+                                            <div class="preset-buttons" data-target="teacher">
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="yesterday">昨天</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-week">上周</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-month">上月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-quarter">上季度</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-year">上年</button>
+                                                <button type="button" class="preset-btn" data-preset="today">今天</button>
+                                                <button type="button" class="preset-btn" data-preset="week">本周</button>
+                                                <button type="button" class="preset-btn" data-preset="month">本月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="quarter">本季度</button>
+                                                <button type="button" class="preset-btn" data-preset="year">本年</button>
+                                            </div>
+                                            <div class="filter-group">
+                                                <label for="statsTeacherSelect"></label>
+                                                <select id="statsTeacherSelect">
+                                                    <option value="">全部教师</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Charts Section -->
+                                <div class="teacher-charts-container">
+                                    <div class="chart-card teacher-summary-card">
+                                        <h4 id="teacherSummaryChartTitle" class="summary-chart-title">
+                                            按日期汇总
+                                            <div id="teacherSummaryTitleTooltip" class="teacher-title-tooltip"
+                                                style="display: none;"></div>
+                                        </h4>
+                                        <div class="chart-container summary-chart">
+                                            <canvas id="teacherDailyTypeStackChart"></canvas>
+                                        </div>
+                                        <div id="teacherChartsContainer" class="teacher-charts-grid"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="statsStudent" class="stats-view">
+                            <div class="stats-unified-card">
+                                <!-- Query Section -->
+                                <div class="query-section">
+                                    <div class="query-controls">
+                                        <div class="date-range-group">
+                                            <label for="studentStartDate"></label>
+                                            <input type="date" id="studentStartDate">
+                                            <span>至</span>
+                                            <input type="date" id="studentEndDate">
+                                        </div>
+                                        <div class="action-group">
+                                            <button class="search-btn" id="studentStatsSearchBtn" title="查询该日期范围内的统计数据">
+                                                <span class="material-icons-round">search</span>
+                                                <span class="btn-text">查询</span>
+                                            </button>
+                                            <div class="preset-buttons" data-target="student">
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="yesterday">昨天</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-week">上周</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-month">上月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-quarter">上季度</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="last-year">上年</button>
+                                                <button type="button" class="preset-btn" data-preset="today">今天</button>
+                                                <button type="button" class="preset-btn" data-preset="week">本周</button>
+                                                <button type="button" class="preset-btn" data-preset="month">本月</button>
+                                                <button type="button" class="preset-btn"
+                                                    data-preset="quarter">本季度</button>
+                                                <button type="button" class="preset-btn" data-preset="year">本年</button>
+                                            </div>
+                                            <div class="filter-group">
+                                                <label for="statsStudentSelect"></label>
+                                                <select id="statsStudentSelect">
+                                                    <option value="">全部学生</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Charts Section -->
+                                <div class="student-charts-container">
+                                    <div class="chart-card student-summary-card">
+                                        <h4 id="studentSummaryChartTitle" class="summary-chart-title">
+                                            按日期汇总
+                                            <div id="studentSummaryTitleTooltip" class="student-title-tooltip"
+                                                style="display: none;"></div>
+                                        </h4>
+                                        <div class="chart-container summary-chart">
+                                            <canvas id="studentDailyTypeStackChart"></canvas>
+                                        </div>
+                                        <div id="studentChartsContainer" class="student-charts-grid"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 消息容器 -->
+            <div id="messageContainer"></div>
+        </div>
+    </div>
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <script src="/js/core/api-client.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/modules/admin/stats-plugins.js"></script>
+    <script src="/js/utils/date-range-utils.js"></script>
+    <script src="/js/core/schedule-types-store.js"></script>
+    <script src="/js/utils/i18n-utils.js"></script>
+    <script src="/js/utils/export-ui-manager.js"></script>
+    <script src="/js/components/export-dialog.js?v=20240121"></script>
+    <script type="module" src="/js/modules/admin/statistics.js"></script>
+    <script type="module" src="/js/modules/admin/index.js"></script>
+    <script src="/js/modules/admin/today-logic.js"></script>
+    <script type="module" src="/js/modules/admin/schedule-manager.js"></script>
+    <script src="/js/modules/admin/legacy-adapter.js" defer></script>
+</body>
+
+</html>

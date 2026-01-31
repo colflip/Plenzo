@@ -1,0 +1,475 @@
+/* ==========================================================================
+   Admin Statistics Page - Modern Design System
+   ========================================================================== */
+
+/* --- 1. Design Tokens & Variables --- */
+:root {
+    /* Primary Colors */
+    --stats-primary: #2ECC71;
+    /* Brand Green */
+    --stats-primary-hover: #27AE60;
+    --stats-primary-light: #E8F5E9;
+    /* Background tint */
+
+    /* Neutral Colors */
+    --stats-bg: #F3F4F6;
+    /* Overall Page Background */
+    --stats-surface: #FFFFFF;
+    /* Card Background */
+    --stats-border: #E5E7EB;
+    /* Border Color */
+
+    /* Text Colors */
+    --stats-text-main: #1F2937;
+    /* Headings */
+    --stats-text-body: #4B5563;
+    /* Body Text */
+    --stats-text-muted: #9CA3AF;
+    /* Secondary/Placeholder */
+
+    /* Shadows */
+    --stats-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --stats-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --stats-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+    /* Typography */
+    --stats-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Spacing */
+    --stats-radius-sm: 6px;
+    --stats-radius-md: 12px;
+    --stats-radius-lg: 16px;
+}
+
+/* --- 2. Global Resets for Statistics Section --- */
+#statistics {
+    font-family: var(--stats-font-family);
+    color: var(--stats-text-body);
+    background-color: transparent;
+    /* Use dashboard bg or override if needed */
+}
+
+/* --- 3. Header Toolbar Areas --- */
+.statistics-controls {
+    background: var(--stats-surface);
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-md);
+    padding: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: var(--stats-shadow-sm);
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+/* Tabs Group */
+.statistics-tabs .tab-btn-group {
+    display: flex;
+    background: #F9FAFB;
+    padding: 4px;
+    border-radius: var(--stats-radius-md);
+    border: 1px solid var(--stats-border);
+}
+
+.statistics-tabs .tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--stats-radius-sm);
+    border: none;
+    background: transparent;
+    color: var(--stats-text-body);
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.statistics-tabs .tab-btn:hover {
+    color: var(--stats-text-main);
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.statistics-tabs .tab-btn.active {
+    background: var(--stats-surface);
+    color: var(--stats-primary);
+    box-shadow: var(--stats-shadow-sm);
+    font-weight: 600;
+}
+
+/* Export Button */
+.export-data-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background-color: var(--stats-surface);
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-md);
+    color: var(--stats-text-main);
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.export-data-btn:hover {
+    border-color: var(--stats-primary);
+    color: var(--stats-primary);
+    background-color: var(--stats-primary-light);
+}
+
+/* --- 4. Main Statistics Container & Cards --- */
+.stats-unified-card {
+    background: var(--stats-surface);
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-lg);
+    box-shadow: var(--stats-shadow-sm);
+    overflow: hidden;
+    /* For rounded corners */
+}
+
+/* Query Section (Top Toolbar) */
+.query-section {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--stats-border);
+    background-color: #FAFAFA;
+    /* Subtle differentiation */
+}
+
+.query-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+/* Date Range Inputs */
+.date-range-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.date-range-group label {
+    font-weight: 600;
+    color: var(--stats-text-main);
+    font-size: 14px;
+}
+
+.date-range-group input[type="date"] {
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-sm);
+    padding: 8px 12px;
+    font-size: 14px;
+    color: var(--stats-text-main);
+    background: var(--stats-surface);
+    transition: border-color 0.2s;
+    outline: none;
+}
+
+.date-range-group input[type="date"]:focus {
+    border-color: var(--stats-primary);
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+}
+
+/* Action Buttons Group */
+.action-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* Search Button */
+.search-btn {
+    background-color: var(--stats-primary);
+    color: white;
+    border: none;
+    border-radius: var(--stats-radius-sm);
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background-color 0.2s, transform 0.1s;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+}
+
+.search-btn:hover {
+    background-color: var(--stats-primary-hover);
+    transform: translateY(-1px);
+}
+
+.search-btn:active {
+    transform: translateY(0);
+}
+
+/* Preset Buttons (Today, Week, Month...) */
+.preset-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.preset-btn {
+    background: var(--stats-surface);
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-sm);
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--stats-text-body);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preset-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: var(--stats-text-main);
+}
+
+.preset-btn.active {
+    background-color: var(--stats-primary-light);
+    color: var(--stats-primary);
+    font-weight: 600;
+    border-color: rgba(46, 204, 113, 0.2);
+}
+
+/* Filter Group (Dropdowns) */
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 13%;
+    /* Reduced width by ~50% (was implicit or larger) */
+    min-width: 100px;
+}
+
+.filter-group select {
+    padding: 4px 20px 4px 6px;
+    /* Optimized padding: Right 20px for arrow, Left 6px */
+    border: 1px solid rgba(203, 213, 225, 0.6);
+    /* Subtle border for definition */
+    border-radius: var(--stats-radius-sm);
+    background-color: rgba(255, 255, 255, 0.5);
+    /* Semi-transparent background */
+    font-size: 13px;
+    /* Reduced font size to fit text */
+    color: var(--stats-text-main);
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.filter-group select:hover {
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.filter-group select:focus {
+    border-color: var(--stats-primary);
+    background-color: #fff;
+}
+
+/* --- 5. Charts Grid Layout --- */
+.charts-section {
+    padding: 24px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    /* Default 3 columns */
+    gap: 24px;
+    align-items: start;
+}
+
+.chart-container {
+    background: var(--stats-surface);
+    border: 1px solid var(--stats-border);
+    border-radius: var(--stats-radius-md);
+    padding: 20px;
+    position: relative;
+    height: 360px;
+    /* Fixed height for consistency */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-shadow: var(--stats-shadow-sm);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.chart-container:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--stats-shadow-md);
+}
+
+.chart-container canvas {
+    max-width: 100%;
+    max-height: 100%;
+    width: 100% !important;
+    height: auto !important;
+}
+
+/* Summary Chart Title */
+.summary-chart-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--stats-text-main);
+    margin-bottom: 20px;
+    text-align: center;
+    position: relative;
+    cursor: help;
+    /* Indicate interactability */
+}
+
+/* Tooltip Styles */
+.teacher-title-tooltip,
+.student-title-tooltip {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background-color: rgba(31, 41, 55, 0.85);
+    /* Dark semi-transparent */
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: var(--stats-radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+    /* Prevent interference */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
+    box-shadow: var(--stats-shadow-md);
+    text-align: left;
+    min-width: 150px;
+    backdrop-filter: blur(4px);
+    /* Enhanced modern look */
+}
+
+.summary-chart-title:hover .teacher-title-tooltip,
+.summary-chart-title:hover .student-title-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.chart-card {
+    width: 100%;
+}
+
+/* Custom Chart Title Styles */
+.custom-chart-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--stats-text-heading);
+}
+
+.chart-title-count {
+    font-size: smaller;
+    color: #94a3b8;
+    /* Lighter gray (slate-400) */
+    font-family: "KaiTi", "楷体", serif;
+    margin-left: 8px;
+}
+
+/* Teacher & Student Charts Grid */
+.teacher-charts-grid,
+.student-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    /* Single column for full width */
+    gap: 20px;
+    margin-top: 24px;
+}
+
+/* --- 6. Responsive Adjustments --- */
+
+/* Desktop / Large Screens */
+@media (min-width: 1440px) {
+    .charts-section {
+        gap: 32px;
+    }
+}
+
+/* Laptop / Tablets Landscape */
+@media (max-width: 1280px) {
+    .charts-section {
+        grid-template-columns: repeat(2, 1fr);
+        /* Switch to 2 columns */
+    }
+
+    /* Make the first chart (usually summary/major one) span full width if needed, 
+       or just let them flow. For now, simple flow is fine. */
+}
+
+/* Tablets Portrait */
+@media (max-width: 1024px) {
+    .charts-section {
+        grid-template-columns: 1fr;
+        /* Switch to single column */
+    }
+
+    .teacher-charts-grid,
+    .student-charts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .query-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .action-group {
+        justify-content: space-between;
+    }
+
+    .preset-buttons {
+        overflow-x: auto;
+        padding-bottom: 4px;
+        /* Scrollbar space */
+    }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+    .statistics-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .statistics-tabs .tab-btn-group {
+        flex-direction: column;
+    }
+
+    .statistics-tabs .tab-btn {
+        text-align: center;
+    }
+
+    .date-range-group {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .date-range-group input {
+        width: 100%;
+    }
+}
+
+/* --- 7. Animation Utilities --- */
+.chart-anim-enter {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.chart-anim-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.5s ease-out, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}

@@ -1,0 +1,6107 @@
+/* ============================================
+   响应式设计变量系统
+   ============================================ */
+:root {
+    /* 响应式断点 */
+    --breakpoint-xs: 480px;
+    /* 小手机 */
+    --breakpoint-sm: 768px;
+    /* 手机/平板竖屏 */
+    --breakpoint-md: 1024px;
+    /* 平板横屏 */
+    --breakpoint-lg: 1280px;
+    /* 桌面 */
+    --breakpoint-xl: 1440px;
+    /* 大屏桌面 */
+
+    /* 移动端最小触控尺寸 */
+    --min-touch-target: 44px;
+
+    /* 间距系统 */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+
+    /* Header unification variables */
+    --controls-min-height: 72px;
+    --card-radius: 12px;
+    --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+[hidden] {
+    display: none !important;
+}
+
+/* 仪表盘容器 */
+.dashboard-container {
+    display: flex;
+    min-height: 100vh;
+    background-color: #FFFFFF;
+}
+
+/* 侧边栏 */
+.sidebar {
+    width: 220px;
+    background-color: #F8F9FA;
+    color: #2C3E50;
+    padding: 0;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+    border-right: 1px solid #E9ECEF;
+    display: flex;
+    flex-direction: column;
+
+    /* Sticky Positioning */
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 100;
+    /* Ensure it stays above other content if necessary */
+}
+
+.sidebar.collapsed {
+    width: 80px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 居中显示项目名称与图标 */
+    padding: 24px 20px;
+    border-bottom: 1px solid #E9ECEF;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+}
+
+.logo-icon {
+    font-size: 28px;
+    color: #2ECC71;
+    margin-right: 12px;
+    transition: all 0.3s ease;
+}
+
+.logo-text {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: #2C3E50;
+    transition: all 0.3s ease;
+}
+
+.sidebar.collapsed .logo {
+    padding: 24px 0;
+    justify-content: center;
+}
+
+.sidebar.collapsed .logo-text {
+    opacity: 0;
+    width: 0;
+    margin: 0;
+}
+
+.sidebar.collapsed .logo-icon {
+    margin: 0;
+}
+
+.nav-menu {
+    padding: 20px 0;
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    color: #2C3E50;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    margin: 4px 12px;
+    border-radius: 12px;
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-item .material-icons-round {
+    font-size: 22px;
+    margin-right: 12px;
+    transition: all 0.3s ease;
+}
+
+.nav-text {
+    font-size: var(--font-size-base);
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.sidebar.collapsed .nav-text {
+    opacity: 0;
+    width: 0;
+    margin: 0;
+}
+
+.sidebar.collapsed .nav-item {
+    padding: 12px 0;
+    justify-content: center;
+}
+
+.sidebar.collapsed .nav-item .material-icons-round {
+    margin: 0;
+}
+
+.nav-item:hover {
+    background-color: rgba(46, 204, 113, 0.1);
+    color: #2ECC71;
+}
+
+.nav-item.active {
+    background-color: #2ECC71;
+    color: white;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+}
+
+/* 增加点击反馈的指针样式 */
+.nav-item {
+    cursor: pointer;
+}
+
+.nav-item:after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, #fff 10%, transparent 10.01%);
+    background-repeat: no-repeat;
+    background-position: 50%;
+    transform: scale(10, 10);
+    opacity: 0;
+    transition: transform .3s, opacity .5s;
+}
+
+.nav-item:active:after {
+    transform: scale(0, 0);
+    opacity: .2;
+    transition: 0s;
+}
+
+.sidebar-footer {
+    padding: 10px 20px;
+    border-top: 1px solid #E9ECEF;
+    transition: all 0.3s ease;
+}
+
+.sidebar.collapsed .sidebar-footer {
+    padding: 10px 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.toggle-sidebar {
+    background: transparent;
+    border: none;
+    color: #2C3E50;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 10px 0;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    z-index: 10;
+    position: relative;
+}
+
+.sidebar.collapsed .toggle-sidebar {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    margin: 0 auto;
+}
+
+.toggle-sidebar:hover {
+    background-color: rgba(46, 204, 113, 0.1);
+    color: #2ECC71;
+}
+
+.toggle-sidebar .material-icons-round {
+    font-size: 24px;
+    transition: transform 0.3s ease;
+}
+
+.sidebar.collapsed .toggle-sidebar .material-icons-round {
+    transform: rotate(180deg);
+}
+
+/* 左下角固定菜单在移动端全宽显示 */
+@media (max-width: 768px) {
+    .sidebar-footer {
+        width: 100%;
+        left: 0;
+        right: 0;
+        border-left: none;
+        border-right: none;
+    }
+
+    .sidebar.collapsed .sidebar-footer {
+        width: 100%;
+    }
+}
+
+/* 主要内容区 */
+.main-content {
+    flex-grow: 1;
+    padding: 2vw;
+    /* 使用视口单位优化间距 */
+    padding-bottom: calc(2vw + var(--bottom-nav-height));
+    /* 预留底部固定菜单高度，避免遮挡 */
+    background-color: #FFFFFF;
+    overflow-y: auto;
+    transition: margin-left 0.3s ease;
+    /* 修改过渡效果 */
+    /* margin-left: 250px; 默认的左边距 */
+}
+
+/* 通用模态对话框样式 */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 999;
+}
+
+#userFormContainer.form-container {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+    width: 92%;
+    max-width: 720px;
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
+#userFormContainer .form-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #E5E7EB;
+}
+
+#userFormContainer .close-btn {
+    background: transparent;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+#userFormContainer .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+}
+
+/* 状态徽标样式（用户/课程共用） */
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+}
+
+.user-status-active {
+    background-color: #E8F5E9;
+    color: #2E7D32;
+    border: 1px solid #C8E6C9;
+}
+
+.user-status-paused {
+    background-color: #FFF8E1;
+    color: #B26A00;
+    border: 1px solid #FFECB3;
+}
+
+.user-status-deleted {
+    background-color: #ECEFF1;
+    color: #607D8B;
+    border: 1px solid #CFD8DC;
+}
+
+.sidebar.collapsed~.main-content {
+    margin-left: 0px;
+    /* 侧边栏收起时的左边距 */
+}
+
+.main-content.expanded {
+    margin-left: -190px;
+}
+
+/* 仪表盘头部 */
+.dashboard-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #E9ECEF;
+    animation: slideDown 0.5s ease;
+    position: relative;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.dashboard-header h2 {
+    color: #2ECC71;
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+}
+
+.dashboard-header h2 .material-icons-round {
+    margin-right: 8px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    position: absolute;
+    /* 添加绝对定位 */
+    right: 0;
+    /* 对齐到右侧 */
+}
+
+.user-name {
+    margin-right: 15px;
+    font-weight: 500;
+}
+
+/* --- 4. User Management & Course Type Styles --- */
+
+/* Toolbar & Tabs */
+.header-toolbar {
+    background: #ffffff;
+    border: 1px solid var(--admin-border);
+    border-radius: var(--admin-radius-md);
+    padding: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: none;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+/* Tabs Group (Pill Style) */
+.tab-btn-group {
+    display: flex;
+    background: var(--admin-bg);
+    padding: 4px;
+    border-radius: var(--admin-radius-md);
+    border: 1px solid var(--admin-border);
+}
+
+.tab-btn {
+    padding: 8px 20px;
+    border-radius: var(--admin-radius-sm);
+    border: none;
+    background: transparent;
+    color: var(--admin-text-body);
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+    color: var(--admin-text-main);
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.tab-btn.active {
+    background: var(--admin-surface);
+    color: var(--admin-primary);
+    box-shadow: var(--admin-shadow-sm);
+    font-weight: 600;
+    border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+/* Schedule Control Buttons */
+#addScheduleBtn,
+.statistics-tabs .tab-btn,
+.export-data-btn {
+    font-weight: bold;
+}
+
+/* Standard Buttons within Toolbars */
+.add-btn,
+.primary-btn {
+    background-color: var(--admin-primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--admin-radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+    transition: all 0.2s ease;
+    min-width: 100px;
+}
+
+.add-btn:hover,
+.primary-btn:hover {
+    background-color: var(--admin-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(46, 204, 113, 0.3);
+}
+
+/* 表单样式 */
+.form-container {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    padding: 24px;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    width: 90%;
+    max-width: 560px;
+    /* 适度增大窗口，避免过窄 */
+    max-height: 90vh;
+    /* 防止超出显示范围 */
+    overflow-y: auto;
+    /* 内容滚动，不溢出屏幕 */
+    box-sizing: border-box;
+    animation: modalFadeIn 0.3s ease;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -48%);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #E9ECEF;
+}
+
+.form-header h3 {
+    margin: 0;
+    color: #2e8b57;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    color: #2C3E50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    min-width: unset;
+    padding: 0;
+}
+
+.close-btn:hover {
+    background-color: #F8F9FA;
+    color: #E74C3C;
+}
+
+.close-btn::before {
+    content: '×';
+    font-size: 24px;
+    line-height: 1;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #2C3E50;
+    font-size: var(--font-size-base);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0 12px;
+    height: 40px;
+    /* Reduced height */
+    line-height: 38px;
+    /* Slightly less than height to account for borders/font rendering if needed, or just 40px */
+    border: 1px solid #E9ECEF;
+    border-radius: 8px;
+    /* Slightly smaller radius for smaller box */
+    font-size: var(--font-size-base);
+    transition: all 0.3s ease;
+    background-color: #F8F9FA;
+    color: #2C3E50;
+    box-sizing: border-box;
+    /* Ensure vertical alignment for special inputs */
+    vertical-align: middle;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #2ECC71;
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+    background-color: #FFFFFF;
+}
+
+.form-group input:hover,
+.form-group select:hover {
+    border-color: #2ECC71;
+    background-color: #FFFFFF;
+}
+
+/* 原始值提示与更改高亮样式 */
+.original-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #7A7A7A;
+}
+
+.form-group.changed input,
+.form-group.changed select {
+    border-color: #FF9800;
+    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.15);
+    background-color: #FFF9F0;
+}
+
+.readonly-field {
+    width: 100%;
+    /* Fixed 40px height for single line fields (Student/Date) */
+    height: 40px;
+    padding: 0 12px;
+    border: 1px dashed #E0E0E0;
+    border-radius: 8px;
+    background-color: #FAFAFA;
+    color: #555;
+    margin-top: 8px;
+    /* Use block + line-height for reliable single-line centering */
+    display: block;
+    line-height: 38px;
+    /* Matches input line-height (40px - 2px border) */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+    /* Remove any conflicting min-height */
+}
+
+.form-group textarea {
+    height: auto;
+    min-height: 40px;
+    resize: vertical;
+    overflow-y: hidden;
+    padding: 10px 12px;
+    line-height: 1.4;
+}
+
+.readonly-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #9E9E9E;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.form-actions button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.form-actions button[type="button"] {
+    background-color: #f5f5f5;
+    color: #333;
+}
+
+.form-actions button[type="submit"] {
+    background-color: #2e8b57;
+    color: white;
+}
+
+/* 添加排课表单布局优化：两列网格，保证信息在一个窗口内完整显示 */
+.form-container form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-container form .form-group {
+    margin-bottom: 0;
+}
+
+.form-container form .form-actions {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+}
+
+@media (max-width: 640px) {
+    .form-container {
+        max-width: 96%;
+    }
+
+    .form-container form {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Table Container */
+.table-container {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: var(--admin-radius-md);
+    box-shadow: var(--admin-shadow-sm);
+    overflow: hidden;
+    /* For border radius */
+    margin-top: 0;
+    /* Remove default margin as container handles spacing */
+}
+
+/* Data Table Clean Style */
+.data-table,
+#usersTable,
+#scheduleTypesTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    font-size: 14px;
+}
+
+.data-table th,
+#usersTable th,
+#scheduleTypesTable th {
+    background-color: #F9FAFB;
+    /* Light grey header */
+    color: var(--admin-text-body);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--admin-border);
+    text-align: left;
+}
+
+.data-table td,
+#usersTable td,
+#scheduleTypesTable td {
+    padding: 16px 24px;
+    color: var(--admin-text-main);
+    border-bottom: 1px solid var(--admin-border);
+    vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td,
+#usersTable tbody tr:last-child td,
+#scheduleTypesTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table tr:hover,
+#usersTable tbody tr:hover,
+#scheduleTypesTable tbody tr:hover {
+    background-color: #F9FAFB;
+}
+
+/* Action Buttons in Table */
+.data-table .edit-btn,
+.data-table .delete-btn,
+#usersTable .edit-btn,
+#usersTable .delete-btn,
+#scheduleTypesTable .edit-btn,
+#scheduleTypesTable .delete-btn {
+    padding: 6px 12px;
+    border-radius: var(--admin-radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    margin-right: 8px;
+    transition: all 0.2s;
+}
+
+.data-table .edit-btn,
+#usersTable .edit-btn,
+#scheduleTypesTable .edit-btn {
+    background-color: var(--admin-primary-light);
+    color: var(--admin-primary);
+}
+
+.data-table .edit-btn:hover,
+#usersTable .edit-btn:hover,
+#scheduleTypesTable .edit-btn:hover {
+    background-color: var(--admin-primary);
+    color: white;
+}
+
+.data-table .delete-btn,
+#usersTable .delete-btn,
+#scheduleTypesTable .delete-btn {
+    background-color: #FEF2F2;
+    color: var(--admin-danger);
+}
+
+.data-table .delete-btn:hover,
+#usersTable .delete-btn:hover,
+#scheduleTypesTable .delete-btn:hover {
+    background-color: var(--admin-danger);
+    color: white;
+}
+
+/* 课程类型表格紧凑样式 */
+#scheduleTypesTable th,
+#scheduleTypesTable td {
+    padding: 10px 12px;
+    /* 原来是 12px 15px，减少约50% */
+    font-size: 18px;
+}
+
+#scheduleTypesTable .edit-btn,
+#scheduleTypesTable .delete-btn {
+    padding: 3px 8px;
+    font-size: 12px;
+}
+
+/* 消息样式 */
+#messageContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+.message {
+    padding: 12px 20px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.message.success {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.message.error {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.message.info {
+    background-color: #3498db;
+    color: white;
+}
+
+/* 密码强度指示器样式 */
+.password-strength {
+    margin-top: 8px;
+}
+
+.strength-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: #e5e7eb;
+    margin-bottom: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.strength-bar-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s, background-color 0.3s;
+}
+
+.strength-bar.weak .strength-bar-fill {
+    width: 33%;
+    background-color: #ef4444;
+}
+
+.strength-bar.medium .strength-bar-fill {
+    width: 66%;
+    background-color: #f59e0b;
+}
+
+.strength-bar.strong .strength-bar-fill {
+    width: 100%;
+    background-color: #10b981;
+}
+
+.strength-text {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.password-match-feedback.match {
+    color: #10b981;
+}
+
+.password-match-feedback.mismatch {
+    color: #ef4444;
+}
+
+/* 模态弹窗样式 */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1;
+}
+
+.modal-content {
+    position: relative;
+    z-index: 2;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: #6b7280;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-close:hover {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+.modal-close .material-icons-round {
+    font-size: 24px;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.modal-footer .secondary-btn,
+.modal-footer .primary-btn {
+    min-width: 80px;
+}
+
+/* 加载状态 */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #2C3E50;
+    text-align: center;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #E9ECEF;
+    border-radius: 50%;
+    border-top-color: #2ECC71;
+    animation: spinner 0.8s ease infinite;
+    margin-bottom: 16px;
+}
+
+@keyframes spinner {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-text {
+    font-size: var(--font-size-base);
+    color: #2C3E50;
+    margin-top: 8px;
+}
+
+/* 空状态 */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px;
+    text-align: center;
+    background-color: #F8F9FA;
+    border-radius: 12px;
+    border: 1px dashed #E9ECEF;
+    margin: 20px 0;
+}
+
+.empty-state-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+    color: #2ECC71;
+    opacity: 0.5;
+}
+
+.empty-state-text {
+    font-size: var(--font-size-md);
+    color: #2C3E50;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.empty-state-subtext {
+    font-size: var(--font-size-base);
+    color: #4A5568;
+    margin-bottom: 16px;
+}
+
+.empty-state-button {
+    background-color: #2ECC71;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.empty-state-button:hover {
+    background-color: #27AE60;
+    transform: translateY(-1px);
+}
+
+/* 统计模块 Tab 按钮组 */
+.statistics-tabs {
+    display: flex;
+    gap: 8px;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 8px;
+}
+
+.statistics-tabs .tab-btn {
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    /* User Request: Bold */
+    transition: all 0.2s ease;
+}
+
+.statistics-tabs .tab-btn.active {
+    background: white;
+    color: var(--admin-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    font-weight: bold !important;
+    /* Ensure active is also bold */
+}
+
+/* 导出数据按钮 */
+.export-data-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #475569;
+    font-size: 14px;
+    font-weight: bold;
+    /* User Request: Bold */
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* 统计数据样式 */
+.stats-tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.stats-tab {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    color: #666;
+}
+
+.stats-tab.active {
+    color: #2e8b57;
+    border-bottom: 2px solid #2e8b57;
+}
+
+.stats-content {
+    display: none;
+}
+
+.stats-content.active {
+    display: block;
+}
+
+.teacher-stat,
+.student-stat {
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 12px;
+    background-color: white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    padding-top: 5px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.action-bar {
+    margin-bottom: 20px;
+}
+
+.action-btn {
+    background-color: #2ECC71;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.action-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    border-radius: 100%;
+    transform: scale(1, 1) translate(-50%);
+    transform-origin: 50% 50%;
+}
+
+.action-btn:focus:not(:active)::after {
+    animation: ripple 1s ease-out;
+}
+
+@keyframes ripple {
+    0% {
+        transform: scale(0, 0);
+        opacity: 0.5;
+    }
+
+    20% {
+        transform: scale(25, 25);
+        opacity: 0.3;
+    }
+
+    100% {
+        transform: scale(40, 40);
+        opacity: 0;
+    }
+}
+
+/* 交互动画 */
+.scale-hover {
+    transition: transform 0.2s ease;
+}
+
+.scale-hover:hover {
+    transform: scale(1.02);
+}
+
+
+/* 用户信息区域 */
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background: #eef2ff;
+    color: #3b82f6;
+    font-size: var(--font-size-xs);
+    line-height: 1;
+}
+
+/* 统计卡片网格 */
+/* 统计卡片网格 */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 200px));
+    /* Fixed max width to prevent stretching too wide, center them */
+    justify-content: center;
+    /* Center the grid items */
+    gap: 12px;
+    /* Reduced gap */
+}
+
+.stat-card {
+    background-color: white;
+    padding: 16px;
+    /* Reduced padding */
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid #E9ECEF;
+    border: 1px solid #E9ECEF;
+    transition: all 0.3s ease;
+}
+
+/* Specific size for Overview top cards */
+#overview .stats-grid .stat-card {
+    min-height: 140px;
+    /* Increased height by ~50% */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.stat-card h3 {
+    color: #2C3E50;
+    margin-bottom: 12px;
+    font-size: 1em;
+    font-weight: 600;
+}
+
+.stat-card p {
+    font-size: 2em;
+    color: #2ECC71;
+    font-weight: bold;
+    margin: 0;
+}
+
+/* 表格样式 */
+.table-container {
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    overflow-x: auto;
+    border: 1px solid #E9ECEF;
+    margin: 20px 0;
+    width: 100%;
+    max-width: 100%;
+}
+
+table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+th,
+td {
+    padding: 16px 20px;
+    text-align: left;
+    border-bottom: 1px solid #E9ECEF;
+    font-size: var(--font-size-base);
+}
+
+th {
+    background-color: #F8F9FA;
+    font-weight: 600;
+    color: #2C3E50;
+    white-space: nowrap;
+}
+
+tr:hover {
+    background-color: #F8F9FA;
+}
+
+td {
+    color: #4A5568;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 8px 18px;
+    /* 按钮整体行间距微调 */
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    font-size: var(--font-size-sm);
+    /* 与全局按钮保持一致 */
+    min-width: 120px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.add-btn,
+.save-btn {
+    background-color: #2ECC71;
+    color: white;
+}
+
+.add-btn:hover,
+.save-btn:hover {
+    background-color: #27AE60;
+    box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+}
+
+/* 通用操作按钮基础样式（用于用户管理区操作列） */
+.action-btn {
+    padding: 6px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease, border-color .2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+    font-weight: 500;
+    font-size: 13px;
+    min-width: 90px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.edit-btn {
+    background-color: #F8F9FA;
+    color: #2C3E50;
+    border: 1px solid #E9ECEF;
+}
+
+.edit-btn:hover {
+    background-color: #E9ECEF;
+    color: #2ECC71;
+    box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+}
+
+.edit-btn:active {
+    transform: translateY(1px);
+}
+
+.edit-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.18), 0 2px 4px rgba(0, 0, 0, 0.10);
+}
+
+.delete-btn {
+    background-color: #FFF5F5;
+    color: #E74C3C;
+    border: 1px solid #FFE3E3;
+}
+
+.delete-btn:hover {
+    background-color: #FFE3E3;
+    color: #C0392B;
+    box-shadow: 0 4px 6px rgba(231, 76, 60, 0.5);
+}
+
+.delete-btn:active {
+    transform: translateY(1px);
+}
+
+.delete-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.18), 0 2px 4px rgba(0, 0, 0, 0.10);
+}
+
+/* 暗色主题阴影细化：降低阴影的黑度以避免过重 */
+@media (prefers-color-scheme: dark) {
+    .action-btn {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+    }
+
+    .add-btn:hover,
+    .save-btn:hover {
+        box-shadow: 0 4px 6px rgba(46, 204, 113, 0.38);
+    }
+
+    .edit-btn:hover {
+        box-shadow: 0 4px 6px rgba(46, 204, 113, 0.38);
+    }
+
+    .delete-btn:hover {
+        box-shadow: 0 4px 6px rgba(231, 76, 60, 0.36);
+    }
+
+    .user-tabs .tab-btn:hover,
+    .user-tabs .tab-btn.active {
+        box-shadow: 0 4px 10px rgba(46, 204, 113, 0.22);
+    }
+}
+
+/* 表单样式 */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #666;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+/* 日历样式 */
+.calendar-container {
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    border: 1px solid #ddd;
+    padding: 5px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.calendar-day.selected {
+    background-color: #e3f2fd;
+}
+
+/* 时间段选择器 */
+.time-slot-selector {
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.time-slots {
+    display: flex;
+    gap: 20px;
+    margin: 15px 0;
+}
+
+/* 响应式布局 */
+.mobile-menu-toggle {
+    display: none;
+}
+
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+    .dashboard-container {
+        position: relative;
+    }
+
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 1000;
+        transform: translateX(0);
+        transform: translateX(0);
+        transition: transform 0.3s ease, width 0.3s ease;
+        background-color: #fff;
+        /* Ensure background is opaque */
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .mobile-menu-toggle {
+        display: block;
+        /* Show on mobile */
+        background: none;
+        border: none;
+        padding: 8px;
+        cursor: pointer;
+        color: #333;
+    }
+
+    .mobile-menu-toggle .material-icons-round {
+        font-size: 24px;
+    }
+
+    .sidebar.collapsed {
+        transform: translateX(-100%);
+    }
+
+    .sidebar:not(.collapsed) {
+        width: 250px;
+    }
+
+    .main-content {
+        margin-left: 0;
+        width: 100%;
+        padding: 15px;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        margin: 0 -15px;
+        padding: 0 15px;
+    }
+}
+
+.statistics-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2vw;
+}
+
+/* 内容部分 */
+.dashboard-section {
+    display: none;
+}
+
+.dashboard-section.active {
+    display: block;
+}
+
+/* Statistics View Transitions */
+.stats-view {
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+    display: none;
+    /* Default hidden */
+}
+
+.stats-view.active {
+    display: block;
+    /* Opacity will be handled by fade-in logic in JS, but default active should be visible if no other class */
+    opacity: 1;
+}
+
+.stats-view.fade-out {
+    opacity: 0;
+}
+
+.stats-view.fade-in {
+    opacity: 1;
+}
+
+/* 日期导航 */
+.date-navigation {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.date-navigation button {
+    padding: 5px 10px;
+    border: none;
+    background-color: #f0f0f0;
+    cursor: pointer;
+    border-radius: 10px;
+}
+
+/* 部分标题 */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* 头部用户信息顺序与间距优化 */
+.user-info .user-name {
+    margin-right: 6px;
+}
+
+.user-info .role-badge {
+    margin-left: 0;
+}
+
+/* 用户管理 tabs 布局 */
+.user-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    /* 卡片式外观，统一与排课管理/数据统计模块 */
+    padding: 16px 20px;
+    background: var(--bg-muted);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-card);
+    min-height: var(--controls-min-height);
+    flex-wrap: wrap;
+}
+
+.user-tabs .tab-btn-group {
+    display: flex;
+    gap: 8px;
+}
+
+/* 用户管理表格布局与可读性优化（自动换行，消除横向滚动） */
+.users-table-container {
+    width: 100%;
+    overflow-x: hidden;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.users-table th {
+    text-align: center;
+    padding: 8px 10px;
+    white-space: normal;
+}
+
+.users-table td {
+    text-align: center;
+    padding: 8px 10px;
+    vertical-align: middle;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.users-table td .clip {
+    display: inline;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+}
+
+.users-table td.actions {
+    white-space: nowrap;
+}
+
+.users-table thead th {
+    font-weight: 600;
+}
+
+/* 居中对齐：统一用户表格所有单元格水平垂直居中 */
+#usersTable th {
+    text-align: center;
+}
+
+#usersTable td {
+    text-align: center;
+    vertical-align: middle;
+    white-space: normal;
+    word-break: break-word;
+}
+
+#usersTable td .clip {
+    display: inline;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+}
+
+#usersTable td.actions,
+#scheduleTypesTable td.actions {
+    white-space: nowrap;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    min-height: 58px;
+    /* Match row height */
+}
+
+/* 用户管理操作区（右侧对齐） */
+.user-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* 卡片式外观，统一与排课管理/数据统计模块 */
+    padding: 16px 20px;
+    background: var(--bg-muted);
+    border: 1px solid var(--border-muted);
+    border-radius: 12px;
+    box-shadow: var(--shadow-soft);
+}
+
+.user-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.table-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.table-controls .search-input {
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: width .2s ease, opacity .2s ease;
+}
+
+.table-controls .search-input.open {
+    width: 200px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+}
+
+.icon-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* 用户管理标签按钮样式：对齐排课/统计模块风格与交互 */
+.user-tabs .tab-btn {
+    padding: 8px 14px;
+    border: 1px solid var(--border-muted);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .06s ease;
+}
+
+.user-tabs .tab-btn:hover {
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+    color: #065F46;
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
+}
+
+.user-tabs .tab-btn.active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
+}
+
+.user-tabs .tab-btn:active {
+    transform: translateY(1px);
+}
+
+.user-tabs .tab-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.18);
+}
+
+/* 新增样式：排课控制区域 */
+/* Unified Header Toolbar - Applied to all section headers */
+.header-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    align-content: center;
+    margin-bottom: var(--space-std);
+    padding: 0 20px;
+    background: #ffffff;
+    border-radius: var(--card-radius);
+    border: 1px solid #e9ecef;
+    box-shadow: none;
+    min-height: var(--controls-min-height);
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+
+/* Force unified height for all controls inside header-toolbar */
+.header-toolbar input,
+.header-toolbar select,
+.header-toolbar .btn,
+.header-toolbar button,
+.header-toolbar .tab-btn,
+.header-toolbar .nav-btn,
+.header-toolbar .week-navigation,
+.header-toolbar .filter-group {
+    height: 40px;
+    box-sizing: border-box;
+    margin: 0;
+    display: flex;
+    align-items: center;
+}
+
+.header-toolbar span:not(.material-icons-round) {
+    height: 40px;
+    display: flex;
+    align-items: center;
+}
+
+
+/* Fix specific alignment context */
+.header-toolbar .week-navigation {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Ensure text inside spans/buttons aligns vertically */
+.header-toolbar span,
+.header-toolbar button,
+.header-toolbar .btn {
+    line-height: normal;
+}
+
+/* Remove any extra internal margins from specific groups that might cause expansion */
+.sch-controls-left,
+.schedule-filters,
+.statistics-tabs,
+.user-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px;
+    margin: 0 !important;
+    height: 40px !important;
+}
+
+.header-toolbar label {
+    margin-right: 4px;
+    height: auto;
+    /* labels don't need fixed height if flex aligned */
+}
+
+/* Legacy support - will eventually replace */
+.schedule-controls {
+    /* Inherits layout from header-toolbar when applied together */
+}
+
+.schedule-filters {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    background: white;
+    font-size: 14px;
+    width: clamp(80px, 12vw, 180px);
+    min-width: 80px;
+    max-width: 180px;
+    margin: 4px 0;
+}
+
+#statusFilter,
+#typeFilter,
+#teacherFilter {
+    width: clamp(80px, 12vw, 180px);
+    min-width: 80px;
+    max-width: 180px;
+}
+
+/* 周视图样式优化 */
+.weekly-view {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+    overflow: hidden;
+}
+
+.weekly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.weekly-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+/* 新增：独立的模块标题行样式 */
+.section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    margin-bottom: 12px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+}
+
+.section-title-row h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.week-navigation {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    min-width: 36px;
+    max-width: 44px;
+    height: 36px;
+    border: 1px solid #ced4da;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#prevWeek,
+#nextWeek {
+    flex: 0 0 auto;
+}
+
+.nav-btn:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.nav-btn .material-icons-round {
+    font-size: 20px;
+    color: #495057;
+}
+
+#weekRange {
+    font-size: 16px;
+    font-weight: 500;
+    color: #495057;
+    min-width: 120px;
+    text-align: center;
+}
+
+/* 排课详情弹窗样式 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background-color: white;
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e9ecef;
+    background: #f8f9fa;
+    border-radius: 12px 12px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.close {
+    font-size: 24px;
+    font-weight: bold;
+    color: #adb5bd;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.close:hover {
+    color: #495057;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.schedule-info {
+    display: grid;
+    gap: 16px;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.info-row label {
+    font-weight: 600;
+    color: #495057;
+    min-width: 60px;
+    font-size: 14px;
+}
+
+.info-row span {
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid #e9ecef;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background-color: var(--brand-primary, #4CAF50);
+    color: white;
+    border: 1px solid transparent;
+}
+
+.btn-primary:hover {
+    background-color: var(--brand-accent, #45a049);
+}
+
+.btn-danger {
+    background-color: #F44336;
+    /* Prominent Red as requested */
+    color: white;
+    border: 1px solid transparent;
+}
+
+.btn-danger:hover {
+    background-color: #d32f2f;
+}
+
+.btn-secondary {
+    background-color: #9E9E9E;
+    color: white;
+    border: 1px solid transparent;
+}
+
+.btn-secondary:hover {
+    background-color: #757575;
+}
+
+/* 响应式优化 */
+@media (max-width: 768px) {
+    .schedule-controls {
+        flex-direction: column;
+        gap: 16px;
+        align-items: stretch;
+    }
+
+    .schedule-filters {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .weekly-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+    }
+
+    .week-navigation {
+        justify-content: center;
+    }
+
+    .modal-content {
+        margin: 10% auto;
+        width: 95%;
+    }
+}
+
+/* 周视图基础样式（桌面端） */
+.weekly-table-container {
+    overflow-x: auto;
+}
+
+.weekly-schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+#weeklyHeader th,
+#weeklyBody td {
+    border: 1px solid #E9ECEF;
+    padding: 10px 12px;
+    text-align: center;
+    vertical-align: middle;
+    line-height: 1.8;
+}
+
+/* 让日期表头在纵向滚动时保持可见 */
+#weeklyHeader th {
+    position: sticky;
+    top: 0;
+    background: #F5F5F5;
+    /* 表头整行淡灰色 */
+    z-index: 4;
+}
+
+.schedule-cell {
+    min-width: 140px;
+}
+
+.schedule-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.schedule-item {
+    background: #F8FAFC;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: pointer;
+    text-align: center;
+}
+
+.schedule-item:hover {
+    background: #F1F5F9;
+}
+
+.schedule-item .teacher-name {
+    font-weight: 600;
+    color: #0F172A;
+    margin-bottom: 4px;
+}
+
+.schedule-item .course-type,
+.schedule-item .slot,
+.schedule-item .time,
+.schedule-item .location {
+    display: inline-block;
+    margin-right: 8px;
+    color: #334155;
+    word-break: break-word;
+}
+
+.schedule-item .location {
+    color: #475569;
+}
+
+/* 授课类型配色（按类型区分背景） */
+
+/* 周视图分组行样式：上午/下午/晚上/未指定 */
+.slot-group {
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin: 4px 0;
+}
+
+.slot-group.slot-morning {
+    background: transparent;
+}
+
+.slot-group.slot-afternoon {
+    background: transparent;
+}
+
+.slot-group.slot-evening {
+    background: transparent;
+}
+
+.slot-group.slot-unspecified {
+    background: transparent;
+}
+
+/* 卡片背景颜色由时间段决定 */
+.slot-group.slot-morning .slot-row {
+    background: #e8f3ff;
+    border-color: #bcd6ff;
+}
+
+.slot-group.slot-afternoon .slot-row {
+    background: #fff2e2;
+    border-color: #ffd8c2;
+}
+
+.slot-group.slot-evening .slot-row {
+    background: #e9e0ff;
+    border-color: #cdb7ff;
+}
+
+.slot-group.slot-unspecified .slot-row {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.slot-row {
+    margin: 2px 0;
+    line-height: 1.5;
+    font-size: 12px;
+}
+
+.slot-row {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 4px 6px;
+}
+
+/* 边框与效果由状态决定；背景颜色由时间段决定（边框颜色在时段规则中设置） */
+.slot-row.status-pending {
+    border-style: dashed;
+    opacity: 1;
+    text-decoration: none;
+}
+
+.slot-row.status-confirmed {
+    border-style: solid;
+    box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.12) inset;
+}
+
+.slot-row.status-completed {
+    border-style: solid;
+    position: relative;
+}
+
+.slot-row.status-completed::after {
+    content: '✓';
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    font-size: 12px;
+    color: #16A34A;
+}
+
+.slot-row.status-cancelled {
+    border-style: dotted;
+    opacity: 0.75;
+    text-decoration: line-through;
+}
+
+.schedule-item.type-default,
+.group-picker-item.type-default {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-visit,
+.group-picker-item.type-visit {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-trial,
+.group-picker-item.type-trial {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-review,
+.group-picker-item.type-review {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-review-record,
+.group-picker-item.type-review-record {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-half-visit,
+.group-picker-item.type-half-visit {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-group-activity,
+.group-picker-item.type-group-activity {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+.schedule-item.type-advisory,
+.group-picker-item.type-advisory {
+    background: #F8FAFC;
+    border-color: #E5E7EB;
+}
+
+
+/* 冲突排课标记（红色边框提示） */
+.schedule-item.conflict {
+    border-color: #E5E7EB;
+    box-shadow: none;
+}
+
+/* 记录选择器项作为“卡片”显示 */
+.group-picker-item {
+    background: #F8FAFC;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin: 6px 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #0F172A;
+}
+
+.group-picker-item:hover {
+    background: #F1F5F9;
+}
+
+/* 选择器卡片的背景颜色由时间段决定 */
+.group-picker-item.slot-morning {
+    background: #e8f3ff;
+    border-color: #bcd6ff;
+}
+
+.group-picker-item.slot-afternoon {
+    background: #fff2e2;
+    border-color: #ffd8c2;
+}
+
+.group-picker-item.slot-evening {
+    background: #e9e0ff;
+    border-color: #cdb7ff;
+}
+
+.group-picker-item.slot-unspecified {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+/* 选择器卡片：边框与效果由状态决定（边框颜色在时段规则中设置） */
+.group-picker-item.status-pending {
+    border-style: dashed;
+}
+
+.group-picker-item.status-confirmed {
+    border-style: solid;
+    box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.12) inset;
+}
+
+.group-picker-item.status-completed {
+    border-style: solid;
+    position: relative;
+}
+
+.group-picker-item.status-cancelled {
+    border-style: dotted;
+    opacity: 0.75;
+    text-decoration: line-through;
+}
+
+/* 内部标签（chip）用于表达状态与类型颜色 */
+.chip {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1;
+    margin-left: 6px;
+}
+
+.chip.status-pending {
+    background: #FFEFD5;
+    color: #8A4B08;
+}
+
+.chip.status-confirmed {
+    background: #D1FAE5;
+    color: #065F46;
+}
+
+.chip.status-completed {
+    background: #E0F2FE;
+    color: #1E3A8A;
+}
+
+.chip.status-cancelled {
+    background: #FEE2E2;
+    color: #7F1D1D;
+}
+
+.chip.type-visit {
+    background: #FFE0B2;
+    color: #8A4B08;
+}
+
+.chip.type-trial {
+    background: #BBDEFB;
+    color: #1E40AF;
+}
+
+.chip.type-review {
+    background: #C5CAE9;
+    color: #3730A3;
+}
+
+.chip.type-review-record {
+    background: #E1BEE7;
+    color: #6B21A8;
+}
+
+.chip.type-half-visit {
+    background: #FFF59D;
+    color: #8A4B08;
+}
+
+.chip.type-group-activity {
+    background: #C8E6C9;
+    color: #065F46;
+}
+
+.chip.type-advisory {
+    background: #B2EBF2;
+    color: #006064;
+}
+
+.chip.type-default {
+    background: #E5E7EB;
+    color: #111827;
+}
+
+/* 固定周视图表格的第一列（学生名） */
+.weekly-schedule-table th.sticky-col,
+.weekly-schedule-table td.sticky-col {
+    position: sticky;
+    left: 0;
+    /* 与日期表头保持一致的背景与视觉层级 */
+    background: #F5F5F5;
+    /* 第一列数据背景为淡灰色 */
+    z-index: 2;
+    /* 确保在其他单元格之上 */
+    box-shadow: 2px 0 0 rgba(0, 0, 0, 0.04);
+    /* 视觉分隔 */
+}
+
+.weekly-schedule-table th.sticky-col {
+    z-index: 3;
+    /* 表头略高，防止被内容遮挡 */
+    font-weight: 600;
+    color: #2C3E50;
+    background: #EFEFEF;
+    /* 第一列表头使用更浅灰 */
+}
+
+/* 暂停学生姓名样式：灰色斜体 */
+.student-cell.paused {
+    color: #6B7280;
+    font-style: italic;
+}
+
+/* 合并行记录选择器（popover） */
+.group-picker {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 8px;
+    margin-top: 6px;
+}
+
+.group-picker-item {
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #0F172A;
+}
+
+.group-picker-item:hover {
+    background: #F1F5F9;
+}
+
+.group-picker-close {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #334155;
+    cursor: pointer;
+}
+
+/* 排课筛选下拉框统一宽度 */
+#statusFilter,
+#typeFilter,
+#teacherFilter {
+    /* 统一固定宽度 */
+    width: 100px;
+    min-width: 80px;
+    max-width: 120px;
+}
+
+/* 响应式：中屏及以下宽度铺满容器，避免拥挤 */
+@media (max-width: 768px) {
+
+    #statusFilter,
+    #typeFilter {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+/* 小屏适配：限制最大宽度，避免超出视口 */
+@media (max-width: 480px) {
+
+    #statusFilter,
+    #typeFilter {
+        max-width: 220px;
+    }
+}
+
+@media (max-width: 360px) {
+
+    #statusFilter,
+    #typeFilter {
+        max-width: 180px;
+    }
+}
+
+@media (max-width: 480px) {
+    .weekly-table-container {
+        border-radius: 4px;
+    }
+
+    .schedule-item {
+        max-width: 140px;
+        min-height: 90px;
+        padding: 6px;
+        border-radius: 8px;
+    }
+
+    .teacher-name {
+        font-size: var(--font-size-xs);
+    }
+
+    .course-type,
+    .time {
+        font-size: var(--font-size-xs);
+        padding: 2px 5px;
+        border-radius: 12px;
+    }
+
+    .location {
+        font-size: var(--font-size-xs);
+    }
+
+    .schedule-cell {
+        min-width: 100px;
+        padding: 4px;
+    }
+
+    .student-cell {
+        min-width: 120px;
+        font-size: 13px;
+    }
+
+    /* 弹窗小屏幕优化 */
+    .schedule-detail-header {
+
+        /* 数据统计页面样式重构 */
+        .statistics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            padding: 20px 0;
+            border-bottom: 2px solid #f1f5f9;
+        }
+
+        .section-title h3 {
+            margin: 0 0 8px 0;
+            font-size: 24px;
+            font-weight: 600;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-subtitle {
+            margin: 0;
+            font-size: 14px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* 反馈信息容器 */
+        .feedback-container {
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .feedback-container.info {
+            background-color: #e0f2fe;
+            border: 1px solid #b3e5fc;
+            color: #0277bd;
+        }
+
+        .feedback-container.error {
+            background-color: #ffebee;
+            border: 1px solid #ffcdd2;
+            color: #c62828;
+        }
+
+        .feedback-container.success {
+            background-color: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            color: #2e7d32;
+        }
+
+        /* 标签页导航 */
+        .statistics-tabs-container {
+            margin-bottom: 24px;
+        }
+
+        .tab-navigation {
+            display: flex;
+            gap: 4px;
+            background: #f8fafc;
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex: 1;
+            justify-content: center;
+        }
+
+        .tab-btn:hover {
+            background: #ffffff;
+            color: #334155;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-btn.active {
+            background: #2ECC71;
+            color: white;
+            box-shadow: 0 2px 8px rgba(46, 204, 113, 0.25);
+        }
+
+        .tab-btn .material-icons-round {
+            font-size: 18px;
+        }
+
+        /* 统计内容区域 */
+        .statistics-content {
+            position: relative;
+        }
+
+        .stats-view {
+            display: none;
+        }
+
+        .stats-view.active {
+            display: block;
+        }
+
+        /* 查询面板样式 */
+        .query-panel {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .query-panel-header {
+            padding: 16px 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .query-panel-header h4 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .panel-description {
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        .query-controls {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .date-range-section {
+            display: flex;
+            align-items: end;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .date-input {
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            background: #ffffff;
+            transition: border-color 0.2s ease;
+            min-width: 140px;
+        }
+
+        .date-input:focus {
+            outline: none;
+            border-color: #2ECC71;
+            box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+        }
+
+        .date-separator {
+            display: flex;
+            align-items: center;
+            color: #9ca3af;
+            margin: 0 8px;
+        }
+
+        .preset-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .preset-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .preset-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .preset-btn:hover {
+            background: #f9fafb;
+            border-color: #2ECC71;
+            color: #2ECC71;
+        }
+
+        .preset-btn.active {
+            background: #2ECC71;
+            border-color: #2ECC71;
+            color: white;
+        }
+
+        .preset-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        /* 搜索按钮样式 */
+        .search-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #2ECC71;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .search-btn:hover {
+            background: #27ae60;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+        }
+
+        .search-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .search-btn .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* 图表展示区域 */
+        .charts-display {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .chart-card {
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .chart-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .chart-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chart-action-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .chart-action-btn:hover {
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .chart-container {
+            padding: 20px;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chart-container canvas {
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 280px;
+        }
+
+        /* 教师统计样式 */
+        .teacher-stats-container,
+        .student-stats-container {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .teacher-query-panel,
+        .student-query-panel {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .teacher-controls,
+        .student-controls {
+            display: flex;
+            align-items: end;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .control-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .date-inputs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .teacher-select,
+        .student-select {
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            background: #ffffff;
+            min-width: 160px;
+        }
+
+        .teacher-charts-area,
+        .student-charts-area {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .summary-chart-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            width: 85%;
+            margin: 0 auto;
+        }
+
+        .summary-chart {
+            min-height: 350px;
+            padding: 20px;
+        }
+
+        .teacher-charts-grid,
+        .student-charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 1200px) {
+            .charts-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .statistics-header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: stretch;
+            }
+
+            .tab-navigation {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .tab-btn {
+                justify-content: flex-start;
+            }
+
+            .query-controls {
+                padding: 16px;
+            }
+
+            .date-range-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .preset-section {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 16px;
+            }
+
+            .preset-buttons {
+                justify-content: center;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+
+            .teacher-controls,
+            .student-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .teacher-charts-grid,
+            .student-charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .query-panel-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+
+            .date-inputs {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .date-separator {
+                transform: rotate(90deg);
+            }
+        }
+
+        /* 动画效果 */
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .stats-view {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        padding: 16px 20px;
+    }
+
+    .schedule-detail-header h3 {
+        font-size: var(--font-size-lg);
+    }
+
+    .schedule-detail-body {
+        padding: 20px;
+    }
+
+    .detail-section {
+        margin-bottom: 20px;
+    }
+}
+
+/* 统计区现代化样式（统一绿色主题与变量） */
+:root {
+    /* 色彩方案（项目主体绿色与协调辅色） */
+    --brand-primary: #4CAF50;
+    /* 主色：绿色（统一为#4CAF50） */
+    --brand-accent: #27AE60;
+    /* 强调：深绿 */
+    --brand-secondary-1: #2ECC71;
+    /* 辅色1：亮绿 */
+    --brand-secondary-2: #16A085;
+    /* 辅色2：青绿偏暖 */
+
+    /* 状态色与通用色 */
+    --primary-color: #4CAF50;
+    /* 与全局变量对齐的圆角与阴影映射 */
+    --radius-unified: var(--card-radius, 8px);
+    --shadow-unified: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.1));
+    --success-color: #4CAF50;
+    --warning-color: #FF9800;
+    --error-color: #F44336;
+    --info-color: #89C9B8;
+
+    /* 文案与背景 */
+    --text-primary: #1F2937;
+    --text-secondary: #6B7280;
+    --bg-surface: #ffffff;
+    --bg-muted: #f8fafc;
+    --border-muted: #e5e7eb;
+
+    /* 统一动效与阴影、圆角、间距、字体 */
+    --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --shadow-unified: 0 8px 24px rgba(16, 24, 40, 0.08);
+    --radius-unified: 10px;
+    --hover-transition: 0.2s ease;
+    --space-std: 16px;
+    --font-family-base: "PingFang SC", "SF Pro SC", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --chart-font-family: "Source Han Sans CN", "思源黑体", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+    /* 禁用颜色（用于文档与审计） */
+    --forbidden-blue-1: #2196F3;
+    --forbidden-blue-2: #4C6FFF;
+    --forbidden-blue-3: #2251FF;
+}
+
+/* 统计控制区域（与用户管理/排课控制区保持一致规范） */
+.statistics-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-std);
+    padding: 16px 20px;
+    background: #ffffff;
+    border: 1px solid var(--border-muted, #e9ecef);
+    border-radius: var(--card-radius);
+    box-shadow: none;
+    min-height: var(--controls-min-height);
+    flex-wrap: wrap;
+}
+
+/* 按钮风格统一（兼容 user-management / teacher-dashboard 的 primary/secondary 按钮） */
+.btn,
+button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
+}
+
+.primary-btn {
+    background-color: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+}
+
+.primary-btn:hover {
+    background-color: var(--brand-accent);
+    box-shadow: var(--shadow-soft);
+}
+
+.primary-btn:active {
+    transform: translateY(1px);
+}
+
+.primary-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.secondary-btn {
+    background-color: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-muted);
+}
+
+.secondary-btn:hover {
+    background-color: #f3f4f6;
+}
+
+
+
+.statistics-controls .stats-date-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.statistics-controls .stats-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.statistics-controls .date-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.statistics-controls .date-range input[type="date"] {
+    padding: 8px 10px;
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+}
+
+.statistics-controls .search-btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: var(--radius-unified);
+    background: var(--brand-primary);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+}
+
+.statistics-controls .search-btn:hover {
+    box-shadow: var(--shadow-soft);
+    background: var(--brand-accent);
+}
+
+.statistics-controls .search-btn:active {
+    transform: translateY(1px);
+}
+
+.statistics-tabs .tab-btn-group {
+    display: flex;
+    gap: 8px;
+}
+
+.statistics-tabs .tab-btn {
+    padding: var(--btn-padding-y) var(--btn-padding-x);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--btn-radius);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: var(--btn-font-size);
+    transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.statistics-tabs .tab-btn:hover {
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+    color: #065F46;
+}
+
+.statistics-tabs .tab-btn.active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
+}
+
+.view-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.view-controls select {
+    min-width: 180px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    background: var(--bg-surface);
+}
+
+.view-controls .apply-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .06s ease, box-shadow .2s ease;
+}
+
+.view-controls .apply-btn:hover {
+    box-shadow: var(--shadow-soft);
+}
+
+.view-controls .apply-btn:active {
+    transform: translateY(1px);
+}
+
+.statistics-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: var(--space-std);
+}
+
+.stats-view {
+    display: none;
+}
+
+.stats-view.active {
+    display: block;
+}
+
+.chart-container,
+.chart-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-unified);
+    box-shadow: var(--shadow-soft);
+    padding: 12px 12px 4px;
+    min-height: 260px;
+}
+
+.chart-card .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.chart-card .chart-title {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    font-family: var(--chart-font-family);
+}
+
+.chart-card .chart-body {
+    height: 280px;
+}
+
+@media (max-width: 768px) {
+    .statistics-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .statistics-container {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-card .chart-body {
+        height: 220px;
+    }
+}
+
+/* 新增断点：992px与1200px优化图表高度与数据密度 */
+@media (max-width: 1200px) {
+    .chart-card .chart-body {
+        height: 260px;
+    }
+}
+
+@media (max-width: 992px) {
+    .chart-card .chart-body {
+        height: 240px;
+    }
+}
+
+/* 统一设计变量（以绿色主题为基准） */
+:root {
+    --card-border-color: var(--border-muted);
+    --font-size-sm: 12px;
+    --font-size-md: 14px;
+    --font-size-lg: 16px;
+    --chart-font-size: 14;
+    --chart-height-container: 280px;
+    /* 基础柱状图容器高度 */
+    --chart-height-canvas: 240px;
+    /* 基础柱状图canvas高度 */
+    --chart-summary-multiplier: 1.25;
+    /* 汇总图比其他图高25% */
+}
+
+/* 查询控件区域样式 */
+.query-controls-section {
+    margin-bottom: 20px;
+}
+
+.query-controls-card {
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-muted, #e5e7eb);
+    border-radius: var(--radius-unified, 8px);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-soft, 0 1px 3px rgba(0, 0, 0, 0.1));
+}
+
+.query-controls-content {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.date-range-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-label {
+    font-weight: 600;
+    color: var(--text-primary, #1f2937);
+    white-space: nowrap;
+}
+
+.date-input {
+    padding: 6px 10px;
+    border: 1px solid var(--border-muted, #d1d5db);
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.date-separator {
+    color: var(--text-secondary, #6b7280);
+    margin: 0 4px;
+}
+
+.preset-and-search-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+}
+
+.preset-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.preset-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-muted, #d1d5db);
+    background: var(--bg-surface, #ffffff);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.preset-btn:hover {
+    background: var(--bg-hover, #f9fafb);
+    border-color: var(--border-focus, #10b981);
+}
+
+.preset-btn.active {
+    background: var(--primary-color, #10b981);
+    color: white;
+    border-color: var(--primary-color, #10b981);
+}
+
+/* 图表区域样式 */
+.charts-section {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* 统计视图统一卡片容器 */
+.stats-unified-card {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.chart-card.triple {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding: 16px;
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-muted, #e5e7eb);
+    border-radius: var(--radius-unified, 8px);
+    box-shadow: var(--shadow-soft, 0 1px 3px rgba(0, 0, 0, 0.1));
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+    .chart-card.triple {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .query-controls-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .date-range-group {
+        justify-content: center;
+    }
+
+    .preset-and-search-group {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .chart-card.triple {
+        grid-template-columns: 1fr;
+    }
+
+    .preset-buttons {
+        justify-content: center;
+    }
+
+    .statistics-tabs {
+        flex-direction: column;
+        gap: 16px;
+    }
+}
+
+/* 确保统计视图的布局 */
+.stats-view.active {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+
+/* 统计卡片容器：整合三个图表 */
+.chart-card {
+    display: block;
+    padding: 16px;
+    border: 1px solid var(--card-border-color);
+    border-radius: var(--radius-unified);
+    background: #fff;
+    box-shadow: var(--shadow-unified);
+}
+
+/* 小屏幕下改为纵向堆叠 */
+@media (max-width: 1024px) {
+    .chart-card {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 统一交互元素圆角与过渡 */
+button,
+.search-btn,
+.logout-btn,
+.tab-btn,
+.add-btn,
+input[type="text"],
+input[type="date"],
+input[type="time"],
+select,
+textarea {
+    border-radius: var(--radius-unified);
+    transition: all var(--hover-transition);
+}
+
+/* 悬停统一动效 */
+button:hover,
+.search-btn:hover,
+.logout-btn:hover,
+.tab-btn:hover,
+.add-btn:hover {
+    filter: brightness(1.03);
+}
+
+/* 统计图容器保持弹性 */
+.chart-container {
+    padding: 20px;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 280px;
+}
+
+/* 教师统计样式 */
+.teacher-stats-container,
+.student-stats-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.teacher-query-panel,
+.student-query-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.teacher-controls,
+.student-controls {
+    display: flex;
+    align-items: end;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.control-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+}
+
+.date-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.teacher-select,
+.student-select {
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #ffffff;
+    min-width: 160px;
+}
+
+.teacher-charts-area,
+.student-charts-area {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.summary-chart-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    width: 98%;
+    margin: 0 auto;
+}
+
+.summary-chart {
+    min-height: 350px;
+}
+
+.teacher-charts-grid,
+.student-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 20px;
+}
+
+/* 响应式设计 - 移动设备上summary-chart-card占98%宽度 */
+@media (max-width: 768px) {
+
+    .summary-chart-card,
+    .teacher-summary-card,
+    .student-summary-card,
+    .chart-card.teacher-summary-card,
+    .chart-card.student-summary-card {
+        width: 98% !important;
+    }
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+    .charts-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .statistics-header {
+        flex-direction: column;
+        gap: 16px;
+        align-items: stretch;
+    }
+
+    .tab-navigation {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .tab-btn {
+        justify-content: flex-start;
+    }
+
+    .query-controls {
+        padding: 16px;
+    }
+
+    .date-range-section {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .preset-section {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .preset-buttons {
+        justify-content: center;
+    }
+
+    .charts-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .teacher-controls,
+    .student-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teacher-charts-grid,
+    .student-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .query-panel-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .date-inputs {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .date-separator {
+        transform: rotate(90deg);
+    }
+}
+
+/* 动画效果 */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.stats-view {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+
+.schedule-detail-header h3 {
+    font-size: var(--font-size-lg);
+}
+
+.schedule-detail-body {
+    padding: 20px;
+}
+
+.detail-section {
+    margin-bottom: 20px;
+}
+
+/* 统计区现代化样式（统一绿色主题与变量） */
+:root {
+    /* 色彩方案（项目主体绿色与协调辅色） */
+    --brand-primary: #4CAF50;
+    /* 主色：绿色（统一为#4CAF50） */
+    --brand-accent: #27AE60;
+    /* 强调：深绿 */
+    --brand-secondary-1: #2ECC71;
+    /* 辅色1：亮绿 */
+    --brand-secondary-2: #16A085;
+    /* 辅色2：青绿偏暖 */
+
+    /* 状态色与通用色 */
+    --primary-color: #4CAF50;
+    /* 与全局变量对齐的圆角与阴影映射 */
+    --radius-unified: var(--card-radius, 8px);
+    --shadow-unified: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.1));
+    --success-color: #4CAF50;
+    --warning-color: #FF9800;
+    --error-color: #F44336;
+    --info-color: #89C9B8;
+
+    /* 文案与背景 */
+    --text-primary: #1F2937;
+    --text-secondary: #6B7280;
+    --bg-surface: #ffffff;
+    --bg-muted: #f8fafc;
+    --border-muted: #e5e7eb;
+
+    /* 统一动效与阴影、圆角、间距、字体 */
+    --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --shadow-unified: 0 8px 24px rgba(16, 24, 40, 0.08);
+    --radius-unified: 10px;
+    --hover-transition: 0.2s ease;
+    --space-std: 16px;
+    --font-family-base: "PingFang SC", "SF Pro SC", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --chart-font-family: "Source Han Sans CN", "思源黑体", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+    /* 禁用颜色（用于文档与审计） */
+    --forbidden-blue-1: #2196F3;
+    --forbidden-blue-2: #4C6FFF;
+    --forbidden-blue-3: #2251FF;
+}
+
+
+/* 按钮风格统一（兼容 user-management / teacher-dashboard 的 primary/secondary 按钮） */
+.btn,
+button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
+}
+
+.primary-btn {
+    background-color: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+}
+
+.primary-btn:hover {
+    background-color: var(--brand-accent);
+    box-shadow: var(--shadow-soft);
+}
+
+.primary-btn:active {
+    transform: translateY(1px);
+}
+
+.primary-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.secondary-btn {
+    background-color: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-muted);
+}
+
+.secondary-btn:hover {
+    background-color: #f3f4f6;
+}
+
+
+
+.statistics-controls .date-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.statistics-controls .date-range input[type="date"] {
+    padding: 8px 10px;
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+}
+
+.statistics-controls .search-btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: var(--radius-unified);
+    background: var(--brand-primary);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+}
+
+.statistics-controls .search-btn:hover {
+    box-shadow: var(--shadow-soft);
+    background: var(--brand-accent);
+}
+
+.statistics-controls .search-btn:active {
+    transform: translateY(1px);
+}
+
+.statistics-tabs .tab-btn-group {
+    display: flex;
+    gap: 8px;
+}
+
+.statistics-tabs .tab-btn {
+    padding: var(--btn-padding-y) var(--btn-padding-x);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--btn-radius);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: var(--btn-font-size);
+    transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.statistics-tabs .tab-btn:hover {
+    background: #ECFDF5;
+    border-color: #A7F3D0;
+    color: #065F46;
+}
+
+.statistics-tabs .tab-btn.active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
+}
+
+.view-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.view-controls select {
+    min-width: 180px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    background: var(--bg-surface);
+}
+
+.view-controls .apply-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--brand-primary);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .06s ease, box-shadow .2s ease;
+}
+
+.view-controls .apply-btn:hover {
+    box-shadow: var(--shadow-soft);
+}
+
+.view-controls .apply-btn:active {
+    transform: translateY(1px);
+}
+
+.statistics-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: var(--space-std);
+}
+
+.stats-view {
+    display: none;
+}
+
+.stats-view.active {
+    display: block;
+}
+
+.chart-container,
+.chart-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-unified);
+    box-shadow: var(--shadow-soft);
+    padding: 12px 12px 4px;
+    min-height: 260px;
+}
+
+/* 总体概览页面图表高度统一优化 */
+#statsOverview .chart-container {
+    height: 360px;
+    min-height: 360px;
+}
+
+.chart-card .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.chart-card .chart-title {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    font-family: var(--chart-font-family);
+}
+
+.chart-card .chart-body {
+    height: 280px;
+}
+
+@media (max-width: 768px) {
+    .statistics-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .statistics-container {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-card .chart-body {
+        height: 220px;
+    }
+}
+
+/* 新增断点：992px与1200px优化图表高度与数据密度 */
+@media (max-width: 1200px) {
+    .chart-card .chart-body {
+        height: 260px;
+    }
+}
+
+@media (max-width: 992px) {
+    .chart-card .chart-body {
+        height: 240px;
+    }
+}
+
+/* 统一设计变量（以绿色主题为基准） */
+:root {
+    --card-border-color: var(--border-muted);
+    --font-size-sm: 12px;
+    --font-size-md: 14px;
+    --font-size-lg: 16px;
+    --chart-font-size: 14;
+    --chart-height-container: 280px;
+    /* 基础柱状图容器高度 */
+    --chart-height-canvas: 240px;
+    /* 基础柱状图canvas高度 */
+    --chart-summary-multiplier: 1.25;
+    /* 汇总图比其他图高25% */
+}
+
+/* 查询控件区域样式 */
+.query-controls-section {
+    margin-bottom: 20px;
+}
+
+.query-controls-card {
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-muted, #e5e7eb);
+    border-radius: var(--radius-unified, 8px);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-soft, 0 1px 3px rgba(0, 0, 0, 0.1));
+}
+
+.query-controls-content {
+    display: flex;
+    min-height: 220px;
+}
+
+/* 教师统计：为每位教师的图表卡片设定固定高度，避免Canvas在Grid中反复触发重排导致无限延伸 */
+.teacher-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: var(--space-std);
+}
+
+.chart-container.teacher-chart {
+    height: var(--chart-height-container);
+    width: 70%;
+    /* 减小宽度30% */
+    margin: 0 auto;
+    /* 居中显示 */
+}
+
+.chart-container.teacher-chart canvas {
+    height: var(--chart-height-canvas) !important;
+    width: 100% !important;
+}
+
+/* 教师图表标题样式：与"按日期汇总"图表标题一致 */
+.chart-container.teacher-chart .chart-title {
+    text-align: center;
+    margin-bottom: 12px;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    font-family: var(--chart-font-family);
+}
+
+/* 汇总柱状图高度仅应用于带有 summary-chart 类的第一个图 */
+.teacher-summary-card .summary-chart {
+    height: calc(var(--chart-height-container) * var(--chart-summary-multiplier));
+}
+
+.student-summary-card .summary-chart canvas {
+    height: calc(var(--chart-height-canvas) * var(--chart-summary-multiplier)) !important;
+    width: 100% !important;
+}
+
+.teacher-summary-card .summary-chart canvas {
+    height: calc(var(--chart-height-canvas) * var(--chart-summary-multiplier)) !important;
+    width: 100% !important;
+}
+
+/* 学生图表容器：在第一个学生图表前添加分割线 */
+.student-charts-grid {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid #e2e8f0;
+}
+
+.teacher-charts-grid {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid #e2e8f0;
+}
+
+/* 教师统计页：一行一个图，居中显示并自适应屏幕宽度 */
+
+
+/* 由教师统计整体卡片控制宽度，内部容器按100%宽度渲染 */
+.teacher-charts-grid {
+    grid-template-columns: 1fr;
+}
+
+/* 学生统计页：一行一个图，卡片满宽，与上方卡片宽度一致 */
+
+
+/* 统一统计指标卡样式 */
+.stat-card {
+    border: 1px solid var(--card-border-color);
+    border-radius: var(--radius-unified);
+    background: #fff;
+    box-shadow: var(--shadow-unified);
+}
+
+/* 统一标签按钮选中态颜色为主色 */
+.tab-btn.active {
+    background-color: var(--brand-primary);
+    color: #fff;
+}
+
+/* 中文排版与图标统一规范 */
+.statistics-tabs .tab-btn {
+    font-family: var(--chart-font-family);
+    font-weight: 500;
+    font-size: var(--font-size-xs);
+    /* 最小不小于12px */
+    line-height: var(--line-height-normal);
+    /* 与中文排版保持1.5倍行距 */
+}
+
+.nav-menu .nav-item .nav-text,
+.dashboard-header h2,
+.stats-grid .stat-card h3 {
+    font-family: var(--chart-font-family);
+    font-weight: 500;
+}
+
+.material-icons-round,
+.material-icons {
+    color: currentColor;
+}
+
+.tab-btn .material-icons-round,
+.nav-item .material-icons-round,
+.logo .material-icons-round {
+    margin-right: 12px;
+}
+
+svg {
+    fill: currentColor;
+    stroke: currentColor;
+}
+
+.group-picker-item.status-completed::after {
+    content: '✓';
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    font-size: 12px;
+    color: #16A34A;
+}
+
+.teacher-summary-card {
+    grid-template-columns: 1fr;
+    width: 98%;
+    max-width: none;
+    margin: 0 auto;
+}
+
+.chart-title {
+    text-align: center;
+    font-family: var(--chart-font-family);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+}
+
+/* 教师统计整体卡片：与总体概览风格一致，标题居中、下拉靠左 - REMOVED DUPLICATE, CONSOLIDATED ABOVE */
+
+.teacher-summary-card .chart-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.teacher-summary-card .chart-controls {
+    justify-self: start;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.teacher-summary-card .chart-title {
+    justify-self: center;
+}
+
+.teacher-summary-card .chart-header-spacer {
+    justify-self: end;
+}
+
+.teacher-summary-card .chart-container {
+    width: 100%;
+    max-width: none;
+    margin: 0 auto;
+}
+
+.student-summary-card {
+    grid-template-columns: 1fr;
+    width: 98%;
+    max-width: none;
+    margin: 0 auto;
+}
+
+.student-summary-card .chart-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.student-summary-card .chart-controls {
+    justify-self: start;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.student-summary-card .chart-title {
+    justify-self: center;
+}
+
+.student-summary-card .chart-header-spacer {
+    justify-self: end;
+}
+
+.student-summary-card .chart-container {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+}
+
+.student-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-std);
+}
+
+.chart-container.student-chart {
+    height: 280px;
+}
+
+.chart-container.student-chart canvas {
+    height: 240px !important;
+    width: 100% !important;
+}
+
+.student-summary-card .chart-container:first-of-type {
+    height: 350px;
+}
+
+.student-summary-card .chart-container:first-of-type canvas {
+    height: 300px !important;
+}
+
+.teacher-summary-card .summary-chart {
+    height: 350px;
+}
+
+.teacher-summary-card .summary-chart canvas {
+    height: 300px !important;
+    width: 100% !important;
+}
+
+/* 全局教师排课统计柱状图样式 */
+.all-teachers-schedule-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 20px;
+}
+
+.all-teachers-schedule-card .chart-title {
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.all-teachers-schedule-card canvas {
+    height: 400px !important;
+    width: 100% !important;
+}
+
+/* 全局学生排课统计柱状图样式 */
+.all-students-schedule-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 20px;
+}
+
+.all-students-schedule-card .chart-title {
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.all-students-schedule-card canvas {
+    height: 400px !important;
+    width: 100% !important;
+}
+
+/* 按日期汇总卡片（教师/学生） */
+.all-teachers-daily-card,
+.all-students-daily-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 20px;
+    padding: 12px;
+}
+
+.all-teachers-daily-card .chart-title,
+.all-students-daily-card .chart-title {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.all-teachers-daily-card canvas,
+.all-students-daily-card canvas {
+    height: 320px !important;
+    width: 100% !important;
+}
+
+/* ============================================
+   移动端响应式样式 - Phase 1
+   ============================================ */
+
+/* 移动菜单按钮 */
+.mobile-menu-toggle {
+    display: none;
+    /* 桌面端隐藏 */
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 998;
+    width: var(--min-touch-target);
+    height: var(--min-touch-target);
+    background: #FFFFFF;
+    border: 1px solid #E9ECEF;
+    border-radius: 8px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.mobile-menu-toggle:hover {
+    background: #F8F9FA;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.mobile-menu-toggle .material-icons-round {
+    font-size: 24px;
+    color: #2C3E50;
+}
+
+/* 侧边栏遮罩层 */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
+}
+
+/* ============================================
+   移动端适配 (<768px)
+   ============================================ */
+@media (max-width: 768px) {
+
+    /* 显示移动菜单按钮 */
+    .mobile-menu-toggle {
+        display: flex;
+        position: absolute;
+        top: 8px;
+        /* Reduced from 12px */
+        left: 16px;
+        z-index: 10;
+    }
+
+    /* 侧边栏移动端样式 */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        width: 280px;
+        /* 移动端稍宽一些 */
+        transform: translateX(-100%);
+        z-index: 1000;
+        transition: transform 0.3s ease;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    /* 移动端不显示桌面端的折叠功能 */
+    .sidebar.collapsed {
+        width: 280px;
+    }
+
+    .sidebar.collapsed .logo-text,
+    .sidebar.collapsed .nav-text {
+        opacity: 1;
+        width: auto;
+    }
+
+    .sidebar.collapsed .logo-icon,
+    .sidebar.collapsed .nav-item .material-icons-round {
+        margin-right: 12px;
+    }
+
+    /* 隐藏桌面端的折叠按钮 */
+    .toggle-sidebar {
+        display: none;
+    }
+
+    /* 主内容区占满全宽 */
+    .main-content {
+        padding: 0 16px 16px 16px;
+        /* Remove top padding */
+        margin-left: 0 !important;
+    }
+
+    /* 导航项触控目标优化 */
+    .nav-item {
+        min-height: var(--min-touch-target);
+        padding: 14px 20px;
+        margin: 6px 12px;
+    }
+
+    .nav-item .material-icons-round {
+        font-size: 24px;
+    }
+
+    /* Logo区域优化 */
+    .logo {
+        padding: 20px;
+        min-height: 70px;
+    }
+
+    .logo-icon {
+        font-size: 32px;
+    }
+
+    .logo-text {
+        font-size: 18px;
+    }
+
+    /* ============== */
+    /* 表格响应式优化 */
+    /* ============== */
+
+    /* 表格容器横向滚动 */
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -16px;
+        /* 抵消main-content的padding */
+        padding: 0 16px;
+    }
+
+    /* 数据表格最小宽度 */
+    .data-table {
+        min-width: 600px;
+        /* 确保完整显示 */
+        font-size: 13px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+    }
+
+    /* 周排课表格卡片化 */
+    .weekly-schedule-table {
+        display: block;
+        min-width: auto !important;
+    }
+
+    .weekly-schedule-table thead {
+        display: none;
+        /* 隐藏表头 */
+    }
+
+    .weekly-schedule-table tbody {
+        display: grid;
+        gap: 12px;
+    }
+
+    .weekly-schedule-table tr {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        padding: 12px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .weekly-schedule-table td {
+        display: flex;
+        padding: 0;
+        border: none;
+    }
+
+    .weekly-schedule-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        margin-right: 8px;
+        color: #64748b;
+        min-width: 80px;
+    }
+
+    /* ============== */
+    /* 按钮触控优化 */
+    /* ============== */
+
+    .btn,
+    button,
+    .search-btn,
+    .primary-btn,
+    .info-btn,
+    .edit-btn,
+    .delete-btn,
+    .logout-btn {
+        min-height: var(--min-touch-target);
+        min-width: var(--min-touch-target);
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+
+    /* 表单控件 */
+    input[type="date"],
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    select,
+    textarea {
+        min-height: var(--min-touch-target);
+        font-size: 16px;
+        /* 防止iOS自动缩放 */
+        padding: 10px 12px;
+    }
+
+    /* ============== */
+    /* 卡片网格响应 */
+    /* ============== */
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        /* 移动端单列 */
+        gap: 12px;
+    }
+
+    .stat-card,
+    .stats-component-card {
+        margin: 0;
+    }
+
+    /* ============== */
+    /* 图表容器 */
+    /* ============== */
+
+    .chart-container,
+    canvas {
+        max-height: 250px !important;
+    }
+
+    #dailyTeachingChart {
+        max-height: 300px !important;
+    }
+
+    /* ============== */
+    /* 页面标题 - 移动端两行布局 */
+    /* ============== */
+
+    .dashboard-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 8px 16px 12px calc(var(--min-touch-target) + 24px);
+        /* Reduced top padding to 8px */
+        /* 左侧留出菜单按钮空间 */
+        margin-bottom: 16px;
+        position: relative;
+        margin-top: 0;
+        /* Remove margin top */
+    }
+
+    /* 第一行：标题（视觉上与菜单按钮在同一行，居中） */
+    .dashboard-header h2 {
+        font-size: 18px;
+        margin: 0;
+        text-align: center;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--min-touch-target);
+        padding-right: calc(var(--min-touch-target) + 8px);
+        /* 右侧补偿，使标题真正居中 */
+    }
+
+    /* 第二行：用户信息靠右 */
+    .user-info {
+        position: relative;
+        /* 覆盖桌面端的absolute定位 */
+        width: 100%;
+        justify-content: flex-end;
+        /* 靠右显示 */
+        flex-wrap: nowrap;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .user-name {
+        font-size: 14px;
+        margin-right: 8px;
+    }
+
+    .role-badge {
+        font-size: 12px;
+        padding: 4px 8px;
+    }
+
+    .logout-btn {
+        font-size: 13px;
+        padding: 8px 16px;
+        min-height: var(--min-touch-target);
+    }
+
+    /* ============== */
+    /* 控制按钮组 */
+    /* ============== */
+
+    .statistics-controls,
+    .schedule-controls {
+        flex-direction: column;
+        gap: 12px;
+        align-items: center;
+        /* Center align items */
+    }
+
+    /* Date Group Layout */
+    .stats-date-group {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    /* Button Group Layout */
+    .stats-btn-group {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+    }
+
+    .date-range {
+        width: auto;
+        /* Allow auto width for side-by-side */
+        flex: 1;
+        min-width: 140px;
+        /* Ensure minimum width */
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .date-range input {
+        width: 100%;
+        flex: 1;
+    }
+
+    /* Override previous full width setting if any */
+    .statistics-controls .date-range {
+        width: auto;
+    }
+
+    /* 周导航按钮组 */
+    .week-navigation {
+        width: 100%;
+        justify-content: space-between !important;
+    }
+
+    .week-navigation span {
+        min-width: auto !important;
+        text-align: center;
+    }
+
+    /* ============== */
+    /* 卡片网格响应 */
+    /* ============== */
+
+    /* ============== */
+    /* 卡片网格响应 */
+    /* ============== */
+
+    /* 默认网格样式 (用于总览页面) */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        /* 移动端默认单列 (总览页面) */
+        gap: 12px;
+    }
+
+    /* 总览页面卡片全宽 */
+    #overview .stats-grid .stat-card {
+        width: 100%;
+        margin: 0;
+    }
+
+    /* 数据统计页面 - 授课类型卡片 (双列布局) */
+    #teachingTypeStats.stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        /* 强制双列 */
+        gap: 12px;
+        justify-items: center;
+        /* 居中对齐 */
+    }
+
+    /* 统计卡片样式优化 */
+    #teachingTypeStats .stat-card {
+        width: 100%;
+        /* 占满网格单元 */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 16px;
+    }
+
+    .stat-card,
+    .stats-component-card {
+        margin: 0;
+        padding: 16px;
+        /* Reduce padding slightly */
+    }
+
+    .stat-card h3 {
+        font-size: 13px;
+        /* Smaller font for type name */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .stat-card p {
+        font-size: 20px;
+        /* Adjust number size */
+    }
+
+    /* ============== */
+
+    /* 日期列固定在左侧 */
+    #weeklyHeaderAvail th:first-child,
+    #weeklyBodyAvail td:first-child {
+        position: sticky;
+        left: 0;
+        background: #f8f9fa;
+        z-index: 2;
+        font-weight: 600;
+        min-width: 85px;
+        max-width: 85px;
+        padding: 12px 8px;
+        border-right: 2px solid #e9ecef;
+    }
+
+    /* 时间段表头样式 */
+    #weeklyHeaderAvail .time-slot-header {
+        min-width: 80px;
+        text-align: center;
+        padding: 12px 8px;
+        font-size: 13px;
+    }
+
+    /* 选择框单元格 */
+    #weeklyBodyAvail .availability-cell {
+        text-align: center;
+        padding: 10px;
+        min-width: 80px;
+    }
+
+    /* 选择框样式 */
+    #weeklyBodyAvail .availability-cell input[type="checkbox"] {
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    /* 日期单元格文字 */
+    #weeklyBodyAvail .date-cell {
+        font-size: 14px;
+        white-space: nowrap;
+    }
+
+    /* ============== */
+    /* 课程安排表格移动端优化 */
+    /* ============== */
+
+    /* 表头转换为块级 */
+    #weeklyHeader {
+        display: block;
+    }
+
+    #weeklyHeader tr {
+        display: none;
+        /* 移动端隐藏表头 */
+    }
+
+    /* 表体转换为块级 */
+    #weeklyBody {
+        display: block;
+    }
+
+    #weeklyBody tr {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    /* 课程单元格添加日期标签 */
+    #weeklyBody .schedule-cell {
+        display: block;
+        padding: 0;
+        border: none;
+    }
+
+    #weeklyBody .schedule-cell::before {
+        content: attr(data-date-label);
+        display: block;
+        font-weight: 600;
+        font-size: 15px;
+        color: #2C3E50;
+        background: #f8f9fa;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        border-radius: 8px;
+        border-left: 4px solid #2ECC71;
+    }
+
+    /* "暂无排课"样式 */
+    #weeklyBody .no-schedule {
+        padding: 20px;
+        text-align: center;
+        color: #9ca3af;
+        font-size: 14px;
+    }
+}
+
+/* ============================================
+   小手机适配 (<480px)
+   ============================================ */
+@media (max-width: 480px) {
+
+    .sidebar {
+        width: 260px;
+        /* 小手机侧边栏稍窄 */
+    }
+
+    .main-content {
+        padding: 16px 12px 12px 12px;
+    }
+
+    .mobile-menu-toggle {
+        top: 12px;
+        left: 12px;
+    }
+
+    /* 小手机特别优化 */
+    .dashboard-header h2 {
+        font-size: 18px;
+    }
+
+    .stat-card h3 {
+        font-size: 13px;
+    }
+
+    .stat-card p {
+        font-size: 20px;
+    }
+
+    /* 表格字体进一步缩小 */
+    .data-table {
+        font-size: 12px;
+    }
+
+    /* 按钮 */
+    .btn,
+    button {
+        font-size: 13px;
+        padding: 10px 14px;
+    }
+}
+
+/* ============================================
+   平板适配 (768px - 1024px)
+   ============================================ */
+@media (min-width: 769px) and (max-width: 1024px) {
+
+    .sidebar {
+        width: 200px;
+        /* 平板端侧边栏稍窄 */
+    }
+
+    .main-content {
+        padding: 20px;
+    }
+
+    /* Logo适配 */
+    .logo {
+        padding: 20px 16px;
+    }
+
+    .logo-text {
+        font-size: 15px;
+    }
+
+    /* 导航项适配 */
+    .nav-item {
+        padding: 10px 16px;
+        margin: 4px 10px;
+    }
+
+    /* 平板特别优化 */
+
+    /* 卡片网格：两列布局 */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+    }
+
+    /* 表格优化 */
+    .data-table {
+        font-size: 13px;
+    }
+
+    /* 图表容器 */
+    #dailyTeachingChart {
+        max-height: 350px !important;
+    }
+}
+
+/* ============================================
+   大屏优化 (>1440px)
+   ============================================ */
+@media (min-width: 1441px) {
+
+    .sidebar {
+        width: 260px;
+        /* 大屏侧边栏更宽 */
+    }
+
+    .main-content {
+        padding: 32px;
+        max-width: 1600px;
+        margin: 0 auto;
+    }
+}
+
+/* ============================================
+   学生移动端表格样式
+   ============================================ */
+
+/* 移动端课程安排表 */
+@media (max-width: 768px) {
+    .mobile-schedule-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    .mobile-schedule-table caption {
+        font-size: 16px;
+        font-weight: 600;
+        padding: 12px;
+        background: #f8f9fa;
+        text-align: center;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+    }
+
+    .mobile-schedule-table th,
+    .mobile-schedule-table td {
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        vertical-align: top;
+    }
+
+    .mobile-schedule-table th {
+        background: #e9ecef;
+        font-weight: 600;
+        text-align: center;
+        font-size: 14px;
+    }
+
+    .mobile-schedule-table .mobile-date-cell {
+        width: 25%;
+        font-weight: 500;
+        text-align: center;
+        background: #f8f9fa;
+    }
+
+    .mobile-schedule-table .mobile-details-cell {
+        width: 75%;
+        vertical-align: middle;
+        text-align: center;
+    }
+
+    .mobile-schedule-table tr:nth-child(even) {
+        background: #f8f9fa;
+    }
+
+    .mobile-schedule-details {
+        font-size: 13px;
+        line-height: 1.6;
+        background: white;
+        border-radius: 8px;
+        padding: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        border: 1px solid #e9ecef;
+        margin: 4px 0;
+    }
+
+    /* 时间段背景色（参考管理员端） */
+    .mobile-schedule-details.slot-morning {
+        background: #E1F5FE;
+        /* 淡蓝色 */
+        border-color: #81D4FA;
+    }
+
+    .mobile-schedule-details.slot-afternoon {
+        background: #FFF9C4;
+        /* 淡黄色 */
+        border-color: #FFF176;
+    }
+
+    .mobile-schedule-details.slot-evening {
+        background: #F3E5F5;
+        /* 淡紫色 */
+        border-color: #CE93D8;
+    }
+
+    .mobile-schedule-details.slot-unspecified {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+
+    .no-schedule {
+        color: #9ca3af;
+        font-style: italic;
+        text-align: center;
+        padding: 8px 0;
+    }
+}
+
+/* 移动端时间安排表 */
+@media (max-width: 768px) {
+
+    /* 隐藏PC端布局的表格 */
+    #availability .weekly-schedule-table {
+        display: none;
+    }
+
+    /* 显示移动端4列布局 */
+    .mobile-availability-table {
+        display: table;
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    .mobile-availability-table th,
+    .mobile-availability-table td {
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    .mobile-availability-table th {
+        background: #e9ecef;
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .mobile-availability-table .date-col-header {
+        width: 25%;
+    }
+
+    .mobile-availability-table .time-slot-header {
+        width: 25%;
+    }
+
+    .mobile-availability-table .date-cell {
+        text-align: center;
+        font-weight: 500;
+        background: #f8f9fa;
+    }
+
+    .mobile-availability-table .availability-cell {
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    .mobile-availability-table input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+    }
+
+    .mobile-availability-table .availability-cell.availability-selected {
+        background: #d1fae5;
+    }
+}
+
+/* PC端隐藏移动端表格 */
+@media (min-width: 769px) {
+
+    .mobile-schedule-table,
+    .mobile-schedule-details {
+        display: block;
+    }
+}
+
+/* ============================================
+   学生学习统计模块移动端优化
+   ============================================ */
+@media (max-width: 768px) {
+    #teaching-display .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        justify-content: center;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 0 8px;
+    }
+
+    #teaching-display .stat-card {
+        min-width: 0;
+        width: 100%;
+        padding: 12px;
+    }
+
+    #teaching-display .stat-card h3 {
+        font-size: 13px;
+        margin-bottom: 8px;
+    }
+
+    #teaching-display .stat-card p {
+        font-size: 22px;
+        font-weight: 600;
+    }
+}
+
+/* Statistics Loading State */
+.stats-loading .stat-card {
+    position: relative;
+}
+
+.stats-loading .stat-value,
+.stats-loading .stat-trend span,
+.stats-loading .stat-label {
+    position: relative;
+    overflow: hidden;
+    color: transparent !important;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+.stats-loading .stat-value::after,
+.stats-loading .stat-trend span::after,
+.stats-loading .stat-label::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg,
+            transparent,
+            rgba(255, 255, 255, 0.5),
+            transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* Statistics Loading Overlay */
+.charts-section {
+    position: relative;
+    /* Ensure overlay is contained */
+    min-height: 300px;
+}
+
+.stats-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    border-radius: 12px;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s ease;
+}
+
+.stats-loading-overlay .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e2e8f0;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    animation: stats-spin 1s linear infinite;
+    margin-bottom: 16px;
+}
+
+.stats-loading-overlay .loading-text {
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+@keyframes stats-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* =========================================
+   Teacher Availability Table Customization
+   ========================================= */
+
+/* Center Teacher Name Column (First Column) */
+#availabilityTable th:first-child,
+#availabilityBody td:first-child,
+#availabilityBody .fixed-col,
+#scheduleTypesTable th,
+#scheduleTypesTable td {
+    text-align: center !important;
+    vertical-align: middle !important;
+    font-weight: 500;
+}
+
+/* Reduce Row Height for Availability Table & Schedule Table */
+/* Teacher Availability & Weekly Schedule Spacing */
+#availabilityHeader th,
+#scheduleTypesTable thead th,
+#weeklyHeader th {
+    padding: 16px 4px !important;
+    /* Even larger padding for header */
+    height: 96px;
+    /* Even larger height for header (increased from 60 to 75) */
+    line-height: 1.4 !important;
+    vertical-align: middle;
+}
+
+#availabilityBody td,
+#scheduleTypesTable tbody td,
+#weeklyBody td {
+    padding: 14px 4px !important;
+    /* Further increased padding */
+    height: 72px;
+    /* Increased height for data rows (increased from 50 to 60) */
+    line-height: 1.4 !important;
+    vertical-align: middle;
+}
+
+#availabilityBody td,
+#scheduleTypesTable tbody td,
+#weeklyBody td {
+    font-size: 16px !important;
+    /* Small 4 */
+}
+
+#availabilityHeader th,
+#scheduleTypesTable thead th,
+#weeklyHeader th {
+    font-size: 18px !important;
+    /* Small 3 (Increased to 18px per user request) */
+    font-weight: bold !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    /* Shadow style */
+    background-color: #F9FAFB;
+    /* Ensure background handles shadow visibility */
+}
+
+/* Ensure Date/Day stacking in headers */
+.th-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.th-date {
+    font-size: 1em;
+}
+
+.th-day {
+    font-size: 0.85em;
+    font-weight: normal;
+    color: #64748b;
+}
+
+/* Adjust the icon buttons within the cells to fit */
+#availabilityBody .icon-slot,
+#scheduleTypesTable .action-btn {
+    font-size: 20px;
+    /* Keep icons readable */
+    line-height: 1;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 4px;
+    cursor: pointer;
+}
+
+/* Hover effect for better row tracking in compact view */
+#availabilityBody tr:hover td,
+#scheduleTypesTable tbody tr:hover td {
+    background-color: #f8fafc;
+}
+
+/* Borders for Course Type Table (Matching Availability Table) */
+#scheduleTypesTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#scheduleTypesTable th,
+#scheduleTypesTable td {
+    border: 1px solid #E9ECEF;
+}
+
+/* Fine-tuning for Course Type Table (Specific Overrides) */
+#scheduleTypesTable thead th {
+    height: 76px !important;
+    /* Reduced by 20% */
+    padding: 12px 4px !important;
+}
+
+#scheduleTypesTable tbody td {
+    height: 58px !important;
+    /* Reduced by 20% */
+    padding: 10px 4px !important;
+    font-weight: normal !important;
+    /* Non-bold text */
+    color: #333;
+    /* Ensure readable contrast */
+}
+
+/* Ensure action buttons also respect the non-bold/normal weight if needed, though icons are symbols */
+#scheduleTypesTable .action-btn {
+    font-weight: normal;
+}
+
+/* User Management Styles */
+
+/* 1. Add User Button: Increase font size +2px */
+/* 1. Add User Button: Standardize to 14px Bold (Match Statistics) */
+.user-manage-add-btn {
+    font-size: 14px !important;
+    font-weight: bold !important;
+    padding: 8px 16px;
+    line-height: 1.5;
+}
+
+/* User Management Tabs: 14px Bold (Match Statistics) */
+#userRoleTabs .tab-btn {
+    font-size: 14px !important;
+    font-weight: bold !important;
+}
+
+/* Course Type Management - Add Type Button: Match User Add Button */
+#addScheduleTypeBtn {
+    font-size: 14px !important;
+    font-weight: bold !important;
+    padding: 8px 16px;
+    line-height: 1.5;
+}
+
+/* 2. User Table Styles - Inherit from Course Type / Availability Table */
+#usersTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#usersTable th,
+#usersTable td {
+    border: 1px solid #E9ECEF;
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
+#usersTable thead th {
+    height: 82px !important;
+    padding: 12px 4px !important;
+    font-size: 16px !important;
+    font-weight: bold !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background-color: #F9FAFB;
+    line-height: 1.4 !important;
+}
+
+#usersTable tbody td {
+    height: 96px !important;
+    padding: 10px 4px !important;
+    font-size: 16px !important;
+    font-weight: normal !important;
+    color: #333;
+    line-height: 1.4 !important;
+}
+
+#usersTable tbody tr:hover td {
+    background-color: #f8fafc;
+}
+
+/* Action Icons Alignment */
+/* Action Icons Alignment */
+#usersTable .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    background: #fff;
+    border: 1px solid #E2E8F0;
+    cursor: pointer;
+    vertical-align: middle;
+    margin: 0 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+#usersTable .btn-icon:hover {
+    background-color: #f8fafc;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+#usersTable .edit-btn {
+    color: #64748b;
+}
+
+#usersTable .edit-btn:hover {
+    color: #3b82f6;
+    border-color: #bfdbfe;
+    background-color: #eff6ff;
+}
+
+#usersTable .delete-btn {
+    color: #ef4444;
+}
+
+#usersTable .delete-btn:hover {
+    color: #dc2626;
+    border-color: #fecaca;
+    background-color: #fef2f2;
+}
+
+#usersTable .material-icons-round {
+    font-size: 20px;
+}
+
+/* --- Schedule Card Styles (Strict Design Match) --- */
+
+.schedule-card-group {
+    border: 1px solid transparent;
+    /* Defined in slots */
+    border-radius: 8px;
+    /* Rounded corners */
+    padding: 12px;
+    /* Spacious */
+    margin-bottom: 8px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    background-color: #FFFFFF;
+    box-sizing: border-box;
+}
+
+/* Time Slot Themes (Backgrounds & Borders) */
+/* Morning (06-12): Blue Theme - Darkened for better visibility */
+.schedule-card-group.slot-morning {
+    background-color: #DBEAFE;
+    /* Blue-100 */
+    border-color: #93C5FD;
+    /* Blue-300 */
+}
+
+.schedule-card-group.slot-morning:hover {
+    background-color: #BFDBFE;
+    /* Blue-200 on hover */
+    border-color: #2563EB;
+    /* Blue-600 */
+    box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.25);
+    transform: translateY(-1px);
+}
+
+/* Afternoon (12-19): Yellow Theme - Darkened for better visibility */
+.schedule-card-group.slot-afternoon {
+    background-color: #FEF3C7;
+    /* Yellow-100 */
+    border-color: #FCD34D;
+    /* Yellow-300 */
+}
+
+.schedule-card-group.slot-afternoon:hover {
+    background-color: #FDE68A;
+    /* Yellow-200 on hover */
+    border-color: #D97706;
+    /* Yellow-600 */
+    box-shadow: 0 4px 12px -2px rgba(217, 119, 6, 0.25);
+    transform: translateY(-1px);
+}
+
+/* Evening (19-24): Purple Theme - Darkened for better visibility */
+.schedule-card-group.slot-evening {
+    background-color: #F3E8FF;
+    /* Purple-100 */
+    border-color: #D8B4FE;
+    /* Purple-300 */
+}
+
+.schedule-card-group.slot-evening:hover {
+    background-color: #E9D5FF;
+    /* Purple-200 on hover */
+    border-color: #9333EA;
+    /* Purple-600 */
+    box-shadow: 0 4px 12px -2px rgba(147, 51, 234, 0.25);
+    transform: translateY(-1px);
+}
+
+
+/* Layout Components */
+.schedule-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.schedule-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    /* No background on row, clean look as per image */
+}
+
+/* Row Left: Name + Type */
+.schedule-row .row-left {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.teacher-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: #1E293B;
+    /* Slate-800 */
+    white-space: nowrap;
+}
+
+.course-type-text {
+    font-size: 12px;
+    color: #64748B;
+    /* Slate-500 */
+    white-space: nowrap;
+}
+
+/* Status Badges (Pill shape, Specific colors) */
+/* Status Badges & Selects (Pill shape, Specific colors) */
+/* Status Badges & Selects (Pill shape, Specific colors) */
+.status-badge-sm,
+.status-select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    /* Reduced padding */
+    border-radius: 4px;
+    font-size: 10px;
+    /* Smaller font */
+    height: 18px;
+    /* Fixed compact height */
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.status-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    border: none;
+    cursor: pointer;
+    outline: none;
+    text-align: center;
+    width: auto;
+    /* Width based on text */
+    min-width: 40px;
+    transition: opacity 0.2s;
+    background-position: right 2px center;
+}
+
+.status-select:hover {
+    opacity: 0.8;
+}
+
+.status-badge-sm.completed,
+.status-select.completed {
+    background-color: #E2E8F0;
+    color: #475569;
+}
+
+.status-badge-sm.confirmed,
+.status-select.confirmed {
+    background-color: #DCFCE7;
+    color: #166534;
+}
+
+.status-badge-sm.pending,
+.status-select.pending {
+    background-color: #FFEDD5;
+    color: #9A3412;
+}
+
+.status-badge-sm.cancelled,
+.status-select.cancelled {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    text-decoration: line-through;
+    /* Keep for badge, select text maybe not supported */
+}
+
+.status-select.cancelled {
+    text-decoration: none;
+    /* Select text doesn't support line-through well in some browsers */
+}
+
+/* Marquee Effect for Long Names/Types */
+.marquee-wrapper {
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 90px;
+    /* Constrain width */
+    position: relative;
+    /* Fade mask on right if overflow? Optional */
+}
+
+.marquee-content {
+    display: inline-block;
+    padding-right: 20px;
+    /* Space after content */
+}
+
+.marquee-wrapper:hover .marquee-content {
+    animation: marquee-scroll 4s linear infinite alternate;
+}
+
+@keyframes marquee-scroll {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(calc(-100% + 90px));
+    }
+
+    /* Scroll until end is visible */
+}
+
+/* Footer: Time & Location */
+.schedule-footer {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    /* Subtle divider */
+    text-align: center;
+    /* Centered as per image */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.time-text {
+    font-weight: 700;
+    font-size: 14px;
+    color: #0F172A;
+    /* Slate-900 */
+    line-height: 1.2;
+}
+
+.location-text {
+    font-size: 11px;
+    color: #64748B;
+    /* Slate-500 */
+    line-height: 1.3;
+    max-width: 100%;
+    /* Allow wrapping for full display per user request */
+    white-space: normal;
+    word-break: break-word;
+}
+
+/* Empty State */
+.no-schedule {
+    color: #94A3B8;
+    /* Slate-400 */
+    text-align: center;
+    padding: 32px 16px;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+/* Today's Schedule Unified Card Redesign */
+.today-schedule-card {
+    background: #FFFFFF;
+    border-radius: var(--card-radius, 12px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-top: 24px;
+    overflow: hidden;
+    border: 1px solid #E2E8F0;
+    /* Slate-200 */
+}
+
+.today-schedule-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid #F1F5F9;
+    /* Slate-100 */
+    background-color: #FFFFFF;
+}
+
+.today-schedule-card .header-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.today-schedule-card .header-title-group h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1E293B;
+    /* Slate-800 */
+    letter-spacing: -0.01em;
+}
+
+.today-schedule-card .refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background-color: transparent;
+    color: var(--secondary-color, #64748b);
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.today-schedule-card .refresh-btn:hover {
+    background-color: #F8FAFC;
+    color: var(--primary-color, #3b82f6);
+    border-color: var(--primary-color, #3b82f6);
+}
+
+.today-schedule-card .refresh-btn .material-icons-round {
+    font-size: 16px;
+}
+
+.today-schedule-card .card-content {
+    padding: 16px 24px 24px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.today-schedule-card .no-data {
+    text-align: center;
+    color: #94A3B8;
+    padding: 24px 0;
+    font-size: 14px;
+}

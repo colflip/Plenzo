@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师仪表盘 - Schedule Widget</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+    <link rel="stylesheet" href="/css/core/global.css">
+    <link rel="stylesheet" href="/css/modules/dashboard.css">
+    <style>
+        /* 全局样式 - Copied from Admin Dashboard */
+        :root {
+            --primary-color: #3b82f6;
+            --secondary-color: #64748b;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+            --info-color: #0ea5e9;
+            --light-bg: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 按钮加载状态样式 */
+        .search-btn {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .search-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .btn-loading {
+            display: none;
+        }
+
+        .search-btn:disabled .btn-loading {
+            display: inline;
+        }
+
+        .search-btn:disabled .btn-text {
+            display: none;
+        }
+
+        /* 反馈消息样式 */
+        .feedback {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+
+
+
+
+
+        .inline-tabs {
+            display: flex;
+            border-radius: 0;
+            overflow: visible;
+            border: none;
+            margin: 0 8px;
+        }
+
+        .inline-tabs .tab-btn {
+            padding: 6px 16px;
+            border: none;
+            background-color: #F8F9FA;
+            color: #2C3E50;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+        }
+
+        .inline-tabs .tab-btn:not(:last-child) {
+            margin-right: 8px;
+        }
+
+        .inline-tabs .tab-btn:hover {
+            background-color: #E9ECEF;
+            color: #2ECC71;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .inline-tabs .tab-btn.active {
+            background-color: #2ECC71;
+            color: white;
+            box-shadow: 0 4px 10px rgba(46, 204, 113, 0.22);
+        }
+
+        /* 主按钮样式 - 查询按钮 - 与用户管理按钮样式一致 */
+        .primary-btn {
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 90px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+
+        .primary-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .primary-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* 信息按钮样式 - 导出按钮 - 与用户管理按钮样式一致 */
+        .info-btn {
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 90px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+            margin-left: 12px;
+        }
+
+        .info-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .info-btn:active {
+            transform: translateY(1px);
+        }
+
+        .info-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        /* 响应式调整 */
+
+
+        .feedback.info {
+            background-color: #e1f0fa;
+            border: 1px solid #beddf6;
+            color: #1e40af;
+        }
+
+        .feedback.error {
+            background-color: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+        }
+
+        .feedback.success {
+            background-color: #dcfce7;
+            border: 1px solid #bbf7d0;
+            color: #15803d;
+        }
+
+        /* 数据导出功能样式 */
+        .export-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-top: 0;
+            padding: 16px 0;
+            background-color: transparent;
+            border-radius: 0;
+            border: none;
+        }
+
+        .time-range-preset {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .time-range-preset label {
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .time-range-preset select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: white;
+            font-size: 14px;
+            min-width: 100px;
+            cursor: pointer;
+        }
+
+        .export-buttons {
+            display: flex;
+            gap: 12px;
+            margin-left: auto;
+        }
+
+        .export-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            white-space: nowrap;
+            position: relative;
+            min-width: 90px;
+            justify-content: center;
+        }
+
+        .export-btn:hover:not(:disabled) {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .export-btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        .export-btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+
+        .export-btn.loading {
+            pointer-events: none;
+        }
+
+        .export-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        .export-btn[data-type="student"] {
+            background-color: #2ECC71;
+        }
+
+        .export-btn[data-type="student"]:hover:not(:disabled) {
+            background-color: #27AE60;
+        }
+
+        .export-btn .spinner {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .export-btn .spinner .material-icons-round {
+            font-size: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .export-loading {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background-color: var(--secondary-color);
+            color: white;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .export-loading .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 统计控制区优化 */
+        .statistics-controls {
+            background-color: #f8fafc;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 0;
+            flex-wrap: nowrap;
+        }
+
+        .statistics-controls .date-range {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        .statistics-controls .date-range label {
+            white-space: nowrap;
+            font-size: 16px;
+        }
+
+        /* Teaching type stats card width limit */
+        #teachingTypeStats {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        #teachingTypeStats .stat-card {
+            max-width: 40%;
+            min-width: 150px;
+            flex: 0 1 auto;
+        }
+
+        .statistics-controls .date-range input[type="date"] {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: white;
+            font-size: 14px;
+        }
+
+        .statistics-controls .search-btn {
+            padding: 6px 12px;
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
+            margin-left: 0;
+            white-space: nowrap;
+            min-width: 90px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .statistics-controls .search-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .statistics-controls .search-btn:active {
+            transform: translateY(1px);
+        }
+
+        .statistics-controls .search-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .statistics-controls .statistics-tabs {
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .statistics-tabs .tab-btn-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .statistics-tabs .tab-btn {
+            padding: 8px 18px;
+            background-color: white;
+            color: #2C3E50;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease, color .12s ease;
+        }
+
+        .statistics-tabs .tab-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        }
+
+        .statistics-tabs .tab-btn.active {
+            background-color: #2ECC71;
+            color: white;
+            border-color: rgba(0, 0, 0, 0.06);
+            box-shadow: 0 6px 18px rgba(46, 204, 113, 0.18);
+        }
+
+        /* 导出数据按钮 */
+        .statistics-tabs {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding-top: 12px;
+            gap: 16px;
+        }
+
+        .export-data-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background-color: #2ECC71;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
+            box-shadow: 0 6px 18px rgba(46, 204, 113, 0.12);
+            white-space: nowrap;
+            margin-left: 0;
+            min-width: 110px;
+            justify-content: center;
+        }
+
+        .export-data-btn:hover {
+            background-color: #27AE60;
+            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+        }
+
+        .export-data-btn:active {
+            transform: translateY(1px);
+        }
+
+        .export-data-btn .material-icons-round {
+            font-size: 16px;
+        }
+
+        /* 统一背景卡片容器 - 包含查询组件和图表组件 */
+        .stats-unified-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--card-shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* 查询组件部分（上方） */
+        .query-section {
+            width: 100%;
+            padding: 8px 0 12px 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: auto;
+        }
+
+        .query-section .query-controls {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .query-section .query-controls>* {
+            flex-shrink: 0;
+        }
+
+        /* 图表组件部分（下方） */
+        .charts-section {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .charts-section .chart-container {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .charts-section .chart-container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .charts-section .chart-container canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* 响应式设计 - 小屏幕下图表垂直排列 */
+        @media (max-width: 1400px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .query-section .query-controls {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .stats-unified-card {
+                padding: 16px;
+            }
+        }
+
+        /* 教师统计和学生统计的查询组件分隔线样式 - 与总体概览保持一致 */
+        .teacher-summary-card .chart-header,
+        .student-summary-card .chart-header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+
+        /* Teacher Specific Tweaks */
+        .profile-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .profile-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .profile-avatar {
+            width: 80px;
+            height: 80px;
+            background: #2ECC71;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+            margin: 0 auto;
+        }
+
+        .profile-meta {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+
+        .meta-item .label {
+            color: var(--text-secondary);
+        }
+
+        .meta-item .value {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+
+
+    <!-- 侧边栏遮罩层 -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <div class="dashboard-container">
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="logo">
+                <span class="logo-icon material-icons-round">schedule</span>
+                <span class="logo-text">Schedule</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-section="overview">
+                    <span class="material-icons-round">dashboard</span>
+                    <span class="nav-text">总览</span>
+                </a>
+                <a href="#" class="nav-item" data-section="profile">
+                    <span class="material-icons-round">person</span>
+                    <span class="nav-text">个人信息</span>
+                </a>
+                <a href="#" class="nav-item" data-section="availability">
+                    <span class="material-icons-round">event_available</span>
+                    <span class="nav-text">时间安排</span>
+                </a>
+                <a href="#" class="nav-item" data-section="schedules">
+                    <span class="material-icons-round">calendar_today</span>
+                    <span class="nav-text">课程安排</span>
+                </a>
+                <a href="#" class="nav-item" data-section="teaching-display">
+                    <span class="material-icons-round">analytics</span>
+                    <span class="nav-text">数据统计</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="toggle-sidebar">
+                    <span class="material-icons-round">chevron_left</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 主要内容区 -->
+        <div class="main-content">
+            <header class="dashboard-header">
+                <!-- 移动端菜单按钮 (moved inside header) -->
+                <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="打开菜单">
+                    <span class="material-icons-round">menu</span>
+                </button>
+                <h2 id="pageTitle">教师仪表盘</h2>
+                <div class="user-info">
+                    <span class="user-name" id="teacherName">教师</span>
+                    <span class="role-badge" id="teacherRole">教师</span>
+                    <button class="logout-btn" id="logout">退出登录</button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <!-- Overview Section -->
+                <section id="overview" class="dashboard-section active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>本月课程</h3>
+                            <p id="monthlyLessons">--</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>待确认</h3>
+                            <p id="pendingConfirmations">--</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>已完成</h3>
+                            <p id="completedLessons">--</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-unified-card" style="margin-top: 20px; padding: 24px;">
+                        <div class="form-header"
+                            style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0;">今日排课</h3>
+                            <button id="refreshTodaySchedulesBtn" class="info-btn"
+                                style="padding: 6px 12px; font-size: 13px;">
+                                <span class="material-icons-round" style="font-size: 16px;">refresh</span> 刷新
+                            </button>
+                        </div>
+                        <div id="todayScheduleList" style="display: flex; flex-direction: column; gap: 12px;">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Profile Section -->
+                <section id="profile" class="dashboard-section">
+                    <div class="profile-layout">
+                        <div class="stats-unified-card">
+                            <div class="profile-avatar" id="profileAvatar">T</div>
+                            <h3 style="text-align:center; margin-top:16px;" id="profileSummaryTitle">教师姓名</h3>
+                            <p style="text-align:center; color:var(--text-secondary);" class="profile-summary-role">教师账号
+                            </p>
+
+                            <div class="profile-meta">
+                                <div class="meta-item">
+                                    <span class="label">上次登录</span>
+                                    <span class="value" id="lastLoginDisplay">--</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="label">状态</span>
+                                    <span class="value" id="statusDisplay">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stats-unified-card">
+                            <div class="form-header">
+                                <h3>详细信息</h3>
+                                <div class="action-buttons" style="display:flex; gap:10px;">
+                                    <button id="changePasswordBtn" class="search-btn" style="background:#3b82f6;">
+                                        <span class="material-icons-round" style="font-size: 16px;">lock</span>
+                                        更改密码
+                                    </button>
+                                    <button id="profileEditBtn" class="info-btn">编辑</button>
+                                    <button id="profileSaveBtn" class="primary-btn" hidden>保存</button>
+                                </div>
+                            </div>
+
+                            <form id="profileForm">
+                                <div class="form-group">
+                                    <label>姓名</label>
+                                    <input type="text" id="profileNameInput" name="name" disabled>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>职业</label>
+                                    <input type="text" id="profileProfessionInput" name="profession" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label>联系方式</label>
+                                    <input type="text" id="profileContactInput" name="contact" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label>上班地点</label>
+                                    <input type="text" id="profileWorkLocationInput" name="work_location" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label>住址</label>
+                                    <input type="text" id="profileHomeAddressInput" name="home_address" disabled>
+                                </div>
+                                <!-- Hidden fields required by JS -->
+                                <div class="form-group" style="display:none;">
+                                    <label>状态</label>
+                                    <select id="profileStatusSelect" disabled>
+                                        <option value="1">正常</option>
+                                        <option value="0">暂停</option>
+                                        <option value="-1">删除</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="display:none;">
+                                    <label>上次登录</label>
+                                    <input type="text" id="profileLastLoginInput" disabled>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Availability Section -->
+                <section id="availability" class="dashboard-section">
+                    <div class="schedule-controls"
+                        style="background:white; padding:16px; border-radius:12px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <div class="week-navigation" style="display:flex; align-items:center; gap:12px;">
+                            <button id="prevWeekAvail" class="search-btn" style="min-width:40px; padding:6px;">
+                                <span class="material-icons-round">chevron_left</span>
+                            </button>
+                            <span id="weekRangeAvail"
+                                style="font-weight:600; min-width:150px; text-align:center;">加载中...</span>
+                            <button id="nextWeekAvail" class="search-btn" style="min-width:40px; padding:6px;">
+                                <span class="material-icons-round">chevron_right</span>
+                            </button>
+                        </div>
+                        <button class="primary-btn" id="saveAvailability">
+                            <span class="material-icons-round" style="margin-right:4px;">save</span>
+                            保存更改
+                        </button>
+                    </div>
+
+                    <div class="stats-unified-card" style="padding:0; overflow:hidden;">
+                        <div class="table-container" style="margin-top:0;">
+                            <table class="weekly-schedule-table" style="width:100%;">
+                                <thead id="weeklyHeaderAvail"></thead>
+                                <tbody id="weeklyBodyAvail"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="availabilityFeedback" class="feedback" style="display:none;"></div>
+                </section>
+
+                <!-- Schedules Section -->
+                <section id="schedules" class="dashboard-section">
+                    <div class="schedule-controls"
+                        style="background:white; padding:16px; border-radius:12px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <div class="week-navigation" style="display:flex; align-items:center; gap:12px;">
+                            <button id="prevWeek" class="search-btn" style="min-width:40px; padding:6px;">
+                                <span class="material-icons-round">chevron_left</span>
+                            </button>
+                            <span id="weekRange"
+                                style="font-weight:600; min-width:150px; text-align:center;">加载中...</span>
+                            <button id="nextWeek" class="search-btn" style="min-width:40px; padding:6px;">
+                                <span class="material-icons-round">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="stats-unified-card" style="padding:0; overflow:hidden;">
+                        <div class="table-container" style="margin-top:0;">
+                            <table class="weekly-schedule-table" style="width:100%;">
+                                <thead id="weeklyHeader"></thead>
+                                <tbody id="weeklyBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="scheduleFeedback" class="feedback" style="display:none;"></div>
+                </section>
+
+                <!-- Statistics Section -->
+                <section id="teaching-display" class="dashboard-section">
+                    <div class="statistics-controls">
+                        <div class="stats-date-group">
+                            <div class="date-range">
+                                <label>周期:</label>
+                                <input type="date" id="teachingStartDate">
+                            </div>
+                            <div class="date-range">
+                                <label>至</label>
+                                <input type="date" id="teachingEndDate">
+                            </div>
+                        </div>
+                        <div class="stats-btn-group">
+                            <button id="teachingQueryBtn" class="search-btn">
+                                <span class="material-icons-round"
+                                    style="font-size:18px; margin-right:4px;">search</span>
+                                查询
+                            </button>
+                            <div class="preset-btn-group" style="display:flex; gap:8px; margin-left: 10px;">
+                                <button class="preset-btn" data-range="yesterday"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">昨天</button>
+                                <button class="preset-btn" data-range="prev_week"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上周</button>
+                                <button class="preset-btn" data-range="prev_month"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上月</button>
+                                <button class="preset-btn" data-range="prev_quarter"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上季度</button>
+                                <button class="preset-btn" data-range="prev_year"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上年</button>
+                                <button class="preset-btn" data-range="today"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">今天</button>
+                                <button class="preset-btn" data-range="this_week"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本周</button>
+                                <button class="preset-btn" data-range="this_month"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本月</button>
+                                <button class="preset-btn" data-range="this_quarter"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本季度</button>
+                                <button class="preset-btn" data-range="this_year"
+                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本年</button>
+                            </div>
+                            <button id="teachingExportBtn" class="query-btn export-btn" style="margin-left: 8px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                导出
+                            </button>
+
+                        </div>
+                    </div>
+
+                    <div class="stats-unified-card">
+                        <!-- Teaching Type Stats Cards Area -->
+                        <div class="stats-component-card"
+                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <div id="teachingTypeStats" class="stats-grid">
+                                <!-- Dynamic Stats -->
+                            </div>
+                        </div>
+
+                        <!-- Daily Statistics Bar Chart Area -->
+                        <div class="stats-component-card"
+                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日授课统计
+                            </h3>
+                            <div style="height: 300px;">
+                                <canvas id="dailyTeachingChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Detailed Teaching Information Table Area -->
+                        <div class="stats-component-card"
+                            style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
+                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体授课信息
+                            </h3>
+                            <div class="table-container"
+                                style="margin-top:0; border:none; box-shadow:none; background:transparent;">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>日期</th>
+                                            <th>时间段</th>
+                                            <th>课程类型</th>
+                                            <th>学生姓名</th>
+                                            <th>上课地点</th>
+                                            <th>状态</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="teachingDetailsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- 密码修改弹窗 -->
+    <div id="passwordChangeModal" class="modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>更改密码</h3>
+                <button class="modal-close" id="closePasswordModal">
+                    <span class="material-icons-round">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="passwordChangeForm">
+                    <div class="form-group">
+                        <label>当前密码</label>
+                        <input type="password" id="modalCurrentPassword" placeholder="请输入当前密码" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>新密码</label>
+                        <input type="password" id="modalNewPassword" placeholder="请输入新密码" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>确认新密码</label>
+                        <input type="password" id="modalConfirmPassword" placeholder="请再次输入新密码" required>
+                        <div class="password-match-feedback" id="modalPasswordMatchFeedback"
+                            style="font-size: 12px; margin-top: 4px;"></div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="search-btn" id="cancelPasswordChange"
+                            style="background:#9ca3af;">取消</button>
+                        <button type="submit" class="primary-btn">提交</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/core/api-client.js"></script>
+    <script src="/js/utils/date-range-utils.js"></script>
+    <script src="/js/core/schedule-types-store.js"></script>
+
+    <script src="/js/components/export-dialog.js"></script>
+    <script type="module" src="/js/modules/teacher/entry.js"></script>
+
+
+</body>
+
+</html>

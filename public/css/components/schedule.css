@@ -1,0 +1,163 @@
+/* 周视图基础样式优化 */
+.weekly-table-container {
+    overflow-x: auto;
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.weekly-schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+#weeklyHeader th,
+#weeklyBody td {
+    border: 1px solid #E9ECEF;
+    padding: 12px;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* 固定学生列和表头 */
+.weekly-schedule-table th.sticky-col,
+.weekly-schedule-table td.sticky-col {
+    position: sticky;
+    left: 0;
+    background: #F8F9FA;
+    z-index: 2;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+    min-width: 120px;
+}
+
+.weekly-schedule-table th.sticky-col {
+    z-index: 3;
+    font-weight: 600;
+    color: #2C3E50;
+    background: #F1F3F5;
+}
+
+/* 课程项样式 */
+.schedule-item {
+    background: #FFFFFF;
+    border: 1px solid #E9ECEF;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 4px 0;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.schedule-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 课程状态样式 */
+.schedule-item.pending {
+    border-style: dashed;
+    background-color: #FFF9C4;
+}
+
+.schedule-item.confirmed {
+    border-color: #4CAF50;
+    background-color: #E8F5E9;
+}
+
+.schedule-item.completed {
+    border-color: #2196F3;
+    background-color: #E3F2FD;
+}
+
+.schedule-item.cancelled {
+    border-color: #FF5722;
+    background-color: #FBE9E7;
+    opacity: 0.7;
+}
+
+/* 时间段显示 */
+.item-time {
+    display: block;
+    color: #2C3E50;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.item-type {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #F1F3F5;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #495057;
+    margin: 2px 0;
+}
+
+/* 确认/拒绝按钮 */
+.item-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    justify-content: center;
+}
+
+.confirm-btn,
+.reject-btn {
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.confirm-btn {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.confirm-btn:hover {
+    background-color: #388E3C;
+}
+
+.reject-btn {
+    background-color: #FF5722;
+    color: white;
+}
+
+.reject-btn:hover {
+    background-color: #D84315;
+}
+
+/* 空课程提示 */
+.no-schedule {
+    color: #ADB5BD;
+    font-size: 12px;
+    padding: 8px;
+}
+
+/* 响应式优化 */
+@media screen and (max-width: 768px) {
+    .weekly-table-container {
+        margin: 0 -15px;
+    }
+    
+    .schedule-item {
+        font-size: 12px;
+        padding: 6px;
+    }
+    
+    .item-actions {
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .confirm-btn,
+    .reject-btn {
+        width: 100%;
+    }
+}
