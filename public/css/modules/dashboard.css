@@ -2480,12 +2480,22 @@ tr:last-child td {
 .group-picker-item {
     background: #F8FAFC;
     border: 1px solid #E5E7EB;
-    border-radius: 8px;
-    padding: 6px 8px;
-    margin: 6px 0;
-    font-size: 12px;
-    line-height: 1.4;
+    border-radius: 10px;
+    /* Gently rounded */
+    padding: 16px !important;
+    /* Increased padding */
+    margin: 8px 0;
+    font-size: 13px;
+    /* Slightly larger text */
+    line-height: 1.5;
     color: #0F172A;
+    min-height: 140px !important;
+    /* ~25%+ Height Increase */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    /* Subtle depth */
 }
 
 .group-picker-item:hover {
@@ -2643,10 +2653,8 @@ tr:last-child td {
 }
 
 .group-picker-item {
-    padding: 6px 8px;
-    border-radius: 6px;
     cursor: pointer;
-    color: #0F172A;
+    transition: all 0.2s ease;
 }
 
 .group-picker-item:hover {
@@ -6104,4 +6112,984 @@ svg {
     color: #94A3B8;
     padding: 24px 0;
     font-size: 14px;
+}
+
+/* ==========================================================================
+   Modern Schedule Design System (Shared for Teacher/Student)
+   ========================================================================== */
+
+/* 1. Dashboard Container Overrides */
+.dashboard-container {
+    background-color: #F8FAFC !important;
+}
+
+/* 2. Schedule Controls Toolbar */
+.schedule-controls {
+    background: white !important;
+    padding: 16px 24px !important;
+    border-radius: 16px !important;
+    border: 1px solid #E2E8F0 !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    /* Changed to flex-start to keep buttons left-aligned */
+    align-items: center !important;
+    margin-bottom: 24px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    gap: 16px !important;
+    /* Added gap between nav and buttons */
+}
+
+.week-navigation {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #F8FAFC !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 999px !important;
+    padding: 4px 12px !important;
+    min-height: 48px !important;
+}
+
+.week-navigation .search-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: transparent !important;
+    border: none !important;
+    color: #64748B !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+.week-navigation .search-btn:hover {
+    background: #E2E8F0 !important;
+    color: #1E293B !important;
+}
+
+.week-navigation .search-btn .material-icons-round {
+    font-size: 20px !important;
+}
+
+#weekRange,
+#weekRangeAvail {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: #1E293B !important;
+    margin: 0 16px !important;
+    min-width: 260px !important;
+    text-align: center !important;
+}
+
+/* 3. Unified Card Container */
+.schedule-unified-card {
+    background: white !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 20px !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+    overflow: hidden !important;
+}
+
+/* 4. Modern Weekly Table */
+.weekly-schedule-table {
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    table-layout: fixed !important;
+}
+
+.weekly-schedule-table th.date-header {
+    background-color: #FAFAFA !important;
+    padding: 16px 12px !important;
+    border-bottom: 2px solid #E5E7EB !important;
+    border-right: 1px solid #E5E7EB !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    min-width: 120px !important;
+}
+
+/* 首列（姓名列/时间列）样式 - 仿照管理员端 */
+.weekly-schedule-table th.name-col-header,
+.weekly-schedule-table th.time-col-header,
+.weekly-schedule-table th:first-child,
+.weekly-schedule-table td.sticky-col {
+    background-color: #FAFAFA !important;
+    padding: 16px 12px !important;
+    font-weight: 600 !important;
+    color: #1F2937 !important;
+    text-align: center !important;
+    border-right: 2px solid #E5E7EB !important;
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 10 !important;
+}
+
+.weekly-schedule-table th.name-col-header {
+    border-bottom: 2px solid #E5E7EB !important;
+    z-index: 11 !important;
+}
+
+.weekly-schedule-table th .date-label {
+    display: block !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    color: #1F2937 !important;
+    margin-bottom: 2px !important;
+    white-space: nowrap !important;
+}
+
+.weekly-schedule-table th .day-label {
+    display: block !important;
+    font-size: 11px !important;
+    color: #9CA3AF !important;
+    font-weight: 400 !important;
+}
+
+.weekly-schedule-table td {
+    padding: 12px !important;
+    border-bottom: 1px solid #E5E7EB !important;
+    border-right: 1px solid #E5E7EB !important;
+    vertical-align: middle !important;
+    text-align: center !important;
+    height: 120px !important;
+    transition: background-color 0.2s ease !important;
+}
+
+.weekly-schedule-table tbody tr:hover td {
+    background-color: rgba(241, 245, 249, 0.5) !important;
+}
+
+.weekly-schedule-table tbody tr:hover td:first-child {
+    background-color: #F1F5F9 !important;
+}
+
+/* 5. Icon Slot (Availability) */
+.icon-slot-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    cursor: pointer !important;
+    padding: 8px !important;
+    border-radius: 12px !important;
+    transition: all 0.2s ease !important;
+}
+
+.icon-slot-container:hover {
+    background-color: #ECFDF5 !important;
+}
+
+.icon-slot {
+    font-size: 32px !important;
+    color: #CBD5E1 !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.icon-slot-container.active .icon-slot {
+    color: #10B981 !important;
+    transform: scale(1.1) !important;
+}
+
+.icon-slot-text {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: #94A3B8 !important;
+}
+
+.icon-slot-container.active .icon-slot-text {
+    color: #059669 !important;
+}
+
+/* 6. Refined Schedule Card */
+/* 6. Refined Schedule Card (Matching Admin Style) */
+.schedule-card-group {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 12px !important;
+    padding: 0 !important;
+    margin-bottom: 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    overflow: hidden !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    text-align: left !important;
+}
+
+.schedule-card-group:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 16px rgba(148, 163, 184, 0.12) !important;
+}
+
+/* Slot-based color coding */
+.schedule-card-group.slot-morning {
+    border-top: 4px solid #3B82F6 !important;
+}
+
+.schedule-card-group.slot-afternoon {
+    border-top: 4px solid #F59E0B !important;
+}
+
+.schedule-card-group.slot-evening {
+    border-top: 4px solid #8B5CF6 !important;
+}
+
+.schedule-card-group .card-content {
+    padding: 10px !important;
+}
+
+.schedule-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    margin-bottom: 8px !important;
+}
+
+.schedule-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 4px !important;
+}
+
+.row-left {
+    flex: 1 !important;
+    min-width: 0 !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    color: #1E293B !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.course-type-text {
+    font-weight: 400 !important;
+    color: #94A3B8 !important;
+    font-size: 12px !important;
+    margin-left: 2px !important;
+}
+
+/* Status Select (Editable for Teachers) */
+.status-select {
+    font-size: 11px !important;
+    padding: 2px 6px !important;
+    border-radius: 6px !important;
+    border: 1px solid transparent !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    outline: none !important;
+    min-width: 65px !important;
+}
+
+/* Status Readonly Tag (For Students) */
+.status-tag-readonly {
+    font-size: 11px !important;
+    padding: 2px 8px !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    cursor: default !important;
+}
+
+/* Status Mapping Styles */
+.status-pending {
+    background-color: #FEF3C7 !important;
+    color: #D97706 !important;
+}
+
+.status-confirmed {
+    background-color: #DCFCE7 !important;
+    color: #16A34A !important;
+}
+
+.status-completed {
+    background-color: #F1F5F9 !important;
+    color: #475569 !important;
+}
+
+.status-cancelled {
+    background-color: #FEE2E2 !important;
+    color: #DC2626 !important;
+    text-decoration: none !important;
+}
+
+.status-select.pending {
+    background-color: #FEF3C7 !important;
+    color: #D97706 !important;
+}
+
+.status-select.confirmed {
+    background-color: #DCFCE7 !important;
+    color: #16A34A !important;
+}
+
+.status-select.completed {
+    background-color: #F1F5F9 !important;
+    color: #475569 !important;
+}
+
+.status-select.cancelled {
+    background-color: #FEE2E2 !important;
+    color: #DC2626 !important;
+}
+
+/* Footer Area */
+.schedule-footer {
+    padding: 8px 10px !important;
+    background-color: #F8FAFC !important;
+    border-top: 1px solid #F1F5F9 !important;
+    text-align: center !important;
+}
+
+.time-text {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: #334155 !important;
+    margin-bottom: 2px !important;
+}
+
+.location-text {
+    font-size: 10px !important;
+    color: #64748B !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.card-item-time {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: #1E293B !important;
+    margin: 4px 0 !important;
+    letter-spacing: -0.5px !important;
+}
+
+.card-item-footer {
+    font-size: 11px !important;
+    color: #64748B !important;
+    line-height: 1.4 !important;
+    max-height: 3em !important;
+    overflow: hidden !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+}
+
+/* Color Variations based on Type/Status */
+.unified-schedule-card-item.type-visit {
+    background-color: #F5F3FF !important;
+    border-color: #DDD6FE !important;
+}
+
+.unified-schedule-card-item.type-visit .card-item-status-tag {
+    background: #DDD6FE;
+    color: #6D28D9;
+}
+
+.unified-schedule-card-item.type-trial {
+    background-color: #F0F9FF !important;
+    border-color: #BAE6FD !important;
+}
+
+.unified-schedule-card-item.type-trial .card-item-status-tag {
+    background: #BAE6FD;
+    color: #0369A1;
+}
+
+.unified-schedule-card-item.type-review {
+    background-color: #FFFBEB !important;
+    border-color: #FDE68A !important;
+}
+
+.unified-schedule-card-item.type-review .card-item-status-tag {
+    background: #FDE68A;
+    color: #B45309;
+}
+
+/* Status specific overrides if needed */
+.card-item-status-tag.status-completed {
+    background: #DCFCE7 !important;
+    color: #15803D !important;
+}
+
+.card-item-status-tag.status-confirmed {
+    background: #DBEAFE !important;
+    color: #1D4ED8 !important;
+}
+
+.card-item-status-tag.status-pending {
+    background: #F1F5F9 !important;
+    color: #475569 !important;
+}
+
+.card-item-status-tag.status-cancelled {
+    background: #FEE2E2 !important;
+    color: #B91C1C !important;
+}
+
+/* =================================
+   7. Modern Today's Schedule Card
+   ================================= */
+.today-card-modern {
+    display: flex;
+    flex-direction: row;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    min-height: 80px;
+    padding-left: 6px;
+    /* Space for the colored strip if using border-left directly on container, or pseudoelement */
+}
+
+.today-card-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Color Strips as Pseudo-element */
+.today-card-modern::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    /* Variable width strip */
+    background-color: #CBD5E1;
+}
+
+.today-card-modern.slot-morning::before {
+    background-color: #3B82F6;
+}
+
+.today-card-modern.slot-afternoon::before {
+    background-color: #F59E0B;
+}
+
+.today-card-modern.slot-evening::before {
+    background-color: #8B5CF6;
+}
+
+/* Layout Sections */
+.today-card-time {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 20px;
+    background-color: #F8FAFC;
+    border-right: 1px solid #F1F5F9;
+    min-width: 110px;
+    flex-shrink: 0;
+    /* Prevent shrinking */
+}
+
+.today-card-time .time-range {
+    font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1E293B;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+.today-card-time .time-slot-label {
+    font-size: 12px;
+    color: #64748B;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.today-card-info {
+    flex: 1;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    /* Important for text truncation in flex items */
+}
+
+.today-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.today-card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0F172A;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    /* efficient wrapping for badges */
+}
+
+.today-card-type {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background-color: #F1F5F9;
+    color: #475569;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    border: 1px solid #E2E8F0;
+}
+
+.today-card-details {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    color: #64748B;
+    font-size: 13px;
+    flex-wrap: wrap;
+}
+
+.today-card-detail-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.today-card-detail-item .material-icons-round {
+    font-size: 16px;
+    color: #94A3B8;
+}
+
+/* Ensure full text for location */
+.today-card-detail-item.location {
+    white-space: normal;
+    line-height: 1.4;
+}
+
+.today-card-status {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid #F1F5F9;
+    min-width: 100px;
+}
+
+/* Status Badges within Card */
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.status-pill.pending {
+    background-color: #FFF7ED;
+    color: #C2410C;
+    border: 1px solid #FFEDD5;
+}
+
+.status-pill.confirmed {
+    background-color: #F0FDF4;
+    color: #15803D;
+    border: 1px solid #DCFCE7;
+}
+
+.status-pill.completed {
+    background-color: #F8FAFC;
+    color: #475569;
+    border: 1px solid #E2E8F0;
+}
+
+.status-pill.cancelled {
+    background-color: #FEF2F2;
+    color: #B91C1C;
+    border: 1px solid #FECACA;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+    .today-card-modern {
+        flex-direction: column;
+        padding-left: 0;
+        border-top: 4px solid #CBD5E1;
+        /* Top strip on mobile */
+    }
+
+    .today-card-modern.slot-morning {
+        border-top-color: #3B82F6;
+    }
+
+    .today-card-modern.slot-afternoon {
+        border-top-color: #F59E0B;
+    }
+
+    .today-card-modern.slot-evening {
+        border-top-color: #8B5CF6;
+    }
+
+    .today-card-modern::before {
+        display: none;
+        /* Hide left strip */
+    }
+
+    .today-card-time {
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-right: none;
+        border-bottom: 1px solid #F1F5F9;
+        background-color: #fff;
+        width: 100%;
+    }
+
+    .today-card-info {
+        padding: 16px;
+    }
+
+    .today-card-status {
+        border-left: none;
+        padding: 0 16px 16px;
+        justify-content: flex-start;
+    }
+
+    .today-card-details {
+        gap: 12px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* =================================
+   8. Teacher Overview Stats Grid
+   ================================= */
+.teacher-stats-container {
+    margin-bottom: 24px;
+}
+
+/* Shared Overview Grid (Used by Teacher & Student) */
+.overview-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 16px;
+    margin: 0 auto 24px auto;
+    /* Centered with bottom margin */
+    width: 90%;
+    /* Reduce width by 10% as requested */
+}
+
+/* Admin-style Card Design */
+.stat-card.summary-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 24px;
+    background: #FFFFFF;
+    border-radius: 12px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    cursor: pointer;
+    overflow: visible;
+    min-height: 120px;
+    /* Ensure visual balance */
+}
+
+.stat-card.summary-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: #CBD5E1;
+    z-index: 50;
+    /* Ensure tooltip shows above other content */
+}
+
+.stat-card.summary-card h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: #4B5563;
+    /* Gray-600 */
+    margin: 0;
+    line-height: 1.5;
+}
+
+.stat-card.summary-card .stat-value {
+    font-size: 42px;
+    /* Large, impressive number */
+    font-weight: 700;
+    color: #2ECC71;
+    /* Brand Green */
+    margin: 12px 0 0 0;
+    line-height: 1;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Tooltip Styles (Preserved but simplified) */
+/* Tooltip Styles - Positioned Below */
+.stat-card.summary-card::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: rgba(15, 23, 42, 0.95);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: max-content;
+    max-width: 200px;
+    /* Prevent too wide */
+    text-align: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Tooltip Arrow */
+.stat-card.summary-card::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(0px);
+    /* Positioning right at edge */
+    border-width: 6px;
+    border-style: solid;
+    border-color: transparent transparent rgba(15, 23, 42, 0.95) transparent;
+    /* Pointing up */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
+}
+
+.stat-card.summary-card:hover::before {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(12px);
+    /* Drop down effect */
+}
+
+.stat-card.summary-card:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0px);
+}
+
+/* Remove colored borders but keep classes for JS selection if needed */
+.stat-card.summary-card.status-pending,
+.stat-card.summary-card.status-completed,
+.stat-card.summary-card.status-cancelled,
+.stat-card.summary-card.time-stats {
+    border-bottom: none;
+}
+
+/* Responsive Grid */
+@media (max-width: 1400px) {
+    .overview-stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .overview-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .stat-card.summary-card {
+        padding: 16px;
+        min-height: 100px;
+    }
+
+    .stat-card.summary-card .stat-value {
+        font-size: 32px;
+    }
+}
+
+/* Reward Modal (Keeping existing) */
+
+/* =================================
+   9. Game Victory Reward Modal
+   ================================= */
+.reward-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.reward-modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.reward-modal-content {
+    background: linear-gradient(135deg, #FFD700 0%, #FDB931 100%);
+    width: 90%;
+    max-width: 400px;
+    padding: 40px;
+    border-radius: 24px;
+    text-align: center;
+    box-shadow:
+        0 20px 25px -5px rgba(0, 0, 0, 0.1),
+        0 10px 10px -5px rgba(0, 0, 0, 0.04),
+        0 0 50px rgba(253, 185, 49, 0.5);
+    /* Glow */
+    transform: scale(0.8) translateY(20px);
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.reward-modal-overlay.active .reward-modal-content {
+    transform: scale(1) translateY(0);
+}
+
+/* Shine effect */
+.reward-modal-content::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(to right,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.3) 100%);
+    transform: skewX(-25deg);
+    animation: shine 3s infinite;
+}
+
+@keyframes shine {
+    0% {
+        left: -100%;
+    }
+
+    20% {
+        left: 200%;
+    }
+
+    100% {
+        left: 200%;
+    }
+}
+
+.reward-icon {
+    font-size: 64px;
+    color: white;
+    text-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 16px;
+    display: inline-block;
+    animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+
+    0%,
+    20%,
+    50%,
+    80%,
+    100% {
+        transform: translateY(0);
+    }
+
+    40% {
+        transform: translateY(-20px);
+    }
+
+    60% {
+        transform: translateY(-10px);
+    }
+}
+
+.reward-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #78350F;
+    /* Dark Amber */
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.reward-value {
+    font-size: 56px;
+    font-weight: 800;
+    color: white;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.1);
+    line-height: 1;
+    margin-bottom: 24px;
+}
+
+.reward-close-btn {
+    background: white;
+    color: #F59E0B;
+    border: none;
+    padding: 12px 32px;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s;
+}
+
+.reward-close-btn:hover {
+    transform: scale(1.05);
+}
+
+.reward-confetti {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #f00;
+    animation: confetti-fall 3s linear infinite;
+    top: -10px;
+}
+
+@keyframes confetti-fall {
+    0% {
+        transform: translateY(-10vh) rotate(0deg);
+        opacity: 1;
+    }
+
+    100% {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0;
+    }
 }

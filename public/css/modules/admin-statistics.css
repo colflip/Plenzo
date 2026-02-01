@@ -380,6 +380,11 @@
 }
 
 /* Teacher & Student Charts Grid */
+.teacher-charts-container,
+.student-charts-container {
+    position: relative;
+}
+
 .teacher-charts-grid,
 .student-charts-grid {
     display: grid;

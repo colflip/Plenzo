@@ -168,20 +168,24 @@ function renderMobileTable(weekDates, state) {
         });
         row.appendChild(dateCell);
 
-        // 第二列开始：每个时间段的选择框
+        // 第二列开始：每个时间段的选择
         TIME_SLOT_CONFIG.forEach(slot => {
             const cell = createElement('td', 'availability-cell');
-            cell.dataset.date = iso;
-            cell.dataset.slot = slot.id;
+            const isActive = state.get(iso)?.[slot.id] ?? false;
 
-            const checkbox = createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = state.get(iso)?.[slot.id] ?? false;
-            checkbox.addEventListener('change', () => {
-                handleAvailabilityChange(iso, slot.id, checkbox.checked, cell);
+            const iconContainer = createElement('div', `icon-slot-container ${isActive ? 'active' : ''}`);
+            iconContainer.innerHTML = `
+                <span class="material-icons-round icon-slot">${slot.icon}</span>
+                <span class="icon-slot-text">${slot.label}</span>
+            `;
+
+            iconContainer.addEventListener('click', () => {
+                const newState = !iconContainer.classList.contains('active');
+                iconContainer.classList.toggle('active', newState);
+                handleAvailabilityChange(iso, slot.id, newState, cell);
             });
 
-            cell.appendChild(checkbox);
+            cell.appendChild(iconContainer);
             row.appendChild(cell);
         });
 
@@ -204,16 +208,18 @@ function renderHeader(weekDates) {
 
     // Date columns
     weekDates.forEach(date => {
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
-        const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
-        const dateLabel = `${month}-${day}/${weekday}`;
 
-        const th = createElement('th', 'date-header', {
-            textContent: dateLabel,
-            dataset: { date: toISODate(date) }
-        });
+        const th = createElement('th', 'date-header');
+        th.dataset.date = toISODate(date);
+        th.innerHTML = `
+            <div class="date-label">${month}月${day}日</div>
+            <div class="day-label">${weekday}</div>
+        `;
         row.appendChild(th);
     });
 
@@ -232,21 +238,25 @@ function renderBody(weekDates, state) {
         const labelCell = createElement('td', 'time-slot-cell', { textContent: slot.label });
         row.appendChild(labelCell);
 
-        // Checkbox cells for each date
+        // Icon containers for each date
         weekDates.forEach(date => {
             const iso = toISODate(date);
             const cell = createElement('td', 'availability-cell');
-            cell.dataset.date = iso;
-            cell.dataset.slot = slot.id;
+            const isActive = state.get(iso)?.[slot.id] ?? false;
 
-            const checkbox = createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = state.get(iso)?.[slot.id] ?? false;
-            checkbox.addEventListener('change', () => {
-                handleAvailabilityChange(iso, slot.id, checkbox.checked, cell);
+            const iconContainer = createElement('div', `icon-slot-container ${isActive ? 'active' : ''}`);
+            iconContainer.innerHTML = `
+                <span class="material-icons-round icon-slot">${slot.icon}</span>
+                <span class="icon-slot-text">${slot.label}</span>
+            `;
+
+            iconContainer.addEventListener('click', () => {
+                const newState = !iconContainer.classList.contains('active');
+                iconContainer.classList.toggle('active', newState);
+                handleAvailabilityChange(iso, slot.id, newState, cell);
             });
 
-            cell.appendChild(checkbox);
+            cell.appendChild(iconContainer);
             row.appendChild(cell);
         });
 
@@ -338,15 +348,17 @@ function showLoadingState() {
     const tbody = elements.body();
     if (!tbody) return;
     clearChildren(tbody);
-    TIME_SLOT_CONFIG.forEach(slot => {
-        const row = createElement('tr');
-        const cell = createElement('td', 'time-slot-cell', { textContent: slot.label });
-        row.appendChild(cell);
-        const loadingCell = createElement('td', 'no-schedule', { textContent: '加载中...' });
-        loadingCell.colSpan = 7;
-        row.appendChild(loadingCell);
-        tbody.appendChild(row);
-    });
+
+    // Add a loading row that spans all columns
+    const row = createElement('tr');
+    const labelCell = createElement('td', 'time-slot-cell', { textContent: '-' });
+    row.appendChild(labelCell);
+
+    const loadingCell = createElement('td', 'no-schedule', { textContent: '加载中...' });
+    loadingCell.colSpan = 7;
+    loadingCell.style.textAlign = 'center';
+    row.appendChild(loadingCell);
+    tbody.appendChild(row);
 }
 
 function updateRangeLabel(weekDates) {

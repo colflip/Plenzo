@@ -12,14 +12,15 @@ export async function initStatisticsSection() {
     setupDateRangePickers();
     setupEventListeners();
 
-    // Auto-load data when section is initialized
-
     try {
-        // Load full detailed data immediately for complete display
-        await loadTeachingCount();
+        // Parallel load for better performance
+        // Start with summary for immediate feedback
+        const summaryPromise = loadTeachingSummary();
+        const detailedPromise = loadTeachingCount();
+
+        await Promise.allSettled([summaryPromise, detailedPromise]);
     } catch (error) {
         console.error('[Teaching Display] Failed to auto-load data:', error);
-        // Show empty state if auto-load fails
         updateDisplay({ schedules: [], typeStats: {} }, '', '');
     }
 }

@@ -45,9 +45,9 @@ export const STATUS_COLORS = {
 };
 
 export const TIME_SLOT_CONFIG = Object.freeze([
-    { id: 'morning', label: '上午', rangeLabel: '上午', start: '08:00', end: '12:00' },
-    { id: 'afternoon', label: '下午', rangeLabel: '下午', start: '13:00', end: '17:00' },
-    { id: 'evening', label: '晚上', rangeLabel: '晚上', start: '18:00', end: '21:00' }
+    { id: 'morning', label: '上午', rangeLabel: '上午', start: '08:00', end: '12:00', icon: 'wb_sunny' },
+    { id: 'afternoon', label: '下午', rangeLabel: '下午', start: '13:00', end: '17:00', icon: 'light_mode' },
+    { id: 'evening', label: '晚上', rangeLabel: '晚上', start: '18:00', end: '21:00', icon: 'bedtime' }
 ]);
 
 export const EMPTY_STATES = Object.freeze({

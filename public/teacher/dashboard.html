@@ -685,18 +685,33 @@
             <div class="content-area">
                 <!-- Overview Section -->
                 <section id="overview" class="dashboard-section active">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <h3>本月课程</h3>
-                            <p id="monthlyLessons">--</p>
+                    <div class="overview-stats-grid">
+                        <!-- Time Based Stats -->
+                        <div class="stat-card summary-card time-stats" data-tooltip="本周内所有已安排的课程总数">
+                            <h3>本周排课</h3>
+                            <p class="stat-value" id="weeklyLessons">--</p>
                         </div>
-                        <div class="stat-card">
-                            <h3>待确认</h3>
-                            <p id="pendingConfirmations">--</p>
+                        <div class="stat-card summary-card time-stats" data-tooltip="本月内所有已安排的课程总数">
+                            <h3>本月排课</h3>
+                            <p class="stat-value" id="monthlyLessons">--</p>
                         </div>
-                        <div class="stat-card">
-                            <h3>已完成</h3>
-                            <p id="completedLessons">--</p>
+                        <div class="stat-card summary-card time-stats" data-tooltip="本年度内所有已安排的课程总数">
+                            <h3>本年排课</h3>
+                            <p class="stat-value" id="yearlyLessons">--</p>
+                        </div>
+
+                        <!-- Status Based Stats -->
+                        <div class="stat-card summary-card status-pending" data-tooltip="当前等待您确认的课程">
+                            <h3>待确认排课(全部)</h3>
+                            <p class="stat-value" id="totalPending">--</p>
+                        </div>
+                        <div class="stat-card summary-card status-completed" data-tooltip="历史累计已顺利完成的课程总节数">
+                            <h3>已完成排课(全部)</h3>
+                            <p class="stat-value" id="totalCompleted">--</p>
+                        </div>
+                        <div class="stat-card summary-card status-cancelled" data-tooltip="历史累计已被取消的课程记录">
+                            <h3>已取消排课(全部)</h3>
+                            <p class="stat-value" id="totalCancelled">--</p>
                         </div>
                     </div>
 
@@ -791,58 +806,50 @@
 
                 <!-- Availability Section -->
                 <section id="availability" class="dashboard-section">
-                    <div class="schedule-controls"
-                        style="background:white; padding:16px; border-radius:12px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                        <div class="week-navigation" style="display:flex; align-items:center; gap:12px;">
-                            <button id="prevWeekAvail" class="search-btn" style="min-width:40px; padding:6px;">
+                    <div class="schedule-controls">
+                        <div class="week-navigation">
+                            <button id="prevWeekAvail" class="search-btn">
                                 <span class="material-icons-round">chevron_left</span>
                             </button>
-                            <span id="weekRangeAvail"
-                                style="font-weight:600; min-width:150px; text-align:center;">加载中...</span>
-                            <button id="nextWeekAvail" class="search-btn" style="min-width:40px; padding:6px;">
+                            <span id="weekRangeAvail">加载中...</span>
+                            <button id="nextWeekAvail" class="search-btn">
                                 <span class="material-icons-round">chevron_right</span>
                             </button>
                         </div>
                         <button class="primary-btn" id="saveAvailability">
                             <span class="material-icons-round" style="margin-right:4px;">save</span>
-                            保存更改
+                            保存时间安排
                         </button>
                     </div>
 
-                    <div class="stats-unified-card" style="padding:0; overflow:hidden;">
-                        <div class="table-container" style="margin-top:0;">
-                            <table class="weekly-schedule-table" style="width:100%;">
-                                <thead id="weeklyHeaderAvail"></thead>
-                                <tbody id="weeklyBodyAvail"></tbody>
-                            </table>
-                        </div>
+                    <div class="schedule-unified-card">
+                        <table class="weekly-schedule-table">
+                            <thead id="weeklyHeaderAvail"></thead>
+                            <tbody id="weeklyBodyAvail"></tbody>
+                        </table>
                     </div>
                     <div id="availabilityFeedback" class="feedback" style="display:none;"></div>
                 </section>
 
                 <!-- Schedules Section -->
                 <section id="schedules" class="dashboard-section">
-                    <div class="schedule-controls"
-                        style="background:white; padding:16px; border-radius:12px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                        <div class="week-navigation" style="display:flex; align-items:center; gap:12px;">
-                            <button id="prevWeek" class="search-btn" style="min-width:40px; padding:6px;">
+                    <div class="schedule-controls">
+                        <div class="week-navigation">
+                            <button id="prevWeek" class="search-btn">
                                 <span class="material-icons-round">chevron_left</span>
                             </button>
-                            <span id="weekRange"
-                                style="font-weight:600; min-width:150px; text-align:center;">加载中...</span>
-                            <button id="nextWeek" class="search-btn" style="min-width:40px; padding:6px;">
+                            <span id="weekRange">加载中...</span>
+                            <button id="nextWeek" class="search-btn">
                                 <span class="material-icons-round">chevron_right</span>
                             </button>
                         </div>
                     </div>
 
-                    <div class="stats-unified-card" style="padding:0; overflow:hidden;">
-                        <div class="table-container" style="margin-top:0;">
-                            <table class="weekly-schedule-table" style="width:100%;">
-                                <thead id="weeklyHeader"></thead>
-                                <tbody id="weeklyBody"></tbody>
-                            </table>
-                        </div>
+                    <div class="schedule-unified-card">
+                        <table class="weekly-schedule-table">
+                            <thead id="weeklyHeader"></thead>
+                            <tbody id="weeklyBody"></tbody>
+                        </table>
                     </div>
                     <div id="scheduleFeedback" class="feedback" style="display:none;"></div>
                 </section>
@@ -852,7 +859,6 @@
                     <div class="statistics-controls">
                         <div class="stats-date-group">
                             <div class="date-range">
-                                <label>周期:</label>
                                 <input type="date" id="teachingStartDate">
                             </div>
                             <div class="date-range">

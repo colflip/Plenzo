@@ -692,25 +692,59 @@ const teacherController = {
     // 获取教师总览数据
     async getOverview(req, res) {
         try {
+            // Date ranges calculation
             const today = new Date();
+
+            // Week range (Monday to Sunday)
+            const dayOfWeek = today.getDay() || 7; // Sunday is 0, make it 7 for calculation
+            const activeWeekStart = new Date(today);
+            activeWeekStart.setDate(today.getDate() - dayOfWeek + 1);
+            const activeWeekEnd = new Date(activeWeekStart);
+            activeWeekEnd.setDate(activeWeekStart.getDate() + 6);
+
+            // Month range
             const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
             const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+            // Year range
+            const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
+            const lastDayOfYear = new Date(today.getFullYear(), 11, 31);
+
             const todayStr = today.toISOString().split('T')[0];
+            const weekStartStr = activeWeekStart.toISOString().split('T')[0];
+            const weekEndStr = activeWeekEnd.toISOString().split('T')[0];
+            const monthStartStr = firstDayOfMonth.toISOString().split('T')[0];
+            const monthEndStr = lastDayOfMonth.toISOString().split('T')[0];
+            const yearStartStr = firstDayOfYear.toISOString().split('T')[0];
+            const yearEndStr = lastDayOfYear.toISOString().split('T')[0];
 
             const dateExpr = await getDateExpr('ca');
             await initSchemaCache();
 
-            // 合并查询：使用一条SQL获取月度、待确认、已完成统计以减少DB往返
+            // Unified Query for all 6 metrics
+            // Time-based: pending, confirmed, completed (exclude cancelled)
+            // Status-based: all time
             const statsResult = await db.query(`
                 SELECT 
-                    SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 THEN 1 ELSE 0 END)::int as monthly_count,
-                    SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END)::int as pending_count,
-                    SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as completed_count
+                    -- Time-based (Weekly, Monthly, Yearly) - Valid courses only
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as weekly_count,
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $4 AND $5 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as monthly_count,
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $6 AND $7 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as yearly_count,
+                    
+                    -- Status-based (All time)
+                    SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END)::int as total_pending,
+                    SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
+                    SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
                 FROM course_arrangement ca
                 ${__schemaCache.teacherHasStatus ? 'JOIN teachers t ON ca.teacher_id = t.id' : ''}
                 WHERE ca.teacher_id = $1
                   ${__schemaCache.teacherHasStatus ? 'AND t.status = 1' : ''}
-            `, __schemaCache.teacherHasStatus ? [req.user.id, firstDayOfMonth.toISOString().split('T')[0], lastDayOfMonth.toISOString().split('T')[0]] : [req.user.id, firstDayOfMonth.toISOString().split('T')[0], lastDayOfMonth.toISOString().split('T')[0]]);
+            `, [
+                req.user.id,
+                weekStartStr, weekEndStr,
+                monthStartStr, monthEndStr,
+                yearStartStr, yearEndStr
+            ]);
 
             // 获取今日课程
             let todayQuery = `
@@ -737,9 +771,12 @@ const teacherController = {
             const todaySchedules = await db.query(todayQuery, [req.user.id, todayStr]);
 
             res.json({
+                weeklyCount: parseInt(statsResult.rows[0]?.weekly_count || 0),
                 monthlyCount: parseInt(statsResult.rows[0]?.monthly_count || 0),
-                pendingCount: parseInt(statsResult.rows[0]?.pending_count || 0),
-                completedCount: parseInt(statsResult.rows[0]?.completed_count || 0),
+                yearlyCount: parseInt(statsResult.rows[0]?.yearly_count || 0),
+                totalPending: parseInt(statsResult.rows[0]?.total_pending || 0),
+                totalCompleted: parseInt(statsResult.rows[0]?.total_completed || 0),
+                totalCancelled: parseInt(statsResult.rows[0]?.total_cancelled || 0),
                 todaySchedules: todaySchedules.rows
             });
         } catch (error) {

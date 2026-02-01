@@ -1676,6 +1676,19 @@ const adminController = {
             res.json(standardResponse(true, result.rows || [], '获取课程类型成功'));
         } catch (error) {
             console.error('获取课程类型错误:', error);
+
+            // 弹性降级逻辑：如果是数据库连接类错误，返回 200 配空数组和警告，防止前端初始化崩溃
+            const errMsg = String(error.message || '');
+            const isDbError = errMsg.includes('fetch failed') ||
+                errMsg.includes('ECONNRESET') ||
+                errMsg.includes('NeonDbError') ||
+                errMsg.includes('socket disconnected');
+
+            if (isDbError) {
+                console.warn('[Resilience] 数据库连接异常，启用静默降级');
+                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
+            }
+
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },

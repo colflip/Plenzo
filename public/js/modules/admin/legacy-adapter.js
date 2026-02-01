@@ -1514,46 +1514,78 @@ async function loadStatistics() {
             : buildDatesRange(startDate, endDate).map(d => toISODate(d));
 
         if (activeView === 'teacher') {
-            if (window.StatsPlugins) {
-                const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
-                window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
-                // 设置汇总图表标题的悬停提示
-                setupStatsTooltip(rawSchedules, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
-            }
-            // 新增：教师下拉筛选 + 每位教师类型曲线图
-            try {
-                setupTeacherChartsFilter(rawSchedules, dayLabels);
-                const selected = getSelectedTeacherForCharts();
-                renderTeacherTypePerTeacherCharts(rawSchedules, dayLabels, selected);
-            } catch (filterError) {
-                console.warn('设置教师筛选器失败:', filterError);
+            const teacherContainer = document.querySelector('.teacher-charts-container');
+            let teacherOverlay = null;
+
+            if (teacherContainer) {
+                teacherOverlay = document.createElement('div');
+                teacherOverlay.className = 'stats-loading-overlay';
+                teacherOverlay.innerHTML = `
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">正在加载教师数据...</div>
+                `;
+                teacherContainer.appendChild(teacherOverlay);
             }
 
-            // 隐藏反馈
-            if (statsFeedback) {
-                statsFeedback.style.display = 'none';
+            try {
+                if (window.StatsPlugins) {
+                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
+                    // 设置汇总图表标题的悬停提示
+                    setupStatsTooltip(rawSchedules, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
+                }
+                // 新增：教师下拉筛选 + 每位教师类型曲线图
+                try {
+                    setupTeacherChartsFilter(rawSchedules, dayLabels);
+                    const selected = getSelectedTeacherForCharts();
+                    renderTeacherTypePerTeacherCharts(rawSchedules, dayLabels, selected);
+                } catch (filterError) {
+                    console.warn('设置教师筛选器失败:', filterError);
+                }
+            } finally {
+                if (teacherOverlay) teacherOverlay.remove();
+                // 隐藏反馈
+                if (statsFeedback) {
+                    statsFeedback.style.display = 'none';
+                }
             }
             return;
         }
 
         if (activeView === 'student') {
-            if (window.StatsPlugins) {
-                const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
-                window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
-                // 设置汇总图表标题的悬停提示
-                setupStatsTooltip(rawSchedules, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');
-            }
-            try {
-                setupStudentChartsFilter(rawSchedules, dayLabels);
-                const selectedStu = getSelectedStudentForCharts();
-                renderStudentTypePerStudentCharts(rawSchedules, dayLabels, selectedStu);
-            } catch (filterError) {
-                console.warn('设置学生筛选器失败:', filterError);
+            const studentContainer = document.querySelector('.student-charts-container');
+            let studentOverlay = null;
+
+            if (studentContainer) {
+                studentOverlay = document.createElement('div');
+                studentOverlay.className = 'stats-loading-overlay';
+                studentOverlay.innerHTML = `
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">正在加载学生数据...</div>
+                `;
+                studentContainer.appendChild(studentOverlay);
             }
 
-            // 隐藏反馈
-            if (statsFeedback) {
-                statsFeedback.style.display = 'none';
+            try {
+                if (window.StatsPlugins) {
+                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
+                    // 设置汇总图表标题的悬停提示
+                    setupStatsTooltip(rawSchedules, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');
+                }
+                try {
+                    setupStudentChartsFilter(rawSchedules, dayLabels);
+                    const selectedStu = getSelectedStudentForCharts();
+                    renderStudentTypePerStudentCharts(rawSchedules, dayLabels, selectedStu);
+                } catch (filterError) {
+                    console.warn('设置学生筛选器失败:', filterError);
+                }
+            } finally {
+                if (studentOverlay) studentOverlay.remove();
+                // 隐藏反馈
+                if (statsFeedback) {
+                    statsFeedback.style.display = 'none';
+                }
             }
             return;
         }
@@ -3765,20 +3797,9 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
             最终标题: titleText
         });
 
-        // HTML 标题构建
-        const titleEl = document.createElement('div');
-        titleEl.className = 'custom-chart-title';
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = displayName + (st === 0 ? '（暂停）' : '');
-        titleEl.appendChild(nameSpan);
+        // HTML 标题构建逻辑已移除，改由Chart.js统一渲染
+        // 让 Canvas 占据剩余空间并保证宽度
 
-        if (summaryText) {
-            const countSpan = document.createElement('span');
-            countSpan.className = 'chart-title-count';
-            countSpan.textContent = summaryText;
-            titleEl.appendChild(countSpan);
-        }
-        card.appendChild(titleEl);
 
 
 
@@ -3802,8 +3823,54 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
         // 渲染每日授课数量堆叠柱状图
         try {
             const ctx = canvas.getContext('2d');
+
+            // Custom plugin to draw mixed-style title
+            const customTitlePlugin = {
+                id: 'customTitle',
+                afterDraw: (chart) => {
+                    const { ctx, width } = chart;
+                    ctx.save();
+
+                    const nameText = displayName + (st === 0 ? '（暂停）' : '');
+                    const dataText = summaryText ? (' ' + summaryText) : '';
+
+                    const nameFont = 'bold 16px "Inter", sans-serif';
+                    // User Request: smaller by 2px (14px) and transparent gray
+                    const dataFont = '14px "Inter", sans-serif';
+                    const nameColor = '#334155'; // slate-700
+                    const dataColor = 'rgba(100, 116, 139, 0.6)'; // slate-500 with opacity
+
+                    ctx.font = nameFont;
+                    const nameWidth = ctx.measureText(nameText).width;
+
+                    ctx.font = dataFont;
+                    const dataWidth = ctx.measureText(dataText).width;
+
+                    const totalWidth = nameWidth + dataWidth;
+                    const startX = (width - totalWidth) / 2;
+                    const y = 20; // Top margin position
+
+                    // Draw Name
+                    ctx.font = nameFont;
+                    ctx.fillStyle = nameColor;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(nameText, startX, y);
+
+                    // Draw Data
+                    if (dataText) {
+                        ctx.font = dataFont;
+                        ctx.fillStyle = dataColor;
+                        ctx.fillText(dataText, startX + nameWidth, y);
+                    }
+
+                    ctx.restore();
+                }
+            };
+
             new window.Chart(ctx, {
                 type: 'bar',
+                plugins: [customTitlePlugin],
                 data: {
                     labels: formattedLabels,
                     datasets: datasets
@@ -3813,7 +3880,7 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
                     maintainAspectRatio: false,
                     layout: {
                         padding: {
-                            top: 10,
+                            top: 40, // Increased top padding for custom title
                             bottom: 10
                         }
                     },
@@ -3849,7 +3916,10 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
                             }
                         },
                         title: {
-                            display: false // Disable built-in title
+                            display: false // Use custom draw
+                        },
+                        subtitle: {
+                            display: false
                         },
                         tooltip: {
                             mode: 'index',
@@ -5678,26 +5748,60 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
 
         card.appendChild(canvas);
 
-        // HTML 标题构建
-        const titleEl = document.createElement('div');
-        titleEl.className = 'custom-chart-title';
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = displayName + (st === 0 ? '（暂停）' : '');
-        titleEl.appendChild(nameSpan);
+        // HTML 标题构建逻辑已移除，改由 Chart.js 统一渲染
 
-        if (summaryText) {
-            const countSpan = document.createElement('span');
-            countSpan.className = 'chart-title-count';
-            countSpan.textContent = summaryText;
-            titleEl.appendChild(countSpan);
-        }
-        card.prepend(titleEl); // Insert before canvas
         container.appendChild(card);
 
         try {
             const ctx = canvas.getContext('2d');
+
+            // Custom plugin to draw mixed-style title for students
+            const customTitlePlugin = {
+                id: 'customStudentTitle',
+                afterDraw: (chart) => {
+                    const { ctx, width } = chart;
+                    ctx.save();
+
+                    const nameText = displayName + (st === 0 ? '（暂停）' : '');
+                    const dataText = summaryText ? (' ' + summaryText) : '';
+
+                    const nameFont = 'bold 16px "Inter", sans-serif';
+                    // User Request: smaller by 2px (14px) and transparent gray
+                    const dataFont = '14px "Inter", sans-serif';
+                    const nameColor = '#334155'; // slate-700
+                    const dataColor = 'rgba(100, 116, 139, 0.6)'; // slate-500 with opacity
+
+                    ctx.font = nameFont;
+                    const nameWidth = ctx.measureText(nameText).width;
+
+                    ctx.font = dataFont;
+                    const dataWidth = ctx.measureText(dataText).width;
+
+                    const totalWidth = nameWidth + dataWidth;
+                    const startX = (width - totalWidth) / 2;
+                    const y = 20; // Top position
+
+                    // Draw Name
+                    ctx.font = nameFont;
+                    ctx.fillStyle = nameColor;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(nameText, startX, y);
+
+                    // Draw Data
+                    if (dataText) {
+                        ctx.font = dataFont;
+                        ctx.fillStyle = dataColor;
+                        ctx.fillText(dataText, startX + nameWidth, y);
+                    }
+
+                    ctx.restore();
+                }
+            };
+
             new Chart(ctx, {
                 type: 'bar',
+                plugins: [customTitlePlugin],
                 data: {
                     labels: formattedLabels,
                     datasets: datasets
@@ -5706,7 +5810,7 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
                     responsive: true,
                     maintainAspectRatio: false,
                     layout: {
-                        padding: { top: 10, bottom: 10 }
+                        padding: { top: 40, bottom: 10 }
                     },
                     interaction: {
                         mode: 'index',
@@ -5742,7 +5846,13 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
                             }
                         },
                         title: {
-                            display: false // Disable built-in title
+                            display: false
+                        },
+                        subtitle: {
+                            display: false
+                        },
+                        subtitle: {
+                            display: false
                         }, tooltip: {
                             callbacks: {
                                 title: (context) => context[0].label,
@@ -6569,7 +6679,7 @@ async function loadScheduleTypes() {
     const tbody = document.getElementById('scheduleTypesTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px;">加载中...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>';
 
     try {
         const result = await window.apiUtils.get('/admin/schedule-types');

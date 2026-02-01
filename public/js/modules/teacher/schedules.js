@@ -51,6 +51,42 @@ export async function loadSchedules(baseDate) {
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
     updateWeekRangeLabel(weekDates);
+
+    // Inject custom styles for single-row view to fix sticky first column issue
+    if (!document.getElementById('single-row-fix-style')) {
+        const style = document.createElement('style');
+        style.id = 'single-row-fix-style';
+        style.innerHTML = `
+            #schedules .weekly-schedule-table thead th:first-child,
+            #schedules .weekly-schedule-table tbody td:first-child {
+                width: auto !important;
+                position: static !important;
+                background-color: transparent !important;
+                border-right: 1px solid #E5E7EB !important;
+                z-index: auto !important;
+                min-width: 140px; /* Essential for cell width consistency */
+            }
+            /* Fix hover effect on first cell */
+            #schedules .weekly-schedule-table tbody tr:hover td:first-child {
+                background-color: transparent !important;
+            }
+            /* ALLOW FULL LOCATION TEXT & VARIABLE HEIGHT */
+            .schedule-footer .location-text {
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: unset !important;
+                height: auto !important;
+                max-height: none !important;
+                line-height: 1.4;
+            }
+            .schedule-card-group {
+                height: auto !important;
+                min-height: 100px; /* Maintain minimum but allow growth */
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     showLoadingState();
 
     try {
@@ -80,7 +116,7 @@ function renderSchedules(weekDates, schedules) {
         renderMobileScheduleTable(weekDates, grouped);
     } else {
         renderHeader(weekDates);
-        renderBody(weekDates, grouped);
+        renderBody(weekDates, schedules); // 修复此处，应传递原始 schedules 数组给矩阵渲染函数
     }
 }
 
@@ -178,7 +214,7 @@ function buildMobileScheduleDetail(schedule) {
 
     // 信息容器（第一行：学生，类型，时间，地点）
     const infoContainer = createElement('div', '', {
-        style: 'font-size: 13px; line-height: 1.6;'
+        style: 'font-size: 15px; line-height: 1.6; font-weight: 500;'
     });
 
     // 构建信息文本：学生，类型，时间，地点
@@ -226,7 +262,7 @@ function buildMobileScheduleDetail(schedule) {
     // 添加点击反馈样式
     const visualChip = createElement('span', `chip status-${status}`, {
         textContent: displayStatus,
-        style: 'font-size: 12px; padding: 4px 16px; border-radius: 999px; font-weight: 500; display: inline-block; cursor: pointer; transition: opacity 0.2s;'
+        style: 'font-size: 14px; padding: 4px 12px; border-radius: 999px; font-weight: 500; display: inline-block; cursor: pointer; transition: opacity 0.2s;'
     });
 
     // 添加点击效果
@@ -294,291 +330,266 @@ function renderHeader(weekDates) {
     clearChildren(thead);
 
     const row = document.createElement('tr');
+
+    // Remove Student Name Header for Single-Row View
+    // const nameHeader = createElement('th', 'name-col-header', { textContent: '学生姓名' });
+    // row.appendChild(nameHeader);
+
+    // Date Headers
     weekDates.forEach(date => {
         const iso = toISODate(date);
-        const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-        const weekday = weekdayNames[date.getDay() === 0 ? 6 : date.getDay() - 1];
-        const label = `${date.getMonth() + 1}-${String(date.getDate()).padStart(2, '0')}\n${weekday}`;
-        const th = createElement('th', '', { textContent: label });
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+        const weekday = weekdayNames[date.getDay()];
+
+        const th = createElement('th', 'date-header');
         th.dataset.date = iso;
+        th.innerHTML = `
+            <div class="date-label">${month}月${day}日</div>
+            <div class="day-label">${weekday}</div>
+        `;
         row.appendChild(th);
     });
     thead.appendChild(row);
 }
 
-function renderBody(weekDates, grouped) {
+function renderBody(weekDates, schedules) {
     const tbody = elements.body();
     if (!tbody) return;
     clearChildren(tbody);
 
+    if (!schedules || schedules.length === 0) {
+        renderFullEmptyState(weekDates);
+        return;
+    }
+
+    // Single Row Layout
     const row = document.createElement('tr');
+
+    // Iterate Dates directly
     weekDates.forEach(date => {
         const iso = toISODate(date);
         const cell = createElement('td', 'schedule-cell');
 
-        // 添加日期标签（格式：日/星期）
-        const day = date.getDate();
-        const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        const weekday = weekdayNames[date.getDay()];
-        const dateLabel = `${day}/${weekday}`;
-        cell.setAttribute('data-date-label', dateLabel);
+        // Filter schedules for this date from the flat list
+        const dailySchedules = schedules.filter(s => {
+            const sDate = s.date || s.lesson_date || s.start_date || s.schedule_date;
+            return normalizeDateKey(sDate) === iso;
+        });
 
-        const dailySchedules = grouped.get(iso) || [];
-        if (dailySchedules.length === 0) {
-            const empty = createElement('div', 'no-schedule', { textContent: '暂无排课' });
-            cell.appendChild(empty);
-        } else {
-            dailySchedules.forEach(schedule => {
-                cell.appendChild(buildScheduleCard(schedule));
+        if (dailySchedules.length > 0) {
+            dailySchedules.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+
+            // Group by Time/Location
+            const groups = groupSchedulesBySlot(dailySchedules);
+            groups.forEach(group => {
+                cell.appendChild(buildScheduleCard(group));
             });
+        } else {
+            const empty = createElement('div', 'no-schedule-dash', { textContent: '-' });
+            cell.appendChild(empty);
         }
+        row.appendChild(cell);
+    });
+
+    tbody.appendChild(row);
+}
+
+function renderFullEmptyState(weekDates) {
+    const tbody = elements.body();
+    const row = document.createElement('tr');
+
+    // No Sticky Col
+    // row.appendChild(createElement('td', 'sticky-col', { textContent: '-' }));
+
+    weekDates.forEach(() => {
+        const cell = createElement('td', 'schedule-cell');
+        cell.appendChild(createElement('div', 'no-schedule-dash', { textContent: '-' }));
         row.appendChild(cell);
     });
     tbody.appendChild(row);
 }
 
-function buildScheduleCard(schedule) {
-    const status = (schedule.status || 'pending').toLowerCase();
+/**
+ * 将排课记录按时间/地点分组 (仿管理员端逻辑)
+ */
+function groupSchedulesBySlot(schedules) {
+    const slots = new Map();
+    schedules.forEach(s => {
+        const key = `${s.start_time}-${s.end_time}-${s.location || ''}`;
+        if (!slots.has(key)) slots.set(key, []);
+        slots.get(key).push(s);
+    });
+    return Array.from(slots.values());
+}
 
-    // Determine time slot from start_time
-    const timeSlot = getTimeSlotFromStartTime(schedule.start_time);
-    const timeSlotClass = timeSlot ? `slot-${timeSlot}` : 'slot-unspecified';
+/**
+ * 构建排课卡片 (仿照管理员端样式)
+ * @param {Array} group 相同时间/地点的排课记录组
+ */
+function buildScheduleCard(group) {
+    if (!group || !group.length) return document.createElement('div');
+    const first = group[0];
 
-    // Container: Flex column layout
-    const card = createElement('div', `group-picker-item ${timeSlotClass} status-${status}`);
-    card.dataset.scheduleId = schedule.id;
-    card.style.display = 'flex';
-    card.style.flexDirection = 'column';
-    card.style.gap = '8px';
-    card.style.padding = '8px 10px';
+    // 1. 时间槽逻辑 (早/中/晚)
+    let slot = 'morning';
+    const h = parseInt((first.start_time || '00:00').substring(0, 2), 10);
+    if (h >= 12) slot = 'afternoon';
+    if (h >= 19) slot = 'evening';
 
-    // 1. Info Row (Student, Type, Time, Location)
-    const infoRow = document.createElement('div');
-    infoRow.style.fontSize = '13px';
-    infoRow.style.lineHeight = '1.6'; // Increased line height for chips
-    infoRow.style.color = '#333';
-    // Removed flex styles to allow natural text flow
-    // infoRow.style.display = 'flex';
-    // infoRow.style.flexWrap = 'wrap';
-    // infoRow.style.alignItems = 'center';
+    // Force colors to ensure visual match regardless of CSS issues
+    const colors = {
+        morning: { bg: '#DBEAFE', border: '#93C5FD' },
+        afternoon: { bg: '#FEF3C7', border: '#FCD34D' },
+        evening: { bg: '#F3E8FF', border: '#D8B4FE' }
+    };
+    const theme = colors[slot];
 
-    // Resolve Chinese type name using shared utility
-    let typeLabel = getScheduleTypeLabel(schedule.course_id || schedule.schedule_type_id || schedule.type_id);
+    const card = createElement('div', `schedule-card-group slot-${slot}`);
+    card.style.backgroundColor = theme.bg;
+    card.style.borderColor = theme.border;
+    card.style.borderWidth = '1px';
+    card.style.borderStyle = 'solid';
 
-    // If result is just a number (ID not found in store) or empty, try falling back to other fields
-    if (!typeLabel || /^\d+$/.test(typeLabel) || typeLabel === '未分类') {
-        typeLabel = getScheduleTypeLabel(schedule.schedule_type_cn || schedule.schedule_type || '课程');
-    }
+    // 内容容器
+    const content = createElement('div', 'card-content');
 
-    // Determine CSS class for background color
-    let typeClass = 'type-default';
-    if (typeLabel.includes('入户')) typeClass = 'type-visit';
-    else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-    else if (typeLabel.includes('评审')) typeClass = 'type-review';
-    else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
-    else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
+    // 2. 排课记录列表 (支持多条合并)
+    const listDiv = createElement('div', 'schedule-list');
 
-    // Apply type class to card for background
-    card.classList.add(typeClass);
+    group.forEach(rec => {
+        const row = createElement('div', 'schedule-row');
+        row.title = '点击修改详情';
+        row.style.cursor = 'pointer';
 
-    // Build Info Row Elements
-    const studentName = schedule.student_name || '未指定';
-    const timeRange = formatTimeRange(schedule.start_time, schedule.end_time);
-    const location = schedule.location ? schedule.location : '';
-
-    // Student Name
-    const nameNode = document.createElement('span');
-    nameNode.textContent = studentName + '，';
-    infoRow.appendChild(nameNode);
-
-    // Type Chip
-    const typeChip = document.createElement('span');
-    typeChip.className = `chip ${typeClass}`;
-    typeChip.textContent = typeLabel;
-    // Override/Ensure chip styles for inline flow
-    typeChip.style.display = 'inline-flex';
-    typeChip.style.alignItems = 'center';
-    typeChip.style.justifyContent = 'center';
-    typeChip.style.padding = '2px 8px';
-    typeChip.style.borderRadius = '999px';
-    typeChip.style.fontSize = '11px';
-    typeChip.style.lineHeight = '1.2';
-    typeChip.style.margin = '0 2px'; // Small margin for spacing
-    typeChip.style.verticalAlign = 'middle';
-    infoRow.appendChild(typeChip);
-
-    // Separator after Type
-    infoRow.appendChild(document.createTextNode('，'));
-
-    // Time
-    const timeNode = document.createElement('span');
-    timeNode.textContent = timeRange;
-    infoRow.appendChild(timeNode);
-
-    // Location
-    if (location) {
-        infoRow.appendChild(document.createTextNode('，' + location));
-    }
-
-    card.appendChild(infoRow);
-
-    // 2. Status Row (Centered) - Clickable status chip with dropdown
-    const statusRow = document.createElement('div');
-    statusRow.style.display = 'flex';
-    statusRow.style.justifyContent = 'center';
-    statusRow.style.width = '100%';
-    statusRow.style.marginTop = '4px';
-    statusRow.style.position = 'relative';
-
-    // Status chip (clickable)
-    const statusChip = document.createElement('span');
-    statusChip.className = `chip status-${status}`;
-    statusChip.textContent = getStatusLabel(status);
-    statusChip.style.cssText = `
-        cursor: pointer;
-        font-size: 12px;
-        padding: 4px 16px;
-        border-radius: 999px;
-        font-weight: 500;
-        min-width: 80px;
-        text-align: center;
-        user-select: none;
-        transition: opacity 0.2s;
-    `;
-    statusChip.dataset.scheduleId = schedule.id;
-    statusChip.dataset.currentStatus = status;
-
-    // Dropdown menu (hidden by default)
-    const dropdown = document.createElement('div');
-    dropdown.className = 'status-dropdown';
-    dropdown.style.cssText = `
-        display: none;
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        margin-top: 4px;
-        background: white;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        z-index: 1000;
-        min-width: 120px;
-        overflow: hidden;
-    `;
-
-    SCHEDULE_STATUS_OPTIONS.forEach(opt => {
-        const option = document.createElement('div');
-        option.className = 'status-option';
-        option.textContent = opt.label;
-        option.dataset.value = opt.value;
-        option.style.cssText = `
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: background-color 0.2s;
-            ${opt.value === status ? 'background-color: #f3f4f6; font-weight: 600;' : ''}
-        `;
-
-        option.addEventListener('mouseenter', () => {
-            if (opt.value !== status) {
-                option.style.backgroundColor = '#f9fafb';
-            }
-        });
-
-        option.addEventListener('mouseleave', () => {
-            if (opt.value !== status) {
-                option.style.backgroundColor = 'white';
-            }
-        });
-
-        option.addEventListener('click', async (e) => {
+        // 点击行打开编辑弹窗 (原有逻辑)
+        row.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (opt.value !== status) {
-                dropdown.style.display = 'none';
-                await handleStatusUpdate(schedule.id, opt.value, card, statusChip, dropdown);
-            } else {
-                dropdown.style.display = 'none';
+            showStatusActionSheet(rec, card);
+        });
+
+        // 左侧：学生姓名 + 课程类型 (跑马灯结构)
+        const left = createElement('div', 'row-left marquee-wrapper');
+        const typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';
+
+        /* 
+           Admin Structure:
+           <div class="marquee-content">
+               <span class="teacher-name">...</span>
+               <span class="course-type-text">...</span>
+           </div>
+        */
+        const marqueeContent = createElement('div', 'marquee-content');
+        marqueeContent.innerHTML = `
+            <span class="teacher-name">${rec.student_name || '未指定'}</span>
+            <span class="course-type-text">(${typeStr})</span>
+        `;
+        left.appendChild(marqueeContent);
+        row.appendChild(left);
+
+        // 右侧：状态快速切换 (教师端可见)
+        const st = (rec.status || 'pending').toLowerCase();
+        const statusSelect = createElement('select', `status-select ${st}`);
+        statusSelect.dataset.lastStatus = st;
+
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+
+        Object.keys(statusMap).forEach(key => {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = statusMap[key];
+            if (key === st) opt.selected = true;
+            statusSelect.appendChild(opt);
+        });
+
+        // 阻止点击下拉框触发行的编辑弹窗
+        statusSelect.addEventListener('click', (e) => e.stopPropagation());
+
+        statusSelect.addEventListener('change', async (e) => {
+            e.stopPropagation();
+            const newStatus = e.target.value;
+            const oldStatus = statusSelect.dataset.lastStatus;
+
+            // 乐观更新
+            statusSelect.className = `status-select ${newStatus}`;
+            statusSelect.blur();
+
+            try {
+                // 调用现有的状态更新方法
+                await updateScheduleStatus(rec.id, newStatus);
+                statusSelect.dataset.lastStatus = newStatus;
+                showInlineFeedback(elements.feedback(), '状态更新成功', 'success');
+            } catch (err) {
+                // 回滚
+                statusSelect.value = oldStatus;
+                statusSelect.className = `status-select ${oldStatus}`;
+                showInlineFeedback(elements.feedback(), '更新失败', 'error');
             }
         });
 
-        dropdown.appendChild(option);
+        row.appendChild(statusSelect);
+        listDiv.appendChild(row);
     });
+    content.appendChild(listDiv);
 
-    // Toggle dropdown on chip click
-    statusChip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isVisible = dropdown.style.display === 'block';
+    // 3. 底部信息 (时间和地点)
+    const footer = createElement('div', 'schedule-footer');
 
-        // Close all other dropdowns
-        document.querySelectorAll('.status-dropdown').forEach(d => {
-            if (d !== dropdown) d.style.display = 'none';
-        });
+    // Time Logic: Show range of the group (usually same, but take first)
+    // Admin uses: 19:00 - 22:00
+    const timeRange = `${first.start_time ? first.start_time.substring(0, 5) : ''} - ${first.end_time ? first.end_time.substring(0, 5) : ''}`;
+    const loc = first.location || '';
 
-        dropdown.style.display = isVisible ? 'none' : 'block';
-    });
+    footer.innerHTML = `
+        <div class="time-text">${timeRange}</div>
+        <div class="location-text">${loc}</div>
+    `;
+    content.appendChild(footer);
 
-    statusRow.appendChild(statusChip);
-    statusRow.appendChild(dropdown);
-    card.appendChild(statusRow);
-
+    card.appendChild(content);
     return card;
 }
 
-async function handleStatusUpdate(scheduleId, newStatus, card, select) {
-    if (!scheduleId) return;
-
-    const normalizedStatus = String(newStatus ?? '').trim().toLowerCase();
-
-    // Disable interaction
-    if (select) select.disabled = true;
-
-    try {
-        const requestId = Number(scheduleId);
-        const endpointId = Number.isNaN(requestId) ? scheduleId : requestId;
-
-        await window.apiUtils.patch(`/teacher/schedules/${endpointId}`, {
-            status: normalizedStatus
-        });
-
-        // Update UI classes immediately
-        // Update card status class
-        card.classList.remove('status-pending', 'status-confirmed', 'status-completed', 'status-cancelled');
-        card.classList.add(`status-${normalizedStatus}`);
-
-        // Update select/chip status class
-        if (select) {
-            select.classList.remove('status-pending', 'status-confirmed', 'status-completed', 'status-cancelled');
-            select.classList.add(`status-${normalizedStatus}`);
-            select.disabled = false;
-        }
-
-        showInlineFeedback(elements.feedback(), '课程状态已更新', 'success');
-
-        // Reload to ensure full sync
-        loadSchedules(currentWeekStart);
-
-    } catch (error) {
-        console.error('更新状态失败:', error);
-        showInlineFeedback(elements.feedback(), '更新状态失败，请重试', 'error');
-        if (select) select.disabled = false;
+/**
+ * 更新课程状态 (使用 window.apiUtils 保持一致)
+ */
+async function updateScheduleStatus(id, newStatus) {
+    if (!window.apiUtils) {
+        throw new Error('apiUtils 未就绪');
     }
+    const response = await window.apiUtils.put(`/teacher/schedules/${id}/status`, {
+        status: newStatus
+    });
+
+    if (response && response.error) {
+        throw new Error(response.message || '更新失败');
+    }
+    return response;
 }
 
-
-function applyStatusUpdate(card, status) {
-    card.classList.remove('status-pending', 'status-confirmed', 'status-completed', 'status-cancelled');
-    if (status) {
-        card.classList.add(`status-${status}`);
-    }
-    const badge = card.querySelector('.course-status-badge');
-    if (badge) {
-        if (status) {
-            badge.className = `course-status-badge status-${status}`;
-            badge.textContent = getStatusLabel(status);
+function showStatusActionSheet(schedule, card) {
+    const status = (schedule.status || 'pending').toLowerCase();
+    showActionSheet(
+        '修改课程状态',
+        SCHEDULE_STATUS_OPTIONS.map(opt => ({
+            label: opt.label,
+            value: opt.value,
+            selected: opt.value === status
+        })),
+        async (newStatus) => {
+            if (newStatus !== status) {
+                await handleStatusChange(schedule.id, newStatus, card, null, null);
+            }
         }
-    }
+    );
 }
+
+// --------------------------------------------------------------------------
+// End of Build Schedule Card
+// --------------------------------------------------------------------------
+
 
 function renderEmptyState(message) {
     renderHeader([]);
@@ -599,6 +610,7 @@ function showLoadingState() {
     const row = document.createElement('tr');
     const cell = createElement('td', 'no-schedule', { textContent: '加载中...' });
     cell.colSpan = 7;
+    cell.style.textAlign = 'center';
     row.appendChild(cell);
     tbody.appendChild(row);
 }
@@ -619,7 +631,6 @@ function startOfWeek(date) {
 }
 
 
-// 处理状态修改 (for mobile view)
 // 处理状态修改 (for mobile view)
 async function handleStatusChange(scheduleId, newStatus, cardElement, statusSelect, _unused) {
     const originalStatus = statusSelect ? statusSelect.value : null;
@@ -687,7 +698,6 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-
 export function refreshSchedules() {
     return loadSchedules(currentWeekStart);
 }

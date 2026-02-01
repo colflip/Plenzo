@@ -7,16 +7,22 @@ const updateScheduleStatus = require('./updateScheduleStatus');
 function initScheduler() {
     console.log('[Scheduler] Initializing background jobs...');
 
-    // Schedule status update job: Daily at 22:30
-    cron.schedule('30 22 * * *', async () => {
+    // Schedule status update job: Daily at 23:30 (11:30 PM)
+    cron.schedule('30 23 * * *', async () => {
         console.log('[Scheduler] Triggering scheduled status update...');
         await updateScheduleStatus();
     }, {
         scheduled: true,
-        timezone: "Asia/Shanghai" // Adjust timezone as needed, defaulting to China Standard Time based on user context
+        timezone: "Asia/Shanghai"
     });
 
-    console.log('[Scheduler] Jobs scheduled: [Auto Status Update: 22:30 Daily]');
+    // Run once immediately on startup (with slight delay to ensure DB connection)
+    setTimeout(async () => {
+        console.log('[Scheduler] Running startup status check...');
+        await updateScheduleStatus();
+    }, 5000);
+
+    console.log('[Scheduler] Jobs scheduled: [Auto Status Update: 23:30 Daily] + [Startup Check]');
 }
 
 module.exports = initScheduler;

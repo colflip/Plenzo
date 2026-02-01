@@ -401,39 +401,59 @@ const studentController = {
      */
     async getOverview(req, res) {
         try {
+            // Date ranges calculation
             const today = new Date();
+
+            // Week range (Monday to Sunday)
+            const dayOfWeek = today.getDay() || 7; // Sunday is 0, make it 7 for calculation
+            const activeWeekStart = new Date(today);
+            activeWeekStart.setDate(today.getDate() - dayOfWeek + 1);
+            const activeWeekEnd = new Date(activeWeekStart);
+            activeWeekEnd.setDate(activeWeekStart.getDate() + 6);
+
+            // Month range
             const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
             const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
+            // Year range
+            const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
+            const lastDayOfYear = new Date(today.getFullYear(), 11, 31);
+
+            const todayStr = today.toISOString().split('T')[0];
+            const weekStartStr = activeWeekStart.toISOString().split('T')[0];
+            const weekEndStr = activeWeekEnd.toISOString().split('T')[0];
+            const monthStartStr = firstDayOfMonth.toISOString().split('T')[0];
+            const monthEndStr = lastDayOfMonth.toISOString().split('T')[0];
+            const yearStartStr = firstDayOfYear.toISOString().split('T')[0];
+            const yearEndStr = lastDayOfYear.toISOString().split('T')[0];
+
             const dateExpr = await getDateExpr('ca');
 
-            // 获取本月课程数
-            const monthlyResult = await db.query(`
-                SELECT COUNT(*) as count
+            // Unified Query for all 6 metrics
+            // Time-based: pending, confirmed, completed (exclude cancelled)
+            // Status-based: all time
+            const statsResult = await db.query(`
+                SELECT 
+                    -- Time-based (Weekly, Monthly, Yearly) - Valid courses only
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as weekly_count,
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $4 AND $5 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as monthly_count,
+                    SUM(CASE WHEN ${dateExpr} BETWEEN $6 AND $7 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as yearly_count,
+                    
+                    -- Status-based (All time)
+                    SUM(CASE WHEN ca.status IN ('pending', 'confirmed') THEN 1 ELSE 0 END)::int as total_pending,
+                    SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
+                    SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
                 FROM course_arrangement ca
+                -- Filter by student_status if needed, removed for simplicity unless required
                 WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-            `, [req.user.id, firstDayOfMonth.toISOString().split('T')[0], lastDayOfMonth.toISOString().split('T')[0]]);
-
-            // 获取待上课程数
-            const upcomingResult = await db.query(`
-                SELECT COUNT(*) as count
-                FROM course_arrangement ca
-                WHERE ca.student_id = $1
-                  AND ca.status IN ('pending', 'confirmed')
-                  AND ${dateExpr} >= CURRENT_DATE
-            `, [req.user.id]);
-
-            // 获取已完成课程数
-            const completedResult = await db.query(`
-                SELECT COUNT(*) as count
-                FROM course_arrangement ca
-                WHERE ca.student_id = $1
-                  AND ca.status = 'completed'
-            `, [req.user.id]);
+            `, [
+                req.user.id,
+                weekStartStr, weekEndStr,
+                monthStartStr, monthEndStr,
+                yearStartStr, yearEndStr
+            ]);
 
             // 获取今日课程
-            const todayStr = today.toISOString().split('T')[0];
             const todaySchedules = await db.query(`
                 SELECT 
                     ca.id,
@@ -452,9 +472,12 @@ const studentController = {
             `, [req.user.id, todayStr]);
 
             res.json({
-                monthlyCount: parseInt(monthlyResult.rows[0]?.count || 0),
-                upcomingCount: parseInt(upcomingResult.rows[0]?.count || 0),
-                completedCount: parseInt(completedResult.rows[0]?.count || 0),
+                weeklyCount: parseInt(statsResult.rows[0]?.weekly_count || 0),
+                monthlyCount: parseInt(statsResult.rows[0]?.monthly_count || 0),
+                yearlyCount: parseInt(statsResult.rows[0]?.yearly_count || 0),
+                totalPending: parseInt(statsResult.rows[0]?.total_pending || 0), // Includes confirmed as 'active/pending' actions
+                totalCompleted: parseInt(statsResult.rows[0]?.total_completed || 0),
+                totalCancelled: parseInt(statsResult.rows[0]?.total_cancelled || 0),
                 todaySchedules: todaySchedules.rows
             });
         } catch (error) {

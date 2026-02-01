@@ -1,9 +1,14 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, EMPTY_STATES, getScheduleTypeLabel, getStatusLabel } from './constants.js';
 import { clearChildren, createElement, formatTimeRange, setText, toISODate } from './utils.js';
 
+const weeklyLessonsEl = () => document.getElementById('weeklyLessons');
 const monthlyLessonsEl = () => document.getElementById('monthlyLessons');
-const pendingEl = () => document.getElementById('pendingConfirmations');
-const completedEl = () => document.getElementById('completedLessons');
+const yearlyLessonsEl = () => document.getElementById('yearlyLessons');
+
+const totalPendingEl = () => document.getElementById('totalPending');
+const totalCompletedEl = () => document.getElementById('totalCompleted');
+const totalCancelledEl = () => document.getElementById('totalCancelled');
+
 const todayListEl = () => document.getElementById('todayScheduleList');
 const refreshBtnEl = () => document.getElementById('refreshTodaySchedulesBtn');
 
@@ -29,7 +34,7 @@ export async function loadOverview() {
         // Use dedicated overview endpoint that provides all stats
         const overviewData = await window.apiUtils.get('/teacher/overview');
 
-        updateMonthlyStats(overviewData);
+        updateOverviewStats(overviewData);
         renderTodaySchedules(Array.isArray(overviewData.todaySchedules) ? overviewData.todaySchedules : []);
     } catch (error) {
         console.error('加载总览数据失败', error);
@@ -39,9 +44,14 @@ export async function loadOverview() {
 }
 
 function showStatsLoadingState() {
-    setText(monthlyLessonsEl(), '加载中...');
-    setText(pendingEl(), '加载中...');
-    setText(completedEl(), '加载中...');
+    const loadingText = '...';
+    setText(weeklyLessonsEl(), loadingText);
+    setText(monthlyLessonsEl(), loadingText);
+    setText(yearlyLessonsEl(), loadingText);
+    setText(totalPendingEl(), loadingText);
+    setText(totalCompletedEl(), loadingText);
+    setText(totalCancelledEl(), loadingText);
+
     const list = todayListEl();
     if (list) {
         clearChildren(list);
@@ -50,9 +60,14 @@ function showStatsLoadingState() {
 }
 
 function showStatsErrorState() {
-    setText(monthlyLessonsEl(), '加载失败');
-    setText(pendingEl(), '加载失败');
-    setText(completedEl(), '加载失败');
+    const errorText = 'Err';
+    setText(weeklyLessonsEl(), errorText);
+    setText(monthlyLessonsEl(), errorText);
+    setText(yearlyLessonsEl(), errorText);
+    setText(totalPendingEl(), errorText);
+    setText(totalCompletedEl(), errorText);
+    setText(totalCancelledEl(), errorText);
+
     const list = todayListEl();
     if (list) {
         clearChildren(list);
@@ -62,15 +77,96 @@ function showStatsErrorState() {
     }
 }
 
-function updateMonthlyStats(overviewData) {
-    // Extract counts directly from overview API response
-    const monthlyCount = overviewData?.monthlyCount ?? 0;
-    const pendingCount = overviewData?.pendingCount ?? 0;
-    const completedCount = overviewData?.completedCount ?? 0;
+// Reward Modal Logic
+function createRewardModal() {
+    if (document.getElementById('rewardModal')) return;
 
-    setText(monthlyLessonsEl(), monthlyCount);
-    setText(pendingEl(), pendingCount);
-    setText(completedEl(), completedCount);
+    const modal = document.createElement('div');
+    modal.className = 'reward-modal-overlay';
+    modal.id = 'rewardModal';
+    modal.innerHTML = `
+        <div class="reward-modal-content">
+            <span class="material-icons-round reward-icon" id="rewardIcon">emoji_events</span>
+            <div class="reward-title" id="rewardTitle">Title</div>
+            <div class="reward-value" id="rewardValue">0</div>
+            <button class="reward-close-btn" onclick="document.getElementById('rewardModal').classList.remove('active')">Awesome!</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('active');
+    });
+}
+
+function showReward(title, value, type) {
+    createRewardModal(); // Ensure it exists
+    const modal = document.getElementById('rewardModal');
+
+    document.getElementById('rewardTitle').textContent = title;
+    document.getElementById('rewardValue').textContent = value;
+
+    // Icon selection
+    const icons = {
+        'weekly': 'date_range',
+        'monthly': 'calendar_today',
+        'yearly': 'star',
+        'pending': 'pending_actions',
+        'completed': 'verified',
+        'cancelled': 'cancel'
+    };
+    document.getElementById('rewardIcon').textContent = icons[type] || 'emoji_events';
+
+    modal.classList.add('active');
+    createConfetti();
+}
+
+function createConfetti() {
+    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#EC4899'];
+    const container = document.getElementById('rewardModal');
+
+    for (let i = 0; i < 50; i++) {
+        const confetti = document.createElement('div');
+        confetti.className = 'reward-confetti';
+        confetti.style.left = Math.random() * 100 + '%';
+        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        confetti.style.animationDuration = (Math.random() * 3 + 2) + 's';
+        confetti.style.animationDelay = Math.random() * 2 + 's';
+        container.appendChild(confetti);
+
+        // Cleanup
+        setTimeout(() => confetti.remove(), 5000);
+    }
+}
+
+function updateOverviewStats(overviewData) {
+    // Helper to setup click
+    const setupClick = (elId, title, value, type) => {
+        const el = document.getElementById(elId);
+        if (el) {
+            setText(el, value);
+            // Find parent card to attach listener
+            const card = el.closest('.stat-card');
+            if (card) {
+                // Remove old listeners to prevent duplicates (simple clone replacement)
+                const newCard = card.cloneNode(true);
+                card.parentNode.replaceChild(newCard, card);
+                newCard.addEventListener('click', () => showReward(title, value, type));
+                newCard.style.cursor = 'pointer'; // Make it look clickable
+            }
+        }
+    };
+
+    // Time Based
+    setupClick('weeklyLessons', '本周课程', overviewData?.weeklyCount ?? 0, 'weekly');
+    setupClick('monthlyLessons', '本月课程', overviewData?.monthlyCount ?? 0, 'monthly');
+    setupClick('yearlyLessons', '本年课程', overviewData?.yearlyCount ?? 0, 'yearly');
+
+    // Status Based
+    setupClick('totalPending', '待确认', overviewData?.totalPending ?? 0, 'pending');
+    setupClick('totalCompleted', '已完成', overviewData?.totalCompleted ?? 0, 'completed');
+    setupClick('totalCancelled', '已取消', overviewData?.totalCancelled ?? 0, 'cancelled');
 }
 
 function renderTodaySchedules(schedules) {
@@ -113,36 +209,50 @@ function renderTodaySchedules(schedules) {
 function buildTodayScheduleCard(schedule, items = []) {
     const isMerged = items.length > 1;
     const status = (schedule.status || 'pending').toLowerCase();
-    const card = createElement('div', `today-schedule-card status-${status}`);
+
+    // Status localization map (Teacher view usually uses getStatusLabel import)
+    const displayStatus = getStatusLabel(status);
+
+    // Get time slot
+    const timeStr = schedule.start_time;
+    // Helper might not be available, replicate logic or import
+    const h = parseInt((timeStr || '00:00').substring(0, 2), 10);
+    let slotId = 'morning';
+    if (h >= 12) slotId = 'afternoon';
+    if (h >= 19) slotId = 'evening';
+
+    const slotClass = `slot-${slotId}`;
+
+    // Create Card Container
+    const card = createElement('div', `today-card-modern ${slotClass}`);
     card.setAttribute('role', 'listitem');
 
-    // Apply card styling directly for consistency
-    card.style.cssText = `
-        display: flex;
-        align-items: center;
-        padding: 16px;
-        background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        margin-bottom: 0;
-        transition: all 0.2s ease;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    `;
-
     // 1. Time Column
-    const timeCol = createElement('div', 'time-column');
-    timeCol.style.cssText = 'flex: 0 0 120px; font-family: "Roboto Mono", monospace; font-size: 14px; font-weight: 600; color: #1e293b;';
-    timeCol.textContent = formatTimeRange(schedule.start_time, schedule.end_time);
+    const timeCol = createElement('div', 'today-card-time');
+
+    const timeText = createElement('div', 'time-range', {
+        textContent: formatTimeRange(schedule.start_time, schedule.end_time)
+    });
+
+    // Slot Label
+    let slotLabel = '';
+    if (slotId === 'morning') slotLabel = '上午';
+    else if (slotId === 'afternoon') slotLabel = '下午';
+    else if (slotId === 'evening') slotLabel = '晚上';
+
+    const slotLabelEl = createElement('div', 'time-slot-label', { textContent: slotLabel });
+
+    timeCol.appendChild(timeText);
+    timeCol.appendChild(slotLabelEl);
     card.appendChild(timeCol);
 
-    // 2. Info Column (Student & Type)
-    const infoCol = createElement('div', 'info-column');
-    infoCol.style.cssText = 'flex: 1; display: flex; flex-direction: column; gap: 4px;';
+    // 2. Info Column
+    const infoCol = createElement('div', 'today-card-info');
 
-    const studentRow = createElement('div', 'student-row');
-    studentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-wrap: wrap;';
+    // Header: Student Name + Type
+    const header = createElement('div', 'today-card-header');
 
-    // Prepare Student Name(s) logic
+    // Student Name(s) rendering logic
     let studentNameText = schedule.student_name || '未指定学生';
     if (isMerged) {
         const uniqueNames = [...new Set(items.map(i => i.student_name))];
@@ -152,74 +262,48 @@ function buildTodayScheduleCard(schedule, items = []) {
         }
     }
 
-    const studentName = createElement('span', 'student-name', {
-        textContent: studentNameText
-    });
-    // Add tooltip if merged
+    const titleDiv = createElement('div', 'today-card-title');
+    const nameSpan = createElement('span', '', { textContent: studentNameText });
+    if (isMerged) nameSpan.title = items.map(i => i.student_name).join(', ');
+    titleDiv.appendChild(nameSpan);
+
+    // Type Badge
+    const typeLabel = getScheduleTypeLabel(schedule.schedule_type || schedule.schedule_types);
+    const typeBadge = createElement('span', 'today-card-type', { textContent: typeLabel });
+    titleDiv.appendChild(typeBadge);
+
+    // Merged Badge
     if (isMerged) {
-        studentName.title = items.map(i => i.student_name).join(', ');
+        const mergedBadge = createElement('span', 'today-card-type', {
+            textContent: `${items.length}个合并`,
+            style: 'background-color:#E0F2FE; color:#0284C7; border-color:#BAE6FD;'
+        });
+        titleDiv.appendChild(mergedBadge);
     }
 
-    studentName.style.cssText = 'font-weight: 600; font-size: 15px; color: #0f172a;';
+    header.appendChild(titleDiv);
+    infoCol.appendChild(header);
 
-    const typeBadge = createElement('span', 'type-badge', {
-        textContent: getScheduleTypeLabel(schedule.schedule_type || schedule.schedule_types)
-    });
-    typeBadge.style.cssText = 'font-size: 12px; padding: 2px 8px; background: #f1f5f9; color: #64748b; border-radius: 4px; font-weight: 500;';
+    // Details: Location
+    const details = createElement('div', 'today-card-details');
 
-    studentRow.appendChild(studentName);
-    studentRow.appendChild(typeBadge);
-
-    if (isMerged) {
-        const mergedBadge = createElement('span', 'merged-badge', { textContent: `${items.length}个合并` });
-        mergedBadge.style.cssText = 'font-size: 11px; color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px; border: 1px solid #bae6fd;';
-        studentRow.appendChild(mergedBadge);
-    }
-
-    infoCol.appendChild(studentRow);
-
-    const locationRow = createElement('div', 'location-row');
-    const locationIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
-    locationIcon.style.cssText = 'font-size: 14px; color: #94a3b8; vertical-align: text-bottom; margin-right: 4px;';
-
-    const locationText = createElement('span', 'location-text', {
+    const locationItem = createElement('div', 'today-card-detail-item location');
+    const locIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
+    const locationText = createElement('span', '', {
         textContent: schedule.location || DEFAULT_LOCATION_PLACEHOLDER
     });
-    locationText.style.cssText = 'font-size: 13px; color: #64748b;';
 
-    locationRow.appendChild(locationIcon);
-    locationRow.appendChild(locationText);
-    infoCol.appendChild(locationRow);
+    locationItem.appendChild(locIcon);
+    locationItem.appendChild(locationText);
+    details.appendChild(locationItem);
 
+    infoCol.appendChild(details);
     card.appendChild(infoCol);
 
     // 3. Status Column
-    const statusCol = createElement('div', 'status-column');
-    statusCol.style.cssText = 'flex: 0 0 auto; margin-left: 16px;';
-
-    const statusBadge = createElement('span', `status-badge status-${status}`, {
-        textContent: getStatusLabel(status)
-    });
-    // Status badge styling
-    let statusColor = '#64748b';
-    let statusBg = '#f1f5f9';
-
-    if (status === 'pending') { statusColor = '#d97706'; statusBg = '#fffbeb'; }
-    else if (status === 'confirmed') { statusColor = '#059669'; statusBg = '#ecfdf5'; }
-    else if (status === 'completed') { statusColor = '#2563eb'; statusBg = '#eff6ff'; }
-    else if (status === 'cancelled') { statusColor = '#dc2626'; statusBg = '#fef2f2'; }
-
-    statusBadge.style.cssText = `
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 9999px;
-        font-size: 12px;
-        font-weight: 600;
-        color: ${statusColor};
-        background-color: ${statusBg};
-    `;
-
-    statusCol.appendChild(statusBadge);
+    const statusCol = createElement('div', 'today-card-status');
+    const statusPill = createElement('span', `status-pill ${status}`, { textContent: displayStatus });
+    statusCol.appendChild(statusPill);
     card.appendChild(statusCol);
 
     return card;

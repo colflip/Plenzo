@@ -7,9 +7,14 @@ import { formatDateDisplay, showToast, handleApiError, setText, clearChildren, c
 
 let overviewData = null;
 
+const weeklyLessonsEl = () => document.getElementById('weeklyLessons');
 const monthlyLessonsEl = () => document.getElementById('monthlyLessons');
-const pendingEl = () => document.getElementById('pendingConfirmations');
-const completedEl = () => document.getElementById('completedLessons');
+const yearlyLessonsEl = () => document.getElementById('yearlyLessons');
+
+const totalPendingEl = () => document.getElementById('totalPending');
+const totalCompletedEl = () => document.getElementById('totalCompleted');
+const totalCancelledEl = () => document.getElementById('totalCancelled');
+
 const todayListEl = () => document.getElementById('todayScheduleList');
 const refreshBtnEl = () => document.getElementById('refreshTodaySchedulesBtn');
 
@@ -58,14 +63,18 @@ export async function loadOverview() {
         console.error('加载总览数据失败', error);
         showStatsErrorState();
         renderTodaySchedules([]);
-        // handleApiError(error, '加载总览数据失败'); // Optional: show toast
     }
 }
 
 function showStatsLoadingState() {
-    setText(monthlyLessonsEl(), '加载中...');
-    setText(pendingEl(), '加载中...');
-    setText(completedEl(), '加载中...');
+    const t = '...';
+    setText(weeklyLessonsEl(), t);
+    setText(monthlyLessonsEl(), t);
+    setText(yearlyLessonsEl(), t);
+    setText(totalPendingEl(), t);
+    setText(totalCompletedEl(), t);
+    setText(totalCancelledEl(), t);
+
     const list = todayListEl();
     if (list) {
         clearChildren(list);
@@ -74,9 +83,14 @@ function showStatsLoadingState() {
 }
 
 function showStatsErrorState() {
-    setText(monthlyLessonsEl(), '加载失败');
-    setText(pendingEl(), '加载失败');
-    setText(completedEl(), '加载失败');
+    const t = 'Err';
+    setText(weeklyLessonsEl(), t);
+    setText(monthlyLessonsEl(), t);
+    setText(yearlyLessonsEl(), t);
+    setText(totalPendingEl(), t);
+    setText(totalCompletedEl(), t);
+    setText(totalCancelledEl(), t);
+
     const list = todayListEl();
     if (list) {
         clearChildren(list);
@@ -89,15 +103,94 @@ function showStatsErrorState() {
 /**
  * Update overview display
  */
-function updateOverviewDisplay(data) {
-    // Update stats cards
-    const monthlyCount = data.monthlyCount || 0;
-    const pendingCount = data.upcomingCount || 0; // Map upcomingCount to pendingConfirmations
-    const completedCount = data.completedCount || 0;
+// Reward Modal Logic
+function createRewardModal() {
+    if (document.getElementById('rewardModal')) return;
 
-    setText(monthlyLessonsEl(), monthlyCount);
-    setText(pendingEl(), pendingCount);
-    setText(completedEl(), completedCount);
+    const modal = document.createElement('div');
+    modal.className = 'reward-modal-overlay';
+    modal.id = 'rewardModal';
+    modal.innerHTML = `
+        <div class="reward-modal-content">
+            <span class="material-icons-round reward-icon" id="rewardIcon">emoji_events</span>
+            <div class="reward-title" id="rewardTitle">Title</div>
+            <div class="reward-value" id="rewardValue">0</div>
+            <button class="reward-close-btn" onclick="document.getElementById('rewardModal').classList.remove('active')">Awesome!</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('active');
+    });
+}
+
+function showReward(title, value, type) {
+    createRewardModal(); // Ensure it exists
+    const modal = document.getElementById('rewardModal');
+
+    document.getElementById('rewardTitle').textContent = title;
+    document.getElementById('rewardValue').textContent = value;
+
+    // Icon selection
+    const icons = {
+        'weekly': 'date_range',
+        'monthly': 'calendar_today',
+        'yearly': 'star',
+        'pending': 'pending_actions',
+        'completed': 'verified',
+        'cancelled': 'cancel'
+    };
+    document.getElementById('rewardIcon').textContent = icons[type] || 'emoji_events';
+
+    modal.classList.add('active');
+    createConfetti();
+}
+
+function createConfetti() {
+    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#EC4899'];
+    const container = document.getElementById('rewardModal');
+
+    for (let i = 0; i < 50; i++) {
+        const confetti = document.createElement('div');
+        confetti.className = 'reward-confetti';
+        confetti.style.left = Math.random() * 100 + '%';
+        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        confetti.style.animationDuration = (Math.random() * 3 + 2) + 's';
+        confetti.style.animationDelay = Math.random() * 2 + 's';
+        container.appendChild(confetti);
+
+        // Cleanup
+        setTimeout(() => confetti.remove(), 5000);
+    }
+}
+
+function updateOverviewDisplay(data) {
+    // Helper to setup click
+    const setupClick = (elId, title, value, type) => {
+        const el = document.getElementById(elId);
+        if (el) {
+            setText(el, value);
+            // Find parent card to attach listener
+            const card = el.closest('.stat-card');
+            if (card) {
+                // Remove old listeners
+                const newCard = card.cloneNode(true);
+                card.parentNode.replaceChild(newCard, card);
+                newCard.addEventListener('click', () => showReward(title, value, type));
+                newCard.style.cursor = 'pointer';
+            }
+        }
+    };
+
+    setupClick('weeklyLessons', '本周课程', data.weeklyCount || 0, 'weekly');
+    setupClick('monthlyLessons', '本月课程', data.monthlyCount || 0, 'monthly');
+    setupClick('yearlyLessons', '本年课程', data.yearlyCount || 0, 'yearly');
+
+    setupClick('totalPending', '待确认', data.totalPending || 0, 'pending');
+    setupClick('totalCompleted', '已完成', data.totalCompleted || 0, 'completed');
+    setupClick('totalCancelled', '已取消', data.totalCancelled || 0, 'cancelled');
 
     // Update today's schedules
     renderTodaySchedules(data.todaySchedules || []);
@@ -160,87 +253,100 @@ function buildTodayScheduleCard(schedule, items = []) {
     const displayStatus = statusMap[status] || status;
 
     // Get time slot for background color
-    const slotId = getTimeSlotId(schedule.start_time);
-    const slotClass = slotId ? `slot-${slotId}` : 'slot-unspecified';
+    const timeStr = schedule.start_time;
+    const slotId = getTimeSlotId(timeStr);
+    const slotClass = slotId ? `slot-${slotId}` : '';
 
-    // Use group-picker-item for consistent styling
-    const card = createElement('div', `group-picker-item ${slotClass} status-${status}`);
+    // Create Card Container
+    const card = createElement('div', `today-card-modern ${slotClass}`);
     card.setAttribute('role', 'listitem');
 
-    // Override default layout for this specific view if needed, but group-picker-item defaults are good.
-    // We want a flex row layout similar to PC schedule cards.
-    card.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 12px;';
+    // 1. Time Column
+    const timeCol = createElement('div', 'today-card-time');
 
-    // 1. Time
-    const timeSpan = createElement('span', 'time-text', {
-        textContent: formatTimeRange(schedule.start_time, schedule.end_time),
-        style: 'font-weight: 600; min-width: 85px;'
-    });
-    card.appendChild(timeSpan);
-
-    // 2. Info Container (Teacher, Type, Location)
-    const infoContainer = createElement('div', '', {
-        style: 'flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;'
+    const timeText = createElement('div', 'time-range', {
+        textContent: formatTimeRange(schedule.start_time, schedule.end_time)
     });
 
-    // Teacher
+    // Slot Label (Morning/Afternoon/Evening)
+    let slotLabel = '';
+    if (slotId === 'morning') slotLabel = '上午';
+    else if (slotId === 'afternoon') slotLabel = '下午';
+    else if (slotId === 'evening') slotLabel = '晚上';
+
+    const slotLabelEl = createElement('div', 'time-slot-label', { textContent: slotLabel });
+
+    timeCol.appendChild(timeText);
+    timeCol.appendChild(slotLabelEl);
+    card.appendChild(timeCol);
+
+    // 2. Info Column
+    const infoCol = createElement('div', 'today-card-info');
+
+    // Header: Teacher Name + Type
+    const header = createElement('div', 'today-card-header');
+
+    // Teacher Name
     let teacherNameText = schedule.teacher_name || '未分配教师';
     if (isMerged) {
         const tNames = [...new Set(items.map(i => i.teacher_name))];
         teacherNameText = tNames.join('、');
     }
 
-    const teacherSpan = createElement('span', '', {
-        textContent: teacherNameText,
-        style: 'font-weight: 500;'
-    });
-    if (isMerged) teacherSpan.title = items.map(i => i.teacher_name).join(', ');
+    const titleDiv = createElement('div', 'today-card-title');
+    const nameSpan = createElement('span', '', { textContent: teacherNameText });
+    if (isMerged) nameSpan.title = items.map(i => i.teacher_name).join(', ');
+    titleDiv.appendChild(nameSpan);
 
-    infoContainer.appendChild(teacherSpan);
-    infoContainer.appendChild(document.createTextNode('，'));
+    // Type Badge (Attempt CN lookup)
+    let typeLabel = schedule.schedule_type_cn;
+    if (!typeLabel) {
+        // Fallback lookup
+        if (window.ScheduleTypesStore && window.ScheduleTypesStore.getAll) {
+            const allTypes = window.ScheduleTypesStore.getAll();
+            const found = allTypes.find(t =>
+                (schedule.course_id && t.id == schedule.course_id) ||
+                (schedule.schedule_type && t.name === schedule.schedule_type)
+            );
+            if (found) typeLabel = found.description || found.name;
+        }
+        if (!typeLabel) typeLabel = schedule.schedule_type || '课程';
+    }
 
-    // Type
-    const typeCode = schedule.schedule_type || '';
-    const typeLabel = schedule.schedule_type_cn || SCHEDULE_TYPE_MAP[typeCode] || typeCode || '课程';
-    let typeClass = 'type-default';
-    if (typeLabel.includes('入户')) typeClass = 'type-visit';
-    else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-    else if (typeLabel.includes('评审')) typeClass = 'type-review';
-    else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
-    else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
-
-    const typeChip = createElement('span', `chip ${typeClass}`, {
-        textContent: typeLabel
-    });
-    infoContainer.appendChild(typeChip);
-    infoContainer.appendChild(document.createTextNode('，'));
+    const typeBadge = createElement('span', 'today-card-type', { textContent: typeLabel });
+    titleDiv.appendChild(typeBadge);
 
     // Merged Badge
     if (isMerged) {
-        const mergedBadge = createElement('span', 'chip', { textContent: `${items.length}个合并` });
-        mergedBadge.style.cssText = 'font-size:11px;background:#e0f2fe;color:#0284c7;padding:1px 6px;margin-right:4px;';
-        infoContainer.appendChild(mergedBadge);
+        const mergedBadge = createElement('span', 'today-card-type', {
+            textContent: `${items.length}个合并`,
+            style: 'background-color:#E0F2FE; color:#0284C7; border-color:#BAE6FD;'
+        });
+        titleDiv.appendChild(mergedBadge);
     }
 
-    // Location
-    const locationText = schedule.location || '上课地点未确定';
-    const locationSpan = createElement('span', '', {
-        textContent: locationText
-    });
-    if (!schedule.location) {
-        locationSpan.style.color = '#9ca3af';
-        locationSpan.style.fontStyle = 'italic';
-    }
-    infoContainer.appendChild(locationSpan);
+    header.appendChild(titleDiv);
+    infoCol.appendChild(header);
 
-    card.appendChild(infoContainer);
+    // Details: Location
+    const details = createElement('div', 'today-card-details');
 
-    // 3. Status Chip
-    const statusChip = createElement('span', `chip status-${status}`, {
-        textContent: displayStatus,
-        style: 'margin-left: auto;'
-    });
-    card.appendChild(statusChip);
+    const locationItem = createElement('div', 'today-card-detail-item location');
+    const locIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
+    const locationText = createElement('span', '', { textContent: schedule.location || '上课地点未确定' });
+
+    locationItem.appendChild(locIcon);
+    locationItem.appendChild(locationText);
+    details.appendChild(locationItem);
+
+    infoCol.appendChild(details);
+    card.appendChild(infoCol);
+
+    // 3. Status Column
+    const statusCol = createElement('div', 'today-card-status');
+    const statusPill = createElement('span', `status-pill ${status}`, { textContent: displayStatus });
+    statusCol.appendChild(statusPill);
+    card.appendChild(statusCol);
 
     return card;
 }
