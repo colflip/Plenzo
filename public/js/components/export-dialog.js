@@ -39,14 +39,14 @@ window.ExportDialog = (function () {
             icon: 'people'
         },
         [EXPORT_TYPES.TEACHER_SCHEDULE]: {
-            label: '指定时间段的老师授课记录',
-            description: '导出老师在指定时间范围内的授课详细记录',
+            label: '老师排课记录',
+            description: '导出老师在指定时间范围内的排课详细记录',
             requiresDateRange: true,
             icon: 'event_note'
         },
         [EXPORT_TYPES.STUDENT_SCHEDULE]: {
-            label: '指定时间段的学生排课记录',
-            description: '导出学生在指定时间范围内的排课详细记录',
+            label: '学生上课记录',
+            description: '导出学生在指定时间范围内的上课详细记录',
             requiresDateRange: true,
             icon: 'calendar_month'
         }
@@ -1333,7 +1333,7 @@ window.ExportDialog = (function () {
                 if (opt) selectedStudentName = opt.text;
             }
 
-            const transformedData = transformExportData(rawData, selectedStudentId, selectedStudentName);
+            const transformedData = transformExportData(rawData, selectedStudentId, selectedStudentName, userType);
 
             if (format === EXPORT_FORMATS.EXCEL) {
                 await generateExcelFile(transformedData, filename);
@@ -1606,7 +1606,14 @@ window.ExportDialog = (function () {
                 return resultRows;
             }
 
-            function transformExportData(originalData, studentId, studentName = '全部学生') {
+            /**
+             * 数据转换处理函数
+             * @param {Array} originalData 原始数据
+             * @param {string} studentId 学生ID (可选)
+             * @param {string} studentName 学生姓名 (可选)
+             * @param {string} userType 用户类型 (通过调用方显式传入，默认 undefined)
+             */
+            function transformExportData(originalData, studentId, studentName = '全部学生', passedUserType) {
                 if (!Array.isArray(originalData)) return [];
 
                 // 状态映射
@@ -1619,6 +1626,10 @@ window.ExportDialog = (function () {
                     'completed': '已完成',
                     'cancelled': '已取消'
                 };
+
+                // 优先使用传入的 userType，否则尝试从全局获取，最后默认为 'admin'
+                const currentUser = window.currentUser || {};
+                const userType = passedUserType || currentUser.userType || 'admin';
 
                 // 获取类型名称的辅助函数
                 const getTypeName = (typeIdOrName) => {
@@ -1748,8 +1759,179 @@ window.ExportDialog = (function () {
                     };
                 });
 
-                // 如果是老师排课记录导出，增加第二张表：分老师明细表，及第三张表：日历排课表
-                // 用户需求：将第三个工作表（日历）和第一个（总览）互换位置，并重新命名
+                // ============ 管理员角色导出逻辑 (4个工作表深度重构) ============
+                if (userType === 'admin') {
+                    const studentStats = aggregateStudentStats(originalData);
+                    const teacherStats = aggregateTeacherStats(originalData, studentName);
+                    const calendarData = transformToCalendarData(originalData, state.startDate, state.endDate, studentId);
+
+                    // 1. 每日排课明细 (Sheet 1)
+                    // 恢复“费用”和“周汇总”列（原逻辑删除了这两列）
+                    const sheet1Data = calendarData.map(row => {
+                        return { ...row };
+                    });
+
+                    // 2. 工作汇总 (Sheet 2)
+                    let sheet2Data = [];
+                    if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
+                        sheet2Data = teacherStats.map(stat => ({
+                            '教师姓名': stat['姓名'],
+                            '试教': stat['试教'],
+                            '入户': stat['入户'],
+                            '评审': stat['评审'],
+                            '集体活动': stat['集体活动'],
+                            '咨询': stat['咨询'],
+                            '汇总': stat['汇总'],
+                            '核对': '未核对' // 修正为可选项状态，默认未核对
+                        }));
+                    } else {
+                        sheet2Data = studentStats.map(stat => ({
+                            '学生姓名': stat['姓名'],
+                            '试教': stat['试教'] || 0,
+                            '入户': stat['入户'],
+                            '评审': stat['评审'],
+                            '集体活动': stat['集体活动'],
+                            '咨询': stat['咨询'],
+                            '汇总': stat['汇总'],
+                            '核对': '未核对'
+                        }));
+                    }
+
+                    // 3. 排课原始记录 (Sheet 3 - 21个列精准映射)
+                    const sheet3Data = originalData.map(row => {
+                        const dateStr = row.date || row.class_date || row['日期'] || '';
+                        const d = new Date(dateStr);
+                        const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                        const weekStr = !isNaN(d.getTime()) ? weekDays[d.getDay()] : '';
+
+                        const startTime = row.start_time || '';
+                        const endTime = row.end_time || '';
+                        const timeStr = (startTime && endTime) ? `${String(startTime).substring(0, 5)}-${String(endTime).substring(0, 5)}` : '';
+
+                        const familyMap = {
+                            0: '无人', 1: '妈', 2: '爸', 3: '爸妈', 4: '多人',
+                            10: '学生', 11: '学生+妈', 12: '学生+爸', 13: '学生+爸妈', 14: '学生+多人'
+                        };
+
+                        const statusMap = {
+                            'pending': '待确认', 'confirmed': '已确认', 'cancelled': '已取消', 'completed': '已完成'
+                        };
+
+                        // 格式化时间函数
+                        const fmt = (val) => {
+                            if (!val) return '';
+                            const date = new Date(val);
+                            return isNaN(date.getTime()) ? String(val) : date.toLocaleString('zh-CN', { hour12: false });
+                        };
+
+                        // 构建有序对象
+                        return {
+                            '日期': dateStr.includes('T') ? dateStr.split('T')[0] : dateStr,
+                            '星期': weekStr,
+                            '教师名称': row.teacher_name || '',
+                            '学生名称': row.student_name || '',
+                            '类型': row.type_desc || row.type_name || row['类型'] || '',
+                            '时间段': timeStr,
+                            '状态': statusMap[row.status] || row.status || '',
+                            '上课地点': row.location || '',
+                            '创建时间': fmt(row.created_at),
+                            '更新时间': fmt(row.updated_at),
+                            '课程状态自动更新时间': fmt(row.last_auto_update),
+                            '排课 ID': row.schedule_id || row.id || '',
+                            '教师 ID': row.teacher_id || '',
+                            '学生 ID': row.student_id || '',
+                            'admin ID': row.created_by || '',
+                            '家庭参加人员': familyMap[row.family_participants] !== undefined ? familyMap[row.family_participants] : (row.family_participants || ''),
+                            '教师评分': row.teacher_rating || '',
+                            '教师评价内容': row.teacher_comment || '',
+                            '学生评分': row.student_rating || '',
+                            '学生评价内容': row.student_comment || '',
+                            '备注': ''
+                        };
+                    });
+
+                    // 4. 教师授课/学生上课统计 (Sheet 4 - 动态透视结构)
+                    // 获取全量课程类型列表 (从 Store 获取描述)
+                    let allTypeConfigs = [];
+                    if (window.ScheduleTypesStore) {
+                        allTypeConfigs = window.ScheduleTypesStore.getAll() || [];
+                    }
+                    // 按 ID 排序以保证列顺序稳定
+                    allTypeConfigs.sort((a, b) => Number(a.id) - Number(b.id));
+
+                    const typeHeaders = allTypeConfigs.map(t => t.description || t.name);
+                    const typeIdToHeader = {};
+                    allTypeConfigs.forEach(t => {
+                        typeIdToHeader[t.id] = t.description || t.name;
+                    });
+
+                    let dateRangeStr = '';
+                    if (state.startDate && state.endDate) {
+                        const s = state.startDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+                        const e = state.endDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+                        dateRangeStr = `${s} 至 ${e}`;
+                    }
+
+                    const dynamicStatsMap = new Map();
+
+                    originalData.forEach(row => {
+                        const statusVal = row.status || '';
+                        if (String(statusVal).toLowerCase() === '已取消' || statusVal === 'cancelled' || statusVal === '0') return;
+
+                        const name = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ?
+                            (row.teacher_name || '') : (row.student_name || '');
+                        if (!name) return;
+
+                        if (!dynamicStatsMap.has(name)) {
+                            dynamicStatsMap.set(name, { 姓名: name, types: {}, total: 0 });
+                        }
+                        const entry = dynamicStatsMap.get(name);
+
+                        // 使用关联 ID 匹配表头，如果匹配不到则使用 type_desc
+                        const typeId = row.course_id || row.type_id;
+                        const header = typeIdToHeader[typeId] || row.type_desc || row.type_name || '其他';
+
+                        entry.types[header] = (entry.types[header] || 0) + 1;
+                        entry.total++;
+                    });
+
+                    const statsForRemarks = (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) ? teacherStats : studentStats;
+
+                    const sheet4Data = Array.from(dynamicStatsMap.values()).map(entry => {
+                        const row = { '姓名': entry.姓名 };
+                        // 2 到 n 列：显示所有课程类型名称
+                        typeHeaders.forEach(header => {
+                            row[header] = entry.types[header] || 0;
+                        });
+                        // n+1 列：汇总
+                        row['汇总'] = entry.total;
+
+                        // n+2 列：备注
+                        const statMatch = statsForRemarks.find(s => (s['姓名'] || s['学生姓名']) === entry.姓名);
+                        let remark = '';
+                        if (statMatch) {
+                            const detailStr = statMatch['汇总'] || '';
+                            const targetPerson = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ? studentName : '全部老师';
+                            const title = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ? '老师' : '同学';
+                            remark = `${entry.姓名}${title}好！${dateRangeStr} 期间，在[${targetPerson}]处入户相关数据为 ：${detailStr || (entry.total + '次活动')}。请问是否正确？`;
+                        }
+                        row['备注'] = remark;
+                        return row;
+                    });
+
+                    const sheetNames = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ?
+                        ['每日排课明细', '教师授课汇总', '排课原始记录', '教师授课统计'] :
+                        ['每日排课明细', '学生上课汇总', '排课原始记录', '学生上课统计'];
+
+                    return {
+                        [sheetNames[0]]: sheet1Data,
+                        [sheetNames[1]]: sheet2Data,
+                        [sheetNames[2]]: sheet3Data,
+                        [sheetNames[3]]: sheet4Data
+                    };
+                }
+
+                // ============ 教师/学生角色导出逻辑 (保持原有) ============
                 if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
                     const statsData = aggregateTeacherStats(originalData, studentName);
                     const calendarData = transformToCalendarData(originalData, state.startDate, state.endDate, studentId);
@@ -1881,6 +2063,8 @@ window.ExportDialog = (function () {
                         }
                     }
 
+                    // 学生汇总逻辑也应用相同的折算逻辑 (按去重后的 Set 计算)
+                    // 注意：Set 中存储的是排课记录，对于学生端，去重后的 key 代表一次排课动作
                     const visitCount = stat.visitSet.size;
                     const reviewCount = stat.reviewSet.size;
 
@@ -1895,10 +2079,13 @@ window.ExportDialog = (function () {
 
                     result.push({
                         '姓名': stat.name,
+                        '试教': stat.trial || 0,
                         '入户': visitCount,
                         '评审': reviewCount,
                         '集体活动': stat.group_activity,
                         '咨询': stat.consultation,
+                        '汇总': remarks, // 学生的汇总目前显示备注详情
+                        '核对': '确定',
                         '备注': remarks
                     });
                 });
@@ -1999,38 +2186,33 @@ window.ExportDialog = (function () {
                         }
                     }
 
-                    // 计算备注中显示的合并数值
-                    // 1次评审记录 = 0.5次入户 + 1次评审
-                    // 半次入户 = 0.5次入户
-                    const effectiveVisits = stat.home_visit + stat.half_visit * 0.5 + (stat.review_record * 0.5);
-                    const effectiveReviews = stat.review + (stat.review_record * 1);
+                    // ============ 核心计算逻辑修正 ============
+                    // 入户 = 入户 + 0.5 * 半次入户 + 0.5 * 评审记录
+                    const effectiveVisits = stat.home_visit + (stat.half_visit * 0.5) + (stat.review_record * 0.5);
+                    // 评审 = 评审 + 评审记录
+                    const effectiveReviews = stat.review + stat.review_record;
 
-                    // 备注：姓名，导出日期段，a次试教，b次入户... (折算后，过滤 0 值)
-                    // 备注格式：'老师姓名'老师您好！2025-12-22 至 2026-01-18 期间，在[学生姓名]入户相关数据为 ：a次入户、b 次评审，c次咨询，d次集体活动。请问是否正确？
-                    // 注意：dateRangeStr 已经包含了 " 至 " 或原始格式，需要清理一下
-
-                    let cleanDateRange = dateRangeStr.trim().replace('至', ' 至 '); // ensure spacing
+                    let cleanDateRange = dateRangeStr.trim().replace('至', ' 至 ');
 
                     const details = [];
+                    if (stat.trial > 0) details.push(`${stat.trial}次试教`);
                     if (effectiveVisits > 0) details.push(`${effectiveVisits}次入户`);
                     if (effectiveReviews > 0) details.push(`${effectiveReviews}次评审`);
-                    if (stat.consultation > 0) details.push(`${stat.consultation}次咨询`);
                     if (stat.group_activity > 0) details.push(`${stat.group_activity}次集体活动`);
+                    if (stat.consultation > 0) details.push(`${stat.consultation}次咨询`);
 
                     const detailsStr = details.length > 0 ? details.join('、') : '无';
-
                     const remarks = `${stat.name}老师好！${cleanDateRange} 期间，在[${studentName}]处入户相关数据为 ：${detailsStr}。请问是否正确？`;
 
                     result.push({
                         '姓名': stat.name,
                         '试教': stat.trial,
-                        '入户': stat.home_visit,
-                        '半次入户': stat.half_visit,
-                        '评审': stat.review,
-                        '评审记录': stat.review_record,
+                        '入户': effectiveVisits,
+                        '评审': effectiveReviews,
                         '集体活动': stat.group_activity,
                         '咨询': stat.consultation,
                         '汇总': detailsStr,
+                        '核对': '确定', // 默认为确定，管理员可手动微调
                         '备注': remarks
                     });
                 });
@@ -2571,38 +2753,39 @@ window.ExportDialog = (function () {
                                 cell.s.alignment.horizontal = 'left';
                             }
 
-                            // Conditional Formatting (Sheet 1)
-                            if (sheetIndex === 0) {
-                                const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
-                                const headerCell = ws[headerRef];
-                                const headerVal = headerCell ? String(headerCell.v) : '';
+                            // 2. 通用条件样式 (所有 Sheet)
+                            const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
+                            const headerCell = ws[headerRef];
+                            const headerVal = headerCell ? String(headerCell.v) : '';
 
-                                // a. Date Column (Merged or not)
-                                if (headerVal.includes('日期')) {
-                                    cell.s.fill = { fgColor: { rgb: "E2EFDA" } };
-                                }
-                                // b. 费用列样式：靠右靠下对齐，周日蓝色背景
-                                else if (headerVal === '费用') {
-                                    cell.s.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
-                                    if (isSunday) {
-                                        cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
-                                    }
-                                }
-                                // c. 周汇总列样式：靠右靠下对齐
-                                else if (headerVal === '周汇总') {
-                                    cell.s.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
-                                }
-                                // d. Sunday Row -> Light Blue (其他列)
-                                else if (isSunday) {
-                                    cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
-                                }
+                            // a. 日期列 -> 浅绿色
+                            if (headerVal.includes('日期')) {
+                                cell.s.fill = { fgColor: { rgb: "E2EFDA" } };
+                            }
 
-                                // e. Red Text (Strict Logic: ONLY if row is red AND column is Plan/Actual/Type)
-                                if (headerVal.includes('计划') || headerVal.includes('实际') || headerVal.includes('类型')) {
-                                    if (isRedRow) {
-                                        cell.s.font.color = { rgb: "FF0000" };
-                                    }
+                            // b. 周日行 -> 浅蓝色
+                            if (isSunday) {
+                                cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
+                            }
+
+                            // c. 评审/咨询/试教类 -> 红色文字 (但管理员导出的汇总与统计表除外)
+                            const isCoreField = headerVal.includes('计划') || headerVal.includes('实际') || headerVal.includes('类型');
+                            const isStatField = headerVal === '评审' || headerVal === '咨询' || headerVal === '试教';
+
+                            if (isCoreField || isStatField) {
+                                const isExcludedSheet = (sheetIndex === 1 || sheetIndex === 2 || sheetIndex === 3) && userType === 'admin';
+                                const shouldBeRed = (isRedRow || (isStatField && Number(value) > 0)) && !isExcludedSheet;
+
+                                if (shouldBeRed) {
+                                    cell.s.font.color = { rgb: "FF0000" };
+                                } else {
+                                    cell.s.font.color = { rgb: "000000" };
                                 }
+                            }
+
+                            // d. 费用/汇总列特殊对齐
+                            if (headerVal === '费用' || headerVal === '周汇总' || headerVal === '汇总') {
+                                cell.s.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
                             }
                         }
                     }
@@ -2684,7 +2867,7 @@ window.ExportDialog = (function () {
         const overlay = document.getElementById('exportLoadingOverlay');
         if (overlay) overlay.style.display = 'none';
 
-        // 自动选择默认类型（优先选择"指定时间段的老师授课记录"，否则选第一个）
+        // 自动选择默认类型（优先选择"老师授课记录"，否则选第一个）
         setTimeout(() => {
             // EXPORT_TYPES.TEACHER_SCHEDULE value is 'teacher_schedule'
             const defaultType = 'teacher_schedule';

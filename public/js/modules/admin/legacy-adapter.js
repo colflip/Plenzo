@@ -550,58 +550,14 @@ if (startInput && endInput) {
     loadSchedules();
 }
 // 增加上一周/下一周按钮交互
+// [FIX] 移除重复监听器：已在 schedule-manager.js 中统一处理
+/*
 const prevBtn = document.getElementById('prevWeek');
 const nextBtn = document.getElementById('nextWeek');
 if (prevBtn && nextBtn) {
-    prevBtn.addEventListener('click', () => {
-        if (startInput && endInput) {
-            const s = new Date(startInput.value);
-            const e = new Date(endInput.value);
-            const newStart = new Date(s);
-            const newEnd = new Date(e);
-            newStart.setDate(s.getDate() - 7);
-            newEnd.setDate(e.getDate() - 7);
-            startInput.value = toISODate(newStart);
-            endInput.value = toISODate(newEnd);
-            updateWeeklyRangeText(newStart, newEnd);
-            loadSchedules();
-        } else {
-            const s = window.__weeklyRange ? new Date(window.__weeklyRange.start) : new Date();
-            const e = window.__weeklyRange ? new Date(window.__weeklyRange.end) : new Date();
-            const newStart = new Date(s);
-            const newEnd = new Date(e);
-            newStart.setDate(s.getDate() - 7);
-            newEnd.setDate(e.getDate() - 7);
-            window.__weeklyRange = { start: toISODate(newStart), end: toISODate(newEnd) };
-            updateWeeklyRangeText(newStart, newEnd);
-            loadSchedules();
-        }
-    });
-    nextBtn.addEventListener('click', () => {
-        if (startInput && endInput) {
-            const s = new Date(startInput.value);
-            const e = new Date(endInput.value);
-            const newStart = new Date(s);
-            const newEnd = new Date(e);
-            newStart.setDate(s.getDate() + 7);
-            newEnd.setDate(e.getDate() + 7);
-            startInput.value = toISODate(newStart);
-            endInput.value = toISODate(newEnd);
-            updateWeeklyRangeText(newStart, newEnd);
-            loadSchedules();
-        } else {
-            const s = window.__weeklyRange ? new Date(window.__weeklyRange.start) : new Date();
-            const e = window.__weeklyRange ? new Date(window.__weeklyRange.end) : new Date();
-            const newStart = new Date(s);
-            const newEnd = new Date(e);
-            newStart.setDate(s.getDate() + 7);
-            newEnd.setDate(e.getDate() + 7);
-            window.__weeklyRange = { start: toISODate(newStart), end: toISODate(newEnd) };
-            updateWeeklyRangeText(newStart, newEnd);
-            loadSchedules();
-        }
-    });
+    // ... duplicate logic removed ...
 }
+*/
 // 排课管理 - 新建排课按钮
 // 排课管理 - 新建排课按钮 (Event Delegation for robustness)
 document.addEventListener('click', (e) => {
@@ -618,6 +574,10 @@ document.addEventListener('click', (e) => {
 });
 
 // 排课管理 - 表单提交
+// 排课管理 - 表单提交
+// [FIX] 移除重复监听器：表单提交已在 schedule-manager.js 中统一处理
+// 原有的 scheduleForm.addEventListener('submit', ...) 逻辑已删除，以避免重复创建排课记录。
+/*
 const scheduleForm = document.getElementById('scheduleForm');
 if (scheduleForm) {
     scheduleForm.addEventListener('submit', async (e) => {
@@ -642,6 +602,7 @@ if (scheduleForm) {
             if (!effectiveDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
                 const readonlyDiv = scheduleForm.querySelector('#scheduleDateReadonly');
                 const candidateText = readonlyDiv ? String(readonlyDiv.textContent || '').trim() : '';
+
                 const originalDate = (scheduleForm.__originalData && scheduleForm.__originalData.date) ? String(scheduleForm.__originalData.date).trim() : '';
                 let candidate = candidateText || originalDate || '';
                 if (candidate) {
@@ -894,6 +855,7 @@ if (scheduleForm) {
         }
     });
 }
+*/
 // 已在顶部绑定筛选事件
 
 // 统计日期范围

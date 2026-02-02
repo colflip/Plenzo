@@ -830,18 +830,24 @@ export async function setupScheduleEventListeners() {
             const mode = form.dataset.mode;
             const id = form.dataset.id;
 
+            const teacherId = form.querySelector('#scheduleTeacher').value || null;
+            const studentId = form.querySelector('#scheduleStudent').value;
+            const courseId = form.querySelector('#scheduleTypeSelect').value || null;
+
+            // 构建符合后端验证规则的 Payload
             const body = {
-                student_id: form.querySelector('#scheduleStudent').value,
-                teacher_id: form.querySelector('#scheduleTeacher').value || null,
+                student_ids: studentId ? [Number(studentId)] : [],
+                teacher_id: teacherId ? Number(teacherId) : null,
                 date: form.querySelector('#scheduleDate').value,
                 start_time: form.querySelector('#scheduleStartTime').value,
                 end_time: form.querySelector('#scheduleEndTime').value,
                 location: form.querySelector('#scheduleLocation').value,
-                course_id: form.querySelector('#scheduleTypeSelect').value || null,
-                status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed'
+                type_ids: courseId ? [Number(courseId)] : [], // 统一使用 type_ids 数组
+                status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed',
+                resolve_strategy: 'override' // 默认覆盖
             };
 
-            if (!body.student_id || !body.date || !body.start_time || !body.end_time) {
+            if (!body.student_ids.length || !body.date || !body.start_time || !body.end_time) {
                 if (window.apiUtils) window.apiUtils.showToast('请填写必填项', 'error');
                 return;
             }
@@ -852,6 +858,7 @@ export async function setupScheduleEventListeners() {
                     await window.apiUtils.post('/admin/schedules', body);
                     window.apiUtils.showSuccessToast('排课已添加');
                 } else {
+                    // 更新时保持同样的 payload 结构
                     await window.apiUtils.put(`/admin/schedules/${id}`, body);
                     window.apiUtils.showSuccessToast('排课已更新');
                 }

@@ -52,3 +52,4 @@ db/
 # Archive
 _archive/
 prompt.md
+src/server/scripts/
