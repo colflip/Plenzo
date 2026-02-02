@@ -1,0 +1,251 @@
+/* ==========================================================================
+   Admin Overview Page Styles
+   Focus: Minimalism, Modernity, and Functionality
+   ========================================================================== */
+
+/* --- Today's Schedule Container --- */
+#todayScheduleList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px;
+    /* Prevent shadow cutout */
+}
+
+/* --- Empty State --- */
+.today-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    background: #F9FAFB;
+    border-radius: 12px;
+    border: 1px dashed #E5E7EB;
+    color: #9CA3AF;
+    text-align: center;
+}
+
+.today-empty-state .material-icons-round {
+    font-size: 48px;
+    margin-bottom: 12px;
+    color: #D1D5DB;
+}
+
+.today-empty-state p {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* --- Modern Schedule Card (Timeline Style) --- */
+.schedule-card-modern {
+    display: flex;
+    background: #FFFFFF;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+    /* Reserve space for border transition */
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+    min-height: 80px;
+}
+
+.schedule-card-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Left Status Strip */
+.sc-status-strip {
+    width: 6px;
+    flex-shrink: 0;
+}
+
+/* Status Colors */
+.status-pending .sc-status-strip {
+    background-color: #F59E0B;
+}
+
+.status-confirmed .sc-status-strip {
+    background-color: #2ECC71;
+}
+
+.status-completed .sc-status-strip {
+    background-color: #94A3B8;
+}
+
+.status-cancelled .sc-status-strip {
+    background-color: #EF4444;
+}
+
+/* Main Content Layout */
+.sc-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+}
+
+/* Time Section (Left) */
+.sc-time-section {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 80px;
+    padding-right: 16px;
+    border-right: 1px solid #F3F4F6;
+    margin-right: 16px;
+}
+
+.sc-start-time {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1F2937;
+    line-height: 1.2;
+}
+
+.sc-end-time {
+    font-size: 13px;
+    color: #9CA3AF;
+    font-weight: 500;
+    margin-top: 2px;
+}
+
+/* Details Section (Middle) */
+.sc-details-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+}
+
+.sc-student-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sc-student-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1F2937;
+}
+
+/* Badge for Type */
+.sc-type-badge {
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Type Colors */
+.type-visit .sc-type-badge {
+    background: #ECFDF5;
+    color: #059669;
+}
+
+.type-trial .sc-type-badge {
+    background: #EFF6FF;
+    color: #2563EB;
+}
+
+.type-review .sc-type-badge {
+    background: #FEF3C7;
+    color: #D97706;
+}
+
+.type-default .sc-type-badge {
+    background: #F3F4F6;
+    color: #4B5563;
+}
+
+.sc-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    /* Space between teacher and location */
+    margin-top: 4px;
+    font-size: 13px;
+    color: #6B7280;
+}
+
+.sc-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sc-meta-item .material-icons-round {
+    font-size: 15px;
+    color: #9CA3AF;
+}
+
+/* Action/Arrow Section (Right) */
+.sc-action-section {
+    padding-left: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #E5E7EB;
+    transition: color 0.2s;
+}
+
+.schedule-card-modern:hover .sc-action-section {
+    color: #2ECC71;
+}
+
+/* Merged Badge */
+.sc-merged-count {
+    background: #111827;
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    margin-left: 6px;
+}
+
+/* Mobile Adjustments */
+@media (max-width: 640px) {
+    .sc-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .sc-time-section {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 6px;
+        border-right: none;
+        margin-right: 0;
+        margin-bottom: 8px;
+        padding-right: 0;
+    }
+
+    .sc-end-time {
+        font-size: 14px;
+        /* Ensure readability */
+    }
+
+    .sc-details-section {
+        width: 100%;
+    }
+
+    .sc-meta-row {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .sc-action-section {
+        display: none;
+        /* Hide chevron on mobile to save space */
+    }
+}

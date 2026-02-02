@@ -245,7 +245,9 @@
 .weekly-schedule-table tbody td {
     background-color: #FFFFFF;
     transition: background-color 0.2s;
-    height: 100px;
+    height: auto;
+    /* Allow auto height */
+    min-height: 100px;
     /* Minimum height for visual balance */
 }
 
@@ -276,6 +278,10 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     cursor: pointer;
     transition: all 0.2s ease;
+    /* Text Wrapping */
+    white-space: normal;
+    word-wrap: break-word;
+    word-break: break-word;
 }
 
 .schedule-item:hover {

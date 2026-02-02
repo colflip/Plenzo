@@ -610,6 +610,220 @@
     background-color: #FFFFFF;
 }
 
+/* --- Today's Schedule Redesign --- */
+
+/* Grid Container */
+#todayScheduleList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 20px 0 0 0;
+    /* Padding top for separation */
+}
+
+/* Card Component */
+.schedule-card {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    /* Very subtle base shadow */
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 140px;
+    /* Consistent height */
+    position: relative;
+    overflow: hidden;
+    border-left: 4px solid transparent;
+    /* Status indicator placeholder */
+}
+
+.schedule-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+    border-color: #CBD5E1;
+}
+
+/* Status Indicators (Left Border) */
+.schedule-card.status-confirmed {
+    border-left-color: #10B981;
+}
+
+/* Green */
+.schedule-card.status-pending {
+    border-left-color: #F59E0B;
+}
+
+/* Orange */
+.schedule-card.status-completed {
+    border-left-color: #94A3B8;
+}
+
+/* Grey */
+.schedule-card.status-cancelled {
+    border-left-color: #EF4444;
+}
+
+/* Red */
+
+/* Header Area: Time and Type */
+.sc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.sc-time {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1E293B;
+    /* Slate 800 */
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+}
+
+.sc-type {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Content Area: Users */
+.sc-body {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.sc-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.sc-row i {
+    font-size: 16px;
+    color: #94A3B8;
+    /* Slate 400 */
+    width: 16px;
+    text-align: center;
+}
+
+.sc-student {
+    color: #334155;
+    /* Slate 700 */
+    font-weight: 500;
+}
+
+.sc-teacher {
+    color: #64748B;
+    /* Slate 500 */
+}
+
+/* Footer Area: Location */
+.sc-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid #F1F5F9;
+    font-size: 12px;
+    color: #64748B;
+}
+
+.sc-footer i {
+    font-size: 14px;
+    color: #94A3B8;
+}
+
+/* merged badge */
+.sc-merged-badge {
+    background-color: #F1F5F9;
+    color: #475569;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    vertical-align: middle;
+    font-weight: 600;
+}
+
+/* Type Colors (Pastel badges) */
+.type-visit {
+    background-color: #E0F2FE;
+    color: #0369A1;
+}
+
+/* Sky Blue */
+.type-trial {
+    background-color: #FFF7ED;
+    color: #C2410C;
+}
+
+/* Orange */
+.type-review {
+    background-color: #F0FDF4;
+    color: #15803D;
+}
+
+/* Green */
+.type-half-visit {
+    background-color: #FAF5FF;
+    color: #7E22CE;
+}
+
+/* Purple */
+.type-group-activity {
+    background-color: #FFF1F2;
+    color: #BE123C;
+}
+
+/* Rose */
+.type-default {
+    background-color: #F8FAFC;
+    color: #475569;
+}
+
+/* Slate */
+
+/* Empty State */
+.today-empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #94A3B8;
+    background: #F8FAFC;
+    border-radius: 12px;
+    border: 1px dashed #E2E8F0;
+}
+
+.today-empty-state i {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+.today-empty-state p {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+
 /* 原始值提示与更改高亮样式 */
 .original-note {
     display: block;
