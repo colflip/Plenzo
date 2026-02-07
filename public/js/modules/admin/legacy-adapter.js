@@ -1487,6 +1487,13 @@ async function loadStatistics() {
                     <div class="loading-text">正在加载教师数据...</div>
                 `;
                 teacherContainer.appendChild(teacherOverlay);
+
+                // Reset animations
+                const chartContainers = teacherContainer.querySelectorAll('.chart-container');
+                chartContainers.forEach(el => {
+                    el.classList.remove('chart-anim-active');
+                    el.classList.add('chart-anim-enter');
+                });
             }
 
             try {
@@ -1510,6 +1517,16 @@ async function loadStatistics() {
                 if (statsFeedback) {
                     statsFeedback.style.display = 'none';
                 }
+
+                // Trigger animation
+                if (teacherContainer) {
+                    setTimeout(() => {
+                        const chartContainers = teacherContainer.querySelectorAll('.chart-container');
+                        chartContainers.forEach(el => {
+                            el.classList.add('chart-anim-active');
+                        });
+                    }, 50);
+                }
             }
             return;
         }
@@ -1526,6 +1543,13 @@ async function loadStatistics() {
                     <div class="loading-text">正在加载学生数据...</div>
                 `;
                 studentContainer.appendChild(studentOverlay);
+
+                // Reset animations
+                const chartContainers = studentContainer.querySelectorAll('.chart-container');
+                chartContainers.forEach(el => {
+                    el.classList.remove('chart-anim-active');
+                    el.classList.add('chart-anim-enter');
+                });
             }
 
             try {
@@ -1547,6 +1571,16 @@ async function loadStatistics() {
                 // 隐藏反馈
                 if (statsFeedback) {
                     statsFeedback.style.display = 'none';
+                }
+
+                // Trigger animation
+                if (studentContainer) {
+                    setTimeout(() => {
+                        const chartContainers = studentContainer.querySelectorAll('.chart-container');
+                        chartContainers.forEach(el => {
+                            el.classList.add('chart-anim-active');
+                        });
+                    }, 50);
                 }
             }
             return;

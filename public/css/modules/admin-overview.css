@@ -1,251 +1,307 @@
 /* ==========================================================================
-   Admin Overview Page Styles
-   Focus: Minimalism, Modernity, and Functionality
+   Admin Overview - Today's Schedule Card Redesign (Teacher Alignment)
    ========================================================================== */
 
-/* --- Today's Schedule Container --- */
+/* 1. Grid Container */
 #todayScheduleList {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 4px;
-    /* Prevent shadow cutout */
+    gap: 16px;
+    padding: 16px 0;
 }
 
-/* --- Empty State --- */
+/* 2. Modern Card Base */
+.today-card-modern {
+    display: flex;
+    flex-direction: row;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    margin-bottom: 0px;
+    overflow: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    min-height: 80px;
+    padding-left: 6px;
+    /* Space for the colored strip */
+    cursor: pointer;
+}
+
+.today-card-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: #CBD5E1;
+}
+
+/* 3. Color Strips (Pseudo-element) */
+.today-card-modern::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    background-color: #CBD5E1;
+}
+
+.today-card-modern.slot-morning::before {
+    background-color: #3B82F6;
+    /* Blue */
+}
+
+.today-card-modern.slot-afternoon::before {
+    background-color: #F59E0B;
+    /* Amber */
+}
+
+.today-card-modern.slot-evening::before {
+    background-color: #8B5CF6;
+    /* Purple */
+}
+
+/* 4. Time Section */
+.today-card-time {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 20px;
+    background-color: #F8FAFC;
+    border-right: 1px solid #F1F5F9;
+    min-width: 110px;
+    flex-shrink: 0;
+}
+
+.today-card-time .time-range {
+    font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1E293B;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+.today-card-time .time-slot-label {
+    font-size: 12px;
+    color: #64748B;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* 5. Info Section */
+.today-card-info {
+    flex: 1;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    /* Important for flex truncation */
+}
+
+.today-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.today-card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0F172A;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.sc-student-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0F172A;
+}
+
+/* Badge Styles */
+.sc-type-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background-color: #F1F5F9;
+    color: #475569;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    border: 1px solid #E2E8F0;
+    text-transform: uppercase;
+}
+
+/* Type Colors matching JS logic classes in wrapper span */
+.type-visit .sc-type-badge {
+    background-color: #F5F3FF;
+    color: #7C3AED;
+    border-color: #DDD6FE;
+}
+
+.type-trial .sc-type-badge {
+    background-color: #FFF7ED;
+    color: #EA580C;
+    border-color: #FFEDD5;
+}
+
+.type-review .sc-type-badge {
+    background-color: #F0FDF4;
+    color: #16A34A;
+    border-color: #DCFCE7;
+}
+
+/* Details Row */
+.today-card-details {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    color: #64748B;
+    font-size: 13px;
+    flex-wrap: wrap;
+}
+
+.today-card-detail-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.today-card-detail-item .material-icons-round {
+    font-size: 16px;
+    color: #94A3B8;
+}
+
+/* Ensure full text for location */
+.today-card-detail-item.location {
+    white-space: normal;
+    line-height: 1.4;
+}
+
+/* 6. Status Section */
+.today-card-status {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid #F1F5F9;
+    min-width: 100px;
+}
+
+/* Status Pills */
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.status-pill.pending {
+    background-color: #FFF7ED;
+    color: #C2410C;
+    border: 1px solid #FFEDD5;
+}
+
+.status-pill.confirmed {
+    background-color: #F0FDF4;
+    color: #15803D;
+    border: 1px solid #DCFCE7;
+}
+
+.status-pill.completed {
+    background-color: #F8FAFC;
+    color: #475569;
+    border: 1px solid #E2E8F0;
+}
+
+.status-pill.cancelled {
+    background-color: #FEF2F2;
+    color: #B91C1C;
+    border: 1px solid #FECACA;
+}
+
+/* Empty State */
 .today-empty-state {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
-    background: #F9FAFB;
+    padding: 60px 20px;
+    color: #94A3B8;
+    background: #F8FAFC;
     border-radius: 12px;
-    border: 1px dashed #E5E7EB;
-    color: #9CA3AF;
-    text-align: center;
+    border: 2px dashed #E2E8F0;
 }
 
-.today-empty-state .material-icons-round {
+.today-empty-state i {
     font-size: 48px;
     margin-bottom: 12px;
-    color: #D1D5DB;
+    color: #CBD5E1;
 }
 
 .today-empty-state p {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 500;
     margin: 0;
+    color: #64748B;
 }
 
-/* --- Modern Schedule Card (Timeline Style) --- */
-.schedule-card-modern {
-    display: flex;
-    background: #FFFFFF;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid transparent;
-    /* Reserve space for border transition */
-    overflow: hidden;
-    cursor: pointer;
-    position: relative;
-    min-height: 80px;
-}
-
-.schedule-card-modern:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.05);
-}
-
-/* Left Status Strip */
-.sc-status-strip {
-    width: 6px;
-    flex-shrink: 0;
-}
-
-/* Status Colors */
-.status-pending .sc-status-strip {
-    background-color: #F59E0B;
-}
-
-.status-confirmed .sc-status-strip {
-    background-color: #2ECC71;
-}
-
-.status-completed .sc-status-strip {
-    background-color: #94A3B8;
-}
-
-.status-cancelled .sc-status-strip {
-    background-color: #EF4444;
-}
-
-/* Main Content Layout */
-.sc-content {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-}
-
-/* Time Section (Left) */
-.sc-time-section {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 80px;
-    padding-right: 16px;
-    border-right: 1px solid #F3F4F6;
-    margin-right: 16px;
-}
-
-.sc-start-time {
-    font-size: 18px;
-    font-weight: 700;
-    color: #1F2937;
-    line-height: 1.2;
-}
-
-.sc-end-time {
-    font-size: 13px;
-    color: #9CA3AF;
-    font-weight: 500;
-    margin-top: 2px;
-}
-
-/* Details Section (Middle) */
-.sc-details-section {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-}
-
-.sc-student-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.sc-student-name {
-    font-size: 15px;
-    font-weight: 600;
-    color: #1F2937;
-}
-
-/* Badge for Type */
-.sc-type-badge {
-    padding: 2px 8px;
-    border-radius: 99px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-/* Type Colors */
-.type-visit .sc-type-badge {
-    background: #ECFDF5;
-    color: #059669;
-}
-
-.type-trial .sc-type-badge {
-    background: #EFF6FF;
-    color: #2563EB;
-}
-
-.type-review .sc-type-badge {
-    background: #FEF3C7;
-    color: #D97706;
-}
-
-.type-default .sc-type-badge {
-    background: #F3F4F6;
-    color: #4B5563;
-}
-
-.sc-meta-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    /* Space between teacher and location */
-    margin-top: 4px;
-    font-size: 13px;
-    color: #6B7280;
-}
-
-.sc-meta-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.sc-meta-item .material-icons-round {
-    font-size: 15px;
-    color: #9CA3AF;
-}
-
-/* Action/Arrow Section (Right) */
-.sc-action-section {
-    padding-left: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #E5E7EB;
-    transition: color 0.2s;
-}
-
-.schedule-card-modern:hover .sc-action-section {
-    color: #2ECC71;
-}
-
-/* Merged Badge */
-.sc-merged-count {
-    background: #111827;
-    color: #fff;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 700;
-    margin-left: 6px;
-}
-
-/* Mobile Adjustments */
+/* Responsive */
 @media (max-width: 640px) {
-    .sc-content {
+    .today-card-modern {
         flex-direction: column;
-        align-items: flex-start;
+        padding-left: 0;
+        border-top: 4px solid #CBD5E1;
+        /* Use top border instead of side */
     }
 
-    .sc-time-section {
-        flex-direction: row;
-        align-items: baseline;
-        gap: 6px;
-        border-right: none;
-        margin-right: 0;
-        margin-bottom: 8px;
-        padding-right: 0;
+    .today-card-modern.slot-morning {
+        border-top-color: #3B82F6;
     }
 
-    .sc-end-time {
-        font-size: 14px;
-        /* Ensure readability */
+    .today-card-modern.slot-afternoon {
+        border-top-color: #F59E0B;
     }
 
-    .sc-details-section {
-        width: 100%;
+    .today-card-modern.slot-evening {
+        border-top-color: #8B5CF6;
     }
 
-    .sc-meta-row {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .sc-action-section {
+    .today-card-modern::before {
         display: none;
-        /* Hide chevron on mobile to save space */
+    }
+
+    .today-card-time {
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-right: none;
+        border-bottom: 1px solid #F1F5F9;
+        background-color: #fff;
+        width: 100%;
+        min-height: auto;
+    }
+
+    .today-card-info {
+        padding: 16px;
+    }
+
+    .today-card-status {
+        border-left: none;
+        border-top: 1px solid #F1F5F9;
+        padding: 12px 16px;
+        justify-content: flex-end;
+        width: 100%;
+        box-sizing: border-box;
     }
 }

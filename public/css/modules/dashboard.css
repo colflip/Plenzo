@@ -958,7 +958,7 @@
     text-transform: uppercase;
     font-size: 12px;
     letter-spacing: 0.05em;
-    padding: 16px 24px;
+    padding: 11px 24px;
     border-bottom: 1px solid var(--admin-border);
     text-align: left;
 }
@@ -7142,6 +7142,23 @@ svg {
 
     .stat-card.summary-card .stat-value {
         font-size: 32px;
+    }
+
+    /* Disable Marquee on Mobile to prevent overlap */
+    .marquee-wrapper {
+        max-width: none !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        position: static !important;
+    }
+
+    .marquee-wrapper:hover .marquee-content {
+        animation: none !important;
+    }
+
+    .marquee-content {
+        display: inline !important;
+        padding-right: 0 !important;
     }
 }
 
