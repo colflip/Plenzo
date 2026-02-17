@@ -1,0 +1,21 @@
+/* ============================================
+   移动端排课卡片标签优化
+   - 减少课程类型标签高度 40%
+   ============================================ */
+@media (max-width: 768px) {
+
+    /* 
+       Original: ~20px height (12px font * 1.4 + 4px padding)
+       Target: ~12px height (40% reduction)
+       New: 10px font * 1 line-height + 2px padding = 12px 
+    */
+    .schedule-item .type {
+        font-size: 10px !important;
+        padding: 1px 4px !important;
+        line-height: 1 !important;
+        display: inline-block !important;
+        /* Ensure block model relies on padding */
+        height: auto !important;
+        min-height: 0 !important;
+    }
+}

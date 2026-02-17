@@ -83,7 +83,7 @@ class ApiUtils {
                     ? '认证令牌已过期，请重新登录'
                     : (serverMsg || defaultMsg || '请求失败');
                 const err = new ApiError(msg, status, data && data.errors, url);
-                this.handleError(err, !options.suppressErrorToast);
+                this.handleError(err, !options.suppressErrorToast, options.suppressConsole);
                 throw err;
             }
 
@@ -91,7 +91,7 @@ class ApiUtils {
             if (data && data.success === false) {
                 const errMsg = data.message || '操作失败';
                 const err = new ApiError(errMsg, response.status, data.errors, url);
-                this.handleError(err, !options.suppressErrorToast);
+                this.handleError(err, !options.suppressErrorToast, options.suppressConsole);
                 throw err;
             }
 
@@ -172,8 +172,10 @@ class ApiUtils {
     /**
      * 处理API错误
      */
-    handleError(error, showToast = true) {
-        console.error('API Error:', error);
+    handleError(error, showToast = true, suppressConsole = false) {
+        if (!suppressConsole) {
+            console.error('API Error:', error);
+        }
 
         // 401先提示再跳转
         if (error.status === 401) {
@@ -216,8 +218,8 @@ class ApiUtils {
             case 404: return '接口不存在或资源未找到';
             case 409: return '存在冲突：已存在相同安排或时间段冲突';
             case 500: return '服务器错误，请稍后重试';
-            case 0:   return '网络连接失败，请检查网络设置';
-            default:  return '请求失败，请稍后重试';
+            case 0: return '网络连接失败，请检查网络设置';
+            default: return '请求失败，请稍后重试';
         }
     }
 

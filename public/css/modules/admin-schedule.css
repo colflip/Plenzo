@@ -286,7 +286,10 @@
     /* Modern */
     word-break: break-word;
     height: auto;
-    min-height: 0;
+    min-height: 85px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .schedule-item:hover {
@@ -299,8 +302,8 @@
 .schedule-item .time {
     font-weight: 700;
     color: var(--sch-text-main);
-    margin-bottom: 2px;
     display: block;
+    line-height: 1.4;
 }
 
 .schedule-item .type {
@@ -310,7 +313,6 @@
     border-radius: 4px;
     color: #108043;
     font-weight: 500;
-    margin-bottom: 4px;
 }
 
 /* Status variants for cards */
@@ -346,177 +348,239 @@
 }
 
 /* --- 6. Mobile Responsiveness --- */
-@media (max-width: 1024px) {
-    .schedule-controls {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-    }
 
-    .sch-controls-left {
-        justify-content: space-between;
-        width: 100%;
-        flex-wrap: wrap;
-        gap: 12px;
-    }
-
-    .week-navigation {
-        flex: 1;
-        justify-content: center;
-    }
-
-    .schedule-filters {
-        flex-wrap: wrap;
-        width: 100%;
-        gap: 10px;
-    }
-
-    .filter-group {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-group select {
-        width: 100%;
-    }
-}
-
-/* --- Mobile Optimization (iPhone 14 Pro Max / < 480px) --- */
-@media (max-width: 768px) {
-
-    /* 1. Container & Spacing */
-    #schedule {
-        padding: 0 4px;
-        /* Maximize width */
-    }
-
-    .schedule-controls {
-        padding: 12px;
-        margin-bottom: 16px;
-    }
-
-    /* 2. Controls & Navigation */
-    .sch-controls-left {
-        flex-direction: column;
-        width: 100%;
-    }
-
-    .week-navigation {
-        width: 100%;
-        justify-content: space-between;
-        order: 2;
-        /* Put navigation below add button if desired, or keep as is */
-    }
-
-    .week-navigation #weekRange {
-        font-size: 14px;
-        min-width: auto;
-        /* Allow flexible width */
-    }
-
-    .schedule-controls .add-btn {
-        width: 100%;
-        justify-content: center;
-        padding: 10px;
-        order: 1;
-    }
-
-    /* 3. Filters */
-    .schedule-filters {
-        flex-direction: column;
-    }
-
-    .filter-group {
-        width: 100%;
-        min-width: 0;
-    }
-
-    /* 4. Scrollable Table */
-    .schedule-unified-card {
-        border-radius: 8px;
-        /* Smaller radius */
-        border-left: none;
-        border-right: none;
-    }
-
-    .weekly-table-container {
-        /* Enable horizontal scroll */
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 20px;
-        /* Space for scrollbar */
-    }
-
-    /* 5. Sticky Columns & Widths */
-    .weekly-schedule-table thead th:first-child,
-    .weekly-schedule-table tbody td:first-child {
-        width: 80px;
-        /* Reduced specific width for mobile */
-        min-width: 80px;
-        left: 0;
-        font-size: 13px;
-        padding: 8px 4px;
-        z-index: 20;
-        /* Ensure it stays on top */
-        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
-        /* Shadow to show edge */
-    }
-
-    /* Schedule Cells (Mon-Sun) */
-    .weekly-schedule-table th,
-    .weekly-schedule-table td {
-        min-width: 120px;
-        /* Enforce min-width to prevent crushing */
-        padding: 8px;
-    }
-
-    .weekly-schedule-table thead th {
-        padding: 7px 4px;
-        font-size: 13px;
-    }
-
-    /* 6. Card Styling */
-    .schedule-item {
-        padding: 6px;
-        margin-bottom: 6px;
-    }
-
-    /* Fix for iOS Select Element - Reset Appearance to look like a tag */
-    .status-select {
-        -webkit-appearance: none;
-        appearance: none;
-        background-image: none;
-        text-align-last: center;
-        padding-right: 6px !important;
-        /* Override default padding if needed */
-    }
-
-    .schedule-item .time {
-        font-size: 11px;
-    }
-
-    /* Type label inside card */
-    .schedule-item .type {
-        font-size: 10px;
-        padding: 1px 4px;
-    }
-
-    /* Admin Schedule Card Specifics */
-    .schedule-footer .time-text,
-    .schedule-footer .location-text {
-        font-size: 11px;
-    }
-
-    .schedule-row .row-left .teacher-name {
-        font-size: 12px;
-    }
-}
 
 /* Reduced row height for Teacher Availability Table */
-#availabilityBody td {
+#availabilityBody td,
+#studentAvailabilityBody td {
     padding: 8px !important;
-    height: 70px !important;
+    height: 85px !important;
 }
 
 #availabilityBody .availability-cell {
     padding: 4px !important;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .weekly-schedule-table {
+        table-layout: auto !important;
+    }
+
+    #schedule .filter-row {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    #schedule .controls-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #schedule .main-controls {
+        justify-content: space-between;
+    }
+}
+
+/* ==========================================================================
+   Optimistic Update Styles - 乐观更新样式
+   ========================================================================== */
+
+/* Loading状态的卡片 */
+.optimistic-loading {
+    opacity: 0.7;
+    position: relative;
+    pointer-events: none;
+}
+
+.optimistic-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid #2ECC71;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: optimistic-spin 0.6s linear infinite;
+}
+
+@keyframes optimistic-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 临时添加的卡片样式 */
+.temp-schedule {
+    background: linear-gradient(135deg, rgba(46, 204, 113, 0.05) 0%, rgba(39, 174, 96, 0.1) 100%);
+    border: 1px dashed rgba(46, 204, 113, 0.3) !important;
+}
+
+.temp-schedule .schedule-status-badge {
+    background: rgba(46, 204, 113, 0.1);
+    color: #27AE60;
+    font-weight: 500;
+}
+
+/* 删除动画过渡 */
+.schedule-card {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* --- 7. Schedule Loading Overlay --- */
+/* 排课数据加载遮罩 */
+.schedule-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    border-radius: 12px;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s ease;
+}
+
+.schedule-loading-overlay .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e2e8f0;
+    border-top: 3px solid #2ECC71;
+    border-radius: 50%;
+    animation: schedule-spin 1s linear infinite;
+    margin-bottom: 16px;
+}
+
+.schedule-loading-overlay .loading-text {
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+@keyframes schedule-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* --- Availability Icon Styles (Migrated from legacy-adapter.js injection) --- */
+.availability-cell {
+    padding: 4px !important;
+    text-align: center;
+}
+
+.slot-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 100%;
+}
+
+.icon-slot {
+    font-size: 20px;
+    color: #e2e8f0;
+    /* Default grey */
+    transition: all 0.2s;
+    user-select: none;
+    cursor: default;
+}
+
+.icon-slot.interactive {
+    cursor: pointer;
+}
+
+.icon-slot.interactive:hover {
+    transform: scale(1.15);
+}
+
+.icon-slot.available {
+    color: #10b981 !important;
+    /* Green */
+}
+
+.icon-slot.busy {
+    color: #cbd5e1;
+    /* Light Grey */
+}
+
+.icon-slot.changed {
+    /* Blue glow for changed items */
+    filter: drop-shadow(0 0 2px #3b82f6);
+}/* ============================================
+   移动端排课卡片标签优化
+   - 减少课程类型标签高度 40%
+   ============================================ */
+@media (max-width: 768px) {
+
+    /* 
+       Original: ~20px height (12px font * 1.4 + 4px padding)
+       Target: ~12px height (40% reduction)
+       New: 10px font * 1 line-height + 2px padding = 12px 
+    */
+    .schedule-item .type {
+        font-size: 10px !important;
+        padding: 1px 4px !important;
+        line-height: 1 !important;
+        display: inline-block !important;
+        /* Ensure block model relies on padding */
+        height: auto !important;
+        min-height: 0 !important;
+    }
+}/* ============================================
+   排课卡片样式优化 (Card Style Enhancement)
+   1. 增强内容分割线 (Global)
+   2. 压缩状态标签高度 (Mobile Only)
+   ============================================ */
+
+/* 1. 增强分割线 (Global) - 适用于 PC 和 移动端 */
+.schedule-footer {
+    border-top: 1px solid #CBD5E1 !important;
+    /* 加深颜色 (Slate-300) 以极增强视觉区分 */
+    padding-top: 8px !important;
+    margin-top: 6px !important;
+}
+
+/* 2. 压缩标签高度 (Mobile Only) */
+@media (max-width: 768px) {
+
+    /* 针对红框所示的状态标签 (Status Badge/Select) */
+    .status-select {
+        height: 16px !important;
+        /* Target: ~40% reduction (from ~26px) */
+        line-height: 14px !important;
+        /* Tighter line-height */
+        font-size: 10px !important;
+        /* Smaller font */
+        min-width: 45px !important;
+        /* Compact width */
+        padding: 0 2px !important;
+        /* Minimal padding */
+        background-position: right 1px center !important;
+        /* Adjust arrow position */
+    }
+
+    /* 针对左侧课程类型文本 (如 "入户")，保持协调 */
+    .course-type-text {
+        font-size: 10px !important;
+        line-height: 1 !important;
+    }
+
+    /* 调整行内布局以适应更矮的标签 */
+    .schedule-row {
+        align-items: center !important;
+        gap: 2px !important;
+    }
 }

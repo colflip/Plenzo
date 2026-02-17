@@ -267,7 +267,29 @@
             }
           },
           title: { display: false },
-          tooltip: { enabled: true }
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              title: function (tooltipItems) {
+                // 将日期格式化为 YYYY年MM月DD日
+                if (tooltipItems && tooltipItems.length > 0) {
+                  const dataIndex = tooltipItems[0].dataIndex;
+                  const originalLabel = labels[dataIndex];
+
+                  // 检查是否是完整的 YYYY-MM-DD 格式
+                  if (originalLabel && /^\d{4}-\d{2}-\d{2}$/.test(originalLabel)) {
+                    const [year, month, day] = originalLabel.split('-');
+                    return `${year}年${month}月${day}日`;
+                  }
+
+                  // 如果不是完整格式,返回原标签
+                  const label = tooltipItems[0].label;
+                  return label || '';
+                }
+                return '';
+              }
+            }
+          }
         },
         scales: {
           x: {
@@ -549,6 +571,24 @@
               padding: 10,
               cornerRadius: 6,
               callbacks: {
+                title: function (tooltipItems) {
+                  // 将日期格式化为 YYYY年MM月DD日
+                  if (tooltipItems && tooltipItems.length > 0) {
+                    const dataIndex = tooltipItems[0].dataIndex;
+                    const originalLabel = safeLabels[dataIndex];
+
+                    // 检查是否是完整的 YYYY-MM-DD 格式
+                    if (originalLabel && /^\d{4}-\d{2}-\d{2}$/.test(originalLabel)) {
+                      const [year, month, day] = originalLabel.split('-');
+                      return `${year}年${month}月${day}日`;
+                    }
+
+                    // 如果不是完整格式,尝试补全
+                    const label = tooltipItems[0].label;
+                    return label || '';
+                  }
+                  return '';
+                },
                 label: function (context) {
                   const label = context.dataset.label || '';
                   const value = context.parsed.y || 0;
@@ -566,7 +606,26 @@
               ticks: {
                 autoSkip: true,
                 maxRotation: 45,
-                minRotation: 45
+                minRotation: 45,
+                color: function (context) {
+                  // 根据日期判断是否为周末,设置不同颜色
+                  const index = context.index;
+                  const originalLabel = safeLabels[index];
+
+                  // 检查是否是完整的 YYYY-MM-DD 格式
+                  if (originalLabel && /^\d{4}-\d{2}-\d{2}$/.test(originalLabel)) {
+                    const date = new Date(originalLabel);
+                    const dayOfWeek = date.getDay(); // 0=周日, 6=周六
+
+                    // 周六周日用红色字体
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      return '#EF4444'; // 红色 (Tailwind red-500)
+                    }
+                  }
+
+                  // 工作日用默认灰色
+                  return '#64748b'; // slate-500
+                }
                 // Labels are already formatted by formatDateLabels function
               }
             },

@@ -144,7 +144,7 @@
 
 .chip.status-confirmed {
     background-color: var(--status-confirmed-bg);
-    color: var(--status-confirmed-color);
+    color: #2C3E50;
 }
 
 .chip.status-completed {
@@ -260,7 +260,7 @@
 
 .schedule-card.status-confirmed .status-badge {
     background-color: #E8F5E9;
-    color: #2E7D32;
+    color: #2C3E50;
     border-color: #C8E6C9;
 }
 
@@ -283,16 +283,20 @@
         font-size: 12px;
     }
 
+    /* 移动端强制使用黑色字体 */
     .teacher-name {
         font-size: 12px;
+        color: #2C3E50 !important;
     }
 
     .time-text {
         font-size: 11px;
+        color: #2C3E50 !important;
     }
 
     .location-text {
         font-size: 10px;
+        color: #2C3E50 !important;
     }
 
     .status-badge {
@@ -305,6 +309,30 @@
 .schedule-card.loading {
     opacity: 0.6;
     pointer-events: none;
+}
+
+/* Completed Checkmark Overlay */
+.completed-checkmark-icon {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    background-color: #1565C0;
+    /* Blue background */
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.completed-checkmark-icon::after {
+    content: '✓';
 }
 
 /* No Schedule Placeholder */
@@ -329,4 +357,9 @@
 
 #weeklyBody td.schedule-cell:hover {
     background-color: #F5F5F5;
+}
+
+.schedule-row {
+    position: relative;
+    /* Ensure checkmark is positioned relative to the row */
 }

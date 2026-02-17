@@ -1,0 +1,39 @@
+/* ============================================
+   移动端用户管理表格优化
+   - 复刻排课管理的冻结列效果
+   - 修复左侧数据泄漏问题
+   ============================================ */
+@media (max-width: 768px) {
+
+    /* 姓名列(col-name)固定在左侧 */
+    #usersTable .col-name {
+        position: sticky;
+        left: 0;
+        z-index: 10;
+        border-right: 2px solid #E5E7EB;
+        /* 与排课管理一致的分隔线 */
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+        /* 添加轻微阴影增加层次感 */
+        /* 关键：设置背景色遮挡左侧滑过的列（如用户名） */
+        clip-path: inset(0 -10px 0 0);
+        /* 允许右侧阴影显示，防止左侧溢出 */
+    }
+
+    /* 表头背景色 */
+    #usersTable thead .col-name {
+        background-color: #FAFAFA;
+        z-index: 20;
+        /* 确保表头在表体之上 */
+        border-bottom: 2px solid #E5E7EB;
+    }
+
+    /* 表格内容背景色 */
+    #usersTable tbody .col-name {
+        background-color: #FFFFFF;
+    }
+
+    /* 修复 Hover 状态下的背景色，避免白色方块遮挡 Hover 灰色 */
+    #usersTable tbody tr:hover .col-name {
+        background-color: #F8F9FA;
+    }
+}

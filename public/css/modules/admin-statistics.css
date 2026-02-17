@@ -396,76 +396,7 @@
 
 /* --- 6. Responsive Adjustments --- */
 
-/* Desktop / Large Screens */
-@media (min-width: 1440px) {
-    .charts-section {
-        gap: 32px;
-    }
-}
 
-/* Laptop / Tablets Landscape */
-@media (max-width: 1280px) {
-    .charts-section {
-        grid-template-columns: repeat(2, 1fr);
-        /* Switch to 2 columns */
-    }
-
-    /* Make the first chart (usually summary/major one) span full width if needed, 
-       or just let them flow. For now, simple flow is fine. */
-}
-
-/* Tablets Portrait */
-@media (max-width: 1024px) {
-    .charts-section {
-        grid-template-columns: 1fr;
-        /* Switch to single column */
-    }
-
-    .teacher-charts-grid,
-    .student-charts-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .query-controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .action-group {
-        justify-content: space-between;
-    }
-
-    .preset-buttons {
-        overflow-x: auto;
-        padding-bottom: 4px;
-        /* Scrollbar space */
-    }
-}
-
-/* Mobile */
-@media (max-width: 640px) {
-    .statistics-controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .statistics-tabs .tab-btn-group {
-        flex-direction: column;
-    }
-
-    .statistics-tabs .tab-btn {
-        text-align: center;
-    }
-
-    .date-range-group {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .date-range-group input {
-        width: 100%;
-    }
-}
 
 /* --- 7. Animation Utilities --- */
 .chart-anim-enter {

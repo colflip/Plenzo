@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
     <link rel="stylesheet" href="/css/modules/admin-schedule.css">
     <link rel="stylesheet" href="/css/modules/admin-overview.css?v=2">
+    <link rel="stylesheet" href="/css/modules/admin-desktop.css">
     <style>
         /* 全局样式 */
         :root {
@@ -316,6 +317,10 @@
                     <span class="material-icons-round">category</span>
                     <span class="nav-text">课程类型管理</span>
                 </a>
+                <a href="#" class="nav-item" data-section="student-availability">
+                    <span class="material-icons-round">event_busy</span>
+                    <span class="nav-text">学生空闲时段</span>
+                </a>
                 <a href="#" class="nav-item" data-section="availability">
                     <span class="material-icons-round">event_available</span>
                     <span class="nav-text">教师空闲时段</span>
@@ -355,25 +360,37 @@
                 <!-- 总览部分 -->
                 <section id="overview" class="dashboard-section active">
                     <div class="stats-grid">
-                        <div class="stat-card">
+                        <div class="stat-card user-stat" data-tooltip="系统中注册的教师总人数">
                             <h3>总教师数</h3>
                             <p id="teacherCount">-</p>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card user-stat" data-tooltip="系统中注册的学生总人数">
                             <h3>总学生数</h3>
                             <p id="studentCount">-</p>
                         </div>
-                        <div class="stat-card">
-                            <h3>本月排课数</h3>
+                        <div class="stat-card time-stat" data-tooltip="本周内所有已安排的课程总数">
+                            <h3>本周排课</h3>
+                            <p id="weeklySchedules">-</p>
+                        </div>
+                        <div class="stat-card time-stat" data-tooltip="本月内所有已安排的课程总数">
+                            <h3>本月排课</h3>
                             <p id="monthlySchedules">-</p>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card time-stat" data-tooltip="本年度内所有已安排的课程总数">
+                            <h3>本年排课</h3>
+                            <p id="yearlySchedules">-</p>
+                        </div>
+                        <div class="stat-card status-pending" data-tooltip="当前等待确认的课程申请">
                             <h3>待确认排课</h3>
                             <p id="pendingConfirmations">-</p>
                         </div>
-                        <div class="stat-card">
-                            <h3>总排课数</h3>
-                            <p id="totalSchedules">-</p>
+                        <div class="stat-card status-completed" data-tooltip="历史累计已顺利完成的课程总节数">
+                            <h3>已完成排课</h3>
+                            <p id="completedSchedules">-</p>
+                        </div>
+                        <div class="stat-card status-cancelled" data-tooltip="历史累计已被取消的课程记录">
+                            <h3>已取消排课</h3>
+                            <p id="cancelledSchedules">-</p>
                         </div>
                     </div>
 
@@ -409,7 +426,7 @@
                         </div>
                     </div>
                     <div class="table-container">
-                        <table id="usersTable">
+                        <table id="usersTable" class="data-table">
                             <thead>
                                 <tr></tr>
                             </thead>
@@ -435,6 +452,14 @@
                                     <option value="teacher">教师</option>
                                     <option value="student">学生</option>
                                 </select>
+                            </div>
+                            <!-- 新增: 用户ID字段 -->
+                            <div class="form-group">
+                                <label for="userId">用户ID</label>
+                                <input type="number" id="userId" min="1" placeholder="自动生成,可修改">
+                                <small style="color:#666; display:block; margin-top:4px;">
+                                    留空则自动生成,可手动指定
+                                </small>
                             </div>
                             <!-- 2. 用户名 -->
                             <div class="form-group">
@@ -694,7 +719,8 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="scheduleLocation">入户地点</label>
+                                <label for="scheduleLocation">入户地点 <span
+                                        style="font-size: 0.8em; color: #94a3b8; font-weight: normal;">(选填)</span></label>
                                 <textarea id="scheduleLocation" placeholder="默认使用学生探访地点" rows="1"></textarea>
                             </div>
                             <div class="form-group">
@@ -714,6 +740,33 @@
                                 <button type="submit" id="scheduleFormSubmit" class="btn btn-primary">保存</button>
                             </div>
                         </form>
+                    </div>
+                </section>
+
+                <!-- 学生空闲时段部分 -->
+                <section id="student-availability" class="dashboard-section">
+                    <div class="header-toolbar schedule-controls">
+                        <div class="week-navigation">
+                            <button id="avStudentPrevWeek" class="nav-btn">
+                                <span class="material-icons-round">chevron_left</span>
+                            </button>
+                            <span id="avStudentWeekRange">加载中...</span>
+                            <button id="avStudentNextWeek" class="nav-btn">
+                                <span class="material-icons-round">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="weekly-view">
+                        <div class="weekly-table-container">
+                            <table class="weekly-schedule-table" id="studentAvailabilityTable">
+                                <thead id="studentAvailabilityHeader">
+                                    <!-- 通过 JS 渲染 -->
+                                </thead>
+                                <tbody id="studentAvailabilityBody">
+                                    <!-- 通过 JS 渲染 -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
 
@@ -947,22 +1000,25 @@
             <div id="messageContainer"></div>
         </div>
     </div>
-    <!-- Sidebar Overlay -->
+    <!-- 侧边栏遮罩层 -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-    <script src="/js/core/api-client.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/js/modules/admin/stats-plugins.js"></script>
-    <script src="/js/utils/date-range-utils.js"></script>
-    <script src="/js/core/schedule-types-store.js"></script>
-    <script src="/js/utils/i18n-utils.js"></script>
-    <script src="/js/utils/export-ui-manager.js"></script>
-    <script src="/js/components/export-dialog.js?v=20240121"></script>
-    <script type="module" src="/js/modules/admin/statistics.js"></script>
-    <script type="module" src="/js/modules/admin/index.js"></script>
-    <script src="/js/modules/admin/today-logic.js?v=2"></script>
-    <script type="module" src="/js/modules/admin/schedule-manager.js"></script>
-    <script src="/js/modules/admin/legacy-adapter.js" defer></script>
+    <div class="dashboard-container">
+        <script src="/js/core/api-client.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="/js/modules/admin/stats-plugins.js"></script>
+        <script src="/js/utils/date-range-utils.js"></script>
+        <script src="/js/core/schedule-types-store.js"></script>
+        <script src="/js/utils/i18n-utils.js"></script>
+        <script src="/js/utils/export-ui-manager.js"></script>
+        <script src="/js/components/export-dialog.js?v=20240121"></script>
+        <script type="module" src="/js/modules/admin/statistics.js"></script>
+        <script type="module" src="/js/modules/admin/index.js"></script>
+        <script src="/js/modules/admin/today-logic.js?v=2"></script>
+        <script type="module" src="/js/modules/admin/schedule-manager.js"></script>
+        <script src="/js/modules/admin/legacy-adapter.js" defer></script>
+        <script type="module" src="/js/modules/admin/student-availability.js"></script>
 </body>
 
 </html>

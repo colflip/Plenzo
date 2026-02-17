@@ -122,8 +122,19 @@ function isMobileView() {
 
 // 移动端渲染：使用4列8行布局（日期 | 上午 | 下午 | 晚上）
 function renderMobileTable(weekDates, state) {
-    const container = document.querySelector('#availability .table-container');
-    if (!container) return;
+    // 尝试多种选择器，确保能找到容器
+    // 教师端使用 schedule-unified-card，学生端使用 table-container
+    let container = document.querySelector('#availability .schedule-unified-card');
+    if (!container) {
+        container = document.querySelector('#availability .weekly-schedule-table')?.parentElement;
+    }
+    if (!container) {
+        container = document.querySelector('.table-container');
+    }
+    if (!container) {
+        console.warn('[Mobile Availability] 容器未找到');
+        return;
+    }
 
     clearChildren(container);
 
@@ -415,11 +426,9 @@ async function submitAvailabilityPayload(payload) {
 
         originalState = cloneState(availabilityState);
         showTimedFeedback('时间安排已保存', 'success');
-        alert('时间安排已保存');
     } catch (error) {
         console.error('保存时间安排失败', error);
         showInlineFeedback(elements.feedback(), '保存失败，请稍后重试', 'error');
-        alert('保存失败：' + (error.message || '未知错误'));
         throw error;
     } finally {
         if (actionButton) {

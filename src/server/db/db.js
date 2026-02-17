@@ -13,7 +13,9 @@ let getClient;
 if (preferServerless) {
   // 通过 443 端口的 HTTPS/WebSocket 连接 Neon
   const { neon } = require('@neondatabase/serverless');
-  const sql = neon(connectionString);
+  const sql = neon(connectionString, {
+    fetchOptions: { timeout: 10000 } // 10秒超时
+  });
 
   let tzInitialized = false;
 
@@ -40,8 +42,8 @@ if (preferServerless) {
       tzInitialized = true;
     }
 
-    const MAX_RETRIES = 3;
-    let delay = 500;
+    const MAX_RETRIES = 5;
+    let delay = 1000;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {

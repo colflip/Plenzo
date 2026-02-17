@@ -72,7 +72,7 @@ const adminController = {
             }
 
             const result = await db.query(
-                `SELECT ${selectColumns} FROM ${table} ORDER BY created_at DESC`
+                `SELECT ${selectColumns} FROM ${table} ORDER BY id ASC`
             );
 
             const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
@@ -652,7 +652,7 @@ const adminController = {
                 JOIN students s ON ca.student_id = s.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN schedule_types stt ON ca.course_id = stt.id
-                WHERE ${dateExpr} BETWEEN $1 AND $2
+                WHERE ${dateExpr}::date >= $1::date AND ${dateExpr}::date <= $2::date
             `;
             const params = [start_date, end_date];
 
@@ -720,7 +720,7 @@ const adminController = {
                     teacherSql += ` AND status <> -1`;
                 }
             } catch (_) { }
-            teacherSql += ` ORDER BY name ASC`;
+            teacherSql += ` ORDER BY id ASC`;
             const teachersResult = await db.query(teacherSql);
             const teachers = teachersResult.rows || [];
 
@@ -821,6 +821,124 @@ const adminController = {
             res.json({ message: '更新成功' });
         } catch (error) {
             console.error('更新教师空闲时段错误:', error);
+            res.status(500).json({ message: '服务器错误' });
+        }
+    },
+
+    /**
+     * 获取学生空闲时段网格数据
+     * @description 根据日期范围返回所有学生的空闲状态
+     * @param {string} req.query.startDate - 开始日期
+     * @param {string} req.query.endDate - 结束日期
+     */
+    async getStudentAvailabilityGrid(req, res) {
+        try {
+            const { startDate, endDate } = req.query;
+            if (!startDate || !endDate) {
+                return res.status(400).json({ message: '缺少开始/结束日期' });
+            }
+
+            // 1. 获取所有学生（状态非删除）
+            let studentSql = `SELECT id, name FROM students WHERE 1=1`;
+            try {
+                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
+                if ((sCols.rows || []).length > 0) {
+                    studentSql += ` AND status <> -1`;
+                }
+            } catch (_) { }
+            studentSql += ` ORDER BY id ASC`;
+            const studentsResult = await db.query(studentSql);
+            const students = studentsResult.rows || [];
+
+            // 2. 获取日期范围内的availability数据
+            const availabilitySql = `
+                SELECT student_id, date, morning_available, afternoon_available, evening_available
+                FROM student_daily_availability
+                WHERE date BETWEEN $1 AND $2
+            `;
+            const availabilityResult = await db.query(availabilitySql, [startDate, endDate]);
+            const availabilityRecords = availabilityResult.rows || [];
+
+            // 3. 组织数据结构：Map<StudentId, Map<DateStr, SlotData>>
+            const availabilityMap = new Map();
+            availabilityRecords.forEach(record => {
+                const sId = record.student_id;
+                if (!availabilityMap.has(sId)) {
+                    availabilityMap.set(sId, {});
+                }
+                // 格式化日期 key (YYYY-MM-DD)
+                let dStr = record.date;
+                if (dStr instanceof Date) {
+                    const y = dStr.getFullYear();
+                    const m = String(dStr.getMonth() + 1).padStart(2, '0');
+                    const d = String(dStr.getDate()).padStart(2, '0');
+                    dStr = `${y}-${m}-${d}`;
+                } else if (typeof dStr === 'string') {
+                    dStr = dStr.substring(0, 10);
+                }
+
+                availabilityMap.get(sId)[dStr] = {
+                    morning: record.morning_available === 1,
+                    afternoon: record.afternoon_available === 1,
+                    evening: record.evening_available === 1
+                };
+            });
+
+            // 4. 构建最终返回列表
+            const result = students.map(s => ({
+                id: s.id,
+                name: s.name,
+                availability: availabilityMap.get(s.id) || {}
+            }));
+
+            res.json(result);
+        } catch (error) {
+            console.error('获取学生空闲网格错误:', error);
+            res.status(500).json({ message: '服务器错误' });
+        }
+    },
+
+    /**
+     * 更新学生空闲时段
+     * @param {object[]} req.body.updates - [{ student_id, date, morning, afternoon, evening }]
+     */
+    async updateStudentAvailability(req, res) {
+        try {
+            const { updates } = req.body;
+            if (!Array.isArray(updates) || updates.length === 0) {
+                return res.status(400).json({ message: '缺少更新数据' });
+            }
+
+            // 使用事务进行批量更新
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+
+                for (const item of updates) {
+                    const { student_id, date, morning, afternoon, evening } = item;
+                    // 简单的参数校验
+                    if (!student_id || !date) continue;
+
+                    const mVal = morning ? 1 : 0;
+                    const aVal = afternoon ? 1 : 0;
+                    const eVal = evening ? 1 : 0;
+
+                    const sql = `
+                        INSERT INTO student_daily_availability (student_id, date, morning_available, afternoon_available, evening_available, start_time, end_time)
+                        VALUES ($1, $2, $3, $4, $5, '00:00', '23:59')
+                        ON CONFLICT (student_id, date) 
+                        DO UPDATE SET 
+                            morning_available = EXCLUDED.morning_available,
+                            afternoon_available = EXCLUDED.afternoon_available,
+                            evening_available = EXCLUDED.evening_available,
+                            updated_at = CURRENT_TIMESTAMP
+                    `;
+                    await q(sql, [student_id, date, mVal, aVal, eVal]);
+                }
+            });
+
+            res.json({ message: '更新成功' });
+        } catch (error) {
+            console.error('更新学生空闲时段错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },

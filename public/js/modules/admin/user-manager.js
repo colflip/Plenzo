@@ -58,6 +58,13 @@ async function handleUserFormSubmit(e) {
 
         // Construct body
         const body = { userType: type, username, name };
+
+        // 添加ID字段(如果有指定)
+        const userIdInput = document.getElementById('userId');
+        if (mode === 'add' && userIdInput && userIdInput.value) {
+            body.id = parseInt(userIdInput.value, 10);
+        }
+
         if (mode === 'add') body.password = password;
 
         // Type-specific fields
@@ -181,7 +188,7 @@ export async function loadUsers(type, opts = {}) {
             type: initialType,
             page: 1,
             pageSize: 20,
-            sort: initialType === 'admin' ? { key: 'permission_level', direction: 'desc' } : { key: 'status', direction: 'asc' },
+            sort: { key: 'id', direction: 'asc' },
             loading: false,
             hasMore: true
         };
@@ -195,7 +202,7 @@ export async function loadUsers(type, opts = {}) {
             if (tbody) tbody.innerHTML = '';
             window.__usersCache = window.__usersCache || {};
             window.__usersCache[state.type] = [];
-            state.sort = (type === 'admin') ? { key: 'permission_level', direction: 'desc' } : { key: 'status', direction: 'asc' };
+            state.sort = { key: 'id', direction: 'asc' };
         }
 
         // Sync Tab UI
@@ -277,6 +284,15 @@ export async function loadUsers(type, opts = {}) {
             return;
         }
 
+        // 对教师数据按ID升序排序
+        if (state.type === 'teacher') {
+            users.sort((a, b) => {
+                const idA = parseInt(a.id) || 0;
+                const idB = parseInt(b.id) || 0;
+                return idA - idB; // 升序
+            });
+        }
+
         users.forEach(u => appendUserRow(state.type, u));
 
         // Cache update
@@ -309,6 +325,12 @@ function renderFromCache(state, tbody) {
     const toRender = [...rawList].sort((a, b) => {
         let av = a[key];
         let bv = b[key];
+
+        // ID排序特殊处理
+        if (key === 'id') {
+            return (Number(av) || 0) - (Number(bv) || 0);
+        }
+
         if (key === 'status') {
             const weight = (v) => { const n = Number(v); return n === 1 ? 0 : n === 0 ? 1 : n === -1 ? 2 : 3; };
             const wa = weight(av), wb = weight(bv);
@@ -438,6 +460,31 @@ export function appendUserRow(type, user) {
     tbody.appendChild(tr);
 }
 
+// 自动生成下一个用户ID
+async function generateNextUserId() {
+    const userType = document.getElementById('userType').value;
+    const userIdInput = document.getElementById('userId');
+
+    if (!userIdInput) return;
+
+    try {
+        // 获取当前类型的最大ID
+        const cache = window.__usersCache || {};
+        const users = cache[userType] || [];
+
+        let maxId = 0;
+        users.forEach(u => {
+            if (u.id && u.id > maxId) maxId = u.id;
+        });
+
+        // 建议下一个ID
+        userIdInput.value = maxId + 1;
+    } catch (err) {
+        console.error('生成ID失败:', err);
+        userIdInput.value = '';
+    }
+}
+
 export function showAddUserModal() {
     const form = document.getElementById('userForm');
     if (!form) return;
@@ -452,6 +499,9 @@ export function showAddUserModal() {
     if (statusSelect) statusSelect.value = '1';
 
     document.getElementById('userPassword').required = true;
+
+    // 自动生成ID号
+    generateNextUserId();
 
     toggleContactFields('admin');
     openUserFormModal();
@@ -471,6 +521,12 @@ export function showEditUserModal(id, userType) {
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
     setVal('userUsername', user.username);
     setVal('userName', user.name);
+
+    // 设置ID(只读)
+    setVal('userId', user.id);
+    const userIdInput = document.getElementById('userId');
+    if (userIdInput) userIdInput.readOnly = true;
+
     if (userType === 'admin') {
         setVal('userPermissionLevel', user.permission_level);
         setVal('userEmail', user.email);
@@ -544,6 +600,13 @@ export function setupUserEventListeners() {
     if (userTypeSelect) {
         userTypeSelect.addEventListener('change', (e) => {
             toggleContactFields(e.target.value);
+            // 切换类型时重新生成ID(仅添加模式)
+            const form = document.getElementById('userForm');
+            if (form && form.dataset.mode === 'add') {
+                const userIdInput = document.getElementById('userId');
+                if (userIdInput) userIdInput.readOnly = false;
+                generateNextUserId();
+            }
         });
     }
 }

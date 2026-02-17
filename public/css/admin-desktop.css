@@ -1,0 +1,90 @@
+/* Admin Desktop Override - Forces PC view only on larger screens */
+@media (min-width: 769px) {
+
+    /* 1. Hide Mobile Elements */
+    .mobile-menu-toggle {
+        display: none !important;
+    }
+
+    /* 2. Force Sidebar Visibility & Size */
+    .sidebar {
+        transform: none !important;
+        width: 220px !important;
+        position: sticky !important;
+        top: 0 !important;
+        height: 100vh !important;
+        display: flex !important;
+        z-index: 100 !important;
+        border-right: 1px solid #E9ECEF !important;
+    }
+
+    .sidebar.collapsed {
+        width: 80px !important;
+    }
+
+    .sidebar-overlay {
+        display: none !important;
+    }
+
+    /* 3. Main Content Layout */
+    .main-content {
+        margin-left: 0 !important;
+        /* Sidebar is sticky/flex, so usually main content just flows next to it in a flex container */
+        width: auto !important;
+        min-width: 1024px !important;
+        /* Force minimum width to trigger desktop layout */
+        padding: 24px !important;
+        overflow-x: auto !important;
+        /* Allow horizontal scroll if needed */
+    }
+
+    /* 4. Restore Desktop Header */
+    .dashboard-header {
+        justify-content: center !important;
+        padding-bottom: 16px !important;
+        margin-bottom: 24px !important;
+    }
+
+    .dashboard-header h2 {
+        font-size: 24px !important;
+        margin: 0 !important;
+    }
+
+    .user-info {
+        position: absolute !important;
+        right: 0 !important;
+        display: flex !important;
+    }
+
+    /* 5. Force Table & Grid Layouts */
+    .stats-grid,
+    .overview-stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+        display: grid !important;
+    }
+
+    /* 6. Admin Specific Overrides */
+    /* Restore search button text if hidden on mobile */
+    .search-btn .btn-text {
+        display: inline !important;
+    }
+
+    /* Reset form container width */
+    .form-container {
+        width: 600px !important;
+        max-width: 90% !important;
+    }
+
+    /* Ensure controls are visible */
+    .schedule-controls,
+    .statistics-controls {
+        flex-direction: row !important;
+        display: flex !important;
+    }
+
+    /* Force body min-width to ensure desktop rendering context */
+    body {
+        min-width: 1280px;
+        overflow-x: auto;
+    }
+}

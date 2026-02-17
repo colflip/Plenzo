@@ -6,6 +6,9 @@
 import { API_ENDPOINTS, STATUS_LABELS, SCHEDULE_TYPE_MAP } from './constants.js';
 import { formatDateDisplay, handleApiError } from './utils.js';
 
+// 声明Chart为全局变量（由CDN加载）
+const Chart = window.Chart;
+
 let currentLearningData = null;
 let dailyChartInstance = null;
 
@@ -465,7 +468,20 @@ function renderDailyLearningChart(schedules) {
                         maxRotation: isMobile ? 45 : 0,
                         minRotation: isMobile ? 45 : 0,
                         autoSkip: true,
-                        maxTicksLimit: isSmallMobile ? 7 : (isMobile ? 10 : 15)
+                        maxTicksLimit: isSmallMobile ? 7 : (isMobile ? 10 : 15),
+                        color: function (context) {
+                            // 获取完整日期字符串
+                            const dateStr = allDates[context.index];
+                            if (dateStr) {
+                                const date = new Date(dateStr + 'T00:00:00');
+                                const day = date.getDay();
+                                // 周六(6)或周日(0)显示红色
+                                if (day === 0 || day === 6) {
+                                    return '#DC2626'; // 红色
+                                }
+                            }
+                            return '#374151'; // 默认深灰色
+                        }
                     }
                 },
                 y: {
@@ -490,7 +506,10 @@ function renderDailyLearningChart(schedules) {
                     mode: 'index',
                     intersect: false,
                     callbacks: {
-                        title: (context) => `日期: ${context[0].label}`,
+                        title: (context) => {
+                            const dateStr = allDates[context[0].dataIndex];
+                            return `日期: ${formatDateDisplay(dateStr)}`;
+                        },
                         label: (context) => `${context.dataset.label}: ${context.parsed.y}次`,
                         footer: (context) => {
                             let sum = 0;

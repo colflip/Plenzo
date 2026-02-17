@@ -8,6 +8,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 16px 0;
+    align-items: center;
 }
 
 /* 2. Modern Card Base */
@@ -26,6 +27,8 @@
     padding-left: 6px;
     /* Space for the colored strip */
     cursor: pointer;
+    width: 90%;
+    max-width: 1000px;
 }
 
 .today-card-modern:hover {
@@ -80,6 +83,7 @@
     color: #1E293B;
     margin-bottom: 4px;
     white-space: nowrap;
+    letter-spacing: -0.02em;
 }
 
 .today-card-time .time-slot-label {
@@ -93,11 +97,11 @@
 /* 5. Info Section */
 .today-card-info {
     flex: 1;
-    padding: 16px 24px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
     /* Important for flex truncation */
 }
@@ -106,7 +110,7 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 12px;
+    gap: 16px;
 }
 
 .today-card-title {
@@ -115,7 +119,7 @@
     color: #0F172A;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
@@ -125,20 +129,384 @@
     color: #0F172A;
 }
 
+/* 加载状态文字缩小 */
+.stat-card.loading p {
+    font-size: 0.2em !important;
+}
+
+/* ==========================================================================
+   Stat Card Color Themes (优化版 - 参照教师端设计)
+   ========================================================================== */
+
+/* User Statistics - Light Blue Theme */
+.stat-card.user-stat {
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.25) 0%, rgba(59, 130, 246, 0.25) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #1E40AF;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.user-stat:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.2), 0 4px 6px -2px rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+.stat-card.user-stat h3 {
+    color: #1E40AF;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-card.user-stat p {
+    color: #1E3A8A;
+    font-weight: 700;
+    font-size: 38px;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-top: 12px;
+}
+
+/* Time Statistics - Light Purple Theme */
+.stat-card.time-stat {
+    background: linear-gradient(135deg, rgba(167, 139, 250, 0.25) 0%, rgba(139, 92, 246, 0.25) 100%);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    color: #6D28D9;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.time-stat:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.2), 0 4px 6px -2px rgba(139, 92, 246, 0.1);
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+.stat-card.time-stat h3 {
+    color: #6D28D9;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-card.time-stat p {
+    color: #5B21B6;
+    font-weight: 700;
+    font-size: 38px;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-top: 12px;
+}
+
+/* Status: Pending - Light Orange Theme */
+.stat-card.status-pending {
+    background: linear-gradient(135deg, rgba(251, 169, 40, 0.25) 0%, rgba(245, 158, 11, 0.25) 100%);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #C2410C;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.status-pending:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(245, 158, 11, 0.2), 0 4px 6px -2px rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.5);
+}
+
+.stat-card.status-pending h3 {
+    color: #C2410C;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-card.status-pending p {
+    color: #9A3412;
+    font-weight: 700;
+    font-size: 38px;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-top: 12px;
+}
+
+/* Status: Completed - Light Green Theme */
+.stat-card.status-completed {
+    background: linear-gradient(135deg, rgba(52, 211, 153, 0.25) 0%, rgba(16, 185, 129, 0.25) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #047857;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.status-completed:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.2), 0 4px 6px -2px rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.stat-card.status-completed h3 {
+    color: #047857;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-card.status-completed p {
+    color: #065F46;
+    font-weight: 700;
+    font-size: 38px;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-top: 12px;
+}
+
+/* Status: Cancelled - Light Red Theme */
+.stat-card.status-cancelled {
+    background: linear-gradient(135deg, rgba(248, 113, 113, 0.25) 0%, rgba(239, 68, 68, 0.25) 100%);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #B91C1C;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card.status-cancelled:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.2), 0 4px 6px -2px rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.stat-card.status-cancelled h3 {
+    color: #B91C1C;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-card.status-cancelled p {
+    color: #991B1B;
+    font-weight: 700;
+    font-size: 38px;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-top: 12px;
+}
+
+
+.today-card-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background-color: #E0F2FE;
+    color: #0284C7;
+    margin-left: 8px;
+}
+
+/* ==========================================================================
+   Stat Card Tooltip & Reward Modal
+   ========================================================================== */
+
+/* Tooltip on stat cards - 底部显示（与教师端一致）*/
+.stat-card[data-tooltip] {
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card[data-tooltip]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Tooltip content - 显示在底部 */
+.stat-card[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background-color: rgba(30, 41, 59, 0.95);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 10px 16px;
+    border-radius: 8px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Tooltip arrow - 指向上方 */
+.stat-card[data-tooltip]::before {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(2px);
+    border: 6px solid transparent;
+    border-bottom-color: rgba(30, 41, 59, 0.95);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 1000;
+}
+
+.stat-card[data-tooltip]:hover::after,
+.stat-card[data-tooltip]:hover::before {
+    opacity: 1;
+    transform: translateX(-50%) translateY(12px);
+}
+
+.stat-card[data-tooltip]:hover::before {
+    transform: translateX(-50%) translateY(6px);
+}
+
+
+/* Reward Modal Overlay */
+.reward-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.reward-modal-overlay.active {
+    display: flex;
+    opacity: 1;
+    animation: modalFadeIn 0.3s ease;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Reward Modal Content */
+.reward-modal-content {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 24px;
+    padding: 48px 40px;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    transform: scale(0.7);
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}
+
+.reward-modal-overlay.active .reward-modal-content {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Reward Icon */
+.reward-icon {
+    font-size: 80px !important;
+    color: #FFF;
+    margin-bottom: 20px;
+    display: block;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    animation: iconBounce 0.6s ease infinite alternate;
+}
+
+@keyframes iconBounce {
+    from {
+        transform: translateY(0px);
+    }
+
+    to {
+        transform: translateY(-10px);
+    }
+}
+
+/* Reward Title */
+.reward-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #FFF;
+    margin-bottom: 12px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Reward Value */
+.reward-value {
+    font-size: 64px;
+    font-weight: 800;
+    color: #FFD700;
+    margin-bottom: 32px;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    font-family: 'Arial Black', sans-serif;
+}
+
+/* Reward Close Button */
+.reward-close-btn {
+    background: #FFF;
+    color: #667eea;
+    border: none;
+    padding: 14px 32px;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.reward-close-btn:hover {
+    background: #F0F0F0;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Confetti Animation */
+.reward-confetti {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0.9;
+    /* 提高初始不透明度 */
+}
+
+@keyframes fall {
+    0% {
+        transform: translateY(-100vh) rotate(0deg);
+        opacity: 0.9;
+        /* 起始不透明度更高 */
+    }
+
+    70% {
+        opacity: 0.9;
+        /* 中途保持高不透明度 */
+    }
+
+    100% {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0.3;
+        /* 最后才逐渐淡出 */
+    }
+}
+
 /* Badge Styles */
 .sc-type-badge {
     font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 9999px;
+    padding: 2px 6px;
+    border-radius: 4px;
     background-color: #F1F5F9;
     color: #475569;
-    font-weight: 600;
-    letter-spacing: 0.3px;
+    font-weight: 500;
     border: 1px solid #E2E8F0;
-    text-transform: uppercase;
 }
 
-/* Type Colors matching JS logic classes in wrapper span */
+/* Type Colors - 统一样式，无背景 */
 .type-visit .sc-type-badge {
     background-color: #F5F3FF;
     color: #7C3AED;
@@ -161,7 +529,7 @@
 .today-card-details {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 28px;
     color: #64748B;
     font-size: 13px;
     flex-wrap: wrap;
@@ -170,12 +538,12 @@
 .today-card-detail-item {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     white-space: nowrap;
 }
 
 .today-card-detail-item .material-icons-round {
-    font-size: 16px;
+    font-size: 18px;
     color: #94A3B8;
 }
 
@@ -187,12 +555,12 @@
 
 /* 6. Status Section */
 .today-card-status {
-    padding: 16px 20px;
+    padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-left: 1px solid #F1F5F9;
-    min-width: 100px;
+    min-width: 110px;
 }
 
 /* Status Pills */
@@ -230,6 +598,59 @@
     border: 1px solid #FECACA;
 }
 
+/* ==========================================================================
+   Student Schedule Grouping
+   ========================================================================== */
+
+/* 学生分组容器 */
+.student-schedule-group {
+    width: 95%;
+    max-width: 1000px;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 0;
+    margin-top: -10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.student-schedule-group:first-child {
+    margin-top: 0;
+}
+
+/* 分组内的卡片样式覆盖 */
+.student-schedule-group .today-card-modern {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+/* 不同学生背景颜色 */
+.student-schedule-group:nth-child(odd) {
+    background-color: #EFF6FF;
+}
+
+/* 多种背景色方案 - 为不同学生使用不同颜色 */
+.student-schedule-group:nth-child(4n+1) {
+    background: #EFF6FF;
+    /* 浅蓝 */
+}
+
+.student-schedule-group:nth-child(4n+2) {
+    background: #F0FDF4;
+    /* 浅绿 */
+}
+
+.student-schedule-group:nth-child(4n+3) {
+    background: #FEF3C7;
+    /* 浅黄 */
+}
+
+.student-schedule-group:nth-child(4n+4) {
+    background: #FCE7F3;
+    /* 浅粉 */
+}
+
 /* Empty State */
 .today-empty-state {
     display: flex;
@@ -257,51 +678,126 @@
 }
 
 /* Responsive */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+    #todayScheduleList {
+        width: 100%;
+        padding: 4px;
+        gap: 6px;
+        /* Even smaller gap between cards */
+    }
+
     .today-card-modern {
         flex-direction: column;
-        padding-left: 0;
-        border-top: 4px solid #CBD5E1;
-        /* Use top border instead of side */
-    }
-
-    .today-card-modern.slot-morning {
-        border-top-color: #3B82F6;
-    }
-
-    .today-card-modern.slot-afternoon {
-        border-top-color: #F59E0B;
-    }
-
-    .today-card-modern.slot-evening {
-        border-top-color: #8B5CF6;
+        width: 100%;
+        min-height: auto;
+        padding-left: 6px;
+        margin-bottom: 0px;
+        position: relative;
+        /* For absolute status positioning */
     }
 
     .today-card-modern::before {
-        display: none;
+        width: 5px;
     }
 
     .today-card-time {
         flex-direction: row;
-        justify-content: space-between;
-        padding: 12px 16px;
+        justify-content: center;
+        /* Center time */
+        padding: 6px 12px;
+        width: 100%;
+        min-width: auto;
         border-right: none;
         border-bottom: 1px solid #F1F5F9;
-        background-color: #fff;
-        width: 100%;
-        min-height: auto;
+        background-color: #F8FAFC;
+        height: 32px;
+        /* Consistent height for the top bar */
+        align-items: center;
+    }
+
+    .today-card-time .time-range {
+        font-size: 13px;
+        font-weight: 800;
+        margin-bottom: 0;
+        color: #1a202c;
     }
 
     .today-card-info {
-        padding: 16px;
+        padding: 8px 12px;
+        gap: 6px;
+        align-items: center;
+        /* Center column items */
     }
 
-    .today-card-status {
-        border-left: none;
-        border-top: 1px solid #F1F5F9;
-        padding: 12px 16px;
-        justify-content: flex-end;
+    .today-card-header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        /* Center header */
+        gap: 6px;
         width: 100%;
-        box-sizing: border-box;
+    }
+
+    .today-card-title {
+        font-size: 14px;
+        line-height: 1.2;
+        justify-content: center;
+    }
+
+    .sc-student-name {
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    .today-card-details {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 0px;
+        align-items: center;
+        justify-content: center;
+        /* Center details */
+        width: 100%;
+    }
+
+    .today-card-detail-item {
+        font-size: 11px;
+        gap: 2px;
+    }
+
+    .today-card-detail-item i {
+        font-size: 14px !important;
+    }
+
+    .today-card-detail-item.location {
+        width: auto;
+        /* Not full width */
+        margin-top: 0;
+        color: #64748b;
+    }
+
+    /* Move status to top right of the whole card */
+    .today-card-status {
+        position: absolute;
+        top: 6px;
+        right: 12px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        z-index: 10;
+        min-width: auto;
+    }
+
+    .status-pill {
+        padding: 1px 6px;
+        font-size: 9px;
+        border-radius: 4px;
+    }
+
+    .student-schedule-group {
+        width: 100%;
+        padding: 2px;
+        gap: 4px;
     }
 }

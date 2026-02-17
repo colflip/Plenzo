@@ -1512,8 +1512,10 @@ window.ExportDialog = (function () {
                                 const items = reviewsByStudent[sName];
 
                                 const mainTypeSet = new Set();
-                                const teachers = new Set();
-                                const recorders = new Set();
+                                const teachers = [];  // 改为数组存储教师信息
+                                const recorders = [];  // 改为数组存储记录教师信息
+                                const teacherMap = new Map();  // 用于去重
+                                const recorderMap = new Map();  // 用于去重
 
                                 let allCancelled = true;
 
@@ -1522,23 +1524,39 @@ window.ExportDialog = (function () {
                                     const isCancelled = (status === 'cancelled' || status === '已取消');
                                     if (!isCancelled) allCancelled = false;
 
+                                    // 提取教师ID和名称
+                                    const tid = r.teacher_id || r.id || r['教师ID'] || 0;
+                                    const tName = r.teacher_name || r.name || r['教师名称'];
+
+                                    if (!tName) return;
+
                                     if (r._typeName.includes('记录')) {
-                                        let tName = r.teacher_name || r.name || r['教师名称'];
-                                        if (tName) recorders.add(tName);
+                                        // 记录教师去重并存储
+                                        if (!recorderMap.has(tid)) {
+                                            recorderMap.set(tid, { id: tid, name: tName });
+                                            recorders.push({ id: tid, name: tName });
+                                        }
                                     } else {
                                         mainTypeSet.add(r._typeName);
-                                        let tName = r.teacher_name || r.name || r['教师名称'];
-                                        if (tName) teachers.add(tName);
+                                        // 主教师去重并存储
+                                        if (!teacherMap.has(tid)) {
+                                            teacherMap.set(tid, { id: tid, name: tName });
+                                            teachers.push({ id: tid, name: tName });
+                                        }
                                     }
                                 });
 
                                 const mainTypeStr = Array.from(mainTypeSet).join('/') || '评审';
 
+                                // 按教师ID排序
+                                teachers.sort((a, b) => Number(a.id) - Number(b.id));
+                                recorders.sort((a, b) => Number(a.id) - Number(b.id));
+
                                 // Detail: Teachers only (student name is in prefix)
                                 const detailParts = [];
-                                const teachStr = Array.from(teachers).join(', ');
+                                const teachStr = teachers.map(t => t.name).join(', ');
                                 if (teachStr) detailParts.push(teachStr);
-                                const recStr = Array.from(recorders).map(n => `${n} (记录)`).join(', ');
+                                const recStr = recorders.map(r => `${r.name} (记录)`).join(', ');
                                 if (recStr) detailParts.push(recStr);
 
                                 const detailContent = detailParts.join(', ');
@@ -1552,9 +1570,15 @@ window.ExportDialog = (function () {
                                 // Actual Line Logic
                                 let actualLine = planLine;
                                 if (allCancelled) {
-                                    const allT = Array.from(new Set([...teachers, ...recorders])).join(',');
+                                    // 合并所有教师并按ID排序
+                                    const allTeachers = [...teachers, ...recorders];
+                                    const uniqueMap = new Map();
+                                    allTeachers.forEach(t => uniqueMap.set(t.id, t));
+                                    const sortedAll = Array.from(uniqueMap.values()).sort((a, b) => Number(a.id) - Number(b.id));
+                                    const allT = sortedAll.map(t => t.name).join(',');
                                     actualLine = `已取消[${allT}, ${mainTypeStr}]`;
                                 }
+
 
                                 resultRows.push({
                                     '日期': date,
@@ -1882,8 +1906,18 @@ window.ExportDialog = (function () {
                             (row.teacher_name || '') : (row.student_name || '');
                         if (!name) return;
 
+                        // 提取ID用于排序(教师或学生)
+                        const personId = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ?
+                            (row.teacher_id || row.id || row['教师ID'] || 999999) :
+                            (row.student_id || row.id || row['学生ID'] || 999999);
+
                         if (!dynamicStatsMap.has(name)) {
-                            dynamicStatsMap.set(name, { 姓名: name, types: {}, total: 0 });
+                            dynamicStatsMap.set(name, {
+                                姓名: name,
+                                _id: personId,  // 添加ID字段用于排序
+                                types: {},
+                                total: 0
+                            });
                         }
                         const entry = dynamicStatsMap.get(name);
 
@@ -1897,7 +1931,11 @@ window.ExportDialog = (function () {
 
                     const statsForRemarks = (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) ? teacherStats : studentStats;
 
-                    const sheet4Data = Array.from(dynamicStatsMap.values()).map(entry => {
+                    // 转换为数组并按ID排序
+                    const sortedEntries = Array.from(dynamicStatsMap.values())
+                        .sort((a, b) => Number(a._id) - Number(b._id));
+
+                    const sheet4Data = sortedEntries.map(entry => {
                         const row = { '姓名': entry.姓名 };
                         // 2 到 n 列：显示所有课程类型名称
                         typeHeaders.forEach(header => {
@@ -1913,7 +1951,7 @@ window.ExportDialog = (function () {
                             const detailStr = statMatch['汇总'] || '';
                             const targetPerson = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ? studentName : '全部老师';
                             const title = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ? '老师' : '同学';
-                            remark = `${entry.姓名}${title}好！${dateRangeStr} 期间，在[${targetPerson}]处入户相关数据为 ：${detailStr || (entry.total + '次活动')}。请问是否正确？`;
+                            remark = `${entry.姓名}${title}好！${dateRangeStr} 期间，您在[${targetPerson}]处入户等相关数据为 ：${detailStr || (entry.total + '次活动')}。请问是否正确？`;
                         }
                         row['备注'] = remark;
                         return row;
@@ -2110,9 +2148,12 @@ window.ExportDialog = (function () {
                     }
 
                     const teacherName = row.teacher_name || row.name || row['教师名称'] || '未知老师';
+                    const teacherId = row.teacher_id || row.id || row['教师ID'] || 999999;  // 收集教师ID,默认值为大数字
+
                     if (!statsMap.has(teacherName)) {
                         statsMap.set(teacherName, {
                             name: teacherName,
+                            teacher_id: teacherId,  // 添加教师ID字段
                             trial: 0,        // 试教
                             home_visit: 0,   // 入户
                             half_visit: 0,   // 半次入户
@@ -2206,6 +2247,7 @@ window.ExportDialog = (function () {
 
                     result.push({
                         '姓名': stat.name,
+                        '_teacher_id': stat.teacher_id,  // 内部字段用于排序
                         '试教': stat.trial,
                         '入户': effectiveVisits,
                         '评审': effectiveReviews,
@@ -2216,6 +2258,9 @@ window.ExportDialog = (function () {
                         '备注': remarks
                     });
                 });
+
+                // 按教师ID从小到大排序
+                result.sort((a, b) => Number(a._teacher_id) - Number(b._teacher_id));
 
                 return result;
             }

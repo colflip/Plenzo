@@ -1,0 +1,45 @@
+/* ============================================
+   排课卡片样式优化 (Card Style Enhancement)
+   1. 增强内容分割线 (Global)
+   2. 压缩状态标签高度 (Mobile Only)
+   ============================================ */
+
+/* 1. 增强分割线 (Global) - 适用于 PC 和 移动端 */
+.schedule-footer {
+    border-top: 1px solid #CBD5E1 !important;
+    /* 加深颜色 (Slate-300) 以极增强视觉区分 */
+    padding-top: 8px !important;
+    margin-top: 6px !important;
+}
+
+/* 2. 压缩标签高度 (Mobile Only) */
+@media (max-width: 768px) {
+
+    /* 针对红框所示的状态标签 (Status Badge/Select) */
+    .status-select {
+        height: 16px !important;
+        /* Target: ~40% reduction (from ~26px) */
+        line-height: 14px !important;
+        /* Tighter line-height */
+        font-size: 10px !important;
+        /* Smaller font */
+        min-width: 45px !important;
+        /* Compact width */
+        padding: 0 2px !important;
+        /* Minimal padding */
+        background-position: right 1px center !important;
+        /* Adjust arrow position */
+    }
+
+    /* 针对左侧课程类型文本 (如 "入户")，保持协调 */
+    .course-type-text {
+        font-size: 10px !important;
+        line-height: 1 !important;
+    }
+
+    /* 调整行内布局以适应更矮的标签 */
+    .schedule-row {
+        align-items: center !important;
+        gap: 2px !important;
+    }
+}

@@ -1,0 +1,27 @@
+/* ============================================
+   移动端空闲时段表格样式优化
+   - 使表格容器卡片化，与顶部标题栏宽度一致
+   - 增加左右边距
+   ============================================ */
+@media (max-width: 768px) {
+
+    #availability .weekly-view,
+    #student-availability .weekly-view {
+        margin-left: 12px;
+        margin-right: 12px;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        background-color: #FFFFFF;
+        overflow: hidden;
+        /* 确保圆角裁切 */
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 确保内部表格宽度适配 */
+    #availability .weekly-table-container,
+    #student-availability .weekly-table-container {
+        width: 100%;
+        border-radius: 0;
+        /* 移除可能的内部圆角，主要靠容器裁切 */
+    }
+}

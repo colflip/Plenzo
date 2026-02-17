@@ -34,11 +34,37 @@
     display: none !important;
 }
 
+/* Fix for excessive bottom whitespace */
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    /* Prevent global scrollbar */
+}
+
 /* 仪表盘容器 */
 .dashboard-container {
     display: flex;
-    min-height: 100vh;
+    /* Removed min-height: 100vh to fix excessive whitespace */
+    min-height: auto;
+    height: 100vh;
+    /* Set specific height to match viewport */
+    overflow: hidden;
+    /* Prevent global scroll */
     background-color: #FFFFFF;
+}
+
+/* Make main content scrollable independently */
+.main-content {
+    flex-grow: 1;
+    overflow-y: auto;
+    height: 100%;
+    -webkit-overflow-scrolling: touch;
+    /* 修复移动端滑动不跟手问题 */
+    padding-bottom: 20px !important;
+    /* 底部保留适量间距，避免过大空白 */
 }
 
 /* 侧边栏 */
@@ -242,18 +268,50 @@
     transform: rotate(180deg);
 }
 
-/* 左下角固定菜单在移动端全宽显示 */
+/* 左下角固定菜单在移动端全宽显示 & 悬浮抽屉样式 */
 @media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: -250px;
+        /* 默认隐藏在左侧屏幕外 */
+        top: 0;
+        bottom: 0;
+        height: 100vh;
+        width: 250px;
+        z-index: 1001;
+        /* 高于 overlay */
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+        transition: transform 0.3s ease;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(250px);
+    }
+
     .sidebar-footer {
         width: 100%;
-        left: 0;
-        right: 0;
-        border-left: none;
-        border-right: none;
+        border-top: 1px solid #E9ECEF;
     }
 
     .sidebar.collapsed .sidebar-footer {
         width: 100%;
+    }
+
+    /* 遮罩层样式 */
+    .sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        backdrop-filter: blur(2px);
+    }
+
+    .sidebar-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
     }
 }
 
@@ -269,6 +327,13 @@
     transition: margin-left 0.3s ease;
     /* 修改过渡效果 */
     /* margin-left: 250px; 默认的左边距 */
+}
+
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0 !important;
+        padding: 16px;
+    }
 }
 
 /* 通用模态对话框样式 */
@@ -940,11 +1005,19 @@
 
 /* Data Table Clean Style */
 .data-table,
-#usersTable,
-#scheduleTypesTable {
+#usersTable {
     width: 100%;
     border-collapse: collapse;
     margin: 0;
+    font-size: 14px;
+}
+
+#scheduleTypesTable {
+    width: auto;
+    min-width: 460px;
+    max-width: 100%;
+    margin: 0 auto;
+    border-collapse: collapse;
     font-size: 14px;
 }
 
@@ -1500,12 +1573,10 @@
 /* 统计卡片网格 */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 200px));
-    /* Fixed max width to prevent stretching too wide, center them */
-    justify-content: center;
-    /* Center the grid items */
-    gap: 12px;
-    /* Reduced gap */
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+    /* 自适应8列，增大卡片 */
+    gap: 8px;
+    /* 减小间距 */
 }
 
 .stat-card {
@@ -1835,6 +1906,77 @@ tr:last-child td {
         margin: 0 -15px;
         padding: 0 15px;
     }
+
+    /* 用户管理表格移动端优化 */
+    .table-container,
+    .users-table-container {
+        position: relative;
+        /* 确保overflow裁剪生效 */
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        /* 防止内容在垂直和水平方向泄露 */
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 强制容器内的内容不超出边界 */
+    #users .table-container {
+        clip-path: inset(0);
+        /* 确保任何溢出内容都被裁剪 */
+    }
+
+    #usersTable {
+        min-width: 900px;
+        /* 确保表格有最小宽度,触发横向滚动 */
+        border-collapse: separate !important;
+        /* sticky需要separate而非collapse */
+        border-spacing: 0;
+        /* 保持紧凑外观 */
+    }
+
+    /* 教师表姓名列固定在左侧 */
+    #usersTable th.col-name,
+    #usersTable td.col-name {
+        position: sticky;
+        left: 0;
+        /* 使用0而非负值，配合margin处理 */
+        margin-left: -2px;
+        /* 向左扩展以覆盖边缘 */
+        padding-left: calc(24px + 2px);
+        /* 补偿margin的影响 */
+        background-color: white;
+        z-index: 10;
+        /* 提高z-index确保在其他列之上 */
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        clip-path: inset(0 -10px 0 0);
+        /* 向右扩展阴影区域 */
+    }
+
+    /* 表头的姓名列需要更高的 z-index 以保持在数据行之上 */
+    #usersTable thead th.col-name {
+        z-index: 11;
+        background-color: #F9FAFB;
+    }
+
+    /* 鼠标悬停时保持背景色一致 */
+    #usersTable tbody tr:hover td.col-name {
+        background-color: #F9FAFB;
+    }
+
+    /* 修复border-collapse: separate后的边框问题 */
+    #usersTable th,
+    #usersTable td {
+        border-right: 1px solid var(--admin-border);
+        border-bottom: 1px solid var(--admin-border);
+    }
+
+    #usersTable th:first-child,
+    #usersTable td:first-child {
+        border-left: 1px solid var(--admin-border);
+    }
+
+    #usersTable thead tr:first-child th {
+        border-top: 1px solid var(--admin-border);
+    }
 }
 
 .statistics-container {
@@ -1931,13 +2073,16 @@ tr:last-child td {
 /* 用户管理表格布局与可读性优化（自动换行，消除横向滚动） */
 .users-table-container {
     width: 100%;
-    overflow-x: hidden;
+    overflow-x: auto;
+    /* 改为auto,支持移动端横向滚动 */
+    -webkit-overflow-scrolling: touch;
 }
 
 .users-table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
+    table-layout: auto;
+    /* 改为auto,让指定的列宽生效 */
 }
 
 .users-table th {
@@ -3957,7 +4102,41 @@ button {
 
     .statistics-tabs {
         flex-direction: column;
-        gap: 16px;
+        gap: 8px;
+        background: transparent;
+        padding: 0;
+        width: 100%;
+        align-items: center;
+        margin-bottom: 8px;
+        /* Added margin to push content down */
+        height: auto !important;
+        /* Override global fixed height */
+    }
+
+    .statistics-tabs .tab-btn-group {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        background: #f1f5f9;
+        padding: 4px;
+        border-radius: 8px;
+    }
+
+    .user-manage-add-btn {
+        margin-left: 0 !important;
+        margin-top: 4px;
+        width: 100%;
+        max-width: 200px;
+        position: relative;
+        z-index: 5;
+    }
+
+    /* Ensure toolbar expands to accommodate stacked content */
+    .header-toolbar.statistics-controls {
+        height: auto !important;
+        min-height: auto !important;
+        padding: 12px !important;
+        margin-bottom: 16px !important;
     }
 }
 
@@ -4632,8 +4811,44 @@ button {
     font-weight: 500;
 }
 
-.material-icons-round,
+/* Material Icons 字体样式定义 */
+.material-icons-round {
+    font-family: 'Material Icons Round';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga';
+    color: currentColor;
+}
+
 .material-icons {
+    font-family: 'Material Icons';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'liga';
     color: currentColor;
 }
 
@@ -4891,7 +5106,7 @@ svg {
         z-index: 10;
     }
 
-    /* 侧边栏移动端样式 */
+    /* 侧边栏移动端样式 - 悬浮透明风格 */
     .sidebar {
         position: fixed;
         left: 0;
@@ -4902,11 +5117,65 @@ svg {
         transform: translateX(-100%);
         z-index: 1000;
         transition: transform 0.3s ease;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+
+        /* 悬浮透明设置 */
+        background-color: transparent !important;
+        box-shadow: none !important;
+        border-right: none !important;
+        padding: 16px;
+        /* 边缘间距 */
+        display: flex;
+        flex-direction: column;
     }
 
     .sidebar.mobile-open {
         transform: translateX(0);
+    }
+
+    /* Logo 卡片化 */
+    .sidebar .logo {
+        background-color: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        /* 柔和阴影 */
+        margin-bottom: 16px;
+        /* 卡片间距 */
+        border-bottom: none !important;
+
+        /* 内容左对齐 - 增加5px内边距 */
+        justify-content: flex-start !important;
+        padding-left: 29px !important;
+    }
+
+    /* 菜单列表 卡片化 */
+    .nav-menu {
+        background-color: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        padding: 17px 0;
+        /* 增加5px垂直内边距 */
+        margin-bottom: 16px;
+
+        /* 避免过长时被截断，允许内部滚动，或者让 sidebar 滚动 */
+        /* 由于 sidebar 是 flex column, nav-menu flex-grow: 1 */
+    }
+
+    /* 底部按钮 卡片化 */
+    .sidebar-footer {
+        background-color: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        border-top: none !important;
+        margin-top: 0;
+        /* 由 nav-menu margin-bottom 控制间距 */
+    }
+
+    /* 菜单项左对齐 */
+    .sidebar .nav-item {
+        justify-content: flex-start !important;
+        padding-left: 29px !important;
+        /* 增加5px左侧内边距 */
+        margin: 4px 12px;
     }
 
     /* 移动端不显示桌面端的折叠功能 */
@@ -4967,64 +5236,220 @@ svg {
     /* ============== */
 
     /* 表格容器横向滚动 */
-    .table-container {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        margin: 0 -16px;
+    .table-container,
+    .weekly-table-container {
+        display: block !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        margin: 0 -16px !important;
         /* 抵消main-content的padding */
-        padding: 0 16px;
+        padding: 0 16px !important;
+        border-radius: 0 !important;
+        border-left: none !important;
+        border-right: none !important;
     }
 
-    /* 数据表格最小宽度 */
-    .data-table {
-        min-width: 600px;
-        /* 确保完整显示 */
-        font-size: 13px;
+    /* 数据表格与周视图表格在移动端保持表格布局并启用横滑 */
+    .data-table,
+    .weekly-schedule-table {
+        display: table !important;
+        width: 100% !important;
+        /* 确保占满容器，宽度由内容决定 */
+        min-width: 600px !important;
+        /* 适当减小最小宽度，避免过宽 */
+        font-size: 13px !important;
+        table-layout: fixed !important;
+        /* 固定布局以便控制列宽 */
     }
 
     .data-table th,
-    .data-table td {
-        padding: 10px 12px;
+    .data-table td,
+    .weekly-schedule-table th,
+    .weekly-schedule-table td {
+        padding: 10px 8px !important;
+        /* 减小内边距 */
     }
 
-    /* 周排课表格卡片化 */
-    .weekly-schedule-table {
-        display: block;
+    /* 移动端首列（姓名列）特殊处理 */
+    .weekly-schedule-table th:first-child,
+    .weekly-schedule-table td:first-child {
+        position: sticky !important;
+        left: 0 !important;
+        width: 80px !important;
+        /* 收窄宽度 */
+        min-width: 80px !important;
+        max-width: 80px !important;
+        z-index: 20 !important;
+        /* 提高层级 */
+        border-right: 1px solid #e2e8f0 !important;
+        /* 添加右侧分割线 */
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+        /* 添加右侧阴影增强立体感 */
+    }
+
+    /* 确保首列有背景色，防止滚动透视 */
+    .weekly-schedule-table th:first-child {
+        background-color: #f8fafc !important;
+        /* 表头背景色 */
+    }
+
+    .weekly-schedule-table td:first-child {
+        background-color: #ffffff !important;
+        /* 单元格背景色 */
+    }
+
+    /* ============================================
+       排课管理移动端优化 (Task 20)
+       ============================================ */
+
+    /* 1. 头部按钮区域：两行显示，添加排课居中 */
+    #schedule .schedule-controls {
+        flex-wrap: wrap !important;
+        gap: 12px !important;
+        padding-bottom: 24px !important;
+        /* 增加底部间距 防止遮挡 */
+        height: auto !important;
+        min-height: auto !important;
+        position: relative !important;
+        z-index: 30 !important;
+        /* 提高层级 */
+        margin-bottom: 1px !important;
+        /* 避免与下方容器粘连 */
+    }
+
+    /* 第一行：周导航 (保持默认) */
+    #schedule .sch-controls-left {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 12px !important;
+        height: auto !important;
+    }
+
+    #schedule .week-navigation {
+        width: 100% !important;
+        justify-content: center !important;
+        margin-bottom: 0 !important;
+        order: 1 !important;
+    }
+
+
+    /* 第二行：添加排课按钮 */
+    #schedule #addScheduleBtn {
+        width: 100% !important;
+        max-width: 200px !important;
         min-width: auto !important;
+        display: flex !important;
+        justify-content: center !important;
+        margin: 0 auto !important;
+        /* 居中 */
+        padding: 10px 24px !important;
+        /* 恢复宽按钮内边距 */
+        order: 2 !important;
+        position: relative !important;
+        z-index: 31 !important;
+        border-radius: 8px !important;
+        /* 保持圆角一致 */
     }
 
+    /* 2. 数据表显示优化：复用 Teacher Availability 样式 */
+    /* 强制显示排课管理的表格容器 */
+    #schedule .weekly-table-container {
+        display: block !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-left: -16px !important;
+        margin-right: -16px !important;
+        width: calc(100% + 32px) !important;
+        overflow-x: auto !important;
+        margin-top: 20px !important;
+        /* 增加顶部间距 */
+    }
+
+    /* 强制显示表格本身 - 大幅增加列宽 */
+    #schedule .weekly-schedule-table {
+        display: table !important;
+        width: auto !important;
+        /* 允许自动撑开 */
+        table-layout: fixed !important;
+        min-width: 1200px !important;
+        /* 增加到1200px */
+    }
+
+    /* 增加单元格宽度 */
+    #schedule .weekly-schedule-table th,
+    #schedule .weekly-schedule-table td {
+        min-width: 140px !important;
+        /* 显著增加列宽 */
+        box-sizing: border-box !important;
+    }
+
+    /* 确保表头可见 */
+    #schedule .weekly-schedule-table thead {
+        display: table-header-group !important;
+    }
+
+    /* 复用首列固定样式 */
+    #schedule .weekly-schedule-table th:first-child,
+    #schedule .weekly-schedule-table td:first-child {
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 25 !important;
+        background-color: #fff !important;
+        width: 100px !important;
+        /* name column width */
+        min-width: 100px !important;
+        max-width: 100px !important;
+        border-right: 1px solid #e2e8f0 !important;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+        padding-left: 16px !important;
+    }
+
+    #schedule .weekly-schedule-table th:first-child {
+        background-color: #f8fafc !important;
+    }
+
+    /* 确保周视图表头在移动端可见 */
     .weekly-schedule-table thead {
-        display: none;
-        /* 隐藏表头 */
+        display: table-header-group !important;
+    }
+
+    /* 修复移动端滚动时左侧漏光问题 */
+    .weekly-table-container {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-left: -16px !important;
+        /* 抵消 main-content 的 padding */
+        margin-right: -16px !important;
+        width: calc(100% + 32px) !important;
+        border-radius: 0 !important;
+        /* 移除圆角，贴边 */
+    }
+
+    /* 修正移除padding后首列的位置 */
+    .weekly-schedule-table th:first-child,
+    .weekly-schedule-table td:first-child {
+        left: 0 !important;
+        /* 增加一点左侧内边距以保持美观，因为容器贴边了 */
+        padding-left: 16px !important;
     }
 
     .weekly-schedule-table tbody {
-        display: grid;
-        gap: 12px;
+        display: table-row-group !important;
     }
 
     .weekly-schedule-table tr {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 8px;
-        padding: 12px;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        display: table-row !important;
     }
 
     .weekly-schedule-table td {
-        display: flex;
-        padding: 0;
-        border: none;
+        display: table-cell !important;
     }
 
+    /* 移除之前无效的 cards 转换逻辑 */
     .weekly-schedule-table td::before {
-        content: attr(data-label);
-        font-weight: 600;
-        margin-right: 8px;
-        color: #64748b;
-        min-width: 80px;
+        content: none !important;
     }
 
     /* ============== */
@@ -5220,15 +5645,19 @@ svg {
     /* 默认网格样式 (用于总览页面) */
     .stats-grid {
         display: grid;
-        grid-template-columns: 1fr;
-        /* 移动端默认单列 (总览页面) */
+        grid-template-columns: repeat(2, 1fr);
+        /* 移动端强制双列 (总览页面) */
         gap: 12px;
     }
 
-    /* 总览页面卡片全宽 */
+    /* 总览页面卡片适配 */
     #overview .stats-grid .stat-card {
         width: 100%;
         margin: 0;
+        padding: 12px;
+        /* 减小内边距以适应更小的卡片 */
+        min-height: 90px;
+        /* 稍微减小高度 */
     }
 
     /* 数据统计页面 - 授课类型卡片 (双列布局) */
@@ -5446,9 +5875,9 @@ svg {
 
     /* 平板特别优化 */
 
-    /* 卡片网格：两列布局 */
+    /* 卡片网格：4列布局，8个卡片分2行 */
     .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 16px;
     }
 
@@ -5478,14 +5907,28 @@ svg {
         max-width: 1600px;
         margin: 0 auto;
     }
+
+    /* 8个统计卡片一行显示 */
+    .stats-grid {
+        grid-template-columns: repeat(8, 1fr);
+        gap: 20px;
+    }
 }
 
 /* ============================================
    学生移动端表格样式
    ============================================ */
 
+
 /* 移动端课程安排表 */
 @media (max-width: 768px) {
+
+    /* 隐藏PC端的周视图表格（通用选择器，适用于所有页面） */
+    /* 修改：不在排课管理(#schedule)、空闲时段(#availability, #student-availability)中隐藏 */
+    .weekly-schedule-table:not(#schedule .weekly-schedule-table):not(#availability .weekly-schedule-table):not(#student-availability .weekly-schedule-table) {
+        display: none !important;
+    }
+
     .mobile-schedule-table {
         width: 100%;
         border-collapse: collapse;
@@ -5574,14 +6017,97 @@ svg {
         text-align: center;
         padding: 8px 0;
     }
+
+    /* 移动端课程卡片样式优化 */
+    .group-picker-item {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
+
+    /* 时间段背景色 */
+    .group-picker-item.slot-morning,
+    .schedule-card-group.slot-morning {
+        background: #DBEAFE !important;
+        border: 1px solid #93C5FD !important;
+    }
+
+    .group-picker-item.slot-afternoon,
+    .schedule-card-group.slot-afternoon {
+        background: #FEF3C7 !important;
+        border: 1px solid #FCD34D !important;
+    }
+
+    .group-picker-item.slot-evening,
+    .schedule-card-group.slot-evening {
+        background: #F3E8FF !important;
+        border: 1px solid #D8B4FE !important;
+    }
+
+    /* chip标签样式 */
+    .chip {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .chip.type-visit {
+        background: rgba(16, 185, 129, 0.1);
+        color: #059669;
+    }
+
+    .chip.type-trial {
+        background: rgba(59, 130, 246, 0.1);
+        color: #1d4ed8;
+    }
+
+    .chip.type-review {
+        background: rgba(249, 115, 22, 0.1);
+        color: #c2410c;
+    }
+
+    .chip.status-confirmed {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .chip.status-pending {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .chip.status-completed {
+        background: #f3f4f6;
+        color: #4b5563;
+    }
+
+    .chip.status-cancelled {
+        background: #fee2e2;
+        color: #991b1b;
+    }
 }
 
 /* 移动端时间安排表 */
 @media (max-width: 768px) {
 
-    /* 隐藏PC端布局的表格 */
+    /* 隐藏PC端布局的时间安排表（通用选择器） */
+    /* 隐藏PC端布局的时间安排表（通用选择器），但排除空闲时段表格 */
+    .availability-table,
     #availability .weekly-schedule-table {
-        display: none;
+        /* display: none !important;  <-- REMOVED: keeping tables visible */
+        display: table !important;
+        width: 100%;
+    }
+
+    /* 同时也确保学生空闲时段表格可见 */
+    #student-availability .weekly-schedule-table {
+        display: table !important;
+        width: 100%;
     }
 
     /* 显示移动端4列布局 */
@@ -5641,7 +6167,7 @@ svg {
 
     .mobile-schedule-table,
     .mobile-schedule-details {
-        display: block;
+        display: none !important;
     }
 }
 
@@ -5921,6 +6447,8 @@ svg {
 #usersTable {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
+    /* 改为auto,让指定的列宽生效 */
 }
 
 #usersTable th,
@@ -6000,6 +6528,90 @@ svg {
     font-size: 20px;
 }
 
+/* ============================================
+   用户表格列宽定义 - 修复列标题和内容挤压问题
+   ============================================ */
+
+/* 共用列 (所有用户类型) */
+#usersTable .col-id {
+    width: 60px;
+    min-width: 60px;
+}
+
+#usersTable .col-username {
+    width: 100px;
+    min-width: 100px;
+}
+
+#usersTable .col-name {
+    width: 90px;
+    min-width: 90px;
+}
+
+#usersTable .col-created_at,
+#usersTable .col-last_login {
+    width: 160px;
+    min-width: 160px;
+}
+
+/* 管理员专用列 */
+#usersTable .col-email {
+    width: 180px;
+    min-width: 180px;
+}
+
+#usersTable .col-permission_level {
+    width: 90px;
+    min-width: 90px;
+    white-space: nowrap;
+}
+
+/* 教师/学生共用列 */
+#usersTable .col-contact {
+    width: 120px;
+    min-width: 120px;
+}
+
+#usersTable .col-profession {
+    width: 100px;
+    min-width: 100px;
+}
+
+#usersTable .col-home_address {
+    width: 160px;
+    min-width: 160px;
+}
+
+#usersTable .col-status {
+    width: 80px;
+    min-width: 80px;
+}
+
+/* 教师专用列 */
+#usersTable .col-work_location {
+    width: 140px;
+    min-width: 140px;
+}
+
+#usersTable .col-restriction {
+    width: 100px;
+    min-width: 100px;
+    white-space: nowrap;
+}
+
+/* 学生专用列 */
+#usersTable .col-visit_location {
+    width: 160px;
+    min-width: 160px;
+}
+
+/* 操作列 */
+#usersTable td.actions,
+#usersTable th:last-child {
+    width: 120px;
+    min-width: 120px;
+}
+
 /* --- Schedule Card Styles (Strict Design Match) --- */
 
 .schedule-card-group {
@@ -6073,7 +6685,7 @@ svg {
 .schedule-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
 }
 
 .schedule-row {
@@ -6212,8 +6824,8 @@ svg {
 
 /* Footer: Time & Location */
 .schedule-footer {
-    margin-top: 10px;
-    padding-top: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
     border-top: 1px solid rgba(0, 0, 0, 0.06);
     /* Subtle divider */
     text-align: center;
@@ -6221,7 +6833,7 @@ svg {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
 }
 
 .time-text {
@@ -6233,14 +6845,16 @@ svg {
 }
 
 .location-text {
-    font-size: 11px;
+    font-size: 11.5px;
     color: #64748B;
     /* Slate-500 */
-    line-height: 1.3;
+    line-height: 1.5;
     max-width: 100%;
     /* Allow wrapping for full display per user request */
     white-space: normal;
     word-break: break-word;
+    overflow-wrap: break-word;
+    text-align: center;
 }
 
 /* Empty State */
@@ -6557,6 +7171,14 @@ svg {
     padding: 10px !important;
 }
 
+/* User Request: Horizontal Line Divider */
+.schedule-footer {
+    border-top: 1px solid #F1F5F9 !important;
+    /* Light gray divider */
+    padding-top: 8px !important;
+    margin-top: 8px !important;
+}
+
 .schedule-list {
     display: flex !important;
     flex-direction: column !important;
@@ -6592,13 +7214,24 @@ svg {
 /* Status Select (Editable for Teachers) */
 .status-select {
     font-size: 11px !important;
-    padding: 2px 6px !important;
-    border-radius: 6px !important;
+    padding: 0 !important;
+    height: 20px !important;
+    line-height: 15px !important;
+    border-radius: 20px !important;
     border: 1px solid transparent !important;
     font-weight: 600 !important;
     cursor: pointer !important;
     outline: none !important;
+    width: 70px !important;
     min-width: 65px !important;
+    text-align: center !important;
+    text-align-last: center !important;
+    margin: 0 !important;
+    vertical-align: middle !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    display: inline-block !important;
 }
 
 /* Status Readonly Tag (For Students) */
@@ -6669,11 +7302,13 @@ svg {
 }
 
 .location-text {
-    font-size: 10px !important;
+    font-size: 11.5px !important;
     color: #64748B !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    text-align: center !important;
+    line-height: 1.5 !important;
 }
 
 .card-item-time {
@@ -7144,6 +7779,63 @@ svg {
         font-size: 32px;
     }
 
+    /* User Management Header Mobile Fix - Robust Redesign */
+    #users .header-toolbar.statistics-controls {
+        display: block !important;
+        /* Force block to allow normal flow */
+        height: auto !important;
+        min-height: auto !important;
+        padding: 16px !important;
+        margin-bottom: 24px !important;
+        background: #ffffff !important;
+        border: 1px solid #e9ecef !important;
+        position: relative !important;
+        overflow: visible !important;
+    }
+
+    #users .statistics-tabs {
+        display: block !important;
+        /* Switch from flex to block for absolute control */
+        height: auto !important;
+        min-height: auto !important;
+        padding: 0 !important;
+        background: transparent !important;
+        width: 100% !important;
+        border: none !important;
+        margin: 0 !important;
+        overflow: visible !important;
+    }
+
+    #users .tab-btn-group {
+        width: 100% !important;
+        display: flex !important;
+        /* Keep buttons horizontal if they fit, or let them wrap */
+        justify-content: center !important;
+        background: #f1f5f9;
+        padding: 4px;
+        border-radius: 8px;
+        margin-bottom: 12px !important;
+    }
+
+    #addUserBtn.user-manage-add-btn {
+        display: flex !important;
+        margin: 0 auto !important;
+        /* Center block-level button */
+        width: 100% !important;
+        max-width: 200px !important;
+        height: 40px !important;
+        justify-content: center !important;
+        align-items: center !important;
+        position: relative !important;
+        clear: both !important;
+    }
+
+    /* Push the table down explicitly to be safe */
+    #users .table-container {
+        margin-top: 0 !important;
+        clear: both !important;
+    }
+
     /* Disable Marquee on Mobile to prevent overlap */
     .marquee-wrapper {
         max-width: none !important;
@@ -7322,5 +8014,160 @@ svg {
     100% {
         transform: translateY(100vh) rotate(720deg);
         opacity: 0;
+    }
+}
+
+/* ============================================
+   管理员端移动端表格显示增强
+   ============================================ */
+
+@media (max-width: 768px) {
+
+    /* 移动端表格布局已在上方统一处理，此处保留部分细节微调 */
+    #schedule .weekly-view,
+    #student-availability .weekly-view,
+    #availability .weekly-view {
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+}
+
+/* 数据统计 - 总览页面 - 三个概览图纵向排列 (Task 25) */
+@media (max-width: 768px) {
+    .charts-section {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 24px !important;
+    }
+
+    .charts-section .chart-container {
+        width: 100% !important;
+        min-width: 100% !important;
+        margin-bottom: 0 !important;
+        height: auto !important;
+    }
+}
+
+/* ============================================
+   移动端用户管理表格优化
+   - 复刻排课管理的冻结列效果
+   - 修复左侧数据泄漏问题
+   ============================================ */
+@media (max-width: 768px) {
+
+    /* 姓名列(col-name)固定在左侧 */
+    #usersTable .col-name {
+        position: sticky;
+        left: 0;
+        z-index: 10;
+        border-right: 2px solid #E5E7EB;
+        /* 与排课管理一致的分隔线 */
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+        /* 添加轻微阴影增加层次感 */
+        /* 关键：设置背景色遮挡左侧滑过的列（如用户名） */
+        clip-path: inset(0 -10px 0 0);
+        /* 允许右侧阴影显示，防止左侧溢出 */
+    }
+
+    /* 表头背景色 */
+    #usersTable thead .col-name {
+        background-color: #FAFAFA;
+        z-index: 20;
+        /* 确保表头在表体之上 */
+        border-bottom: 2px solid #E5E7EB;
+    }
+
+    /* 表格内容背景色 */
+    #usersTable tbody .col-name {
+        background-color: #FFFFFF;
+    }
+
+    /* 修复 Hover 状态下的背景色，避免白色方块遮挡 Hover 灰色 */
+    #usersTable tbody tr:hover .col-name {
+        background-color: #F8F9FA;
+    }
+}
+
+/* ============================================
+   移动端空闲时段表格样式优化
+   - 使表格容器卡片化，与顶部标题栏宽度一致
+   - 增加左右边距
+   ============================================ */
+@media (max-width: 768px) {
+
+    #availability .weekly-view,
+    #student-availability .weekly-view {
+        margin-left: 12px;
+        margin-right: 12px;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        background-color: #FFFFFF;
+        overflow: hidden;
+        /* 确保圆角裁切 */
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 确保内部表格宽度适配 */
+    #availability .weekly-table-container,
+    #student-availability .weekly-table-container {
+        width: 100%;
+        border-radius: 0;
+        /* 移除可能的内部圆角，主要靠容器裁切 */
+    }
+}
+
+/* ============================================
+   排课卡片样式优化 (最终合并版)
+   ============================================ */
+
+/* 1. 分割线优化 (PC + Mobile) */
+/* 细线、居中、长度适中 */
+.schedule-card-group .card-content .schedule-footer,
+.card-content .schedule-footer {
+    border-top: 1px solid #CBD5E1 !important;
+    padding-top: 8px !important;
+    margin-top: 8px !important;
+    margin-left: 0px !important;
+    margin-right: 0px !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+}
+
+/* 2. 移动端标签优化 */
+@media (max-width: 768px) {
+
+    /* 状态标签：高度压缩 (~12-16px)、宽度压缩、字体微调 */
+    .schedule-card-group .schedule-list .status-select,
+    .schedule-list .status-select,
+    .schedule-row .status-select,
+    select.status-select {
+        /* 高度与行高 */
+        height: 14px !important;
+        /* 折衷值，既不过矮也不过高 */
+        max-height: 14px !important;
+        line-height: 14px !important;
+
+        /* 宽度控制 */
+        min-width: 38px !important;
+        /* 宽度减小 */
+        max-width: 60px !important;
+        width: auto !important;
+
+        /* 字体与内边距 */
+        font-size: 9px !important;
+        padding: 0 2px !important;
+        border-radius: 4px !important;
+
+        /* 其他布局属性 */
+        display: inline-block !important;
+        vertical-align: middle !important;
+        background-position: right 0px center !important;
+    }
+
+    /* 课程类型文本压缩 */
+    .schedule-card-group .course-type-text,
+    .course-type-text {
+        font-size: 10px !important;
+        line-height: 1.2 !important;
     }
 }

@@ -147,8 +147,21 @@ function isMobileView() {
 
 // 移动端渲染：使用4列8行布局（与教师PC端一致）
 function renderMobileTable(weekDates, state) {
-    const container = document.querySelector('#availability .table-container');
-    if (!container) return;
+    // 尝试多种选择器，优先使用.schedule-unified-card
+    let container = document.querySelector('#availability .schedule-unified-card');
+    if (!container) {
+        container = document.querySelector('.schedule-unified-card');
+    }
+    if (!container) {
+        container = document.querySelector('#availability .table-container');
+    }
+    if (!container) {
+        container = document.querySelector('.table-container');
+    }
+    if (!container) {
+        console.warn('[Mobile Availability] Container not found');
+        return;
+    }
 
     clearChildren(container);
 

@@ -17,6 +17,36 @@ import {
 let currentWeekStart = null;
 let cachedSchedules = [];
 
+/**
+ * 统一的教师排序函数
+ * 规则:
+ * 1. 特殊课程类型(评审、咨询)的教师排在最后
+ * 2. 其他教师按ID由小到大排序
+ */
+function sortTeachersByIdAndType(scheduleA, scheduleB) {
+    const getTypeName = (item) => (
+        item.schedule_type_name ||
+        item.type_name ||
+        item.schedule_type_cn ||
+        item.schedule_types ||
+        item.schedule_type || ''
+    ).toString();
+
+    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+
+    const typeA = getTypeName(scheduleA);
+    const typeB = getTypeName(scheduleB);
+    const specialA = isSpecial(typeA);
+    const specialB = isSpecial(typeB);
+
+    // 特殊课程类型排在最后
+    if (specialA && !specialB) return 1;
+    if (!specialA && specialB) return -1;
+
+    // 其他按教师ID由小到大排序
+    return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
+}
+
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
     body: () => document.getElementById('weeklyBody'),
@@ -163,8 +193,21 @@ function isMobileView() {
 
 // 移动端2列7行表格渲染
 function renderMobileScheduleTable(weekDates, grouped) {
-    const container = document.querySelector('#schedules .table-container');
-    if (!container) return;
+    // 尝试多种选择器，优先使用.schedule-unified-card
+    let container = document.querySelector('#schedules .schedule-unified-card');
+    if (!container) {
+        container = document.querySelector('.schedule-unified-card');
+    }
+    if (!container) {
+        container = document.querySelector('#schedules .table-container');
+    }
+    if (!container) {
+        container = document.querySelector('.table-container');
+    }
+    if (!container) {
+        console.warn('[Mobile Schedule] Container not found');
+        return;
+    }
 
     clearChildren(container);
 
@@ -203,13 +246,18 @@ function renderMobileScheduleTable(weekDates, grouped) {
             const empty = createElement('div', 'no-schedule', { textContent: '暂无排课' });
             detailsCell.appendChild(empty);
         } else {
-            // 聚合课程
-            const aggregatedGroups = groupSchedulesByTimeAndLocation(dailySchedules);
+            // 按时间和地点分组（合并相同时间地点的课程）
+            const aggregatedGroups = groupSchedulesBySlot(dailySchedules);
 
             aggregatedGroups.forEach((group, index) => {
-                const detail = buildAggregatedScheduleCard(group, true); // true for mobile style adjustments if needed
-                detailsCell.appendChild(detail);
-                // 添加分隔线（除了最后一个）
+                // 对组内课程进行排序（特殊课程类型排最后，其他按教师ID排序）
+                group.sort(sortTeachersByIdAndType);
+
+                // 统一使用紧凑格式卡片（不再区分单个或多个）
+                const card = buildCompactMobileScheduleCard(group);
+                detailsCell.appendChild(card);
+
+                // 添加分隔线（除了最后一个组）
                 if (index < aggregatedGroups.length - 1) {
                     const divider = createElement('hr', 'schedule-divider');
                     divider.style.cssText = 'margin: 8px 0; border: none; border-top: 1px solid #e9ecef;';
@@ -226,87 +274,103 @@ function renderMobileScheduleTable(weekDates, grouped) {
     container.appendChild(table);
 }
 
-// 构建移动端课程详情块
-function buildMobileScheduleDetail(schedule) {
-    // 课程类型
-    const typeCode = schedule.schedule_type || '';
-    const typeLabel = schedule.schedule_type_cn || getScheduleTypeLabel(typeCode);
-    let typeClass = 'type-default';
-    if (typeLabel.includes('入户')) typeClass = 'type-visit';
-    else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-    else if (typeLabel.includes('评审')) typeClass = 'type-review';
-    else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
-    else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
 
-    // 状态
-    const status = (schedule.status || 'pending').toLowerCase();
-    const displayStatus = getDisplayStatus(schedule);
+/**
+ * 构建移动端紧凑格式排课卡片（学生端）
+ * 格式：教师1（类型chip，状态chip），教师2（类型chip，状态chip），时间，地点（灰色）
+ * @param {Array} scheduleGroup 排课记录组（可以是单个或多个）
+ * @returns {HTMLElement} 紧凑格式的排课卡片DOM元素
+ */
+function buildCompactMobileScheduleCard(scheduleGroup) {
+    if (!scheduleGroup || scheduleGroup.length === 0) {
+        return document.createElement('div');
+    }
 
-    // 获取时间段（用于背景色）
-    const slotId = getTimeSlotId(schedule.start_time);
+    const first = scheduleGroup[0];
+    const slotId = getTimeSlotId(first.start_time);
     const slotClass = slotId ? `slot-${slotId}` : 'slot-unspecified';
 
-    // 创建卡片容器（使用 group-picker-item 保持与PC端一致的样式）
-    const detail = createElement('div', `group-picker-item ${slotClass} status-${status}`);
-    // 移除内联样式，使用 group-picker-item 的 CSS
-    detail.style.cssText = 'display: flex; flex-direction: column; gap: 8px; align-items: stretch;';
+    // 创建卡片容器，保持时间槽颜色
+    const card = createElement('div', `group-picker-item ${slotClass}`);
+    // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
+    // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
+    card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
 
-    // 信息容器（第一行：教师，类型，时间，地点）
-    const infoContainer = createElement('div', '', {
-        style: 'font-size: 15px; line-height: 1.6; font-weight: 500;' // Increased font size
+    // 为每位教师创建信息块：姓名（类型chip，状态chip）
+    scheduleGroup.forEach((schedule, index) => {
+        const teacherName = schedule.teacher_name || '未分配教师';
+        const typeCode = schedule.schedule_type || '';
+        const typeLabel = schedule.schedule_type_cn || getScheduleTypeLabel(typeCode);
+        const status = (schedule.status || 'pending').toLowerCase();
+        const statusLabel = getDisplayStatus(schedule);
+
+        // 确定课程类型的CSS类
+        let typeClass = 'type-default';
+        if (typeLabel.includes('入户')) typeClass = 'type-visit';
+        else if (typeLabel.includes('试教')) typeClass = 'type-trial';
+        else if (typeLabel.includes('评审')) typeClass = 'type-review';
+        else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
+        else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
+
+        // 教师名称
+        const nameSpan = createElement('span', '', {
+            textContent: teacherName,
+            style: 'font-weight: 500; font-size: 15px;'
+        });
+        card.appendChild(nameSpan);
+
+        // 左括号
+        card.appendChild(document.createTextNode('（'));
+
+        // 课程类型chip
+        const typeChip = createElement('span', `chip ${typeClass}`, {
+            textContent: typeLabel
+        });
+        card.appendChild(typeChip);
+
+        // 逗号
+        card.appendChild(document.createTextNode('，'));
+
+        // 状态chip
+        const statusChip = createElement('span', `chip status-${status}`, {
+            textContent: statusLabel
+        });
+        card.appendChild(statusChip);
+
+        // 右括号
+        card.appendChild(document.createTextNode('）'));
+
+        // 如果不是最后一个，添加逗号和空格
+        if (index < scheduleGroup.length - 1) {
+            card.appendChild(document.createTextNode('，'));
+        }
     });
 
-    // 构建信息文本：教师，类型，时间，地点
-    const teacherText = schedule.teacher_name || '未分配教师';
-    const timeText = formatTimeRange(schedule.start_time, schedule.end_time);
-    const locationText = schedule.location || '上课地点未确定';
-
-    // 教师名称
-    const teacherSpan = createElement('span', '', {
-        textContent: teacherText,
-        style: 'font-weight: 500;'
-    });
-    infoContainer.appendChild(teacherSpan);
-    infoContainer.appendChild(document.createTextNode('，'));
-
-    // 课程类型chip
-    const typeChip = createElement('span', `chip ${typeClass}`, {
-        textContent: typeLabel
-    });
-    infoContainer.appendChild(typeChip);
-    infoContainer.appendChild(document.createTextNode('，'));
+    // 添加逗号分隔符
+    card.appendChild(document.createTextNode('，'));
 
     // 时间
-    infoContainer.appendChild(document.createTextNode(timeText));
-    infoContainer.appendChild(document.createTextNode('，'));
-
-    // 地点
-    const locationSpan = createElement('span', '', {
-        textContent: locationText
+    const timeText = formatTimeRange(first.start_time, first.end_time);
+    const timeSpan = createElement('span', '', {
+        textContent: timeText,
+        style: 'font-size: 15px; font-weight: 500;'
     });
-    if (!schedule.location) {
-        locationSpan.style.color = '#9ca3af';
-        locationSpan.style.fontStyle = 'italic';
-    }
-    infoContainer.appendChild(locationSpan);
+    card.appendChild(timeSpan);
 
-    detail.appendChild(infoContainer);
+    // 添加逗号
+    card.appendChild(document.createTextNode('，'));
 
-    // 状态行（第二行：居中显示状态）
-    const statusRow = createElement('div', '', {
-        style: 'display: flex; justify-content: center; margin-top: 4px;'
+    // 地点（灰色字体）
+    const loc = first.location || '';
+    const locSpan = createElement('span', '', {
+        innerHTML: loc ? loc : '<span style="font-style: italic; color: #94a3b8;">地点待定</span>',
+        style: 'color: #9CA3AF; font-size: 14px;'
     });
+    card.appendChild(locSpan);
 
-    const statusChip = createElement('span', `chip status-${status}`, {
-        textContent: displayStatus,
-        style: 'font-size: 14px; padding: 4px 12px; border-radius: 999px; font-weight: 500; display: inline-block;' // Increased from 12px
-    });
-
-    statusRow.appendChild(statusChip);
-    detail.appendChild(statusRow);
-
-    return detail;
+    return card;
 }
+
 
 function renderHeader(weekDates) {
     const thead = elements.header();
@@ -368,6 +432,8 @@ function renderBody(weekDates, schedules) {
             // Group by Time/Location
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach(group => {
+                // 使用统一的排序函数
+                group.sort(sortTeachersByIdAndType);
                 cell.appendChild(buildScheduleCard(group));
             });
         } else {
@@ -457,6 +523,9 @@ function buildScheduleCard(group) {
     // 内容容器
     const content = createElement('div', 'card-content');
 
+    // 使用统一的排序函数:特殊课程类型(评审/咨询)排在最后,其他按教师ID排序
+    group.sort(sortTeachersByIdAndType);
+
     // 2. 排课记录列表
     const listDiv = createElement('div', 'schedule-list');
 
@@ -507,6 +576,17 @@ function buildScheduleCard(group) {
             statusTag.style.color = '#4b5563'; // Dark Gray Text
         }
 
+        // Checkmark for completed status
+        if (st === 'completed') {
+            const checkmark = createElement('div', 'completed-checkmark-icon');
+            // Ensure relative positioning context if needed, but row usually has it or we might need to adjust CSS
+            // The row is `schedule-row`. Let's check CSS for `schedule-row`.
+            // If `schedule-row` is relatively positioned, absolute child works.
+            // If not, we might need to make it relative.
+            row.style.position = 'relative';
+            row.appendChild(checkmark);
+        }
+
         row.appendChild(statusTag);
 
         listDiv.appendChild(row);
@@ -520,27 +600,21 @@ function buildScheduleCard(group) {
 
     // Match Admin Footer Style (Boxed location?)
     // Based on image, it looks like simple text similar to admin
+    const locationHtml = loc ?
+        `<div class="location-text">${loc}</div>` :
+        `<div class="location-text" style="font-style: italic; color: #94a3b8;">地点待定</div>`;
+
     footer.innerHTML = `
         <div class="time-text">${timeRange}</div>
-        <div class="location-text">${loc}</div>
+        ${locationHtml}
     `;
     content.appendChild(footer);
     card.appendChild(content);
 
     // 4. 学生确认交互 (如果组内有待确认项目)
-    const hasPending = group.some(r => (r.status || 'pending').toLowerCase() === 'pending');
-    if (hasPending) {
-        const confirmBtn = createElement('button', 'btn small-btn primary-btn', {
-            textContent: '确认课程',
-            style: 'margin: 0 10px 10px 10px; width: calc(100% - 20px); border:none; border-radius:8px; background:#10B981; color:white; padding:8px; font-weight:600; cursor:pointer;'
-        });
-        confirmBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const firstPending = group.find(r => (r.status || 'pending').toLowerCase() === 'pending');
-            if (firstPending) handleConfirmSchedule(firstPending.id);
-        });
-        card.appendChild(confirmBtn);
-    }
+    // 4. 学生确认交互 (移除所有状态的确认按钮 Task 29)
+    // const hasPending = group.some(r => (r.status || 'pending').toLowerCase() === 'pending');
+    // if (hasPending) { ... }
 
     return card;
 }
@@ -602,10 +676,28 @@ function showLoadingState() {
     const tbody = elements.body();
     if (!tbody) return;
     clearChildren(tbody);
-    const row = document.createElement('tr');
-    const cell = createElement('td', 'loading-cell', { textContent: '加载中...' });
-    cell.colSpan = 8;
-    cell.style.textAlign = 'center';
-    row.appendChild(cell);
-    tbody.appendChild(row);
+
+    // Create 5 skeleton rows
+    for (let i = 0; i < 5; i++) {
+        const row = document.createElement('tr');
+        row.className = 'schedule-loading-row';
+
+        /* 
+        // Single row layout (Student View) might just be 8 columns or 1 + 7 
+        // Student view typically has just days? Let's check renderBody logic.
+        // renderBody uses: row -> 7 cells (or maybe 1 + 7 if sticky col is used for empty state)
+        // renderEmptyState uses colSpan=8. 
+        // Let's assume 8 columns to match Admin-like structure or just fill the width.
+        */
+
+        for (let j = 0; j < 8; j++) {
+            const cell = document.createElement('td');
+            const skeleton = document.createElement('div');
+            skeleton.className = 'skeleton-loader';
+            skeleton.style.margin = '4px';
+            cell.appendChild(skeleton);
+            row.appendChild(cell);
+        }
+        tbody.appendChild(row);
+    }
 }

@@ -19,6 +19,36 @@ const todayListEl = () => document.getElementById('todayScheduleList');
 const refreshBtnEl = () => document.getElementById('refreshTodaySchedulesBtn');
 
 /**
+ * 统一的教师排序函数
+ * 规则:
+ * 1. 特殊课程类型(评审、咨询)的教师排在最后
+ * 2. 其他教师按ID由小到大排序
+ */
+function sortTeachersByIdAndType(scheduleA, scheduleB) {
+    const getTypeName = (item) => (
+        item.schedule_type_name ||
+        item.type_name ||
+        item.schedule_type_cn ||
+        item.schedule_types ||
+        item.schedule_type || ''
+    ).toString();
+
+    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+
+    const typeA = getTypeName(scheduleA);
+    const typeB = getTypeName(scheduleB);
+    const specialA = isSpecial(typeA);
+    const specialB = isSpecial(typeB);
+
+    // 特殊课程类型排在最后
+    if (specialA && !specialB) return 1;
+    if (!specialA && specialB) return -1;
+
+    // 其他按教师ID由小到大排序
+    return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
+}
+
+/**
  * Initialize overview section
  */
 export async function initOverviewSection() {
@@ -231,7 +261,11 @@ function renderTodaySchedules(schedules) {
     });
 
     const fragment = document.createDocumentFragment();
-    groupedSchedules.forEach(group => fragment.appendChild(buildTodayScheduleCard(group.base, group.items)));
+    groupedSchedules.forEach(group => {
+        // 使用统一的排序函数
+        group.items.sort(sortTeachersByIdAndType);
+        fragment.appendChild(buildTodayScheduleCard(group.base, group.items));
+    });
 
     container.appendChild(fragment);
 }
@@ -333,10 +367,14 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     const locationItem = createElement('div', 'today-card-detail-item location');
     const locIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
-    const locationText = createElement('span', '', { textContent: schedule.location || '上课地点未确定' });
+
+    // Task 29: Handle empty location
+    const locHtml = schedule.location ?
+        `<span>${schedule.location}</span>` :
+        `<span style="font-style: italic; color: #94a3b8;">地点待定</span>`;
 
     locationItem.appendChild(locIcon);
-    locationItem.appendChild(locationText);
+    locationItem.innerHTML += locHtml; // Append HTML after icon
     details.appendChild(locationItem);
 
     infoCol.appendChild(details);
