@@ -5415,16 +5415,14 @@ svg {
         display: table-header-group !important;
     }
 
-    /* 修复移动端滚动时左侧漏光问题 */
+    /* 修复移动端滚动时左侧漏光问题与右侧被切断的问题 */
     .weekly-table-container {
         padding-left: 0 !important;
         padding-right: 0 !important;
-        margin-left: -16px !important;
-        /* 抵消 main-content 的 padding */
-        margin-right: -16px !important;
-        width: calc(100% + 32px) !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: 100% !important;
         border-radius: 0 !important;
-        /* 移除圆角，贴边 */
     }
 
     /* 修正移除padding后首列的位置 */
@@ -6714,7 +6712,8 @@ svg {
 }
 
 .course-type-text {
-    font-size: 12px;
+    font-size: 13px;
+    /* Name is 13px on desktop, want same */
     color: #64748B;
     /* Slate-500 */
     white-space: nowrap;
@@ -8141,20 +8140,22 @@ svg {
     .schedule-list .status-select,
     .schedule-row .status-select,
     select.status-select {
-        /* 高度与行高 */
-        height: 14px !important;
-        /* 折衷值，既不过矮也不过高 */
-        max-height: 14px !important;
-        line-height: 14px !important;
+        /* 高度与行高: 调宽以适应12px中文字体 */
+        height: 18px !important;
+        min-height: 18px !important;
+        max-height: 18px !important;
+        line-height: 16px !important;
+        padding: 0px 4px !important;
+        box-sizing: border-box !important;
 
         /* 宽度控制 */
-        min-width: 38px !important;
+        min-width: 48px !important;
         /* 宽度减小 */
         max-width: 60px !important;
         width: auto !important;
 
-        /* 字体与内边距 */
-        font-size: 9px !important;
+        /* 字体 */
+        font-size: 12px !important;
         padding: 0 2px !important;
         border-radius: 4px !important;
 
@@ -8167,7 +8168,39 @@ svg {
     /* 课程类型文本压缩 */
     .schedule-card-group .course-type-text,
     .course-type-text {
-        font-size: 10px !important;
+        font-size: 12px !important;
+        /* Name is 12px on mobile, want same */
         line-height: 1.2 !important;
+    }
+
+    /* 3. 垫高姓名所在的排课高度 增加上下留白 (+30%) */
+    .schedule-row {
+        padding-top: 3px !important;
+        padding-bottom: 3px !important;
+    }
+
+    /* 4. 分离分割线，设定 99% 的绝对居中线段 */
+    .schedule-card-group .card-content .schedule-footer,
+    .card-content .schedule-footer {
+        border-top: none !important;
+    }
+
+    .schedule-list::after {
+        content: '';
+        display: block;
+        width: 99%;
+        margin: 8px auto 0 auto;
+        border-bottom: 1px solid #CBD5E1;
+    }
+
+    /* 5. 缩小底部地点区域到整个卡片的 85%，并带半透明遮罩背景 */
+    .schedule-card-group .card-content .schedule-footer,
+    .card-content .schedule-footer {
+        width: 85% !important;
+        margin: 8px auto !important;
+        background-color: rgba(255, 255, 255, 0.45) !important;
+        border-radius: 6px !important;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
     }
 }

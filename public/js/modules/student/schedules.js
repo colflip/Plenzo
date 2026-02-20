@@ -548,13 +548,21 @@ function buildScheduleCard(group) {
             if (found) typeStr = found.description || found.name;
         }
 
-        // Match Admin HTML structure exactly
+        const nameSpan = createElement('span', 'teacher-name', {
+            textContent: rec.teacher_name || '未指定'
+        });
+        nameSpan.style.cssText = 'flex-shrink: 0; white-space: nowrap;';
+
+        const marqueeWrapper = createElement('div', 'marquee-wrapper');
+        marqueeWrapper.style.cssText = 'flex: 1; min-width: 0; max-width: none;';
+
         const marqueeContent = createElement('div', 'marquee-content');
-        marqueeContent.innerHTML = `
-            <span class="teacher-name">${rec.teacher_name || '未分派'}</span>
-            <span class="course-type-text">(${typeStr})</span>
-        `;
-        left.appendChild(marqueeContent);
+        marqueeContent.style.paddingRight = '0';
+        marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`;
+
+        marqueeWrapper.appendChild(marqueeContent);
+        left.appendChild(nameSpan);
+        left.appendChild(marqueeWrapper);
         row.appendChild(left);
 
         // 右侧：状态显示 (Green tag for confirmed, Gray for completed)

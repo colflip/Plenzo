@@ -71,10 +71,27 @@
         }
 
         .login-footer {
-            margin-top: 2rem;
+            margin-top: 2.5rem;
             text-align: center;
-            font-size: var(--font-size-sm);
+            font-size: 13px;
             color: var(--color-gray-500);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        .login-footer .separator {
+            color: var(--color-gray-400);
+            font-size: 12px;
+            opacity: 0.6;
+        }
+
+        .login-footer .brand-text {
+            color: var(--color-gray-600);
+            font-weight: 600;
         }
     </style>
 </head>
@@ -133,9 +150,10 @@
         </div>
 
         <div class="login-footer">
-            &copy; <span id="copyrightYear">2025</span> Schedule Widget
+            <span class="brand-text">Schedule Widget</span>
+            <span class="separator">|</span>
+            <span class="copyright-text">&copy; <span id="copyrightYear">2025</span> 蔚蓝</span>
         </div>
-    </div>
     </div>
     <script src="/js/core/api-client.js"></script>
     <script src="/js/core/main.js"></script>

@@ -519,7 +519,9 @@
 .icon-slot.changed {
     /* Blue glow for changed items */
     filter: drop-shadow(0 0 2px #3b82f6);
-}/* ============================================
+}
+
+/* ============================================
    移动端排课卡片标签优化
    - 减少课程类型标签高度 40%
    ============================================ */
@@ -539,7 +541,9 @@
         height: auto !important;
         min-height: 0 !important;
     }
-}/* ============================================
+}
+
+/* ============================================
    排课卡片样式优化 (Card Style Enhancement)
    1. 增强内容分割线 (Global)
    2. 压缩状态标签高度 (Mobile Only)
@@ -558,18 +562,15 @@
 
     /* 针对红框所示的状态标签 (Status Badge/Select) */
     .status-select {
-        height: 16px !important;
-        /* Target: ~40% reduction (from ~26px) */
-        line-height: 14px !important;
-        /* Tighter line-height */
-        font-size: 10px !important;
-        /* Smaller font */
-        min-width: 45px !important;
-        /* Compact width */
-        padding: 0 2px !important;
-        /* Minimal padding */
+        height: 18px !important;
+        min-height: 18px !important;
+        max-height: 18px !important;
+        line-height: 16px !important;
+        font-size: 12px !important;
+        min-width: 48px !important;
+        padding: 0px 4px !important;
+        box-sizing: border-box !important;
         background-position: right 1px center !important;
-        /* Adjust arrow position */
     }
 
     /* 针对左侧课程类型文本 (如 "入户")，保持协调 */

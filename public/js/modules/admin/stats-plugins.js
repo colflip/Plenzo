@@ -216,7 +216,7 @@
     const clampMax = computeClampMaxFromSeries(seriesList);
     const datasets = seriesList.map((s, i) => ({
       label: s.label,
-      data: sanitizeArray(s.data, clampMax),
+      data: sanitizeArray(s.data),
       borderColor: colorFor(s.label, i),
       backgroundColor: colorFor(s.label, i),
       fill: false,
@@ -432,7 +432,7 @@
 
       const datasets = normalizedStacks.map((s, i) => ({
         label: s.label,
-        data: sanitizeArray(s.data, clampMax),
+        data: sanitizeArray(s.data),
         backgroundColor: colorFor(s.label, i),
         borderColor: colorFor(s.label, i),
         borderWidth: 1,

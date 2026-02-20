@@ -133,10 +133,19 @@ function renderStudentAvailabilityHeader(dates) {
     let html = '<tr><th style="width: 120px; min-width: 120px;">学生姓名</th>';
     dates.forEach((date, i) => {
         const isToday = date.toDateString() === today;
+        let lunarLabel = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+            }
+        } catch (e) { }
+
         const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`;
         html += `<th class="${isToday ? 'today-col' : ''}">
             <div class="th-content">
-                <span class="th-date">${dateStr}</span>
+                <span class="th-date" style="line-height:1.2;">${dateStr}${lunarLabel}</span>
                 <span class="th-day">${days[i]}</span>
             </div>
         </th>`;
