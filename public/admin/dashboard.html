@@ -455,11 +455,12 @@
                             </div>
                             <!-- 新增: 用户ID字段 -->
                             <div class="form-group">
-                                <label for="userId">用户ID</label>
-                                <input type="number" id="userId" min="1" placeholder="自动生成,可修改">
-                                <small style="color:#666; display:block; margin-top:4px;">
-                                    留空则自动生成,可手动指定
-                                </small>
+                                <label for="userId">用户ID
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('留空则自动生成，可手动指定', 'info')">help_outline</span>
+                                </label>
+                                <input type="number" id="userId" min="1">
                             </div>
                             <!-- 2. 用户名 -->
                             <div class="form-group">
@@ -477,9 +478,12 @@
                                 <input type="text" id="userName" required>
                             </div>
                             <div class="form-group" id="userPermissionLevelGroup" style="display:block;">
-                                <label for="userPermissionLevel">权限级别</label>
-                                <input type="number" id="userPermissionLevel" min="1" max="3"
-                                    placeholder="请输入权限级别(1-3)">
+                                <label for="userPermissionLevel">权限级别
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('请输入权限级别(1-3)', 'info')">help_outline</span>
+                                </label>
+                                <input type="number" id="userPermissionLevel" min="1" max="3">
                             </div>
                             <div class="form-group" id="userEmailGroup" style="display:block;">
                                 <label for="userEmail">邮箱</label>
@@ -490,20 +494,32 @@
                                 <input type="text" id="userContact">
                             </div>
                             <div class="form-group" id="userProfessionGroup" style="display:none;">
-                                <label for="userProfession">职业</label>
-                                <input type="text" id="userProfession" placeholder="教师/学生职业">
+                                <label for="userProfession">职业
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('教师/学生职业信息', 'info')">help_outline</span>
+                                </label>
+                                <input type="text" id="userProfession">
                             </div>
                             <div class="form-group" id="userWorkLocationGroup" style="display:none;">
-                                <label for="userWorkLocation">工作地点</label>
-                                <input type="text" id="userWorkLocation" placeholder="仅教师填写">
+                                <label for="userWorkLocation">工作地点
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('仅教师填写', 'info')">help_outline</span>
+                                </label>
+                                <input type="text" id="userWorkLocation">
                             </div>
                             <div class="form-group" id="userHomeAddressGroup" style="display:none;">
                                 <label for="userHomeAddress">家庭地址</label>
                                 <input type="text" id="userHomeAddress">
                             </div>
                             <div class="form-group" id="userVisitLocationGroup" style="display:none;">
-                                <label for="userVisitLocation">探访地点</label>
-                                <input type="text" id="userVisitLocation" placeholder="仅学生填写">
+                                <label for="userVisitLocation">探访地点
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('仅学生填写', 'info')">help_outline</span>
+                                </label>
+                                <input type="text" id="userVisitLocation">
                             </div>
                             <!-- 新增：账号状态（教师/学生可见） -->
                             <div class="form-group" id="userStatusGroup" style="display:none;">
@@ -516,7 +532,11 @@
                             </div>
                             <!-- 新增：教师排课限制（仅教师可见） -->
                             <div class="form-group" id="userRestrictionGroup" style="display:none;">
-                                <label for="userRestriction">排课限制</label>
+                                <label for="userRestriction">排课限制
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('0=不限，1=需匹配空闲时段', 'info')">help_outline</span>
+                                </label>
                                 <select id="userRestriction">
                                     <option value="0">无限制 (0)</option>
                                     <option value="1" selected>检测可用时间 (1)</option>
@@ -525,7 +545,6 @@
                                     <option value="4">限制级别 4</option>
                                     <option value="5">限制级别 5</option>
                                 </select>
-                                <small style="color:#666; display:block; margin-top:4px;">0=不限，1=需匹配空闲时段</small>
                             </div>
                             <div class="form-actions">
                                 <button type="button" onclick="closeUserFormModal()">取消</button>

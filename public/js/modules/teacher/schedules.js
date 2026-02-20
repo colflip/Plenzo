@@ -472,23 +472,25 @@ function buildScheduleCard(group) {
             showStatusActionSheet(rec, card);
         });
 
-        // 左侧：学生姓名 + 课程类型 (跑马灯结构)
-        const left = createElement('div', 'row-left marquee-wrapper');
+        // 左侧：学生姓名 + 课程类型
+        const left = createElement('div', 'row-left');
         const typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';
 
-        /* 
-           Admin Structure:
-           <div class="marquee-content">
-               <span class="teacher-name">...</span>
-               <span class="course-type-text">...</span>
-           </div>
-        */
+        const nameSpan = createElement('span', 'teacher-name', {
+            textContent: rec.student_name || '未指定'
+        });
+        nameSpan.style.cssText = 'flex-shrink: 0; white-space: nowrap;';
+
+        const marqueeWrapper = createElement('div', 'marquee-wrapper');
+        marqueeWrapper.style.cssText = 'flex: 1; min-width: 0; max-width: none;';
+
         const marqueeContent = createElement('div', 'marquee-content');
-        marqueeContent.innerHTML = `
-            <span class="teacher-name">${rec.student_name || '未指定'}</span>
-            <span class="course-type-text">(${typeStr})</span>
-        `;
-        left.appendChild(marqueeContent);
+        marqueeContent.style.paddingRight = '0';
+        marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`;
+
+        marqueeWrapper.appendChild(marqueeContent);
+        left.appendChild(nameSpan);
+        left.appendChild(marqueeWrapper);
         row.appendChild(left);
 
         // 右侧：状态快速切换 (教师端可见)

@@ -264,7 +264,7 @@ const adminController = {
     async updateUser(req, res) {
         try {
             const { userType, id } = req.params;
-            const { username, name, email, ...additionalInfo } = req.body;
+            const { username, name, email, new_id, ...additionalInfo } = req.body;
             let table;
 
             switch (userType) {
@@ -341,6 +341,11 @@ const adminController = {
                 values.push(name);
                 currentPlaceholder++;
             }
+            if (typeof new_id !== 'undefined') {
+                updates.push(`id = $${currentPlaceholder}`);
+                values.push(parseInt(new_id, 10));
+                currentPlaceholder++;
+            }
             if (userType === 'admin' && typeof email !== 'undefined') {
                 const emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
                 if (!emailRe.test(email)) {
@@ -382,6 +387,12 @@ const adminController = {
                 res.json(standardResponse(true, rows[0], '更新用户成功'));
             });
         } catch (error) {
+            if (error && error.code === '23503') {
+                return res.status(409).json(standardResponse(false, null, '修改失败：该用户存在关联的排课记录，若要修改ID等必须先清理关联数据'));
+            }
+            if (error && error.code === '23505') {
+                return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被其他记录占用'));
+            }
             console.error('更新用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }

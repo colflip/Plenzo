@@ -59,10 +59,15 @@ async function handleUserFormSubmit(e) {
         // Construct body
         const body = { userType: type, username, name };
 
-        // 添加ID字段(如果有指定)
+        // 添加ID字段(如果有指定或修改)
         const userIdInput = document.getElementById('userId');
-        if (mode === 'add' && userIdInput && userIdInput.value) {
-            body.id = parseInt(userIdInput.value, 10);
+        if (userIdInput && userIdInput.value) {
+            const parsedId = parseInt(userIdInput.value, 10);
+            if (mode === 'add') {
+                body.id = parsedId;
+            } else if (mode === 'edit' && String(parsedId) !== String(id)) {
+                body.new_id = parsedId;
+            }
         }
 
         if (mode === 'add') body.password = password;
@@ -522,10 +527,10 @@ export function showEditUserModal(id, userType) {
     setVal('userUsername', user.username);
     setVal('userName', user.name);
 
-    // 设置ID(只读)
+    // 设置ID (允许修改)
     setVal('userId', user.id);
     const userIdInput = document.getElementById('userId');
-    if (userIdInput) userIdInput.readOnly = true;
+    if (userIdInput) userIdInput.readOnly = false;
 
     if (userType === 'admin') {
         setVal('userPermissionLevel', user.permission_level);

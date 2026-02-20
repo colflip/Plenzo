@@ -664,12 +664,22 @@ function renderWeeklyHeader(weekDates) {
         const dayName = days[d.getDay()];
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const date = String(d.getDate()).padStart(2, '0');
+
+        let lunarLabel = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(d);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+            }
+        } catch (e) { }
+
         const dateStr = `${month}月${date}日`;
 
         // Match Teacher Availability Table Header Style
         th.innerHTML = `
             <div class="th-content">
-                <span class="th-date">${dateStr}</span>
+                <span class="th-date" style="line-height:1.2;">${dateStr}${lunarLabel}</span>
                 <span class="th-day">${dayName}</span>
             </div>`;
         th.dataset.date = iso;
@@ -959,18 +969,20 @@ function buildAdminScheduleCard(group, student, dateKey) {
             editSchedule(rec.id);
         });
 
-        // Left: Name + Type (Marquee Scroll)
+        // Left: Name + Type
         const left = document.createElement('div');
-        left.className = 'row-left marquee-wrapper';
+        left.className = 'row-left';
 
         // Type Text (e.g. "(入户)") - Gray, Small
         const typeStr = (rec.schedule_type_cn || rec.schedule_types || '').toString();
         let typeLabel = `(${typeStr})`;
 
         left.innerHTML = `
-            <div class="marquee-content">
-                <span class="teacher-name">${rec.teacher_name || '未分配'}</span>
-                <span class="course-type-text">${typeLabel}</span>
+            <span class="teacher-name" style="flex-shrink: 0; white-space: nowrap;">${rec.teacher_name || '未分配'}</span>
+            <div class="marquee-wrapper" style="flex: 1; min-width: 0; max-width: none;">
+                <div class="marquee-content" style="padding-right: 0;">
+                    <span class="course-type-text">${typeLabel}</span>
+                </div>
             </div>
         `;
         row.appendChild(left);
