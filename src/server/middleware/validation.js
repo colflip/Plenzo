@@ -94,13 +94,13 @@ const scheduleValidation = {
         // 允许前端传递冲突解决策略（merge/override），以免被stripUnknown过滤掉
         resolve_strategy: Joi.string().valid('merge', 'override').optional()
     })
-    // 支持 snake_case 输入并重命名为 camelCase
-    .rename('teacher_id', 'teacherId', { override: true, ignoreUndefined: true })
-    .rename('student_ids', 'studentIds', { override: true, ignoreUndefined: true })
-    .rename('start_time', 'startTime', { override: true, ignoreUndefined: true })
-    .rename('end_time', 'endTime', { override: true, ignoreUndefined: true })
-    .rename('type_ids', 'scheduleTypes', { override: true, ignoreUndefined: true })
-    .rename('time_slot', 'timeSlot', { override: true, ignoreUndefined: true }),
+        // 支持 snake_case 输入并重命名为 camelCase
+        .rename('teacher_id', 'teacherId', { override: true, ignoreUndefined: true })
+        .rename('student_ids', 'studentIds', { override: true, ignoreUndefined: true })
+        .rename('start_time', 'startTime', { override: true, ignoreUndefined: true })
+        .rename('end_time', 'endTime', { override: true, ignoreUndefined: true })
+        .rename('type_ids', 'scheduleTypes', { override: true, ignoreUndefined: true })
+        .rename('time_slot', 'timeSlot', { override: true, ignoreUndefined: true }),
 
     update: Joi.object({
         teacher_id: Joi.number().integer().positive()
@@ -253,8 +253,8 @@ const userValidation = {
         visit_location: Joi.string().max(100)
             .messages({ 'string.max': '入户地点长度不能超过100个字符' })
     })
-    // 兼容旧客户端：如果传入 role 则重命名为 userType
-    .rename('role', 'userType', { override: true, ignoreUndefined: true }),
+        // 兼容旧客户端：如果传入 role 则重命名为 userType
+        .rename('role', 'userType', { override: true, ignoreUndefined: true }),
 
     update: Joi.object({
         username: Joi.string().alphanum().min(3).max(30)
@@ -286,23 +286,44 @@ const userValidation = {
                 'number.min': '权限级别不能小于1',
                 'number.max': '权限级别不能大于3'
             }),
-        profession: Joi.string().max(100)
+        profession: Joi.string().max(100).allow('', null)
             .messages({ 'string.max': '职业类型长度不能超过100个字符' }),
-        contact: Joi.string().max(100)
+        contact: Joi.string().max(100).allow('', null)
             .messages({ 'string.max': '联系方式长度不能超过100个字符' }),
-        work_location: Joi.string().max(100)
+        work_location: Joi.string().max(100).allow('', null)
             .messages({ 'string.max': '工作地点长度不能超过100个字符' }),
-        home_address: Joi.string().max(200)
+        home_address: Joi.string().max(200).allow('', null)
             .messages({ 'string.max': '家庭地址长度不能超过200个字符' }),
-        visit_location: Joi.string().max(100)
-            .messages({ 'string.max': '入户地点长度不能超过100个字符' })
-        ,
-        // 新增：教师/学生的状态字段（-1 删除，0 暂停，1 正常）
+        visit_location: Joi.string().max(100).allow('', null)
+            .messages({ 'string.max': '入户地点长度不能超过100个字符' }),
+        // 教师/学生的状态字段（-1 删除，0 暂停，1 正常）
         status: Joi.number().integer().valid(-1, 0, 1)
             .messages({
                 'number.base': '状态必须是整数',
                 'any.only': '状态只能是-1(删除)、0(暂停)、1(正常)'
-            })
+            }),
+        // 教师专用：关联学生ID列表（逗号分隔字符串）
+        student_ids: Joi.string().max(500).allow('', null)
+            .messages({ 'string.max': '关联学生ID列表过长' }),
+        // 教师专用：排课限制级别
+        restriction: Joi.number().integer().min(0).max(5)
+            .messages({
+                'number.base': '排课限制必须是数字',
+                'number.integer': '排课限制必须为整数',
+                'number.min': '排课限制不能小于0',
+                'number.max': '排课限制不能大于5'
+            }),
+        // 修改用户ID时使用
+        new_id: Joi.number().integer().positive()
+            .messages({
+                'number.base': '新ID必须是数字',
+                'number.integer': '新ID必须为整数',
+                'number.positive': '新ID必须为正数'
+            }),
+        // 前端传入的用户类型标识（仅用于内部逻辑，不做强制校验）
+        userType: Joi.string().valid('admin', 'teacher', 'student').optional(),
+        // 创建用户时指定ID
+        id: Joi.number().integer().positive().optional()
     }),
 
     login: Joi.object({

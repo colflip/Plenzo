@@ -16,6 +16,7 @@ import {
 
 let currentWeekStart = null;
 let cachedSchedules = [];
+let cachedStudents = [];
 
 // 全局：班主任学生排课的显示费用开关，默认进入页面即由于要求显示费用
 window.teacherStudentFeeShow = true;
@@ -322,9 +323,16 @@ async function loadSchedules(baseDate) {
             throw new Error('获取学生课程安排失败');
         }
 
-        const schedules = await response.json();
-        cachedSchedules = Array.isArray(schedules) ? schedules : [];
-        renderSchedulesGrid(weekDates, cachedSchedules);
+        const data = await response.json();
+        // 兼容新格式 { students, schedules } 和旧格式（纯数组）
+        if (data && data.schedules) {
+            cachedStudents = data.students || [];
+            cachedSchedules = Array.isArray(data.schedules) ? data.schedules : [];
+        } else {
+            cachedStudents = [];
+            cachedSchedules = Array.isArray(data) ? data : [];
+        }
+        renderSchedulesGrid(weekDates, cachedSchedules, cachedStudents);
         showInlineFeedback(feedback, '', '');
     } catch (error) {
         console.error('加载班主任关联学生课程安排失败', error);
@@ -333,7 +341,7 @@ async function loadSchedules(baseDate) {
     }
 }
 
-function renderSchedulesGrid(weekDates, schedules) {
+function renderSchedulesGrid(weekDates, schedules, students = []) {
     if (!document.getElementById('teacher-ss-fixing-style')) {
         const style = document.createElement('style');
         style.id = 'teacher-ss-fixing-style';
@@ -377,7 +385,7 @@ function renderSchedulesGrid(weekDates, schedules) {
     if (isMobileView()) {
         renderMobileScheduleTable(weekDates, schedules);
     } else {
-        renderDesktopScheduleTable(weekDates, schedules);
+        renderDesktopScheduleTable(weekDates, schedules, students);
     }
 }
 
@@ -385,7 +393,7 @@ function isMobileView() {
     return window.innerWidth <= 768;
 }
 
-function renderDesktopScheduleTable(weekDates, schedules) {
+function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     const thead = document.getElementById('ssWeeklyHeader');
     const tbody = document.getElementById('ssWeeklyBody');
     if (!thead || !tbody) return;
@@ -427,7 +435,47 @@ function renderDesktopScheduleTable(weekDates, schedules) {
     thead.appendChild(headerRow);
 
     // 2. 渲染表体
-    if (schedules.length === 0) {
+    // 用后端返回的学生列表构建完整行（即使该学生本周无排课也显示空行）
+    // 先将排课数据按学生ID分组
+    const schedulesByStudent = {};
+    schedules.forEach(s => {
+        const studentId = s.student_id;
+        if (!schedulesByStudent[studentId]) {
+            schedulesByStudent[studentId] = { schedulesByDate: {} };
+            weekDates.forEach(d => schedulesByStudent[studentId].schedulesByDate[toISODate(d)] = []);
+        }
+        const dateKey = normalizeDateKey(s.date);
+        if (schedulesByStudent[studentId].schedulesByDate[dateKey]) {
+            schedulesByStudent[studentId].schedulesByDate[dateKey].push(s);
+        }
+    });
+
+    // 构建学生列表：优先使用后端返回的完整学生列表，兼容旧格式
+    let uniqueStudents;
+    if (students.length > 0) {
+        // 使用后端返回的完整学生列表（包含无排课的学生）
+        uniqueStudents = students.map(st => ({
+            student_id: st.id,
+            student_name: st.name || '未知学生',
+            schedulesByDate: schedulesByStudent[st.id]
+                ? schedulesByStudent[st.id].schedulesByDate
+                : weekDates.reduce((acc, d) => { acc[toISODate(d)] = []; return acc; }, {})
+        }));
+    } else {
+        // 兼容旧格式：从排课数据中提取学生
+        uniqueStudents = Object.entries(schedulesByStudent).map(([id, data]) => {
+            // 从排课记录中找到学生姓名
+            const firstSchedule = schedules.find(s => String(s.student_id) === String(id));
+            return {
+                student_id: Number(id),
+                student_name: firstSchedule ? (firstSchedule.student_name || '未知学生') : '未知学生',
+                schedulesByDate: data.schedulesByDate
+            };
+        });
+        uniqueStudents.sort((a, b) => a.student_name.localeCompare(b.student_name, 'zh-Hans-CN'));
+    }
+
+    if (uniqueStudents.length === 0) {
         const emptyRow = document.createElement('tr');
         emptyRow.appendChild(createElement('td', 'schedule-cell', { textContent: '-' }));
         weekDates.forEach(() => {
@@ -438,27 +486,6 @@ function renderDesktopScheduleTable(weekDates, schedules) {
         tbody.appendChild(emptyRow);
         return;
     }
-
-    // 把 schedule 按学生分组，然后再按日期分组
-    const schedulesByStudent = {};
-    schedules.forEach(s => {
-        const studentId = s.student_id;
-        if (!schedulesByStudent[studentId]) {
-            schedulesByStudent[studentId] = {
-                student_id: studentId,
-                student_name: s.student_name || '未知学生',
-                schedulesByDate: {}
-            };
-            weekDates.forEach(d => schedulesByStudent[studentId].schedulesByDate[toISODate(d)] = []);
-        }
-        const dateKey = normalizeDateKey(s.date);
-        if (schedulesByStudent[studentId].schedulesByDate[dateKey]) {
-            schedulesByStudent[studentId].schedulesByDate[dateKey].push(s);
-        }
-    });
-
-    const uniqueStudents = Object.values(schedulesByStudent);
-    uniqueStudents.sort((a, b) => a.student_name.localeCompare(b.student_name, 'zh-Hans-CN'));
 
     // 遍历每一个学生
     uniqueStudents.forEach(studentData => {
