@@ -9,20 +9,23 @@ import { initProfileSection } from './profile.js';
 import { initAvailabilitySection, refreshAvailability } from './availability.js';
 import { initSchedulesSection, refreshSchedules } from './schedules.js';
 import { initStatisticsSection, loadTeachingCount } from './statistics.js';
+import { initStudentSchedulesSection, refreshStudentSchedules } from './student-schedules.js';
 
 const sectionInitializers = {
     overview: initOverviewSection,
     profile: initProfileSection,
     availability: initAvailabilitySection,
     schedules: initSchedulesSection,
-    'teaching-display': initStatisticsSection
+    'teaching-display': initStatisticsSection,
+    'student-schedules': initStudentSchedulesSection
 };
 
 const sectionRefreshers = {
     overview: loadOverview,
     availability: refreshAvailability,
     schedules: refreshSchedules,
-    'teaching-display': loadTeachingCount
+    'teaching-display': loadTeachingCount,
+    'student-schedules': refreshStudentSchedules
 };
 
 const initializedSections = new Set();
@@ -71,6 +74,15 @@ function updateTeacherName() {
             if (teacherNameElement) {
                 const name = userData.name || userData.username || '教师';
                 teacherNameElement.textContent = name;
+            }
+            // 判断是否为班主任（具有关联学生），如果是则显示“学生课程安排”
+            const navStudentSchedules = document.getElementById('navStudentSchedules');
+            if (navStudentSchedules) {
+                if (userData.student_ids && userData.student_ids.length > 0) {
+                    navStudentSchedules.style.display = 'flex';
+                } else {
+                    navStudentSchedules.style.display = 'none';
+                }
             }
         } catch (error) {
             console.error('解析用户数据失败:', error);

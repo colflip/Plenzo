@@ -2994,6 +2994,17 @@ tr:last-child td {
     color: #2C3E50;
     background: #EFEFEF;
     /* 第一列表头使用更浅灰 */
+    /* == User Requested Adjustments == */
+    font-size: 14px;
+    /* Align font size with the adjacent date columns */
+    min-width: 140px !important;
+    /* Increase width by 40% from previous 100px default */
+    max-width: 140px !important;
+}
+
+.weekly-schedule-table td.sticky-col {
+    min-width: 140px !important;
+    max-width: 140px !important;
 }
 
 /* 暂停学生姓名样式：灰色斜体 */
@@ -6793,7 +6804,7 @@ svg {
 .marquee-wrapper {
     overflow: hidden;
     white-space: nowrap;
-    max-width: 90px;
+    max-width: 140px;
     /* Constrain width */
     position: relative;
     /* Fade mask on right if overflow? Optional */
@@ -6806,19 +6817,17 @@ svg {
 }
 
 .marquee-wrapper:hover .marquee-content {
-    animation: marquee-scroll 4s linear infinite alternate;
+    animation: marquee-scroll 4s linear infinite;
 }
 
 @keyframes marquee-scroll {
     0% {
-        transform: translateX(0);
+        transform: translateX(100%);
     }
 
     100% {
-        transform: translateX(calc(-100% + 90px));
+        transform: translateX(-100%);
     }
-
-    /* Scroll until end is visible */
 }
 
 /* Footer: Time & Location */
@@ -7058,6 +7067,12 @@ svg {
 .weekly-schedule-table th.name-col-header {
     border-bottom: 2px solid #E5E7EB !important;
     z-index: 11 !important;
+}
+
+.weekly-schedule-table th:first-child,
+.weekly-schedule-table td:first-child {
+    width: 75px !important;
+    min-width: 75px !important;
 }
 
 .weekly-schedule-table th .date-label {
@@ -8203,4 +8218,286 @@ svg {
         padding-top: 6px !important;
         padding-bottom: 6px !important;
     }
+}
+
+/* ============================================
+   学生排课费用功能区 (SSF)
+   ============================================ */
+.ssf-section {
+    margin-top: 32px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.ssf-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #f8faff, #f1f5f9);
+    border-bottom: 1px solid #e2e8f0;
+    flex-wrap: wrap;
+}
+
+.ssf-icon {
+    font-size: 20px;
+    color: #6366f1;
+}
+
+.ssf-title {
+    margin: 0;
+    flex: 1;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.ssf-date-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.ssf-date-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ssf-date-input {
+    border: none;
+    outline: none;
+    font-size: 13px;
+    color: #1e293b;
+    padding: 0 4px;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* 表格容器 */
+.ssf-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ssf-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px;
+}
+
+.ssf-th {
+    padding: 10px 14px;
+    background: #f8fafc;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ssf-th-name {
+    min-width: 90px;
+    position: sticky;
+    left: 0;
+    background: #f8fafc;
+    z-index: 1;
+}
+
+.ssf-th-action {
+    min-width: 160px;
+    text-align: right;
+}
+
+.ssf-cell {
+    padding: 11px 14px;
+    font-size: 13.5px;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.ssf-row:last-child .ssf-cell {
+    border-bottom: none;
+}
+
+.ssf-row:hover {
+    background: #f8faff;
+}
+
+.ssf-name {
+    font-weight: 600;
+    color: #1e293b;
+    position: sticky;
+    left: 0;
+    background: inherit;
+}
+
+/* 状态标签 */
+.ssf-status {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.sstatus-pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.sstatus-confirmed {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.sstatus-completed {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.sstatus-cancelled {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* 操作列 */
+.ssf-action-cell {
+    text-align: right;
+}
+
+.ssf-fee-info {
+    font-size: 11.5px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+    min-height: 0;
+}
+
+.ssf-fee-info.has-fee {
+    color: #6366f1;
+    font-weight: 500;
+}
+
+.ssf-fee-badge {
+    background: #eef2ff;
+    border-radius: 6px;
+    padding: 2px 7px;
+}
+
+.ssf-add-fee-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 7px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+}
+
+.ssf-add-fee-btn:hover {
+    background: #6366f1;
+    color: #fff;
+    border-color: #6366f1;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+    transform: translateY(-1px);
+}
+
+.ssf-add-fee-btn.has-fee {
+    border-color: #6366f1;
+    color: #6366f1;
+    background: #eef2ff;
+}
+
+.ssf-add-fee-btn.has-fee:hover {
+    background: #6366f1;
+    color: #fff;
+}
+
+@media (max-width: 640px) {
+    .ssf-header {
+        padding: 12px 14px;
+    }
+
+    .ssf-th,
+    .ssf-cell {
+        padding: 9px 10px;
+        font-size: 12px;
+    }
+}
+
+/* =========================================================
+   User Requested Overrides: Resize Student/Teacher Col Width Wait
+   ========================================================= */
+#schedule .weekly-schedule-table th:first-child,
+#schedule .weekly-schedule-table td:first-child,
+#studentAvailabilityTable th:first-child,
+#studentAvailabilityTable td:first-child,
+#availabilityTable th:first-child,
+#availabilityTable td:first-child,
+.weekly-schedule-table th.sticky-col,
+.weekly-schedule-table td.sticky-col,
+.schedule-cell.student-cell,
+.schedule-cell.teacher-cell {
+    width: 140px !important;
+    min-width: 140px !important;
+    max-width: 140px !important;
+}
+
+#schedule .weekly-schedule-table th:first-child,
+#studentAvailabilityTable th:first-child,
+#availabilityTable th:first-child,
+.weekly-schedule-table th.sticky-col {
+    font-size: 14px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    padding-left: 0 !important;
+}
+
+/* 课程类型管理表格列宽优化分配 */
+#scheduleTypesTable {
+    table-layout: auto !important;
+    /* 允许根据内容自适应伸缩 */
+    width: 100% !important;
+}
+
+#scheduleTypesTable th:nth-child(1),
+#scheduleTypesTable td:nth-child(1) {
+    width: 30% !important;
+    /* 类型名称 */
+}
+
+#scheduleTypesTable th:nth-child(2),
+#scheduleTypesTable td:nth-child(2) {
+    width: 50% !important;
+    /* 描述部分适当拉宽 */
+}
+
+#scheduleTypesTable th:nth-child(3),
+#scheduleTypesTable td:nth-child(3) {
+    width: 20% !important;
+    /* 操作按钮固定剩余比例 */
+    min-width: 120px !important;
 }

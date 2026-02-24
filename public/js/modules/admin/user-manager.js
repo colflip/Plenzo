@@ -106,8 +106,10 @@ async function handleUserFormSubmit(e) {
             if (type === 'teacher') {
                 const workLocationInput = document.getElementById('userWorkLocation');
                 const restrictionSelect = document.getElementById('userRestriction');
+                const studentIdsInput = document.getElementById('userStudentIds');
                 if (workLocationInput && workLocationInput.value) body.work_location = workLocationInput.value.trim();
                 if (restrictionSelect) body.restriction = parseInt(restrictionSelect.value, 10);
+                if (studentIdsInput) body.student_ids = studentIdsInput.value.trim(); // Always submit regardless of empty to allow unchecking all
             } else if (type === 'student') {
                 const visitLocationInput = document.getElementById('userVisitLocation');
                 if (visitLocationInput && visitLocationInput.value) body.visit_location = visitLocationInput.value.trim();
@@ -541,6 +543,10 @@ export function showEditUserModal(id, userType) {
     setVal('userWorkLocation', user.work_location);
     setVal('userHomeAddress', user.home_address);
     setVal('userVisitLocation', user.visit_location);
+    if (userType === 'teacher') {
+        setVal('userStudentIds', user.student_ids);
+        populateStudentCheckboxes(user.student_ids);
+    }
 
     document.getElementById('userType').value = userType;
     document.getElementById('userPassword').required = false;
@@ -611,11 +617,72 @@ export function setupUserEventListeners() {
                 const userIdInput = document.getElementById('userId');
                 if (userIdInput) userIdInput.readOnly = false;
                 generateNextUserId();
+
+                if (e.target.value === 'teacher') {
+                    populateStudentCheckboxes('');
+                }
+            } else if (form && form.dataset.mode === 'edit') {
+                if (e.target.value === 'teacher') {
+                    const hiddenInput = document.getElementById('userStudentIds');
+                    populateStudentCheckboxes(hiddenInput ? hiddenInput.value : '');
+                }
             }
         });
     }
 }
 
+async function populateStudentCheckboxes(selectedIdsStr = '') {
+    const container = document.getElementById('userStudentIdsContainer');
+    if (!container) return;
+
+    container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>';
+
+    let students = window.__usersCache?.student || [];
+    if (students.length === 0) {
+        try {
+            const res = await window.apiUtils.get(`/admin/users/student?limit=1000`);
+            students = res?.data || res || [];
+            if (!window.__usersCache) window.__usersCache = {};
+            window.__usersCache.student = students;
+        } catch (err) {
+            console.error('Failed to load students for checkboxes', err);
+            container.innerHTML = '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>';
+            return;
+        }
+    }
+
+    if (students.length === 0) {
+        container.innerHTML = '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>';
+        return;
+    }
+
+    const selectedIds = (selectedIdsStr || '').split(',').map(s => String(s).trim()).filter(Boolean);
+
+    let html = '';
+    [...students].sort((a, b) => a.id - b.id).forEach(s => {
+        const isChecked = selectedIds.includes(String(s.id)) ? 'checked' : '';
+        html += `
+            <label style="display: flex; align-items: flex-start; padding: 6px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 14px; width: 100%; box-sizing: border-box; mso-line-break: no-wrap; word-break: break-all;">
+                <input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked} style="flex-shrink: 0; margin: 2px 8px 0 0; width: 16px; height: 16px; min-width: 16px;">
+                <span style="flex: 1; min-width: 0;">${s.name || s.username} <span style="color: #94a3b8; font-size: 13px;">(ID: ${s.id})</span></span>
+            </label>
+        `;
+    });
+
+    container.innerHTML = html;
+
+    const checkboxes = container.querySelectorAll('.student-checkbox');
+    const updateHiddenInput = () => {
+        const checked = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+        const hiddenInput = document.getElementById('userStudentIds');
+        if (hiddenInput) {
+            hiddenInput.value = checked.join(',');
+        }
+    };
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateHiddenInput));
+    updateHiddenInput();
+}
 
 
 function toggleContactFields(userType) {
@@ -628,7 +695,8 @@ function toggleContactFields(userType) {
         home: document.getElementById('userHomeAddressGroup'),
         visit: document.getElementById('userVisitLocationGroup'),
         status: document.getElementById('userStatusGroup'),
-        restriction: document.getElementById('userRestrictionGroup')
+        restriction: document.getElementById('userRestrictionGroup'),
+        studentIds: document.getElementById('userStudentIdsGroup')
     };
 
     // Hide all first
@@ -646,6 +714,7 @@ function toggleContactFields(userType) {
         if (userType === 'teacher') {
             if (groups.work) groups.work.style.display = 'block';
             if (groups.restriction) groups.restriction.style.display = 'block';
+            if (groups.studentIds) groups.studentIds.style.display = 'block';
         }
         if (userType === 'student' && groups.visit) {
             groups.visit.style.display = 'block';

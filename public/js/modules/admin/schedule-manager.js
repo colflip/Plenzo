@@ -8,6 +8,69 @@ import { TIME_ZONE } from './constants.js';
 console.log('[Schedule-Manager] 🚀 模块开始加载...');
 console.log('[Schedule-Manager] TIME_ZONE导入成功:', TIME_ZONE);
 
+// --- Global State ---
+window.adminFeeShow = true;
+
+window.toggleAdminFeeVisibility = function () {
+    window.adminFeeShow = !window.adminFeeShow;
+    const btnText = document.getElementById('adminFeeBtnText');
+    const toggleBtn = document.getElementById('toggleAdminFeeBtn');
+
+    if (btnText) {
+        btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
+    }
+    if (toggleBtn) {
+        if (window.adminFeeShow) {
+            toggleBtn.classList.add('fee-active');
+            toggleBtn.style.backgroundColor = '#10b981';
+            toggleBtn.style.color = 'white';
+        } else {
+            toggleBtn.classList.remove('fee-active');
+            toggleBtn.style.backgroundColor = 'white';
+            toggleBtn.style.color = '#10b981';
+        }
+    }
+
+    // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
+    if (!window.adminFeeShow) {
+        document.body.classList.add('global-hide-admin-fee');
+    } else {
+        document.body.classList.remove('global-hide-admin-fee');
+    }
+};
+
+// 挂载顶层全局显隐费用按钮的初始绘制UI
+// This part needs to be called when the page initializes or data is loaded.
+// For now, placing it here as a global setup.
+document.addEventListener('DOMContentLoaded', () => {
+    const btnText = document.getElementById('adminFeeBtnText');
+    const toggleBtn = document.getElementById('toggleAdminFeeBtn');
+    if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
+    if (toggleBtn && window.adminFeeShow) {
+        toggleBtn.classList.add('fee-active');
+        toggleBtn.style.backgroundColor = '#10b981';
+        toggleBtn.style.color = 'white';
+    }
+
+    // 初始化全局样式以便接管
+    if (!document.getElementById('admin-fee-visibility-style')) {
+        const style = document.createElement('style');
+        style.id = 'admin-fee-visibility-style';
+        style.innerHTML = `
+            body.global-hide-admin-fee .fee-bottom-wrap {
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 初始化一次状态
+    if (!window.adminFeeShow) {
+        document.body.classList.add('global-hide-admin-fee');
+    }
+});
+
+
 // --- Helpers & Utils ---
 
 function toISODate(date) {
@@ -70,6 +133,10 @@ function normalizeScheduleRows(rows) {
             end_time: end,
             location: (r.location || '').trim(),
             status: r.status,
+            transport_fee: r.transport_fee,
+            transportFee: r.transportFee,
+            other_fee: r.other_fee,
+            otherFee: r.otherFee,
             startMin: start ? (Number(start.split(':')[0]) * 60 + Number(start.split(':')[1])) : NaN,
             endMin: end ? (Number(end.split(':')[0]) * 60 + Number(end.split(':')[1])) : NaN
         };
@@ -798,6 +865,12 @@ async function handleStudentRowCapture(student, originalTr) {
     // Force background to white
     tableClone.style.backgroundColor = '#ffffff';
     tableClone.style.width = '100%';
+    // 恢复外扩边框线及大圆角
+    tableClone.style.borderTop = '1px solid #E2E8F0';
+    tableClone.style.borderLeft = '1px solid #E2E8F0';
+    tableClone.style.borderRight = '1px solid #E2E8F0';
+    tableClone.style.borderRadius = '8px';
+    tableClone.style.overflow = 'hidden';
 
     // 3. Clone Header with Widths Preserved
     const thead = document.createElement('thead');
@@ -816,6 +889,9 @@ async function handleStudentRowCapture(student, originalTr) {
             // Important: Handle sticky positioning for screenshot
             cloneThs[index].style.position = 'static';
             cloneThs[index].style.transform = 'none';
+            // 修复表头边框线丢失
+            cloneThs[index].style.borderRight = '1px solid #E2E8F0';
+            cloneThs[index].style.borderBottom = '1px solid #E2E8F0';
         }
     });
 
@@ -846,6 +922,57 @@ async function handleStudentRowCapture(student, originalTr) {
             } else {
                 cloneTds[index].style.backgroundColor = '#FFFFFF';
             }
+
+            // 修复表格内网格线丢失
+            cloneTds[index].style.borderRight = '1px solid #E2E8F0';
+            cloneTds[index].style.borderBottom = '1px solid #E2E8F0';
+        }
+    });
+
+    // --- 重点：修复 cloneNode 导致的排版塌陷和状态错位 ---
+    // 1. 修复课程卡片及底部附着层(费用区)的圆角与边界重叠
+    const cloneCards = rowClone.querySelectorAll('.schedule-card, .unified-schedule-card, .schedule-card-group');
+    cloneCards.forEach(card => {
+        // 重筑大圆角、白底、大阴影以及彩色顶框，彻底克隆真实 dashboard.css 高优桌面样式以抗衡画布吞盖
+        card.style.borderRadius = '12px';
+        card.style.overflow = 'hidden';
+        card.style.backgroundColor = '#FFFFFF';
+        card.style.border = '1px solid #E2E8F0';
+        card.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+
+        if (card.classList.contains('slot-morning')) {
+            card.style.borderTop = '4px solid #3B82F6';
+        } else if (card.classList.contains('slot-afternoon')) {
+            card.style.borderTop = '4px solid #F59E0B';
+        } else if (card.classList.contains('slot-evening')) {
+            card.style.borderTop = '4px solid #8B5CF6';
+        }
+
+        // 如果卡片底层存在附加的费用包裹块，原卡片的 overflow 可能被覆盖失效，需强制指定子元素底角
+        const feeWrap = card.querySelector('.fee-bottom-wrap');
+        if (feeWrap) {
+            feeWrap.style.borderBottomLeftRadius = '11px';
+            feeWrap.style.borderBottomRightRadius = '11px';
+        }
+    });
+    const origSelects = originalTr.querySelectorAll('select.status-select');
+    const cloneSelects = rowClone.querySelectorAll('select.status-select');
+
+    origSelects.forEach((origSel, idx) => {
+        if (cloneSelects[idx]) {
+            // 同步真实选管状态
+            cloneSelects[idx].value = origSel.value;
+            cloneSelects[idx].selectedIndex = origSel.selectedIndex;
+            // 剥除控件自带箭头并维持高度
+            cloneSelects[idx].style.appearance = 'none';
+            cloneSelects[idx].style.background = 'none';
+            cloneSelects[idx].style.border = 'none';
+            // 手动锁定居中防止塌陷
+            cloneSelects[idx].style.height = 'auto';
+            cloneSelects[idx].style.lineHeight = '1';
+            cloneSelects[idx].style.textAlign = 'center';
+            cloneSelects[idx].style.padding = '2px 6px';
+            cloneSelects[idx].style.margin = '0';
         }
     });
 
@@ -857,39 +984,42 @@ async function handleStudentRowCapture(student, originalTr) {
 
     // 5. Capture
     try {
-        const canvas = await html2canvas(wrapper, {
-            scale: 2, // High resolution
-            backgroundColor: '#ffffff',
-            logging: false,
-            useCORS: true,
-            // Optimization: restrict capture area
-            width: wrapper.offsetWidth,
-            height: wrapper.offsetHeight
-        });
-
-        canvas.toBlob(async (blob) => {
-            if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-
-            if (!blob) {
-                if (window.apiUtils) window.apiUtils.showToast('生成图片为空', 'error');
-                return;
-            }
-
+        const makeImagePromise = new Promise(async (resolve, reject) => {
             try {
-                const item = new ClipboardItem({ 'image/png': blob });
-                await navigator.clipboard.write([item]);
-                if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${student.name} 的课表图片`);
+                const canvas = await html2canvas(wrapper, {
+                    scale: 2,
+                    backgroundColor: '#ffffff',
+                    logging: false,
+                    useCORS: true,
+                    width: wrapper.offsetWidth,
+                    height: wrapper.offsetHeight,
+                    onclone: (documentClone) => { }
+                });
+
+                canvas.toBlob((blob) => {
+                    if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+                    if (!blob) {
+                        reject(new Error('生成图片为空'));
+                        return;
+                    }
+                    resolve(blob);
+                }, 'image/png');
             } catch (err) {
-                console.error('Clipboard write failed', err);
-                if (window.apiUtils) window.apiUtils.showToast('复制失败: 浏览器限制或未授权', 'error');
+                reject(err);
+            } finally {
+                if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
             }
-            document.body.removeChild(wrapper);
         });
+
+        const item = new ClipboardItem({ 'image/png': makeImagePromise });
+        await navigator.clipboard.write([item]);
+
+        if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${student.name} 的课表图片`);
 
     } catch (err) {
         console.error('Capture failed', err);
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-        if (window.apiUtils) window.apiUtils.showToast('生成图片失败', 'error');
+        if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
     }
 }
@@ -1060,10 +1190,64 @@ function buildAdminScheduleCard(group, student, dateKey) {
     `;
     content.appendChild(footer);
 
+    // --- 费用区块 ---
+    const scheduleId = first.id;
+    const studentName = student?.name || '';
+
+    let totalTransport = 0;
+    let totalOther = 0;
+    group.forEach(s => {
+        totalTransport += parseFloat(s.transport_fee ?? s.transportFee) || 0;
+        totalOther += parseFloat(s.other_fee ?? s.otherFee) || 0;
+    });
+    const hasFee = totalTransport > 0 || totalOther > 0;
+
+    // 打开费用弹窗的通用处理器
+    const openFee = (e) => {
+        e.stopPropagation();
+        if (typeof window.openAdminFeeModal === 'function') {
+            window.openAdminFeeModal(group, studentName);
+        }
+    };
+
+    const feeContainer = document.createElement('div');
+    feeContainer.style.cssText = 'margin-top: 6px; justify-content: center; width: 100%; display: flex;';
+
+    if (hasFee) {
+        const feeInfo = document.createElement('span');
+        feeInfo.style.cssText = 'background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer;';
+
+        feeInfo.addEventListener('click', openFee);
+
+        let parts = [];
+        if (totalTransport > 0) parts.push(`交通¥${totalTransport}`);
+        if (totalOther > 0) parts.push(`其他¥${totalOther}`);
+        feeInfo.textContent = parts.join(' ');
+
+        feeContainer.appendChild(feeInfo);
+    } else {
+        const feeBtn = document.createElement('button');
+        feeBtn.classList.add('add-fee-btn');
+        feeBtn.textContent = '添加费用';
+        feeBtn.style.cssText = 'padding: 2px 8px; font-size: 11px; min-width: auto; height: 22px; margin: 0 auto;';
+
+        feeBtn.addEventListener('click', openFee);
+        feeContainer.appendChild(feeBtn);
+    }
+
+    if (feeContainer.hasChildNodes()) {
+        const feeWrap = document.createElement('div');
+        feeWrap.classList.add('fee-bottom-wrap');
+        feeWrap.style.cssText = 'display: flex; justify-content: flex-end; width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 6px;';
+        feeWrap.appendChild(feeContainer);
+        footer.appendChild(feeWrap);
+    }
+    content.appendChild(footer);
     card.appendChild(content);
 
     return card;
 }
+
 
 // --- Status & Edit Logic ---
 
@@ -1361,54 +1545,105 @@ export async function setupScheduleEventListeners() {
             if (btn) btn.disabled = true;
 
             let backup = null;
+            let currentCard = null; // 用于编辑模式下的乐观更新
+            let originalCardHtml = '';
+
             try {
                 if (mode === 'add') {
-                    // 乐观添加：立即在UI显示
+                    // 乐观添加：立即在UI显示骨架模板
                     backup = optimisticAdd(body);
 
                     // 后台保存
                     const result = await window.apiUtils.post('/admin/schedules', body);
 
-                    // 成功后保存表单记忆
                     saveFormMemory({
                         start_time: body.start_time,
                         end_time: body.end_time,
                         teacher_id: body.teacher_id,
-                        type_id: body.type_ids?.[0]
+                        type_id: body.type_ids && body.type_ids.length ? body.type_ids[0] : null
                     });
 
-                    // 清除临时卡片，刷新数据以显示真实ID
-                    WeeklyDataStore.invalidateSchedules();
-                    loadSchedules();
+                    // 将由于乐观添加产生的 “保存中...” UI替换为真实状态
+                    if (backup && backup.tempId) {
+                        const tempCard = document.querySelector(`.temp-schedule[data-temp-id="${backup.tempId}"]`);
+                        if (tempCard) {
+                            tempCard.classList.remove('optimistic-loading', 'temp-schedule');
+                            const statusBadge = tempCard.querySelector('.schedule-status-badge');
+                            if (statusBadge) {
+                                statusBadge.textContent = '已确认'; // 或根据 result 返回的 status
+                                statusBadge.className = 'schedule-status-badge status-confirmed';
+                            }
+                            const infoDiv = tempCard.querySelector('.schedule-info');
+                            if (infoDiv) {
+                                // 提取下老师名称和课程名字填充上去给个反馈
+                                const teacherSelect = form.querySelector('#scheduleTeacher');
+                                const typeSelect = form.querySelector('#scheduleTypeSelect');
+                                const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '老师';
+                                const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '课程';
+                                infoDiv.innerHTML = `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`;
+                            }
+                        }
+                    }
 
-                    window.apiUtils.showSuccessToast('排课已添加');
+                    // 静默失效本地缓存。不进行全盘闪烁式刷新
+                    WeeklyDataStore.invalidateSchedules();
+                    window.apiUtils.showSuccessToast('排课添加成功');
                 } else {
-                    // 乐观更新：立即更新UI（此处简化，直接刷新）
+                    // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
+                    currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
+                    if (currentCard) {
+                        originalCardHtml = currentCard.innerHTML; // 快照
+                        currentCard.classList.add('optimistic-updating');
+
+                        // 从表单内爬取修改的字段并投射到卡片上
+                        const teacherSelect = form.querySelector('#scheduleTeacher');
+                        const typeSelect = form.querySelector('#scheduleTypeSelect');
+                        const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
+                        const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
+
+                        const timeSpan = currentCard.querySelector('.schedule-time');
+                        if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
+
+                        const tDiv = currentCard.querySelector('.teacher-name');
+                        if (tDiv && tName) tDiv.textContent = tName;
+
+                        const cDiv = currentCard.querySelector('.course-type');
+                        if (cDiv && cName) cDiv.textContent = cName;
+
+                        const locP = currentCard.querySelector('.location-text');
+                        if (locP && body.location) locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`;
+                    }
+
+                    // 异步请求后端
                     await window.apiUtils.put(`/admin/schedules/${id}`, body);
 
-                    // 成功后保存表单记忆
                     saveFormMemory({
                         start_time: body.start_time,
                         end_time: body.end_time,
                         teacher_id: body.teacher_id,
-                        type_id: body.type_ids?.[0]
+                        type_id: body.type_ids && body.type_ids.length ? body.type_ids[0] : null
                     });
 
-                    // 更新需要刷新以显示完整变更
+                    // 成功后，去处特效
+                    if (currentCard) {
+                        currentCard.classList.remove('optimistic-updating');
+                    }
                     WeeklyDataStore.invalidateSchedules();
-                    loadSchedules();
-
-                    window.apiUtils.showSuccessToast('排课已更新');
+                    window.apiUtils.showSuccessToast('排课更新成功');
                 }
 
-                // 关闭表单
+                // 立即关闭表单
                 document.getElementById('scheduleFormContainer').style.display = 'none';
             } catch (err) {
                 console.error('[保存排课] 失败:', err);
 
-                // 回滚乐观添加
+                // 万一报错了，回滚操作（反欺骗）
                 if (mode === 'add' && backup) {
                     rollbackOperation(backup, 'add');
+                } else if (mode === 'edit' && currentCard && originalCardHtml) {
+                    // 悲观恢复原来的DOM卡片
+                    currentCard.innerHTML = originalCardHtml;
+                    currentCard.classList.remove('optimistic-updating');
                 }
 
                 if (window.apiUtils) window.apiUtils.showToast('保存失败: ' + (err.message || ''), 'error');

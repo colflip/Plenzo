@@ -33,6 +33,7 @@ router.post('/schedules', authMiddleware, adminOnly, validate(scheduleValidation
 router.put('/schedules/:id', authMiddleware, adminOnly, validate(scheduleValidation.update), adminController.updateSchedule);
 router.delete('/schedules/:id', authMiddleware, adminOnly, adminController.deleteSchedule);
 router.post('/schedules/:id/confirm', authMiddleware, adminOnly, adminController.confirmSchedule);
+router.patch('/schedules/:id/fees', authMiddleware, adminOnly, adminController.updateScheduleFees);
 
 // 统计数据路由
 router.get('/statistics/overview', authMiddleware, adminOnly, adminController.getOverviewStats);

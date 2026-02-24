@@ -34,6 +34,8 @@ class TeacherExportService {
                 ca.student_id,
                 s.name as student_name,
                 t.name as teacher_name,
+                ca.transport_fee,
+                ca.other_fee,
                 COALESCE(sty.description, sty.name) as type_name
             FROM course_arrangement ca
             JOIN students s ON ca.student_id = s.id
@@ -90,6 +92,11 @@ class TeacherExportService {
             const dateObj = new Date(row.date);
             const week = days[dateObj.getDay()];
 
+            const formatVal = (val) => {
+                const num = Number(val) || 0;
+                return num > 0 ? String(Math.ceil(num * 100) / 100) : '';
+            };
+
             return {
                 '学生名称': row.student_name,
                 '类型': row.type_name || '未知',
@@ -101,6 +108,8 @@ class TeacherExportService {
                 '排课ID': row.id,
                 '教师ID': row.teacher_id,
                 '学生ID': row.student_id,
+                '交通费': formatVal(row.transport_fee),
+                '其他费用': formatVal(row.other_fee),
                 '备注': row.notes || ''
             };
         });

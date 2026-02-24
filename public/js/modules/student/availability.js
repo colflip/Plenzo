@@ -198,7 +198,18 @@ function renderMobileTable(weekDates, state) {
         const day = date.getDate();
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const weekday = weekdayNames[date.getDay()];
-        const dateLabel = `${day}/${weekday}`;
+
+        // 解析腊月/正月
+        let lunarParen = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarParen = `(${match[0]})`;
+            }
+        } catch (e) { }
+
+        const dateLabel = `${day}/${weekday}${lunarParen}`;
 
         const dateCell = createElement('td', 'date-cell', {
             textContent: dateLabel,
@@ -252,10 +263,20 @@ function renderHeader(weekDates) {
         const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
 
+        // 农历显示
+        let lunarLabel = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+            }
+        } catch (e) { }
+
         const th = createElement('th', 'date-header');
         th.dataset.date = toISODate(date);
         th.innerHTML = `
-            <div class="date-label">${month}月${day}日</div>
+            <div class="date-label">${month}月${day}日${lunarLabel}</div>
             <div class="day-label">${weekday}</div>
         `;
         row.appendChild(th);

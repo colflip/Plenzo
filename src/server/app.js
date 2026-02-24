@@ -9,6 +9,7 @@ const cors = require('cors');
 const path = require('path');
 const { errorHandler, notFoundHandler } = require('./middleware');
 const initScheduler = require('./jobs/scheduler');
+const runDatabaseMigrations = require('./db/migrations');
 
 // 初始化应用
 const app = express();
@@ -83,8 +84,13 @@ if (process.env.NODE_ENV !== 'test') {
         console.log(`🔌 端口: ${PORT}`);
         console.log(`=================================`);
 
-        // 初始化定时任务
+        // 初始化定时任务和数据库迁移
         try {
+            // 根据用户要求，不再每次启动时自动进行数据库迁移
+            // runDatabaseMigrations()
+            //     .then(() => console.log('✅ 数据库迁移检查完成'))
+            //     .catch(err => console.error('❌ 数据库迁移检查失败:', err));
+
             initScheduler();
             console.log('⏰ 定时任务调度器已运行');
         } catch (err) {

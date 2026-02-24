@@ -32,6 +32,7 @@ const elements = {
 export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
+    initFeeModal();
     await loadSchedules(currentWeekStart);
 }
 
@@ -166,7 +167,18 @@ function renderMobileScheduleTable(weekDates, grouped) {
         const day = date.getDate();
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const weekday = weekdayNames[date.getDay()];
-        const dateLabel = `${day}/${weekday}`;
+
+        // 解析腊月/正月
+        let lunarParen = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarParen = `(${match[0]})`;
+            }
+        } catch (e) { }
+
+        const dateLabel = `${day}/${weekday}${lunarParen}`;
         const dateCell = createElement('td', 'mobile-date-cell', { textContent: dateLabel });
         row.appendChild(dateCell);
 
@@ -299,6 +311,37 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     });
     card.appendChild(locationSpan);
 
+    // 费用显示 + 按钮（移动端）
+    const mTFee = parseFloat(first.transport_fee) || 0;
+    const mOFee = parseFloat(first.other_fee) || 0;
+    const mHasFee = mTFee > 0 || mOFee > 0;
+
+    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
+
+    if (mHasFee) {
+        const feeInfo = createElement('span', '', {
+            style: 'font-size: 12px; color: #d97706; background: #fef3c7; padding: 3px 8px; border-radius: 4px; cursor: pointer;'
+        });
+        feeInfo.textContent = `交通¥${mTFee} 其他¥${mOFee}`;
+        feeInfo.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFeeModal(first);
+        });
+        feeWrapper.appendChild(feeInfo);
+    } else {
+        const feeBtn = createElement('button', 'info-btn', {
+            textContent: '添加费用',
+            style: 'padding: 4px 8px; font-size: 12px; min-width: auto;'
+        });
+        feeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFeeModal(first);
+        });
+        feeWrapper.appendChild(feeBtn);
+    }
+
+    card.appendChild(feeWrapper);
+
     return card;
 }
 
@@ -346,10 +389,20 @@ function renderHeader(weekDates) {
         const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
 
+        // 农历显示
+        let lunarLabel = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+            }
+        } catch (e) { }
+
         const th = createElement('th', 'date-header');
         th.dataset.date = iso;
         th.innerHTML = `
-            <div class="date-label">${month}月${day}日</div>
+            <div class="date-label">${month}月${day}日${lunarLabel}</div>
             <div class="day-label">${weekday}</div>
         `;
         row.appendChild(th);
@@ -538,18 +591,48 @@ function buildScheduleCard(group) {
     });
     content.appendChild(listDiv);
 
-    // 3. 底部信息 (时间和地点)
+    // 3. 底部信息
     const footer = createElement('div', 'schedule-footer');
 
-    // Time Logic: Show range of the group (usually same, but take first)
-    // Admin uses: 19:00 - 22:00
     const timeRange = `${first.start_time ? first.start_time.substring(0, 5) : ''} - ${first.end_time ? first.end_time.substring(0, 5) : ''}`;
     const loc = first.location || '';
 
     footer.innerHTML = `
         <div class="time-text">${timeRange}</div>
-        <div class="location-text">${loc}</div>
+        <div class="location-text" style="flex:1;">${loc}</div>
     `;
+
+    const tFee = parseFloat(first.transport_fee) || 0;
+    const oFee = parseFloat(first.other_fee) || 0;
+    const hasFee = tFee > 0 || oFee > 0;
+
+    // 费用显示行（已填写时显示，且作为可点击的触发器）
+    if (hasFee) {
+        const feeInfo = createElement('span', '', {
+            style: 'font-size: 11px; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; cursor: pointer;'
+        });
+        feeInfo.textContent = `交通¥${tFee} 其他¥${oFee}`;
+        feeInfo.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFeeModal(first);
+        });
+        footer.appendChild(feeInfo);
+    } else {
+        // 无费用时，显示“添加费用”按钮
+        const feeBtn = createElement('button', 'info-btn', {
+            textContent: '添加费用',
+            style: 'padding: 2px 6px; font-size: 12px; min-width: auto; margin-left: 6px; height: 24px;'
+        });
+        feeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFeeModal(first);
+        });
+        footer.appendChild(feeBtn);
+    }
+
+    footer.style.display = 'flex';
+    footer.style.alignItems = 'center';
+
     content.appendChild(footer);
 
     card.appendChild(content);
@@ -722,4 +805,108 @@ function sortStudentsByIdAndType(a, b) {
 
 export function refreshSchedules() {
     return loadSchedules(currentWeekStart);
+}
+
+// ==========================================
+// Fee Management
+// ==========================================
+let currentFeeScheduleId = null;
+
+function initFeeModal() {
+    const modal = document.getElementById('feeManagementModal');
+    if (!modal) return;
+
+    const closeBtn = document.getElementById('closeFeeModal');
+    const cancelBtn = document.getElementById('cancelFeeBtn');
+    const form = document.getElementById('feeManagementForm');
+    const overlay = modal.querySelector('.modal-overlay');
+
+    const transportInput = document.getElementById('feeTransportInput');
+    const otherInput = document.getElementById('feeOtherInput');
+    const totalDisplay = document.getElementById('feeTotalDisplay');
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+        currentFeeScheduleId = null;
+        form.reset();
+        totalDisplay.textContent = '0.00';
+    };
+
+    closeBtn?.addEventListener('click', closeModal);
+    cancelBtn?.addEventListener('click', closeModal);
+    overlay?.addEventListener('click', closeModal);
+
+    const updateTotal = () => {
+        const transport = parseFloat(transportInput.value) || 0;
+        const other = parseFloat(otherInput.value) || 0;
+        totalDisplay.textContent = (transport + other).toFixed(2);
+    };
+
+    transportInput?.addEventListener('input', updateTotal);
+    otherInput?.addEventListener('input', updateTotal);
+
+    form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!currentFeeScheduleId) return;
+
+        const transport_fee = parseFloat(transportInput.value) || 0;
+        const other_fee = parseFloat(otherInput.value) || 0;
+
+        try {
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = '保存中...';
+            submitBtn.disabled = true;
+
+            const res = await window.apiUtils.patch(`/teacher/schedules/${currentFeeScheduleId}/fees`, {
+                transport_fee,
+                other_fee
+            });
+
+            if (res && !res.error) {
+                if (window.apiUtils.showSuccessToast) {
+                    window.apiUtils.showSuccessToast('费用记录已保存');
+                } else {
+                    showInlineFeedback(elements.feedback(), '费用记录已保存', 'success');
+                }
+                closeModal();
+                refreshSchedules();
+            } else {
+                throw new Error(res?.message || '保存失败');
+            }
+        } catch (error) {
+            console.error('保存费用失败:', error);
+            if (window.apiUtils.showErrorToast) {
+                window.apiUtils.showErrorToast(error.message || '保存费用失败');
+            } else {
+                showInlineFeedback(elements.feedback(), error.message || '保存费用失败', 'error');
+            }
+        } finally {
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = '保存记录';
+                submitBtn.disabled = false;
+            }
+        }
+    });
+}
+
+function openFeeModal(schedule) {
+    const modal = document.getElementById('feeManagementModal');
+    if (!modal) return;
+
+    currentFeeScheduleId = schedule.id;
+
+    const transportInput = document.getElementById('feeTransportInput');
+    const otherInput = document.getElementById('feeOtherInput');
+    const totalDisplay = document.getElementById('feeTotalDisplay');
+
+    if (transportInput) transportInput.value = schedule.transport_fee || '';
+    if (otherInput) otherInput.value = schedule.other_fee || '';
+
+    const transport = parseFloat(schedule.transport_fee) || 0;
+    const other = parseFloat(schedule.other_fee) || 0;
+    if (totalDisplay) totalDisplay.textContent = (transport + other).toFixed(2);
+
+    modal.style.display = 'flex';
 }
