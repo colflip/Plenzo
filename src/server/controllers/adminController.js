@@ -281,12 +281,14 @@ const adminController = {
                 const insertSql = `
                     INSERT INTO ${table} (${columns.join(', ')})
                     VALUES (${placeholders.join(', ')})
-                    RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
+                    RETURNING *
                 `;
 
                 const q = usePool ? db.query : client.query.bind(client);
                 const result = await q(insertSql, values);
                 const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
+                if (rows[0] && rows[0].password_hash) { delete rows[0].password_hash; }
+                if (rows[0] && rows[0].password) { delete rows[0].password; }
                 // 记录审计（在事务内）
                 try { await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0]?.id, details: { username, name, email, custom_id: id } }); } catch (_) { }
 
@@ -386,6 +388,8 @@ const adminController = {
                 }
             } catch (_) { /* 静默处理探测错误 */ }
 
+
+
             // 构建更新语句
             let updates = [];
             let values = [];
@@ -443,7 +447,7 @@ const adminController = {
                     UPDATE ${table}
                     SET ${updates.join(', ')}
                     WHERE id = $${currentPlaceholder}
-                    RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
+                    RETURNING *
                 `;
             } else if (needIdChange) {
                 // 只改了 ID，其他没改
@@ -453,49 +457,35 @@ const adminController = {
                     UPDATE ${table}
                     SET id = $1
                     WHERE id = $2
-                    RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
+                    RETURNING *
                 `;
             }
 
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-
-                if (needIdChange) {
-                    // 1. 检查新 ID 冲突
-                    const checkNewId = await q(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
-                    const checkRows = (checkNewId && checkNewId.rows) ? checkNewId.rows : (Array.isArray(checkNewId) ? checkNewId : []);
-                    if (checkRows.length > 0) {
-                        throw Object.assign(new Error('新 ID 已被占用'), { code: '23505' });
-                    }
-
-                    // 2. 模拟外键级联更新 (解决原先报错 23503 的问题)
-                    if (userType === 'teacher') {
-                        await q(`UPDATE course_arrangement SET teacher_id = $1 WHERE teacher_id = $2`, [newIdInt, id]);
-                        await q(`UPDATE teacher_daily_availability SET teacher_id = $1 WHERE teacher_id = $2`, [newIdInt, id]);
-                    } else if (userType === 'student') {
-                        await q(`UPDATE course_arrangement SET student_id = $1 WHERE student_id = $2`, [newIdInt, id]);
-                        await q(`UPDATE student_daily_availability SET student_id = $1 WHERE student_id = $2`, [newIdInt, id]);
-                    } else if (userType === 'admin') {
-                        await q(`UPDATE course_arrangement SET created_by = $1 WHERE created_by = $2`, [newIdInt, id]);
-                        await q(`UPDATE export_logs SET admin_id = $1 WHERE admin_id = $2`, [newIdInt, id]);
-                    }
+            if (needIdChange) {
+                // 检查新 ID 是否已被占用
+                const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
+                const checkRows = (checkNewId && checkNewId.rows) ? checkNewId.rows : (Array.isArray(checkNewId) ? checkNewId : []);
+                if (checkRows.length > 0) {
+                    throw Object.assign(new Error('新 ID 已被占用'), { code: '23505' });
                 }
+            }
 
-                // 3. 更新主表
-                const result = await q(query, values);
-                const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
-                if (!rows[0]) {
-                    throw Object.assign(new Error('更新失败'), { statusCode: 500 });
-                }
-                try { await recordAudit(req, { op: 'update', entityType: userType, entityId: needIdChange ? newIdInt : Number(id), details: { username, name, email, ...filteredAdditional } }); } catch (_) { }
-                res.json(standardResponse(true, rows[0], '更新用户成功'));
-            });
+            // 执行更新（外键约束已设置 ON UPDATE CASCADE，PostgreSQL 自动级联更新关联表）
+            const result = await db.query(query, values);
+            const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
+            if (!rows[0]) {
+                throw Object.assign(new Error('更新失败'), { statusCode: 500 });
+            }
+            if (rows[0].password_hash) delete rows[0].password_hash;
+            if (rows[0].password) delete rows[0].password;
+            try { await recordAudit(req, { op: 'update', entityType: userType, entityId: needIdChange ? newIdInt : Number(id), details: { username, name, email, ...filteredAdditional } }); } catch (_) { }
+            res.json(standardResponse(true, rows[0], '更新用户成功'));
         } catch (error) {
             if (error && error.code === '23505') {
                 return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被占用'));
             }
             console.error('更新用户错误:', error);
-            res.status(500).json(standardResponse(false, null, '服务器错误'));
+            res.status(500).json(standardResponse(false, null, '服务器错误: ' + (error.message || '')));
         }
     },
 

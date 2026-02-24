@@ -1076,14 +1076,21 @@ const teacherController = {
 
             const studentIdsStr = teacherResult.rows[0].student_ids;
             if (!studentIdsStr) {
-                return res.json([]); // 没有绑定学生，直接返回空数组
+                return res.json({ students: [], schedules: [] }); // 没有绑定学生
             }
 
             // 解析绑定学生IDs
             const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
             if (studentIds.length === 0) {
-                return res.json([]);
+                return res.json({ students: [], schedules: [] });
             }
+
+            // 查询所有关联学生的基本信息（即使没有排课也要显示）
+            const studentsResult = await db.query(
+                `SELECT id, name FROM students WHERE id = ANY($1::int[]) ORDER BY id`,
+                [studentIds]
+            );
+            const students = studentsResult.rows;
 
             const dateExpr = await getDateExpr('ca');
 
@@ -1108,7 +1115,7 @@ const teacherController = {
             `;
 
             const result = await db.query(query, [studentIds, startDate, endDate]);
-            res.json(result.rows);
+            res.json({ students, schedules: result.rows });
         } catch (error) {
             console.error('获取班主任学生排课错误:', error);
             res.status(500).json({ message: '服务器错误' });
