@@ -1150,11 +1150,11 @@ window.ExportDialog = (function () {
 
         try {
             // 立即更新按钮状态
-            const exportBtn = document.getElementById('exportDialogNextBtn');
+            const exportBtn = document.getElementById('exportBtn');
             const originalBtnText = exportBtn ? exportBtn.innerHTML : '导出 Excel';
             if (exportBtn) {
                 exportBtn.disabled = true;
-                exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 文件导出中...';
+                exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 导出 Excel···';
             }
 
             // 更新 UI
@@ -1226,6 +1226,31 @@ window.ExportDialog = (function () {
 
             if (!response) {
                 throw new Error('导出 API 返回为空');
+            }
+
+            // 检测是否已经是底层 Blob （教师和学生端的定制化导出直接返回的已经是完整二进制表）
+            if (response && response.blob) {
+                const url = window.URL.createObjectURL(response.blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // 使用后端传递的文件名（已解译）作为兜底，如果为空则走回退
+                const dispositionFilename = response.filename
+                    ? decodeURIComponent(response.filename)
+                    : `数据导出_${Date.now()}.xlsx`;
+
+                a.download = dispositionFilename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                updateProgress(100, `文件生成完成，正在下载...`);
+                state.isExporting = false;
+                setTimeout(() => {
+                    showToast(`导出成功`, 'success');
+                    setTimeout(() => close(), 400);
+                }, 300);
+                return;
             }
 
             // API 直接返回导出结果对象 {format, data, columns?, filename} 或直接返回数组
@@ -1425,10 +1450,10 @@ window.ExportDialog = (function () {
                         else if (lowerType === 'visit') typeName = '入户';
                         else if (lowerType === 'visit_online' || lowerType === 'online_visit') typeName = '（线上）入户';
                         else if (lowerType === 'half_visit' || lowerType === 'half visit') typeName = '半次入户';
-                        else if (lowerType === 'group' || lowerType === 'group activity') typeName = '集体';
+                        else if (lowerType === 'group' || lowerType === 'group activity' || lowerType === 'group_activity') typeName = '集体活动';
 
                         let groupType = 'normal';
-                        if (typeName.includes('评审') || typeName.includes('咨询')) {
+                        if (typeName.includes('评审') || typeName.includes('咨询') || typeName.includes('集体')) {
                             groupType = 'review_group';
                         }
 
@@ -1452,6 +1477,71 @@ window.ExportDialog = (function () {
                     return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
                 };
 
+                // --- 预计算每周与每日的费用聚合 ---
+                const weeklyFees = {};
+                const dailyFees = {};
+
+                fullDateList.forEach(date => {
+                    const dayRows = dataByDate[date] || [];
+                    let totalOtherFee = 0;
+                    const teacherTransports = {};
+                    let dailyHasFee = false;
+
+                    dayRows.forEach(item => {
+                        const tFee = Number(item.transport_fee || item['交通费'] || item._transport_fee || 0);
+                        const oFee = Number(item.other_fee || item['其他费用'] || item._other_fee || 0);
+                        if (tFee > 0 || oFee > 0) dailyHasFee = true;
+
+                        totalOtherFee += oFee;
+
+                        const tName = item['教师名称'] || item.teacher_name || item.name || '未知老师';
+                        if (!teacherTransports[tName]) teacherTransports[tName] = 0;
+                        teacherTransports[tName] += tFee;
+                    });
+
+                    const formatFee = (val) => {
+                        const num = Number(val) || 0;
+                        if (num === 0) return '';
+                        return String(Math.ceil(num * 100) / 100);
+                    };
+
+                    let dailyFeeStr = '';
+                    let dailySum = 0;
+                    if (dailyHasFee) {
+                        const teacherNames = Object.keys(teacherTransports);
+                        const parts = [];
+
+                        if (teacherNames.length === 1) {
+                            const tName = teacherNames[0];
+                            const tFee = teacherTransports[tName];
+                            const tFeeStr = formatFee(tFee);
+                            if (tFeeStr) parts.push(tFeeStr);
+                            dailySum += tFee;
+                        } else {
+                            // 多个老师，分别列出
+                            teacherNames.forEach(name => {
+                                const fee = teacherTransports[name];
+                                const feeStr = formatFee(fee);
+                                if (feeStr) parts.push(`${name}${feeStr}`);
+                                dailySum += fee;
+                            });
+                        }
+
+                        const otherFeeStr = formatFee(totalOtherFee);
+                        if (otherFeeStr) parts.push(`其他${otherFeeStr}`);
+                        dailySum += totalOtherFee;
+
+                        dailyFeeStr = parts.join('，');
+                    }
+                    dailyFees[date] = dailyFeeStr;
+
+                    const dObj = new Date(date);
+                    const weekNumber = getISOWeekNumber(dObj);
+                    const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
+                    if (!weeklyFees[weekKey]) weeklyFees[weekKey] = 0;
+                    weeklyFees[weekKey] += dailySum;
+                });
+
                 // 3. 组装结果 (Row Splitting Logic)
                 const resultRows = [];
                 const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -1461,6 +1551,11 @@ window.ExportDialog = (function () {
                     const weekStr = days[dObj.getDay()];
                     const isSunday = dObj.getDay() === 0;
                     const weekNumber = getISOWeekNumber(dObj);
+                    const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
+
+                    const feeStr = dailyFees[date] || '';
+                    const weekSumVal = weeklyFees[weekKey] || 0;
+                    const weekSumStr = weekSumVal > 0 ? String(Math.ceil(weekSumVal * 100) / 100) : '';
 
                     const dayRows = dataByDate[date] || [];
 
@@ -1471,8 +1566,8 @@ window.ExportDialog = (function () {
                             '星期': weekStr,
                             '计划安排': '',
                             '实际安排': '',
-                            '费用': '',
-                            '周汇总': '',
+                            '费用': feeStr,
+                            '周汇总': weekSumStr,
                             '_isRedRow': false,
                             '_isSunday': isSunday,
                             '_weekNumber': weekNumber
@@ -1563,7 +1658,8 @@ window.ExportDialog = (function () {
 
                                 // Prefix Logic
                                 const shouldShowStudent = !studentId && sName !== 'Unknown';
-                                const prefix = shouldShowStudent ? `[${sName}]` : '';
+                                const displayName = sName === 'all-std' ? '全体学生' : sName;
+                                const prefix = shouldShowStudent ? `[${displayName}]` : '';
 
                                 const planLine = `${prefix}${mainTypeStr} (${time}): ${detailContent} `;
 
@@ -1579,15 +1675,20 @@ window.ExportDialog = (function () {
                                     actualLine = `已取消[${allT}, ${mainTypeStr}]`;
                                 }
 
+                                // Red Row Logic (if any items were red)
+                                let isRedRow = false;
+                                items.forEach(r => {
+                                    if (r._isRedRow) isRedRow = true;
+                                });
 
                                 resultRows.push({
                                     '日期': date,
                                     '星期': weekStr,
                                     '计划安排': planLine,
                                     '实际安排': actualLine,
-                                    '费用': '',
-                                    '周汇总': '',
-                                    '_isRedRow': true,
+                                    '费用': feeStr,
+                                    '周汇总': weekSumStr,
+                                    '_isRedRow': isRedRow,
                                     '_isSunday': isSunday,
                                     '_weekNumber': weekNumber
                                 });
@@ -1617,8 +1718,8 @@ window.ExportDialog = (function () {
                                 '星期': weekStr,
                                 '计划安排': planLine,
                                 '实际安排': actualLine,
-                                '费用': '',
-                                '周汇总': '',
+                                '费用': feeStr,
+                                '周汇总': weekSumStr,
                                 '_isRedRow': false,
                                 '_isSunday': isSunday,
                                 '_weekNumber': weekNumber
@@ -1779,7 +1880,9 @@ window.ExportDialog = (function () {
                         '排课ID': row.id || row.schedule_id || row['排课ID'] || '',
                         '教师ID': row.teacher_id || row['教师ID'] || '',
                         '学生ID': row.student_id || row['学生ID'] || '',
-                        '备注': row.remark || row.notes || row['备注'] || ''
+                        '备注': row.remark || row.notes || row['备注'] || '',
+                        '_transport_fee': parseFloat(row.transport_fee) || 0,
+                        '_other_fee': parseFloat(row.other_fee) || 0
                     };
                 });
 
@@ -1870,6 +1973,8 @@ window.ExportDialog = (function () {
                             '教师评价内容': row.teacher_comment || '',
                             '学生评分': row.student_rating || '',
                             '学生评价内容': row.student_comment || '',
+                            '交通费': row.transport_fee !== undefined ? row.transport_fee : '',
+                            '其他费用': row.other_fee !== undefined ? row.other_fee : '',
                             '备注': ''
                         };
                     });
@@ -2306,10 +2411,10 @@ window.ExportDialog = (function () {
             state.isExporting = false;
 
             // 恢复按钮状态
-            const exportBtn = document.getElementById('exportDialogNextBtn');
+            const exportBtn = document.getElementById('exportBtn');
             if (exportBtn) {
                 exportBtn.disabled = false;
-                exportBtn.innerHTML = '导出 Excel';
+                exportBtn.innerHTML = '<span class="material-icons-round">download</span> 导出 Excel';
             }
         }
     }
@@ -2381,7 +2486,9 @@ window.ExportDialog = (function () {
                     '备注': 30,
                     '创建时间': 20,
                     '日期': 12,
-                    '类型': 15
+                    '类型': 15,
+                    '费用': 8,
+                    '周汇总': 8
                 };
 
                 headers.forEach((key, i) => {
@@ -2400,7 +2507,15 @@ window.ExportDialog = (function () {
                             if (len > maxLength) maxLength = len;
                         }
                     }
-                    colWidths[i] = { wch: Math.min(maxLength + 2, 60) };
+
+                    let finalWch = Math.min(maxLength + 1, 60);
+
+                    // 强制控制特殊长列宽
+                    if (key === '费用' || key === '周汇总') {
+                        finalWch = 20; // 减小一半以防止过宽霸占版面
+                    }
+
+                    colWidths[i] = { wch: finalWch };
                 });
                 ws['!cols'] = colWidths;
 
@@ -2413,13 +2528,18 @@ window.ExportDialog = (function () {
                 for (let R = range.s.r; R <= range.e.r; ++R) {
                     // 检查由 "星期" 列决定的行样式 (仅限第一个 Sheet)
                     let isSundayRow = false;
+                    let isReviewRow = false; // 判定该行是否属于评审行
+
                     if (sheetIndex === 0) {
                         for (let C = range.s.c; C <= range.e.c; ++C) {
                             const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
                             const cell = ws[cellRef];
                             if (cell && cell.v === '周日') {
                                 isSundayRow = true;
-                                break;
+                            }
+                            // 如果排课名称或实际执行中带评审字眼，整行点亮（不含表头）
+                            if (R > 0 && cell && typeof cell.v === 'string' && (cell.v.includes('评审') || cell.v.includes('咨询') || cell.v.includes('集体活动'))) {
+                                isReviewRow = true;
                             }
                         }
                     }
@@ -2483,18 +2603,14 @@ window.ExportDialog = (function () {
                                 if (headerVal.includes('日期')) {
                                     cell.s.fill = { fgColor: { rgb: "90EE90" } }; // LightGreen
                                 }
-                                // b. 周日行 -> 蓝色填充 (排除日期列，避免冲突? 或覆盖? 
-                                // 用户："周日所在行使用蓝色填充，日期列使用绿色填充"
-                                // 逻辑：如果也是日期列，上面已设绿。如果是其他列且是周日行，设蓝。)
+                                // b. 周日行 -> 蓝色填充 (排除日期列，避免冲突)
                                 else if (isSundayRow) {
                                     cell.s.fill = { fgColor: { rgb: "ADD8E6" } }; // LightBlue
                                 }
 
-                                // c. 评审/咨询类 -> 红色文字 ("类型"列)
-                                if (headerVal.includes('类型')) {
-                                    if (strValue.includes('评审') || strValue.includes('咨询')) {
-                                        cell.s.font.color = { rgb: "FF0000" };
-                                    }
+                                // c. 评审行全行红色字体（第一张表）
+                                if (isReviewRow) {
+                                    cell.s.font.color = { rgb: "FF0000" };
                                 }
                             }
                         }

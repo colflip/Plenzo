@@ -6,9 +6,48 @@ const headers = {
 };
 const TIME_ZONE = 'Asia/Shanghai';
 
+// --- Administrator Fee Visibility State ---
+window.adminFeeShow = false;
+
+window.toggleAdminFeeVisibility = function () {
+    window.adminFeeShow = !window.adminFeeShow;
+
+    // 更新按钮文字
+    const btnText = document.getElementById('adminFeeBtnText');
+    if (btnText) {
+        btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
+    }
+
+    // 更新按钮样式
+    const btn = document.getElementById('toggleAdminFeeBtn');
+    if (btn) {
+        if (window.adminFeeShow) {
+            btn.style.background = '#10b981';
+            btn.style.color = '#fff';
+            btn.style.borderColor = '#10b981';
+        } else {
+            btn.style.background = 'white';
+            btn.style.color = '#10b981';
+            btn.style.borderColor = '#10b981';
+        }
+    }
+
+    // 直接切换已渲染卡片上的费用区块，无需重载整个视图
+    const feeWraps = document.querySelectorAll('.fee-bottom-wrap');
+    feeWraps.forEach(el => {
+        el.style.display = window.adminFeeShow ? 'flex' : 'none';
+    });
+};
+
+
 // 检查 Chart.js 是否可用
 function isChartAvailable() {
-    if (typeof Chart === 'undefined') {
+    if (typeof window.Chart === 'undefined') {
+        // 如果实在没找到，尝试探测是否有局部的 Chart 进行后备挂载
+        if (typeof Chart !== 'undefined') {
+            window.Chart = Chart;
+            return true;
+        }
         console.error('Chart.js 未加载');
         return false;
     }
@@ -336,6 +375,9 @@ function setupNavigation() {
                         } else {
                             console.error('initStudentAvailability not found');
                         }
+                        if (window.initStudentScheduleFees) {
+                            window.initStudentScheduleFees();
+                        }
                     }
                 } catch (_) { }
                 showSection(section);
@@ -400,6 +442,9 @@ function showSection(sectionId) {
         case 'student-availability':
             if (window.initStudentAvailability) {
                 window.initStudentAvailability();
+            }
+            if (window.initStudentScheduleFees) {
+                window.initStudentScheduleFees();
             }
             setHeaderTitle('学生空闲时段');
             break;
@@ -2006,8 +2051,8 @@ function convertUserStatsToStackData(statsList, limit = 5) {
         return { labels: [], datasets: [] };
     }
 
-    // Sort by total activities descending
-    const sorted = statsList.sort((a, b) => b.total_count - a.total_count).slice(0, limit);
+    // 按ID升序排列
+    const sorted = statsList.sort((a, b) => Number(a.id || a.user_id || 0) - Number(b.id || b.user_id || 0)).slice(0, limit);
 
     const labels = sorted.map(item => item.name);
 
@@ -2053,8 +2098,8 @@ function convertUserStatsToStackData(stats, limit = 15) {
         return { labels: [], datasets: [] };
     }
 
-    // 按总数降序排列并截取
-    const sortedStats = [...stats].sort((a, b) => b.total - a.total).slice(0, limit);
+    // 按ID升序排列并截取
+    const sortedStats = [...stats].sort((a, b) => Number(a.id || 0) - Number(b.id || 0)).slice(0, limit);
 
     // 收集所有类型
     const allTypes = new Set();
@@ -2303,11 +2348,12 @@ function buildTeacherTypeStack(schedules) {
     const teacherTotals = filteredTeachers.map(name => {
         const typeMap = map.get(name);
         const total = Array.from(typeMap.values()).reduce((a, b) => a + b, 0);
-        return { name, total };
+        const id = teacherIdMap.get(name) || 0;
+        return { name, total, id };
     }).filter(t => t.total > 0);  // Only show teachers with actual schedule data
 
-    // Sort by total count descending and limit to top 15
-    teacherTotals.sort((a, b) => b.total - a.total);
+    // 按ID升序排列并截取
+    teacherTotals.sort((a, b) => Number(a.id) - Number(b.id));
     const top15Teachers = teacherTotals.slice(0, 15).map(t => t.name);
 
     // Store teacher ID mapping globally for rendering function
@@ -2394,8 +2440,8 @@ function buildStudentTypeStack(schedules, students = []) {
         return { id, name, total };
     }).filter(t => t.total > 0);  // Only show students with actual schedule data
 
-    // Sort by total count descending and limit to top 15
-    studentTotals.sort((a, b) => b.total - a.total);
+    // 按ID升序排列并截取
+    studentTotals.sort((a, b) => Number(a.id) - Number(b.id));
     const top15Students = studentTotals.slice(0, 15);
 
     // Store student ID mapping globally for rendering function
@@ -3300,13 +3346,62 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
     const timeDiv = document.createElement('div');
     timeDiv.classList.add('time-range');
-    timeDiv.textContent = `${first.start_time?.substring(0, 5)} - ${first.end_time?.substring(0, 5)}`;
+    timeDiv.textContent = `${first.start_time?.substring(0, 5) || ''} - ${first.end_time?.substring(0, 5) || ''}`;
     footer.appendChild(timeDiv);
 
     const locDiv = document.createElement('div');
     locDiv.classList.add('location-text');
     locDiv.textContent = first.location || '地点待定';
     footer.appendChild(locDiv);
+
+    // --- Admin Fee Section ---
+    // 始终渲染，通过 display 控制可见性（切换时不需重载）
+    const feeShow = window.adminFeeShow || false;
+    let totalTransport = 0;
+    let totalOther = 0;
+    group.forEach(s => {
+        totalTransport += parseFloat(s.transport_fee) || 0;
+        totalOther += parseFloat(s.other_fee) || 0;
+    });
+    const hasFee = totalTransport > 0 || totalOther > 0;
+
+    const feeWrap = document.createElement('div');
+    feeWrap.classList.add('fee-bottom-wrap');
+    feeWrap.style.cssText = `display: ${feeShow ? 'flex' : 'none'}; justify-content: flex-end; width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 6px;`;
+
+    const feeContainer = document.createElement('div');
+    feeContainer.style.cssText = 'margin-top: 2px; display: flex; justify-content: center; width: 100%;';
+
+    if (hasFee) {
+        const feeInfo = document.createElement('span');
+        feeInfo.style.cssText = 'background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 4px;';
+
+        let parts = [];
+        if (totalTransport > 0) parts.push(`交通¥${totalTransport}`);
+        if (totalOther > 0) parts.push(`其他¥${totalOther}`);
+
+        feeInfo.innerHTML = `<span>${parts.join(' ')}</span><span class="material-icons-round" style="font-size: 12px; margin-left: 2px;">edit</span>`;
+        feeInfo.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof editSchedule === 'function' && first.id) editSchedule(first.id);
+        });
+        feeContainer.appendChild(feeInfo);
+    } else {
+        const feeBtn = document.createElement('button');
+        feeBtn.classList.add('add-fee-btn');
+        feeBtn.textContent = '添加费用';
+        feeBtn.style.cssText = 'padding: 2px 8px; font-size: 11px; min-width: auto; height: 22px; margin: 0 auto; background: white; border: 1px solid #10B981; color: #10B981; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
+        feeBtn.onmouseover = () => { feeBtn.style.background = '#F0FDF4'; };
+        feeBtn.onmouseout = () => { feeBtn.style.background = 'white'; };
+        feeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof editSchedule === 'function' && first.id) editSchedule(first.id);
+        });
+        feeContainer.appendChild(feeBtn);
+    }
+
+    feeWrap.appendChild(feeContainer);
+    footer.appendChild(feeWrap);
 
     card.appendChild(footer);
 
@@ -3870,11 +3965,7 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
     };
     const weight = (id) => { const s = getStatus(id); if (s === 1) return 0; if (s === 0) return 1; return 2; };
     teachers = teachers.filter(id => (getStatus(id) !== -1)).sort((a, b) => {
-        const wa = weight(a), wb = weight(b);
-        if (wa !== wb) return wa - wb;
-        const na = String(nameMap.get(a) || rows.find(r => String(r.teacher_id || '') === String(a))?.teacher_name || a);
-        const nb = String(nameMap.get(b) || rows.find(r => String(r.teacher_id || '') === String(b))?.teacher_name || b);
-        return na.localeCompare(nb, 'zh-CN');
+        return Number(a) - Number(b);
     });
     if (selectedTeacher) teachers = teachers.filter(t => String(t) === String(selectedTeacher));
 
@@ -5855,11 +5946,7 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
     const weight = (id) => { const s = getStatus(id); if (s === 1) return 0; if (s === 0) return 1; return 2; };
 
     students = students.filter(id => (getStatus(id) !== -1)).sort((a, b) => {
-        const wa = weight(a), wb = weight(b);
-        if (wa !== wb) return wa - wb;
-        const na = String(nameMap.get(a) || rows.find(r => String(r.student_id || '') === String(a))?.student_name || a);
-        const nb = String(nameMap.get(b) || rows.find(r => String(r.student_id || '') === String(b))?.student_name || b);
-        return na.localeCompare(nb, 'zh-CN');
+        return Number(a) - Number(b);
     });
 
     if (selectedStudent) students = students.filter(s => String(s) === String(selectedStudent));

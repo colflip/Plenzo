@@ -31,7 +31,7 @@ const adminController = {
                     break;
                 case 'teacher':
                     table = 'teachers';
-                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, last_login, created_at';
+                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
                     break;
                 case 'student':
                     table = 'students';
@@ -101,7 +101,7 @@ const adminController = {
                     break;
                 case 'teacher':
                     table = 'teachers';
-                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, last_login, created_at';
+                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
                     break;
                 case 'student':
                     table = 'students';
@@ -141,7 +141,7 @@ const adminController = {
 
     async createUser(req, res) {
         try {
-            const { userType, username, password, name, email, ...additionalInfo } = req.body;
+            const { userType, username, password, name, email, id, ...additionalInfo } = req.body;
             let table;
 
             switch (userType) {
@@ -160,7 +160,7 @@ const adminController = {
 
             // 开发离线模式：直接返回模拟创建结果
             if (process.env.OFFLINE_DEV === 'true') {
-                return res.status(201).json({ id: Date.now(), username, name, email, ...additionalInfo });
+                return res.status(201).json({ id: id || Date.now(), username, name, email, ...additionalInfo });
             }
 
             // 基础字段校验
@@ -186,21 +186,42 @@ const adminController = {
 
             const allowedAdditionalByType = {
                 admin: ['permission_level'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction'],
+                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids'],
                 student: ['profession', 'contact', 'visit_location', 'home_address', 'status']
             };
             const allowedAdditional = allowedAdditionalByType[userType] || [];
             const filteredAdditional = Object.fromEntries(
                 Object.entries(additionalInfo).filter(([key]) => allowedAdditional.includes(key))
             );
-            // 若教师/学生表不存在 status 列，则忽略该字段，防止 SQL 错误
-            try {
-                if ((userType === 'teacher' || userType === 'student') && Object.prototype.hasOwnProperty.call(filteredAdditional, 'status')) {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
-                    const hasStatus = (cols.rows || []).length > 0;
-                    if (!hasStatus) {
-                        delete filteredAdditional.status;
+
+            // 验证 student_ids 并规范化为逗号分隔的字符串
+            if (userType === 'teacher' && filteredAdditional.student_ids) {
+                const idsArr = filteredAdditional.student_ids.split(',').map(sId => parseInt(sId.trim(), 10)).filter(sId => !isNaN(sId));
+                if (idsArr.length > 0) {
+                    const checkRes = await db.query(`SELECT id FROM students WHERE id = ANY($1)`, [idsArr]);
+                    const existingIds = checkRes.rows.map(r => Number(r.id));
+                    const missingIds = idsArr.filter(sId => !existingIds.includes(Number(sId)));
+                    if (missingIds.length > 0) {
+                        return res.status(400).json({ message: `以下学生ID不存在: ${missingIds.join(', ')}` });
                     }
+                    filteredAdditional.student_ids = existingIds.join(',');
+                } else {
+                    filteredAdditional.student_ids = null;
+                }
+            } else if (userType === 'teacher') {
+                filteredAdditional.student_ids = null;
+            }
+
+            // 若教师/学生表不存在 status 或 student_ids 列，则忽略该字段，防止 SQL 错误（动态探测器）
+            try {
+                if (userType === 'teacher' || userType === 'student') {
+                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}'`);
+                    const colNames = (cols.rows || []).map(r => r.column_name);
+                    ['status', 'student_ids'].forEach(f => {
+                        if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !colNames.includes(f)) {
+                            delete filteredAdditional[f];
+                        }
+                    });
                 }
             } catch (_) { /* 静默处理探测错误 */ }
 
@@ -215,6 +236,15 @@ const adminController = {
                 return res.status(400).json({ message: '用户名已存在' });
             }
 
+            // 如果传了自定义 id，还需检查 ID 是否被占用
+            if (id) {
+                const existingId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]);
+                const existingIdRows = (existingId && existingId.rows) ? existingId.rows : (Array.isArray(existingId) ? existingId : []);
+                if (existingIdRows.length > 0) {
+                    return res.status(400).json({ message: '该用户 ID 已被占用' });
+                }
+            }
+
             // 在事务中创建用户，确保插入与审计原子性
             await db.runInTransaction(async (client, usePool) => {
                 // 加密密码
@@ -226,6 +256,13 @@ const adminController = {
                 let values = [username, passwordHash, name];
                 let placeholders = ['$1', '$2', '$3'];
                 let currentPlaceholder = 4;
+
+                // 如果指定了 id
+                if (id) {
+                    columns.push('id');
+                    values.push(id);
+                    placeholders.push(`$${currentPlaceholder++}`);
+                }
 
                 // 管理员插入必须包含 email
                 if (userType === 'admin') {
@@ -251,7 +288,7 @@ const adminController = {
                 const result = await q(insertSql, values);
                 const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
                 // 记录审计（在事务内）
-                try { await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0]?.id, details: { username, name, email } }); } catch (_) { }
+                try { await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0]?.id, details: { username, name, email, custom_id: id } }); } catch (_) { }
 
                 res.status(201).json(standardResponse(true, rows[0], '创建用户成功'));
             });
@@ -307,7 +344,7 @@ const adminController = {
 
             const allowedAdditionalByType = {
                 admin: ['permission_level'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction'],
+                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids'],
                 student: ['profession', 'contact', 'visit_location', 'home_address', 'status']
             };
             const allowedAdditional = allowedAdditionalByType[userType] || [];
@@ -315,14 +352,37 @@ const adminController = {
                 Object.entries(additionalInfo).filter(([key]) => allowedAdditional.includes(key))
             );
 
-            // 若教师/学生表不存在 status 列，则忽略该字段，防止 SQL 错误
-            try {
-                if ((userType === 'teacher' || userType === 'student') && Object.prototype.hasOwnProperty.call(filteredAdditional, 'status')) {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
-                    const hasStatus = (cols.rows || []).length > 0;
-                    if (!hasStatus) {
-                        delete filteredAdditional.status;
+            // 验证 student_ids 并规范化为逗号分隔的字符串
+            if (userType === 'teacher' && filteredAdditional.student_ids) {
+                const idsArr = filteredAdditional.student_ids.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+                if (idsArr.length > 0) {
+                    const checkRes = await db.query(`SELECT id FROM students WHERE id = ANY($1)`, [idsArr]);
+                    const existingIds = checkRes.rows.map(r => Number(r.id));
+                    const missingIds = idsArr.filter(id => !existingIds.includes(Number(id)));
+                    if (missingIds.length > 0) {
+                        return res.status(400).json({ message: `以下学生ID不存在: ${missingIds.join(', ')}` });
                     }
+                    filteredAdditional.student_ids = existingIds.join(',');
+                } else {
+                    filteredAdditional.student_ids = null;
+                }
+            } else if (userType === 'teacher' && Object.prototype.hasOwnProperty.call(additionalInfo, 'student_ids')) {
+                // 如果传入了且为空，则清空
+                filteredAdditional.student_ids = null;
+            }
+
+            // 若教师/学生表不存在 status / student_ids 列，则忽略该字段，防止 SQL 错误
+            try {
+                if (userType === 'teacher' || userType === 'student') {
+                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}'`);
+                    const colNames = (cols.rows || []).map(r => r.column_name);
+                    ['status', 'student_ids'].forEach(f => {
+                        // 补丁：对 teacher 类型且字段为 student_ids 时强行豁免嗅探剔除，确保存入
+                        if (userType === 'teacher' && f === 'student_ids') return;
+                        if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !colNames.includes(f)) {
+                            delete filteredAdditional[f];
+                        }
+                    });
                 }
             } catch (_) { /* 静默处理探测错误 */ }
 
@@ -341,11 +401,14 @@ const adminController = {
                 values.push(name);
                 currentPlaceholder++;
             }
-            if (typeof new_id !== 'undefined') {
-                updates.push(`id = $${currentPlaceholder}`);
-                values.push(parseInt(new_id, 10));
-                currentPlaceholder++;
+            // new_id 仅用于探测是否需要更改主键，不放到常规 updates 数组中
+            let needIdChange = false;
+            let newIdInt = null;
+            if (typeof new_id !== 'undefined' && String(new_id) !== String(id)) {
+                needIdChange = true;
+                newIdInt = parseInt(new_id, 10);
             }
+
             if (userType === 'admin' && typeof email !== 'undefined') {
                 const emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
                 if (!emailRe.test(email)) {
@@ -362,36 +425,74 @@ const adminController = {
                 currentPlaceholder++;
             }
 
-            if (updates.length === 0) {
+            if (updates.length === 0 && !needIdChange) {
                 return res.status(400).json({ message: '无更新字段' });
             }
 
-            values.push(id);
-
-            const query = `
-                UPDATE ${table}
-                SET ${updates.join(', ')}
-                WHERE id = $${currentPlaceholder}
-                RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
-            `;
+            // 如果除了改 ID 还有别的字段，构建 SET 语句
+            let query = '';
+            if (updates.length > 0) {
+                // 如果要改 ID，连同改 ID 一起执行
+                if (needIdChange) {
+                    updates.push(`id = $${currentPlaceholder}`);
+                    values.push(newIdInt);
+                    currentPlaceholder++;
+                }
+                values.push(id); // 为 WHERE id = $... 准备
+                query = `
+                    UPDATE ${table}
+                    SET ${updates.join(', ')}
+                    WHERE id = $${currentPlaceholder}
+                    RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
+                `;
+            } else if (needIdChange) {
+                // 只改了 ID，其他没改
+                values.push(newIdInt); // $1
+                values.push(id); // $2
+                query = `
+                    UPDATE ${table}
+                    SET id = $1
+                    WHERE id = $2
+                    RETURNING id, username, name, ${userType === 'admin' ? 'email' : 'NULL as email'}
+                `;
+            }
 
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
+
+                if (needIdChange) {
+                    // 1. 检查新 ID 冲突
+                    const checkNewId = await q(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
+                    const checkRows = (checkNewId && checkNewId.rows) ? checkNewId.rows : (Array.isArray(checkNewId) ? checkNewId : []);
+                    if (checkRows.length > 0) {
+                        throw Object.assign(new Error('新 ID 已被占用'), { code: '23505' });
+                    }
+
+                    // 2. 模拟外键级联更新 (解决原先报错 23503 的问题)
+                    if (userType === 'teacher') {
+                        await q(`UPDATE course_arrangement SET teacher_id = $1 WHERE teacher_id = $2`, [newIdInt, id]);
+                        await q(`UPDATE teacher_daily_availability SET teacher_id = $1 WHERE teacher_id = $2`, [newIdInt, id]);
+                    } else if (userType === 'student') {
+                        await q(`UPDATE course_arrangement SET student_id = $1 WHERE student_id = $2`, [newIdInt, id]);
+                        await q(`UPDATE student_daily_availability SET student_id = $1 WHERE student_id = $2`, [newIdInt, id]);
+                    } else if (userType === 'admin') {
+                        await q(`UPDATE course_arrangement SET created_by = $1 WHERE created_by = $2`, [newIdInt, id]);
+                        await q(`UPDATE export_logs SET admin_id = $1 WHERE admin_id = $2`, [newIdInt, id]);
+                    }
+                }
+
+                // 3. 更新主表
                 const result = await q(query, values);
                 const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
                 if (!rows[0]) {
-                    // 通过抛错让 runInTransaction 回滚
                     throw Object.assign(new Error('更新失败'), { statusCode: 500 });
                 }
-                try { await recordAudit(req, { op: 'update', entityType: userType, entityId: Number(id), details: { username, name, email, ...filteredAdditional } }); } catch (_) { }
+                try { await recordAudit(req, { op: 'update', entityType: userType, entityId: needIdChange ? newIdInt : Number(id), details: { username, name, email, ...filteredAdditional } }); } catch (_) { }
                 res.json(standardResponse(true, rows[0], '更新用户成功'));
             });
         } catch (error) {
-            if (error && error.code === '23503') {
-                return res.status(409).json(standardResponse(false, null, '修改失败：该用户存在关联的排课记录，若要修改ID等必须先清理关联数据'));
-            }
             if (error && error.code === '23505') {
-                return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被其他记录占用'));
+                return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被占用'));
             }
             console.error('更新用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
@@ -532,7 +633,9 @@ const adminController = {
                     s.name AS student_name, 
                     ca.course_id, 
                     COALESCE(stt.description, stt.name) AS schedule_type_cn, 
-                    ca.location
+                    ca.location,
+                    ca.transport_fee,
+                    ca.other_fee
                 FROM course_arrangement ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN students s ON ca.student_id = s.id
@@ -658,7 +761,9 @@ const adminController = {
                     ca.start_time,
                     ca.end_time,
                     ca.location,
-                    ca.status
+                    ca.status,
+                    ca.transport_fee,
+                    ca.other_fee
                 FROM course_arrangement ca
                 JOIN students s ON ca.student_id = s.id
                 JOIN teachers t ON ca.teacher_id = t.id
@@ -1921,6 +2026,70 @@ const adminController = {
         } catch (error) {
             console.error('删除课程类型错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 管理员更新排课费用
+     * @param {string} req.params.id - 课程ID
+     * @param {number} req.body.transport_fee - 交通费
+     * @param {number} req.body.other_fee - 其他费用
+     */
+    async updateScheduleFees(req, res) {
+        try {
+            const { id } = req.params;
+            const { transport_fee, other_fee } = req.body;
+
+            const tFee = parseFloat(transport_fee) || 0;
+            const oFee = parseFloat(other_fee) || 0;
+
+            if (tFee < 0 || oFee < 0) {
+                return res.status(400).json({ message: '费用不能为负数' });
+            }
+
+            const originalResult = await db.query(
+                'SELECT transport_fee, other_fee FROM course_arrangement WHERE id = $1',
+                [id]
+            );
+
+            if (originalResult.rows.length === 0) {
+                return res.status(404).json({ message: '课程不存在' });
+            }
+
+            const { transport_fee: old_t_fee, other_fee: old_o_fee } = originalResult.rows[0];
+
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+
+                await q(
+                    `UPDATE course_arrangement 
+                     SET transport_fee = $1, other_fee = $2, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $3`,
+                    [tFee, oFee, id]
+                );
+
+                // 尝试写入审计日志（表可能不存在）
+                try {
+                    const tableCheck = await q(`
+                        SELECT table_name 
+                        FROM information_schema.tables 
+                        WHERE table_schema = 'public' AND table_name = 'fee_audit_logs'
+                    `);
+                    if (tableCheck.rows.length > 0) {
+                        await q(
+                            `INSERT INTO fee_audit_logs 
+                            (schedule_id, operator_id, operator_role, old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                            [id, req.user.id, 'admin', old_t_fee, tFee, old_o_fee, oFee]
+                        );
+                    }
+                } catch (_) { /* 忽略审计错误 */ }
+            });
+
+            res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee });
+        } catch (error) {
+            console.error('管理员更新费用错误:', error);
+            res.status(500).json({ message: '服务器错误' });
         }
     }
 };
