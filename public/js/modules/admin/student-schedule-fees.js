@@ -90,13 +90,14 @@
             const data = await window.apiUtils.get('/admin/schedules', {
                 startDate: state.selectedDate,
                 endDate: state.selectedDate,
+                // 不传 studentId 以拉取所有学生的排课 (班主任端需求)
             });
 
             state.schedules = Array.isArray(data) ? data : [];
             renderTable(state.schedules);
         } catch (err) {
             console.error('[StudentScheduleFees] 加载失败:', err);
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:#ef4444;">
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:#ef4444;">
                 加载失败，请重试
             </td></tr>`;
         }
@@ -108,7 +109,7 @@
         if (!tbody) return;
 
         if (!schedules.length) {
-            tbody.innerHTML = `<tr><td colspan="6" class="no-data" style="text-align:center;padding:32px;color:#94a3b8;">
+            tbody.innerHTML = `<tr><td colspan="7" class="no-data" style="text-align:center;padding:32px;color:#94a3b8;">
                 暂无排课记录
             </td></tr>`;
             return;
@@ -126,7 +127,9 @@
             tr.innerHTML = `
                 <td class="ssf-cell ssf-name">${rec.student_name || '-'}</td>
                 <td class="ssf-cell">${rec.teacher_name || '-'}</td>
-                <td class="ssf-cell">${rec.start_time ? rec.start_time.substring(0, 5) : '-'} - ${rec.end_time ? rec.end_time.substring(0, 5) : '-'}</td>
+                <td class="ssf-cell ssf-time-range" style="white-space:nowrap;font-family:monospace;font-size:12px;color:#475569;">
+                    ${rec.start_time ? rec.start_time.substring(0, 5) : '-'} - ${rec.end_time ? rec.end_time.substring(0, 5) : '-'}
+                </td>
                 <td class="ssf-cell">${rec.schedule_type_cn || rec.schedule_type || '-'}</td>
                 <td class="ssf-cell"><span class="ssf-status ${statusClass(rec.status)}">${statusText(rec.status)}</span></td>
                 <td class="ssf-cell ssf-action-cell">
@@ -317,10 +320,13 @@
 
         // 乐观地在网络响应前刷新费用明细表和周表统览
         renderTable(state.schedules);
-        if (window.ScheduleManager && typeof window.ScheduleManager.renderCache === 'function') {
-            window.ScheduleManager.renderCache();
-        } else if (window.ScheduleManager && typeof window.ScheduleManager.loadSchedules === 'function') {
-            window.ScheduleManager.loadSchedules();
+        if (window.ScheduleManager && typeof window.ScheduleManager.loadSchedules === 'function') {
+            // 先尝试内存渲染实现秒开反馈
+            if (typeof window.ScheduleManager.renderCache === 'function') {
+                window.ScheduleManager.renderCache();
+            } else {
+                window.ScheduleManager.loadSchedules(false);
+            }
         }
 
         try {
@@ -334,6 +340,13 @@
 
             window.apiUtils.showToast('费用保存成功', 'success');
             closeModal();
+
+            // 保存成功后，执行定点局部刷新，消除全表重绘闪烁
+            if (window.ScheduleManager && typeof window.ScheduleManager.refreshCell === 'function') {
+                const studentId = state.studentId;
+                const dateKey = state.currentDate; // 费用模块 state 中存有当前日期
+                window.ScheduleManager.refreshCell(studentId, dateKey);
+            }
         } catch (err) {
             console.error('[StudentScheduleFees] 保存费用失败，回滚操作:', err);
             window.apiUtils.showToast('保存失败：' + (err.message || '未知错误'), 'error');

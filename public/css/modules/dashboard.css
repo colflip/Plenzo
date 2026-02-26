@@ -333,6 +333,8 @@ body {
     .main-content {
         margin-left: 0 !important;
         padding: 16px;
+        padding-bottom: 80px !important;
+        /* 确保底部内容（如费用按钮）不被遮挡 */
     }
 }
 

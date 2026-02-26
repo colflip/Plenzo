@@ -7,37 +7,9 @@ const headers = {
 const TIME_ZONE = 'Asia/Shanghai';
 
 // --- Administrator Fee Visibility State ---
-window.adminFeeShow = false;
+// 此部分已移动到 schedule-manager.js，此处移除以避免函数定义冲突
+// 保持 legacy-adapter.js 专注于旧代码的桥接与适配
 
-window.toggleAdminFeeVisibility = function () {
-    window.adminFeeShow = !window.adminFeeShow;
-
-    // 更新按钮文字
-    const btnText = document.getElementById('adminFeeBtnText');
-    if (btnText) {
-        btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    }
-
-    // 更新按钮样式
-    const btn = document.getElementById('toggleAdminFeeBtn');
-    if (btn) {
-        if (window.adminFeeShow) {
-            btn.style.background = '#10b981';
-            btn.style.color = '#fff';
-            btn.style.borderColor = '#10b981';
-        } else {
-            btn.style.background = 'white';
-            btn.style.color = '#10b981';
-            btn.style.borderColor = '#10b981';
-        }
-    }
-
-    // 直接切换已渲染卡片上的费用区块，无需重载整个视图
-    const feeWraps = document.querySelectorAll('.fee-bottom-wrap');
-    feeWraps.forEach(el => {
-        el.style.display = window.adminFeeShow ? 'flex' : 'none';
-    });
-};
 
 
 // 检查 Chart.js 是否可用
@@ -5048,8 +5020,9 @@ async function loadScheduleFormOptions() {
             }
         };
 
-        // 动态可用性检查函数
+        // 动态可用性检查函数 - 已在新版 schedule-manager.js 中由 updateTeacherStatusHints 代替
         const updateTeacherAvailability = async () => {
+            return; // 彻底禁用旧逻辑，避免干扰新版 (Task Refinement)
             const dateInput = document.getElementById('scheduleDate');
             const startInput = document.getElementById('scheduleStartTime');
             const endInput = document.getElementById('scheduleEndTime');
@@ -5063,15 +5036,6 @@ async function loadScheduleFormOptions() {
             if (teacherSel) {
                 preservedTeacherVal = teacherSel.value; // 保存当前选中值
                 teacherSel.disabled = true;
-                // Optional: visual indicator
-                const loadingOpt = document.createElement('option');
-                loadingOpt.textContent = '计算可用性中...';
-                loadingOpt.selected = true;
-                if (teacherSel.firstChild) {
-                    teacherSel.insertBefore(loadingOpt, teacherSel.firstChild);
-                } else {
-                    teacherSel.appendChild(loadingOpt);
-                }
             }
 
             try {

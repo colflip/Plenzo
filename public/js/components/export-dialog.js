@@ -1483,21 +1483,41 @@ window.ExportDialog = (function () {
 
                 fullDateList.forEach(date => {
                     const dayRows = dataByDate[date] || [];
-                    let totalOtherFee = 0;
-                    const teacherTransports = {};
-                    let dailyHasFee = false;
+                    const isSingleStudent = !!studentId && studentId !== 'all-std';
+
+                    // 1. 数据分类与预处理
+                    const groups = {}; // { sName: { teacherTransports: { tName: number }, otherSum: number } }
+                    let dailyHasCompletedOrCancelled = false;
+                    let dailyHasAllCompletedOrCancelled = true; // 默认 true，若有一个不是则为 false
+                    let dayTotal = 0;
 
                     dayRows.forEach(item => {
+                        const sName = item.student_name || item['学生名称'] || item.name || '未知学生';
+                        const tName = item.teacher_name || item.name || item['教师名称'] || '未知老师';
                         const tFee = Number(item.transport_fee || item['交通费'] || item._transport_fee || 0);
                         const oFee = Number(item.other_fee || item['其他费用'] || item._other_fee || 0);
-                        if (tFee > 0 || oFee > 0) dailyHasFee = true;
 
-                        totalOtherFee += oFee;
+                        const statusVal = String(item.status || item['状态']).toLowerCase();
+                        const isFin = ['已完成', 'completed', '已取消', 'cancelled', '2', '0'].includes(statusVal);
+                        if (isFin) {
+                            dailyHasCompletedOrCancelled = true;
+                        } else {
+                            dailyHasAllCompletedOrCancelled = false;
+                        }
 
-                        const tName = item['教师名称'] || item.teacher_name || item.name || '未知老师';
-                        if (!teacherTransports[tName]) teacherTransports[tName] = 0;
-                        teacherTransports[tName] += tFee;
+                        if (!groups[sName]) {
+                            groups[sName] = { teacherTransports: {}, otherSum: 0 };
+                        }
+
+                        if (!groups[sName].teacherTransports[tName]) groups[sName].teacherTransports[tName] = 0;
+                        groups[sName].teacherTransports[tName] += tFee;
+                        groups[sName].otherSum += oFee;
+
+                        dayTotal += (tFee + oFee);
                     });
+
+                    // 如果某天没有课程，不能说“全部课程已完成/取消”
+                    if (dayRows.length === 0) dailyHasAllCompletedOrCancelled = false;
 
                     const formatFee = (val) => {
                         const num = Number(val) || 0;
@@ -1506,45 +1526,89 @@ window.ExportDialog = (function () {
                     };
 
                     let dailyFeeStr = '';
-                    let dailySum = 0;
-                    if (dailyHasFee) {
-                        const teacherNames = Object.keys(teacherTransports);
-                        const parts = [];
+                    const studentNames = Object.keys(groups);
 
-                        if (teacherNames.length === 1) {
-                            const tName = teacherNames[0];
-                            const tFee = teacherTransports[tName];
-                            const tFeeStr = formatFee(tFee);
-                            if (tFeeStr) parts.push(tFeeStr);
-                            dailySum += tFee;
-                        } else {
-                            // 多个老师，分别列出
-                            teacherNames.forEach(name => {
-                                const fee = teacherTransports[name];
-                                const feeStr = formatFee(fee);
-                                if (feeStr) parts.push(`${name}${feeStr}`);
-                                dailySum += fee;
-                            });
+                    if (studentNames.length > 0) {
+                        const studentPortions = [];
+
+                        studentNames.forEach(sName => {
+                            const g = groups[sName];
+                            const tNamesWithFee = Object.keys(g.teacherTransports).filter(tn => g.teacherTransports[tn] > 0);
+                            const p = [];
+
+                            if (isSingleStudent) {
+                                // 单学生模式：逻辑保持现状（按老师聚合）
+                                if (tNamesWithFee.length === 1) {
+                                    const tFee = g.teacherTransports[tNamesWithFee[0]];
+                                    const tf = formatFee(tFee);
+                                    if (tf) p.push(tf);
+                                    const of = formatFee(g.otherSum);
+                                    if (of) p.push(`其他费用${of}`);
+                                } else {
+                                    tNamesWithFee.forEach(tn => {
+                                        const tf = formatFee(g.teacherTransports[tn]);
+                                        if (tf) p.push(`${tn} ${tf}`);
+                                    });
+                                    const of = formatFee(g.otherSum);
+                                    if (of) p.push(`其他费用合计 ${of}`);
+                                }
+                            } else {
+                                // 全体学生模式：按学生聚合
+                                if (tNamesWithFee.length > 0) {
+                                    tNamesWithFee.forEach(tn => {
+                                        const tf = formatFee(g.teacherTransports[tn]);
+                                        if (tf) p.push(`${tn}${tf}`);
+                                    });
+                                }
+                                const of = formatFee(g.otherSum);
+                                if (of) p.push(`其他费用${of}`);
+                            }
+
+                            if (p.length > 0) {
+                                if (isSingleStudent) {
+                                    studentPortions.push(p.join('，'));
+                                } else {
+                                    // 最终写入格式示例：张三：李老师10，张老师10，其他费用20
+                                    // 用户要求删除末尾的分号
+                                    studentPortions.push(`${sName}：${p.join('，')}`);
+                                }
+                            }
+                        });
+
+                        if (studentPortions.length > 0) {
+                            dailyFeeStr = studentPortions.join('\n');
                         }
+                    }
 
-                        const otherFeeStr = formatFee(totalOtherFee);
-                        if (otherFeeStr) parts.push(`其他${otherFeeStr}`);
-                        dailySum += totalOtherFee;
-
-                        dailyFeeStr = parts.join('，');
+                    // 需求 1：单学生姓名输出时，如果课程状态全部是已完成或已取消，且费用和为0，则填入“/”
+                    // 需求 2：全体学生模式下，如果当天的费用和为0且课程状态符合，也填入“/”
+                    if (dailyHasAllCompletedOrCancelled && dayTotal === 0) {
+                        dailyFeeStr = '/';
                     }
                     dailyFees[date] = dailyFeeStr;
 
                     const dObj = new Date(date);
                     const weekNumber = getISOWeekNumber(dObj);
                     const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
-                    if (!weeklyFees[weekKey]) weeklyFees[weekKey] = 0;
-                    weeklyFees[weekKey] += dailySum;
+
+                    if (!weeklyFees[weekKey]) {
+                        weeklyFees[weekKey] = { total: 0, hasValidStatus: false, studentGroups: {} };
+                    }
+
+                    weeklyFees[weekKey].total += dayTotal;
+                    if (dailyHasCompletedOrCancelled) weeklyFees[weekKey].hasValidStatus = true;
+
+                    studentNames.forEach(sName => {
+                        const g = groups[sName];
+                        if (!weeklyFees[weekKey].studentGroups[sName]) weeklyFees[weekKey].studentGroups[sName] = 0;
+                        weeklyFees[weekKey].studentGroups[sName] += (Object.values(g.teacherTransports).reduce((a, b) => a + b, 0) + g.otherSum);
+                    });
                 });
 
                 // 3. 组装结果 (Row Splitting Logic)
                 const resultRows = [];
                 const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                const isSingleStudent = !!studentId && studentId !== 'all-std';
 
                 fullDateList.forEach(date => {
                     const dObj = new Date(date);
@@ -1554,14 +1618,37 @@ window.ExportDialog = (function () {
                     const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
 
                     const feeStr = dailyFees[date] || '';
-                    const weekSumVal = weeklyFees[weekKey] || 0;
-                    const weekSumStr = weekSumVal > 0 ? String(Math.ceil(weekSumVal * 100) / 100) : '';
+
+                    const weekData = weeklyFees[weekKey] || { total: 0, hasValidStatus: false, studentGroups: {} };
+                    let weekSumStr = '';
+
+                    if (isSingleStudent) {
+                        if (weekData.total > 0) {
+                            weekSumStr = String(Math.ceil(weekData.total * 100) / 100);
+                        } else if (weekData.hasValidStatus) {
+                            weekSumStr = '/';
+                        }
+                    } else {
+                        // 全体学生模式：周汇总按学生展示
+                        const sNames = Object.keys(weekData.studentGroups).filter(sn => weekData.studentGroups[sn] > 0);
+                        if (sNames.length > 0) {
+                            const weekPortions = [];
+                            sNames.forEach(sn => {
+                                const val = weekData.studentGroups[sn];
+                                // 最终格式：张三：40
+                                weekPortions.push(`${sn}：${Math.ceil(val * 100) / 100}`);
+                            });
+                            weekSumStr = weekPortions.join('\n');
+                        } else if (weekData.hasValidStatus) {
+                            weekSumStr = '/';
+                        }
+                    }
 
                     const dayRows = dataByDate[date] || [];
 
                     // 如果当天无数据，也输出一行占位
                     if (dayRows.length === 0) {
-                        resultRows.push({
+                        const emptyRow = {
                             '日期': date,
                             '星期': weekStr,
                             '计划安排': '',
@@ -1570,13 +1657,26 @@ window.ExportDialog = (function () {
                             '周汇总': weekSumStr,
                             '_isRedRow': false,
                             '_isSunday': isSunday,
-                            '_weekNumber': weekNumber
-                        });
+                            '_weekNumber': weekNumber,
+                            '_isSingleStudent': isSingleStudent
+                        };
+                        resultRows.push(emptyRow);
                         return;
                     }
 
                     // 按时间排序
                     dayRows.sort((a, b) => (a._sTime || '').localeCompare(b._sTime || ''));
+
+                    const baseRow = {
+                        '日期': date,
+                        '星期': weekStr,
+                        '费用': feeStr,
+                        '周汇总': weekSumStr,
+                        '_isRedRow': false,
+                        '_isSunday': isSunday,
+                        '_weekNumber': weekNumber,
+                        '_isSingleStudent': isSingleStudent
+                    };
 
                     // 分组聚合
                     const timeSlots = {};
@@ -1657,11 +1757,12 @@ window.ExportDialog = (function () {
                                 const detailContent = detailParts.join(', ');
 
                                 // Prefix Logic
-                                const shouldShowStudent = !studentId && sName !== 'Unknown';
+                                const shouldShowStudent = !isSingleStudent && sName !== 'Unknown';
                                 const displayName = sName === 'all-std' ? '全体学生' : sName;
                                 const prefix = shouldShowStudent ? `[${displayName}]` : '';
 
-                                const planLine = `${prefix}${mainTypeStr} (${time}): ${detailContent} `;
+                                const timeStr = time ? `(${time})` : '';
+                                const planLine = `${prefix}${mainTypeStr}${timeStr}：${detailContent}`;
 
                                 // Actual Line Logic
                                 let actualLine = planLine;
@@ -1672,26 +1773,36 @@ window.ExportDialog = (function () {
                                     allTeachers.forEach(t => uniqueMap.set(t.id, t));
                                     const sortedAll = Array.from(uniqueMap.values()).sort((a, b) => Number(a.id) - Number(b.id));
                                     const allT = sortedAll.map(t => t.name).join(',');
-                                    actualLine = `已取消[${allT}, ${mainTypeStr}]`;
+                                    actualLine = `已取消[${allT}，${mainTypeStr}${timeStr}]`;
                                 }
 
-                                // Red Row Logic (if any items were red)
+                                // Red Row Logic
                                 let isRedRow = false;
-                                items.forEach(r => {
-                                    if (r._isRedRow) isRedRow = true;
-                                });
+                                if (actualLine.includes('评审') || actualLine.includes('咨询')) {
+                                    isRedRow = true;
+                                }
 
-                                resultRows.push({
+                                // Row Fee Logic
+                                let rowFeeSum = 0;
+                                items.forEach(r => { rowFeeSum += Number(r.transport_fee || r['交通费'] || r._transport_fee || 0); });
+                                const formatFeeHelper = (val) => {
+                                    const num = Number(val) || 0;
+                                    return num === 0 ? '' : String(Math.ceil(num * 100) / 100);
+                                };
+
+                                const rowToPush = {
                                     '日期': date,
                                     '星期': weekStr,
                                     '计划安排': planLine,
                                     '实际安排': actualLine,
                                     '费用': feeStr,
-                                    '周汇总': weekSumStr,
+                                    '周汇总': weekSumStr, // 无论是否单选，都显示汇总内容
                                     '_isRedRow': isRedRow,
                                     '_isSunday': isSunday,
-                                    '_weekNumber': weekNumber
-                                });
+                                    '_weekNumber': weekNumber,
+                                    '_isSingleStudent': isSingleStudent
+                                };
+                                resultRows.push(rowToPush);
                             });
                         }
 
@@ -1699,31 +1810,45 @@ window.ExportDialog = (function () {
                         group.normalItems.forEach(item => {
                             const type = item._typeName;
                             const teacher = item.teacher_name || item.name || item['教师名称'] || '-';
-                            const shouldShowStudent = !studentId;
+                            const shouldShowStudent = !isSingleStudent;
                             const studentName = item.student_name || item.name || item['学生名称'] || '';
                             const prefix = (shouldShowStudent && studentName) ? `[${studentName}]` : '';
 
-                            const planLine = `${prefix}${type} (${time}): ${teacher} `;
+                            const timeStr = time ? `(${time})` : '';
+                            const planLine = `${prefix}${type}${timeStr}：${teacher}`;
                             let actualLine = planLine;
 
                             const status = item.status || item['状态'];
                             const isCancelled = (status === 'cancelled' || status === '已取消');
 
                             if (isCancelled) {
-                                actualLine = `已取消[${teacher}, ${type}]`;
+                                actualLine = `已取消[${teacher}，${type}${timeStr}]`;
                             }
 
-                            resultRows.push({
+                            let isRedRow = false;
+                            if (actualLine.includes('评审') || actualLine.includes('咨询') || type.includes('评审') || type.includes('咨询')) {
+                                isRedRow = true;
+                            }
+
+                            const formatFeeHelper = (val) => {
+                                const num = Number(val) || 0;
+                                return num === 0 ? '' : String(Math.ceil(num * 100) / 100);
+                            };
+                            const rowFeeSum = Number(item.transport_fee || item['交通费'] || item._transport_fee || 0);
+
+                            const rowToPush = {
                                 '日期': date,
                                 '星期': weekStr,
                                 '计划安排': planLine,
                                 '实际安排': actualLine,
                                 '费用': feeStr,
-                                '周汇总': weekSumStr,
-                                '_isRedRow': false,
+                                '周汇总': weekSumStr, // 无论是否单选，都显示汇总内容
+                                '_isRedRow': isRedRow,
                                 '_isSunday': isSunday,
-                                '_weekNumber': weekNumber
-                            });
+                                '_weekNumber': weekNumber,
+                                '_isSingleStudent': isSingleStudent
+                            };
+                            resultRows.push(rowToPush);
                         });
                     });
                 });
@@ -1756,6 +1881,17 @@ window.ExportDialog = (function () {
                 const currentUser = window.currentUser || {};
                 const userType = passedUserType || currentUser.userType || 'admin';
 
+                // 核心助手：格式化本地日期 (解决时区偏置)
+                const formatLocaleDate = (val) => {
+                    if (!val) return '';
+                    const d = new Date(val);
+                    if (isNaN(d.getTime())) return String(val);
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                };
+
                 // 获取类型名称的辅助函数
                 const getTypeName = (typeIdOrName) => {
                     if (!typeIdOrName) return '';
@@ -1772,15 +1908,7 @@ window.ExportDialog = (function () {
                     // 解析日期和时间
                     let dateStr = row.date || row.arr_date || row.class_date || row['日期'] || '';
                     if (dateStr) {
-                        const d = new Date(dateStr);
-                        if (!isNaN(d.getTime())) {
-                            const year = d.getFullYear();
-                            const month = String(d.getMonth() + 1).padStart(2, '0');
-                            const day = String(d.getDate()).padStart(2, '0');
-                            dateStr = `${year}-${month}-${day}`;
-                        } else if (dateStr.includes('T')) {
-                            dateStr = dateStr.split('T')[0];
-                        }
+                        dateStr = formatLocaleDate(dateStr);
                     }
 
                     // 计算星期
@@ -1892,44 +2020,45 @@ window.ExportDialog = (function () {
                     const teacherStats = aggregateTeacherStats(originalData, studentName);
                     const calendarData = transformToCalendarData(originalData, state.startDate, state.endDate, studentId);
 
-                    // 1. 每日排课明细 (Sheet 1)
-                    // 恢复“费用”和“周汇总”列（原逻辑删除了这两列）
+                    // 1. 每日排课明细 (Sheet 1) - 已按要求移除“周汇总”列
                     const sheet1Data = calendarData.map(row => {
                         return { ...row };
                     });
 
                     // 2. 工作汇总 (Sheet 2)
                     let sheet2Data = [];
+                    const fz = (v) => (v === 0 || v === '0' || !v) ? '/' : v;
                     if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
                         sheet2Data = teacherStats.map(stat => ({
                             '教师姓名': stat['姓名'],
-                            '试教': stat['试教'],
-                            '入户': stat['入户'],
-                            '评审': stat['评审'],
-                            '集体活动': stat['集体活动'],
-                            '咨询': stat['咨询'],
-                            '汇总': stat['汇总'],
+                            '试教': fz(stat['试教']),
+                            '入户': fz(stat['入户']),
+                            '评审': fz(stat['评审']),
+                            '集体活动': fz(stat['集体活动']),
+                            '咨询': fz(stat['咨询']),
+                            '汇总': fz(stat['汇总']),
                             '核对': '未核对' // 修正为可选项状态，默认未核对
                         }));
                     } else {
                         sheet2Data = studentStats.map(stat => ({
                             '学生姓名': stat['姓名'],
-                            '试教': stat['试教'] || 0,
-                            '入户': stat['入户'],
-                            '评审': stat['评审'],
-                            '集体活动': stat['集体活动'],
-                            '咨询': stat['咨询'],
-                            '汇总': stat['汇总'],
+                            '试教': fz(stat['试教']),
+                            '入户': fz(stat['入户']),
+                            '评审': fz(stat['评审']),
+                            '集体活动': fz(stat['集体活动']),
+                            '咨询': fz(stat['咨询']),
+                            '汇总': fz(stat['汇总']),
                             '核对': '未核对'
                         }));
                     }
 
                     // 3. 排课原始记录 (Sheet 3 - 21个列精准映射)
                     const sheet3Data = originalData.map(row => {
-                        const dateStr = row.date || row.class_date || row['日期'] || '';
+                        const dateStr = formatLocaleDate(row.date || row.class_date || row['日期']);
                         const d = new Date(dateStr);
                         const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-                        const weekStr = !isNaN(d.getTime()) ? weekDays[d.getDay()] : '';
+                        // 重要：基于格式化后的 dateStr 重新解析，确保星期同步
+                        const weekStr = dateStr ? weekDays[new Date(dateStr).getDay()] : '';
 
                         const startTime = row.start_time || '';
                         const endTime = row.end_time || '';
@@ -1951,9 +2080,23 @@ window.ExportDialog = (function () {
                             return isNaN(date.getTime()) ? String(val) : date.toLocaleString('zh-CN', { hour12: false });
                         };
 
+                        // 费用 0 处理：仅已完成(completed/2)、已取消(cancelled/0)状态显示为 /
+                        const sVal = String(row.status || '').toLowerCase();
+                        const isFinalStatus = ['completed', '2', 'cancelled', '0'].includes(sVal);
+
+                        let tFeeStr = row.transport_fee !== undefined ? row.transport_fee : '';
+                        if (tFeeStr !== '' && Number(tFeeStr) === 0) {
+                            tFeeStr = isFinalStatus ? '/' : '';
+                        }
+
+                        let oFeeStr = row.other_fee !== undefined ? row.other_fee : '';
+                        if (oFeeStr !== '' && Number(oFeeStr) === 0) {
+                            oFeeStr = isFinalStatus ? '/' : '';
+                        }
+
                         // 构建有序对象
                         return {
-                            '日期': dateStr.includes('T') ? dateStr.split('T')[0] : dateStr,
+                            '日期': dateStr,
                             '星期': weekStr,
                             '教师名称': row.teacher_name || '',
                             '学生名称': row.student_name || '',
@@ -1973,8 +2116,8 @@ window.ExportDialog = (function () {
                             '教师评价内容': row.teacher_comment || '',
                             '学生评分': row.student_rating || '',
                             '学生评价内容': row.student_comment || '',
-                            '交通费': row.transport_fee !== undefined ? row.transport_fee : '',
-                            '其他费用': row.other_fee !== undefined ? row.other_fee : '',
+                            '交通费': tFeeStr,
+                            '其他费用': oFeeStr,
                             '备注': ''
                         };
                     });
@@ -2044,13 +2187,27 @@ window.ExportDialog = (function () {
                         const row = { '姓名': entry.姓名 };
                         // 2 到 n 列：显示所有课程类型名称
                         typeHeaders.forEach(header => {
-                            row[header] = entry.types[header] || 0;
+                            const val = entry.types[header] || 0;
+                            row[header] = val === 0 ? '/' : val;
                         });
-                        // n+1 列：汇总
-                        row['汇总'] = entry.total;
+                        // n+2 列：备注 (先查找以获取汇总字符串)
+                        const statMatch = statsForRemarks.find(s => (s['姓名'] || s['学生姓名']) === entry.姓名);
+
+                        // n+1 列：汇总 (按类型汇总说明)
+                        let sumStr = '';
+                        if (statMatch && statMatch['汇总']) {
+                            sumStr = statMatch['汇总'];
+                        } else {
+                            const parts = [];
+                            typeHeaders.forEach(header => {
+                                const count = entry.types[header] || 0;
+                                if (count > 0) parts.push(`${header}${count}`);
+                            });
+                            sumStr = parts.join('，');
+                        }
+                        row['汇总'] = sumStr || '/';
 
                         // n+2 列：备注
-                        const statMatch = statsForRemarks.find(s => (s['姓名'] || s['学生姓名']) === entry.姓名);
                         let remark = '';
                         if (statMatch) {
                             const detailStr = statMatch['汇总'] || '';
@@ -2155,7 +2312,6 @@ window.ExportDialog = (function () {
 
                     // 记录日期
                     let dateStr = row.date || row.arr_date || row.class_date || row['日期'] || '';
-                    if (dateStr && dateStr.includes('T')) dateStr = dateStr.split('T')[0];
                     if (dateStr) stat.dates.add(dateStr);
 
                     // 时间 Key 用于去重
@@ -2724,6 +2880,27 @@ window.ExportDialog = (function () {
         }
 
         let hasData = false;
+
+        // 助手函数：解析 <b> 标签并返回 ExcelJS RichText 数组
+        const parseRichText = (str) => {
+            if (typeof str !== 'string' || !str.includes('<b>')) return str;
+            const parts = [];
+            const regex = /<b>(.*?)<\/b>/g;
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(str)) !== null) {
+                if (match.index > lastIndex) {
+                    parts.push({ text: str.substring(lastIndex, match.index) });
+                }
+                parts.push({ text: match[1], font: { bold: true, name: '宋体', sz: 11 } });
+                lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < str.length) {
+                parts.push({ text: str.substring(lastIndex) });
+            }
+            return { richText: parts };
+        };
+
         Object.keys(sheets).forEach((sheetName, sheetIndex) => {
             const rawDataList = sheets[sheetName];
             if (Array.isArray(rawDataList) && rawDataList.length > 0) {
@@ -2738,6 +2915,7 @@ window.ExportDialog = (function () {
                     delete newRow._groupType;
                     delete newRow._isSunday;
                     delete newRow._weekNumber;
+                    delete newRow._isSingleStudent;
                     return newRow;
                 });
 
@@ -2753,7 +2931,8 @@ window.ExportDialog = (function () {
                     '备注': 30,
                     '创建时间': 20,
                     '日期': 12,
-                    '类型': 15
+                    '类型': 15,
+                    '星期': 6
                 };
 
                 headers.forEach((key, i) => {
@@ -2770,7 +2949,21 @@ window.ExportDialog = (function () {
                             if (len > maxLength) maxLength = len;
                         }
                     }
-                    colWidths[i] = { wch: Math.min(maxLength + 2, 60) };
+                    if (key === '星期') {
+                        colWidths[i] = { wch: 8 }; // 放宽列宽以防拥挤
+                    } else {
+                        let wch = maxLength + 2;
+                        // 1. 基础财务列缩放 (Step 5729 需求)
+                        if (key === '费用') wch *= 0.5;
+                        else if (key === '周汇总' || key === '汇总') wch *= 0.45;
+
+                        // 2. 精细化调整 (Step 5787 & 5864 需求)
+                        if (sheetIndex === 0 && key === '周汇总') wch *= 1.05; // Sheet 1 周汇总
+                        else if ((sheetIndex === 1 || sheetIndex === 3) && key === '汇总') wch *= 2.24; // Sheet 2/4 汇总 (1.6 * 1.4 = 2.24)
+                        else if (sheetIndex === 3 && key === '备注') wch *= 1.86; // Sheet 4 备注 (1.43 * 1.3 = 1.859)
+
+                        colWidths[i] = { wch: Math.min(Math.max(wch, 10), 60) };
+                    }
                 });
                 ws['!cols'] = colWidths;
 
@@ -2813,8 +3006,11 @@ window.ExportDialog = (function () {
                         }
                     }
 
-                    // --- 费用列合并（与日期列相同逻辑）---
+                    // --- 费用列与周汇总列合并（按日期和周次）---
                     const feeColIdx = headers.indexOf('费用');
+                    const weekSumColIdx = headers.indexOf('周汇总');
+
+                    // 费用列按“日期”合并 (无论是否单选学生)
                     if (feeColIdx !== -1) {
                         let feeStartRow = 1;
                         for (let i = 1; i < rawDataList.length; i++) {
@@ -2828,31 +3024,27 @@ window.ExportDialog = (function () {
                                 feeStartRow = currentRowIdx;
                             }
                         }
-                        // 合并最后一块
                         if (rawDataList.length - feeStartRow > 0) {
                             ws['!merges'].push({ s: { r: feeStartRow, c: feeColIdx }, e: { r: rawDataList.length, c: feeColIdx } });
                         }
                     }
 
-                    // --- 周汇总列合并（按周合并）---
-                    const weekSummaryColIdx = headers.indexOf('周汇总');
-                    if (weekSummaryColIdx !== -1) {
-                        let weekSummaryStartRow = 1;
+                    // 周汇总列按“周次”合并 (无论是否单选学生)
+                    if (weekSumColIdx !== -1) {
+                        let weekStartRow = 1;
                         for (let i = 1; i < rawDataList.length; i++) {
                             const prev = rawDataList[i - 1];
                             const curr = rawDataList[i];
                             const currentRowIdx = i + 1;
-                            // 当周次变化时进行合并
                             if (curr._weekNumber !== prev._weekNumber) {
-                                if ((i) - weekSummaryStartRow > 0) {
-                                    ws['!merges'].push({ s: { r: weekSummaryStartRow, c: weekSummaryColIdx }, e: { r: i, c: weekSummaryColIdx } });
+                                if ((i) - weekStartRow > 0) {
+                                    ws['!merges'].push({ s: { r: weekStartRow, c: weekSumColIdx }, e: { r: i, c: weekSumColIdx } });
                                 }
-                                weekSummaryStartRow = currentRowIdx;
+                                weekStartRow = currentRowIdx;
                             }
                         }
-                        // 合并最后一块
-                        if (rawDataList.length - weekSummaryStartRow > 0) {
-                            ws['!merges'].push({ s: { r: weekSummaryStartRow, c: weekSummaryColIdx }, e: { r: rawDataList.length, c: weekSummaryColIdx } });
+                        if (rawDataList.length - weekStartRow > 0) {
+                            ws['!merges'].push({ s: { r: weekStartRow, c: weekSumColIdx }, e: { r: rawDataList.length, c: weekSumColIdx } });
                         }
                     }
                 }
@@ -2929,24 +3121,37 @@ window.ExportDialog = (function () {
                                 cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
                             }
 
-                            // c. 评审/咨询/试教类 -> 红色文字 (但管理员导出的汇总与统计表除外)
-                            const isCoreField = headerVal.includes('计划') || headerVal.includes('实际') || headerVal.includes('类型');
-                            const isStatField = headerVal === '评审' || headerVal === '咨询' || headerVal === '试教';
+                            // c. 评审/咨询类 -> 红色文字 (仅限工作表1)
+                            const isCoreField = headerVal.includes('计划安排') || headerVal.includes('实际安排') || headerVal.includes('类型');
 
-                            if (isCoreField || isStatField) {
-                                const isExcludedSheet = (sheetIndex === 1 || sheetIndex === 2 || sheetIndex === 3) && userType === 'admin';
-                                const shouldBeRed = (isRedRow || (isStatField && Number(value) > 0)) && !isExcludedSheet;
-
-                                if (shouldBeRed) {
+                            if (sheetIndex === 0) {
+                                if (isCoreField && isRedRow) {
                                     cell.s.font.color = { rgb: "FF0000" };
                                 } else {
                                     cell.s.font.color = { rgb: "000000" };
                                 }
+                            } else {
+                                // Sheet 2, 3, 4 全部使用黑色
+                                cell.s.font.color = { rgb: "000000" };
                             }
 
-                            // d. 费用/汇总列特殊对齐
-                            if (headerVal === '费用' || headerVal === '周汇总' || headerVal === '汇总') {
+                            // d. 费用/汇总/统计列特殊对齐 (右对齐 + 底部对齐)
+                            const s2RightBottom = ['试教', '入户', '评审', '集体活动', '咨询', '汇总'];
+                            const s4RightBottom = ['入户', '试教', '评审', '评审记录', '半次入户', '集体活动', '咨询', '(线上)评审', '(线上)入户', '(线上)咨询', '咨询记录', '汇总'];
+
+                            const isFinanceHeader = headerVal === '费用' || headerVal === '周汇总' || headerVal === '汇总';
+                            const needsRightBottom = isFinanceHeader ||
+                                (sheetIndex === 1 && s2RightBottom.includes(headerVal)) ||
+                                (sheetIndex === 3 && s4RightBottom.includes(headerVal));
+
+                            if (needsRightBottom) {
                                 cell.s.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
+
+                                // 清理可能残留的标签并取消加粗
+                                if (typeof value === 'string') {
+                                    cell.v = value.replace(/<b>/g, '').replace(/<\/b>/g, '');
+                                }
+                                cell.s.font.bold = false;
                             }
                         }
                     }

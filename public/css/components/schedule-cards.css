@@ -114,14 +114,34 @@
     font-weight: bold;
 }
 
-.schedule-card.status-cancelled {
-    border-style: dotted;
-    opacity: 0.85;
-    border-color: var(--status-cancelled-border);
+.schedule-card.status-cancelled,
+.schedule-card-group.status-cancelled,
+.schedule-row.status-cancelled {
+    border-style: dotted !important;
+    opacity: 0.25 !important;
+    /* 深度降低透明度 */
+    filter: grayscale(1) !important;
+    /* 全置灰滤镜 */
+    background-color: #f1f5f9 !important;
+    /* 强制浅灰背景覆盖彩色背景 */
+    pointer-events: none;
+    /* 防止多余交互 */
+    font-style: italic !important;
+    border-color: #cbd5e1 !important;
 }
 
-.schedule-card.status-cancelled .card-content {
-    text-decoration: line-through;
+.status-cancelled .card-content,
+.status-cancelled .row-left,
+.status-cancelled .teacher-name,
+.status-cancelled .course-type-text,
+.status-cancelled .item-student,
+.status-cancelled .item-type,
+.status-cancelled .card-body,
+.status-cancelled .time-text,
+.status-cancelled .location-text {
+    text-decoration: line-through !important;
+    /* 强制所有文本删除线 */
+    color: #94a3b8 !important;
 }
 
 /* Chip Styles */

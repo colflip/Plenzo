@@ -922,6 +922,9 @@
 .schedule-status-badge.cancelled {
     background-color: #fee2e2;
     color: #991b1b;
+    opacity: 0.6;
+    font-style: italic;
+    text-decoration: line-through;
 }
 
 .course-card {
@@ -1006,6 +1009,9 @@
 .course-status-badge.status-cancelled {
     background-color: #fee2e2;
     color: #991b1b;
+    opacity: 0.6;
+    font-style: italic;
+    text-decoration: line-through;
 }
 
 .course-card-footer {
@@ -1330,6 +1336,14 @@
 
 .schedule-card.cancelled {
     border-left: 3px solid #F44336;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.schedule-card.cancelled .card-body,
+.schedule-card.cancelled .item-student,
+.schedule-card.cancelled .item-type {
+    text-decoration: line-through;
 }
 
 .card-header {
