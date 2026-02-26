@@ -2081,6 +2081,29 @@ const adminController = {
             console.error('管理员更新费用错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
+    },
+
+    async getTeacherConflicts(req, res) {
+        try {
+            const { date, startTime, endTime, excludeScheduleId } = req.query;
+            if (!date || !startTime || !endTime) return res.status(400).json({ message: '缺少参数' });
+            let sql = `SELECT teacher_id FROM course_arrangement WHERE class_date = $1 AND status != 'cancelled' AND (start_time < $3 AND end_time > $2)`;
+            const ps = [date, startTime, endTime];
+            if (excludeScheduleId) { sql += ` AND id != $4`; ps.push(excludeScheduleId); }
+            const cR = await db.query(sql, ps);
+            const aR = await db.query(`SELECT teacher_id, morning_available, afternoon_available, evening_available FROM teacher_daily_availability WHERE date = $1`, [date]);
+            const resMap = {};
+            (cR.rows || []).forEach(c => { resMap[c.teacher_id] = { hasClass: true }; });
+            const sH = parseInt(startTime.split(':')[0]);
+            (aR.rows || []).forEach(a => {
+                let u = false;
+                if (sH < 12 && a.morning_available === 0) u = true;
+                else if (sH >= 12 && sH < 18 && a.afternoon_available === 0) u = true;
+                else if (sH >= 18 && a.evening_available === 0) u = true;
+                if (u) { if (!resMap[a.teacher_id]) resMap[a.teacher_id] = {}; resMap[a.teacher_id].isUnavailable = true; }
+            });
+            res.json(resMap);
+        } catch (e) { res.status(500).json({ message: '服务器错误' }); }
     }
 };
 

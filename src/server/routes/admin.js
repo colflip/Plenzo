@@ -21,6 +21,7 @@ router.delete('/users/:userType/:id', authMiddleware, adminOnly, adminController
 // 排课管理路由
 router.get('/schedules', authMiddleware, adminOnly, validate(scheduleValidation.query, 'query'), adminController.getSchedules);
 router.get('/teacher-availability', authMiddleware, adminOnly, adminController.getTeacherAvailabilityGrid);
+router.get('/teachers/conflicts', authMiddleware, adminOnly, adminController.getTeacherConflicts);
 router.post('/teacher-availability', authMiddleware, adminOnly, adminController.updateTeacherAvailability);
 
 router.get('/student-availability', authMiddleware, adminOnly, adminController.getStudentAvailabilityGrid);

@@ -9,7 +9,7 @@ console.log('[Schedule-Manager] 🚀 模块开始加载...');
 console.log('[Schedule-Manager] TIME_ZONE导入成功:', TIME_ZONE);
 
 // --- Global State ---
-window.adminFeeShow = true;
+window.adminFeeShow = false;
 
 window.toggleAdminFeeVisibility = function () {
     window.adminFeeShow = !window.adminFeeShow;
@@ -565,6 +565,32 @@ export const WeeklyDataStore = {
                 localStorage.removeItem(k);
             }
         });
+    },
+
+    /**
+     * 局部更新内存中的排课数据
+     * @param {Object|number} recordOrId - 完整的排课记录对象或 ID (删除时)
+     * @param {boolean} isDelete - 是否为删除操作
+     */
+    updateLocalRecord(recordOrId, isDelete = false) {
+        const key = 'admin_all_schedules';
+        const cache = this.schedules.get(key);
+        if (!cache || !Array.isArray(cache.rows)) return;
+
+        if (isDelete) {
+            cache.rows = cache.rows.filter(r => String(r.id) !== String(recordOrId));
+        } else {
+            const idx = cache.rows.findIndex(r => String(r.id) === String(recordOrId.id));
+            if (idx !== -1) {
+                // 更新已存在的记录
+                cache.rows[idx] = { ...cache.rows[idx], ...recordOrId };
+            } else {
+                // 添加新记录
+                cache.rows.push(recordOrId);
+            }
+        }
+        // 同步到本地持久化
+        this._saveToLocal(key, cache.rows);
     }
 };
 
@@ -578,9 +604,59 @@ console.log('[Schedule-Manager] 验证挂载:', {
 
 // --- Main Logic ---
 
-// --- Main Logic ---
+/**
+ * 局部刷新特定单元格
+ * @param {number|string} studentId 
+ * @param {string} dateKey (ISO 格式)
+ */
+export async function refreshCell(studentId, dateKey) {
+    const tbody = document.getElementById('weeklyBody');
+    if (!tbody) return;
 
-export async function loadSchedules() {
+    // 定位目标单元格
+    const td = tbody.querySelector(`tr[data-student-id="${studentId}"] td[data-date="${dateKey}"]`);
+    if (!td) {
+        console.warn('[Refresh-Cell] 未找到单元格:', { studentId, dateKey });
+        return;
+    }
+
+    try {
+        // 从内存 Store 获取最新数据（不触网）
+        const schedules = await WeeklyDataStore.getSchedules(dateKey, dateKey, null, null, null, false);
+        const cellItems = schedules.filter(s => {
+            if (String(s.student_id) === String(studentId)) return true;
+            if (s.student_ids) {
+                return String(s.student_ids).split(',').some(id => String(id.trim()) === String(studentId));
+            }
+            return false;
+        });
+
+        // 执行局部重绘
+        td.innerHTML = '';
+        if (cellItems.length === 0) {
+            td.innerHTML = '<div class="no-schedule">-</div>';
+        } else {
+            // 获取学生信息
+            const studentList = await WeeklyDataStore.getStudents();
+            const student = studentList.find(s => String(s.id) === String(studentId));
+            renderGroupedMergedSlots(td, cellItems, student || { id: studentId, name: '未知学生' }, dateKey);
+        }
+    } catch (e) {
+        console.error('[Refresh-Cell] 失败:', e);
+    }
+}
+
+/**
+ * 加载并渲染排课数据
+ * @param {boolean} force - 是否强制从服务器重新获取数据（跳过缓存）
+ */
+export async function loadSchedules(force = false) {
+    if (force) {
+        // 如果是强制刷新，先清除本地内存缓存
+        WeeklyDataStore.invalidateSchedules();
+        window.__weeklyForceRefresh = true;
+    }
+
     // 获取表格容器,添加加载遮罩
     const weeklyTableContainer = document.querySelector('#schedule .weekly-table-container');
     let loadingOverlay = null;
@@ -1077,7 +1153,11 @@ function buildAdminScheduleCard(group, student, dateKey) {
     const card = document.createElement('div');
     card.classList.add('schedule-card-group', `slot-${slot}`);
 
-    // Hover effect handled by CSS (User Request: Hover style, no click needed)
+    // 如果该组内所有记录都是已取消，则给整卡添加 status-cancelled
+    const allCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
+    if (allCancelled) {
+        card.classList.add('status-cancelled');
+    }
 
     // Content Container
     const content = document.createElement('div');
@@ -1089,7 +1169,11 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
     group.forEach(rec => {
         const row = document.createElement('div');
+        const st = (rec.status || 'pending').toLowerCase();
         row.className = 'schedule-row';
+        if (st === 'cancelled') {
+            row.classList.add('status-cancelled');
+        }
         row.dataset.scheduleId = rec.id; // Critical for optimisticDelete
         row.title = '点击修改';
         row.style.cursor = 'pointer';
@@ -1118,7 +1202,6 @@ function buildAdminScheduleCard(group, student, dateKey) {
         row.appendChild(left);
 
         // Right: Status Select (Quick Change)
-        const st = (rec.status || 'pending').toLowerCase();
         const statusSelect = document.createElement('select');
         statusSelect.className = `status-select ${st}`;
         statusSelect.dataset.lastStatus = st; // Store for revert
@@ -1311,6 +1394,15 @@ export async function deleteSchedule(id) {
             }
         }
 
+        // 更新本地内存并执行局部刷新，彻底消除全表重绘闪烁
+        WeeklyDataStore.updateLocalRecord(id, true);
+
+        // 获取受影响的日期以便刷新单元格
+        const dateKey = backup.originalData.date;
+        const studentId = backup.originalData.student_id;
+
+        await refreshCell(studentId, dateKey);
+
         window.apiUtils.showSuccessToast('删除成功');
     } catch (e) {
         console.error('[删除排课] 失败:', e);
@@ -1364,6 +1456,9 @@ function openCellEditor(student, dateISO) {
         form.querySelector('#scheduleTypeSelect').value = '';
         form.querySelector('#scheduleTeacher').value = '';
         if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = 'confirmed';
+
+        // 首次加载后触发一次冲突检测
+        updateTeacherStatusHints();
 
         // 应用表单记忆
         applyFormMemory();
@@ -1451,6 +1546,9 @@ export async function editSchedule(id) {
         container.style.display = 'block';
         form.dataset.snapshot = JSON.stringify(data);
 
+        // 编辑模式下初始触发一次冲突检测
+        updateTeacherStatusHints();
+
     } catch (err) {
         console.error('[加载排课详情] 失败:', err);
         window.apiUtils.showToast('加载详情失败', 'error');
@@ -1471,18 +1569,35 @@ async function loadScheduleFormOptions() {
 
     const teacherSel = document.getElementById('scheduleTeacher');
     const studentSel = document.getElementById('scheduleStudent');
-
     const [teachers, students] = await Promise.all([WeeklyDataStore.getTeachers(), WeeklyDataStore.getStudents()]);
 
     if (teacherSel) {
         teacherSel.innerHTML = '<option value="">选择教师</option>';
+        const restricted = [];
+        const normal = [];
+
         teachers.forEach(t => {
             if (String(t.status) == '-1') return;
             const o = document.createElement('option');
-            o.value = t.id; o.textContent = t.name + (String(t.status) == '0' ? '(暂停)' : '');
-            teacherSel.appendChild(o);
+            o.value = t.id; o.dataset.baseName = t.name;
+            o.textContent = t.name + (String(t.status) == '0' ? '(暂停)' : '');
+            if (parseInt(t.restriction) === 1) restricted.push(o);
+            else normal.push(o);
         });
+
+        restricted.forEach(o => teacherSel.appendChild(o));
+        if (restricted.length > 0 && normal.length > 0) {
+            const sep = document.createElement('option');
+            sep.disabled = true;
+            sep.value = '';
+            sep.textContent = '──────────';
+            sep.style.color = '#ccc';
+            sep.style.textAlign = 'center';
+            teacherSel.appendChild(sep);
+        }
+        normal.forEach(o => teacherSel.appendChild(o));
     }
+
     if (studentSel) {
         studentSel.innerHTML = '<option value="">选择学生</option>';
         students.forEach(s => {
@@ -1493,22 +1608,55 @@ async function loadScheduleFormOptions() {
         });
     }
 
-    // Auto-fill Location on Student Change
-    if (studentSel) {
-        studentSel.addEventListener('change', async (e) => {
-            const sid = e.target.value;
-            const locInput = document.getElementById('scheduleLocation');
-            if (sid && locInput && !locInput.value) {
-                try {
-                    const list = await WeeklyDataStore.getStudents();
-                    const student = list.find(s => String(s.id) === String(sid));
-                    if (student && student.visit_location) {
-                        locInput.value = student.visit_location;
-                    }
-                } catch (_) { }
+    // 表单变动监听：日期、开始/结束时间变化时更新老师状态提示
+    const form = document.getElementById('scheduleForm');
+    if (form) {
+        const fields = ['#scheduleDate', '#scheduleStartTime', '#scheduleEndTime'].map(id => form.querySelector(id));
+        fields.forEach(f => {
+            if (f && !f.dataset.listenerAttached) {
+                f.addEventListener('change', () => updateTeacherStatusHints());
+                f.dataset.listenerAttached = 'true';
             }
         });
     }
+}
+
+/**
+ * 实时更新教师选择框中的冲突状态提示词
+ */
+async function updateTeacherStatusHints() {
+    const form = document.getElementById('scheduleForm');
+    const teacherSel = document.getElementById('scheduleTeacher');
+    if (!form || !teacherSel) return;
+
+    const date = form.querySelector('#scheduleDate')?.value;
+    const start = form.querySelector('#scheduleStartTime')?.value;
+    const end = form.querySelector('#scheduleEndTime')?.value;
+    const excludeId = form.dataset.id;
+
+    if (!date || !start || !end) return;
+
+    try {
+        const params = { date, startTime: start, endTime: end };
+        if (excludeId) params.excludeScheduleId = excludeId;
+
+        const conflicts = await window.apiUtils.get('/admin/teachers/conflicts', params);
+
+        Array.from(teacherSel.options).forEach(opt => {
+            if (!opt.value) return;
+            const tId = opt.value;
+            const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim();
+            if (!opt.dataset.baseName) opt.dataset.baseName = baseName;
+
+            let hint = '';
+            const status = conflicts[tId];
+            if (status) {
+                if (status.hasClass) hint = ' (已有排课)';
+                else if (status.isUnavailable) hint = ' (个人无空闲)';
+            }
+            opt.textContent = baseName + hint;
+        });
+    } catch (e) { console.warn('[ScheduleManager] 冲突检测失败:', e); }
 }
 
 export async function setupScheduleEventListeners() {
@@ -1634,6 +1782,26 @@ export async function setupScheduleEventListeners() {
 
                 // 立即关闭表单
                 document.getElementById('scheduleFormContainer').style.display = 'none';
+
+                // 局部更新流程：
+                // 1. 对于新增或修改，通常我们会收到完整的 record。
+                // 2. 如果后端只返回了 ID，我们需要根据 ID 全量拉取一次或在此处通过 API 获取单条，
+                //    但为了最快响应且保持逻辑简单，我们在操作成功后执行一次静默的 getAllSchedules(true) 
+                //    并仅重绘变动的单元格。
+
+                // 由于后端目前只返回 ID，我们先强制同步内存，但不触发全局 UI 重载
+                await WeeklyDataStore.getAllSchedules(true);
+
+                // 提取日期和学生 ID 进行定点刷新
+                const studentId = formData.studentIds ? (Array.isArray(formData.studentIds) ? formData.studentIds[0] : formData.studentIds) : null;
+                const dateKey = formData.date;
+
+                if (studentId && dateKey) {
+                    await refreshCell(studentId, dateKey);
+                } else {
+                    // 如果定位失败，退回到全局刷新（无 Overlay）
+                    await loadSchedules(false);
+                }
             } catch (err) {
                 console.error('[保存排课] 失败:', err);
 
@@ -1731,3 +1899,18 @@ async function initScheduleFilters() {
         } catch (e) { console.warn('Init teacher filter failed', e); }
     }
 }
+
+// =============================================================================
+// 模块接口导出 - 置于末尾确保所有依赖已初始化 (避免 TDZ ReferenceError)
+// =============================================================================
+window.ScheduleManager = {
+    loadSchedules: (force = true) => loadSchedules(force), // 默认强制刷新
+    refreshCell: refreshCell, // 导出局部刷新
+    WeeklyDataStore: WeeklyDataStore,
+    renderCache: () => {
+        // 渲染当前内存中的数据，不发网络请求
+        loadSchedules(false);
+    }
+};
+
+console.log('[Schedule-Manager] ✅ ScheduleManager 接口已就绪');

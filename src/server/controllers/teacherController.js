@@ -1109,7 +1109,6 @@ const teacherController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.student_id = ANY($1::int[])
-                  AND ca.status != 'cancelled'
                   AND ${dateExpr} BETWEEN $2 AND $3
                 ORDER BY date, ca.start_time
             `;

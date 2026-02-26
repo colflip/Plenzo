@@ -41,10 +41,8 @@ window.toggleTeacherStudentFeeVisibility = function () {
     }
 
     // 重新渲染当前页的记录，使得费用新增按钮根据状态展示或隐藏
-    if (cachedSchedules && cachedSchedules.length > 0) {
-        const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
-        renderSchedulesGrid(weekDates, cachedSchedules);
-    }
+    const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
+    renderSchedulesGrid(weekDates, cachedSchedules, cachedStudents);
 };
 
 export async function initStudentSchedulesSection() {
@@ -304,7 +302,14 @@ async function loadSchedules(baseDate) {
     const feedback = document.getElementById('ssScheduleFeedback');
 
     const body = document.getElementById('ssWeeklyBody');
-    if (body) body.innerHTML = '<div style="padding:20px; text-align:center;">加载中...</div>';
+    if (body) {
+        body.innerHTML = `
+            <div class="flex flex-col items-center justify-center" style="min-height: 300px; width: 100%; grid-column: 1 / -1;">
+                <div class="loading-spinner mb-4" style="width: 40px; height: 40px; border-width: 3px;"></div>
+                <div style="color: var(--color-gray-500); font-size: 15px; font-weight: 500;">正在加载学生课程安排...</div>
+            </div>
+        `;
+    }
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -472,8 +477,10 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 schedulesByDate: data.schedulesByDate
             };
         });
-        uniqueStudents.sort((a, b) => a.student_name.localeCompare(b.student_name, 'zh-Hans-CN'));
     }
+
+    // 统一按学号 (student_id) 从小到大排列
+    uniqueStudents.sort((a, b) => a.student_id - b.student_id);
 
     if (uniqueStudents.length === 0) {
         const emptyRow = document.createElement('tr');
@@ -633,9 +640,13 @@ function buildCompactMobileScheduleCard(group) {
 
     // 教师与学生与课程信息
     group.forEach((schedule, index) => {
-        const teacherName = schedule.teacher_name || '未知老师';
         const typeLabel = schedule.schedule_type_cn || schedule.schedule_type || '课程';
-        const status = (schedule.status || 'pending').toLowerCase();
+        const st = (schedule.status || 'pending').toLowerCase();
+        const status = st;
+
+        if (st === 'cancelled') {
+            card.classList.add('status-cancelled');
+        }
 
         let typeClass = 'type-default';
         if (typeLabel.includes('入户')) typeClass = 'type-visit';
@@ -773,12 +784,21 @@ function buildScheduleCard(group) {
     const card = createElement('div', `schedule-card-group slot-${slot}`);
     // 取消此处低优先级的内联颜色绑定以免干扰 html2canvas 的 CSSOM 读取，完全让权给全局 dashboard.css (白底+顶部彩线框)
 
+    // 如果整组取消，置灰整卡
+    const allCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
+    if (allCancelled) {
+        card.classList.add('status-cancelled');
+    }
+
     const content = createElement('div', 'card-content');
     const listDiv = createElement('div', 'schedule-list');
 
     group.forEach(rec => {
         const row = createElement('div', 'schedule-row');
         const st = (rec.status || 'pending').toLowerCase();
+        if (st === 'cancelled') {
+            row.classList.add('status-cancelled');
+        }
 
         const left = createElement('div', 'row-left marquee-wrapper');
         const typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';

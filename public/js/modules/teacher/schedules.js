@@ -234,8 +234,11 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const slotId = getTimeSlotFromStartTime(first.start_time);
     const slotClass = slotId ? `slot-${slotId}` : 'slot-unspecified';
 
+    // 检测是否整组取消
+    const isAllCancelled = scheduleGroup.every(s => (s.status || '').toLowerCase() === 'cancelled');
+
     // 创建卡片容器，保持时间槽颜色
-    const card = createElement('div', `group-picker-item ${slotClass}`);
+    const card = createElement('div', `group-picker-item ${slotClass}${isAllCancelled ? ' status-cancelled' : ''}`);
     // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
     // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
     card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
@@ -502,7 +505,10 @@ function buildScheduleCard(group) {
     };
     const theme = colors[slot];
 
-    const card = createElement('div', `schedule-card-group slot-${slot}`);
+    // 检测是否整组取消
+    const isAllCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
+
+    const card = createElement('div', `schedule-card-group slot-${slot}${isAllCancelled ? ' status-cancelled' : ''}`);
     card.style.backgroundColor = theme.bg;
     card.style.borderColor = theme.border;
     card.style.borderWidth = '1px';
@@ -515,7 +521,8 @@ function buildScheduleCard(group) {
     const listDiv = createElement('div', 'schedule-list');
 
     group.forEach(rec => {
-        const row = createElement('div', 'schedule-row');
+        const isCancelled = (rec.status || '').toLowerCase() === 'cancelled';
+        const row = createElement('div', `schedule-row${isCancelled ? ' status-cancelled' : ''}`);
         row.title = '点击修改详情';
         row.style.cursor = 'pointer';
 
