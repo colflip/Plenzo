@@ -79,9 +79,13 @@ class ApiUtils {
                 const status = response.status;
                 const serverMsg = (data && data.message) || '';
                 const defaultMsg = this.friendlyMessageFromStatus(status);
-                const msg = status === 401
-                    ? '认证令牌已过期，请重新登录'
-                    : (serverMsg || defaultMsg || '请求失败');
+
+                // 优化 401 消息逻辑：有后端消息优先用后端消息，否则才是令牌过期词
+                let msg = serverMsg || defaultMsg || '请求失败';
+                if (status === 401 && !serverMsg) {
+                    msg = '认证令牌已过期，请重新登录';
+                }
+
                 const err = new ApiError(msg, status, data && data.errors, url);
                 this.handleError(err, !options.suppressErrorToast, options.suppressConsole);
                 throw err;
@@ -180,8 +184,17 @@ class ApiUtils {
         // 401先提示再跳转
         if (error.status === 401) {
             if (showToast) this.showErrorToast(error);
+
+            // 如果是登录接口，不执行清除和跳转词
+            if (error.endpoint && (error.endpoint.includes('/auth/login') || error.endpoint.includes('/login'))) {
+                return error;
+            }
+
             this.clearAuthToken();
-            window.location.href = '/';
+            // 如果不在首页，则跳转到首页词
+            if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') {
+                window.location.href = '/';
+            }
             return error;
         }
 

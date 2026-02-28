@@ -28,6 +28,9 @@ router.patch('/schedules/:id/fees', authMiddleware, teacherController.updateSche
 
 // 班主任管理关联学生
 router.get('/student-schedules', authMiddleware, teacherController.getHeadTeacherStudentSchedules);
+router.get('/student-schedules/export', authMiddleware, teacherController.exportHeadTeacherStudentData);
+router.get('/associated-students', authMiddleware, teacherController.getAssociatedStudents);
+router.get('/all-teachers', authMiddleware, teacherController.getAllTeachers);
 router.post('/batch-fees', authMiddleware, teacherController.batchUpdateScheduleFees);
 
 // 总览数据

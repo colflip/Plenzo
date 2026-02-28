@@ -662,7 +662,7 @@
                 <a href="#" class="nav-item" data-section="student-schedules" id="navStudentSchedules"
                     style="display: none;">
                     <span class="material-icons-round">groups</span>
-                    <span class="nav-text">学生课程安排</span>
+                    <span class="nav-text">学生排课管理</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -974,6 +974,13 @@
                             onclick="window.toggleTeacherStudentFeeVisibility()">
                             <span style="font-style: normal; font-size: 15px; font-weight: 600;">¥</span>&nbsp;<span
                                 id="teacherStudentFeeBtnText">显示费用</span>
+                        </button>
+                        <button id="exportTeacherStudentsBtn" class="add-btn btn-outline"
+                            style="margin-left: 8px; background-color: #10b981; color: white; border: 1px solid #10b981; transition: all 0.2s ease;"
+                            onmouseover="this.style.backgroundColor='#059669'; this.style.color='white';"
+                            onmouseout="this.style.backgroundColor='#10b981'; this.style.color='white';">
+                            <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                            导出数据
                         </button>
                     </div>
                     <div id="ssScheduleFeedback" class="feedback" style="display:none;"></div>

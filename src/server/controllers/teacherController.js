@@ -1,4 +1,7 @@
 const db = require('../db/db');
+const ExportUtils = require('../utils/exportUtils');
+const AdvancedExportService = require('../utils/advancedExportService');
+const { standardResponse } = require('../middleware/validation');
 
 const SLOT_COLUMNS = Object.freeze({
     morning: 'morning_available',
@@ -1186,6 +1189,220 @@ const teacherController = {
         } catch (error) {
             console.error('批量更新费用错误:', error);
             res.status(500).json({ message: error.message || '服务器错误' });
+        }
+    },
+
+    /**
+     * 获取班主任分配的学生列表
+     */
+    async getAssociatedStudents(req, res) {
+        try {
+            const teacherId = req.user.id;
+            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
+            if (teacherResult.rows.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+            }
+
+            const studentIdsStr = teacherResult.rows[0].student_ids || '';
+            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+            if (studentIds.length === 0) {
+                return res.json(standardResponse(true, [], '未绑定学生'));
+            }
+
+            const studentsResult = await db.query(
+                'SELECT id, name FROM students WHERE id = ANY($1::int[]) ORDER BY name',
+                [studentIds]
+            );
+            res.json(standardResponse(true, studentsResult.rows, '获取学生列表成功'));
+        } catch (error) {
+            console.error('获取关联学生列表错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 获取所有教师列表 (用于班主任导出筛选)
+     */
+    async getAllTeachers(req, res) {
+        try {
+            const result = await db.query(
+                `SELECT id, name FROM teachers WHERE status != -1 ORDER BY name`
+            );
+            res.json(standardResponse(true, result.rows, '获取教师列表成功'));
+        } catch (error) {
+            console.error('获取教师列表错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 班主任导出其关联的学生数据
+     */
+    async exportHeadTeacherStudentData(req, res) {
+        try {
+            const { startDate, endDate, student_id, teacher_id } = req.query;
+            const myTeacherId = req.user.id;
+
+            // 1. 获取并验证权限：这些学生是否真的归该班主任管
+            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [myTeacherId]);
+            if (teacherResult.rows.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+            }
+
+            const allowedStudentIdsStr = teacherResult.rows[0].student_ids || '';
+            const allowedStudentIds = allowedStudentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+            if (allowedStudentIds.length === 0) {
+                return res.status(400).json(standardResponse(false, null, '您未绑定任何学生，无法导出数据'));
+            }
+
+            // 2. 确定最终要查询的学生范围
+            let studentIdsToQuery = allowedStudentIds;
+            if (student_id) {
+                const sId = parseInt(student_id);
+                if (!allowedStudentIds.includes(sId)) {
+                    return res.status(403).json(standardResponse(false, null, '您无权导出该学生的数据'));
+                }
+                studentIdsToQuery = [sId];
+            }
+
+            // 3. 构建过滤后的排课记录
+            const exportService = new AdvancedExportService(db);
+
+            // 验证日期范围
+            try {
+                if (!startDate || !endDate) throw new Error('开始日期和结束日期不能为空');
+                exportService.validateDateRange(startDate, endDate);
+            } catch (vError) {
+                return res.status(400).json(standardResponse(false, null, vError.message));
+            }
+
+            const dateExpr = await getDateExpr('ca');
+            let sql = `
+                SELECT 
+                    ca.id as schedule_id,
+                    ca.teacher_id,
+                    t.name as teacher_name,
+                    ca.student_id,
+                    s.name as student_name,
+                    ${dateExpr}::date as date,
+                    ca.start_time,
+                    ca.end_time,
+                    (TO_CHAR(ca.start_time, 'HH24:MI') || '-' || TO_CHAR(ca.end_time, 'HH24:MI')) as time_range,
+                    ca.location,
+                    st.id as course_id,
+                    st.name as type_name,
+                    COALESCE(st.description, st.name) as type_desc,
+                    ca.status,
+                    ca.teacher_comment as notes,
+                    ca.created_at,
+                    ca.updated_at,
+                    ca.last_auto_update,
+                    ca.created_by,
+                    ca.transport_fee,
+                    ca.other_fee,
+                    ca.family_participants,
+                    ca.teacher_rating,
+                    ca.student_rating,
+                    ca.student_comment
+                FROM course_arrangement ca
+                LEFT JOIN teachers t ON ca.teacher_id = t.id
+                LEFT JOIN students s ON ca.student_id = s.id
+                LEFT JOIN schedule_types st ON ca.course_id = st.id
+                WHERE ${dateExpr}::date BETWEEN $1 AND $2
+                AND ca.student_id = ANY($3::int[])
+            `;
+
+            const params = [startDate, endDate, studentIdsToQuery];
+
+            if (teacher_id) {
+                params.push(parseInt(teacher_id));
+                sql += ` AND ca.teacher_id = $${params.length}`;
+            }
+
+            sql += ` ORDER BY ${dateExpr} DESC, ca.start_time ASC`;
+
+            const result = await db.query(sql, params);
+            const rawData = result.rows || [];
+
+            if (rawData.length === 0) {
+                return res.json(standardResponse(true, [], '没有找到匹配的记录'));
+            }
+
+            // 4. 格式化原始数据（与管理员端 exportTeacherSchedule 格式一致）
+            const exportData = rawData.map(row => ({
+                schedule_id: row.schedule_id,
+                teacher_id: row.teacher_id,
+                teacher_name: row.teacher_name || '',
+                student_id: row.student_id,
+                student_name: row.student_name || '',
+                date: row.date,
+                start_time: row.start_time,
+                end_time: row.end_time,
+                time_range: row.time_range,
+                location: row.location || '',
+                type: row.type_name || '',
+                type_desc: row.type_desc || '',
+                status: row.status,
+                notes: row.notes || '',
+                created_at: row.created_at,
+                updated_at: row.updated_at || null,
+                last_auto_update: row.last_auto_update || null,
+                created_by: row.created_by || null,
+                transport_fee: row.transport_fee,
+                other_fee: row.other_fee,
+                course_id: row.course_id,
+                family_participants: row.family_participants,
+                teacher_rating: row.teacher_rating,
+                teacher_comment: row.notes || '',
+                student_rating: row.student_rating,
+                student_comment: row.student_comment || ''
+            }));
+
+            // 5. 生成文件名：[学生姓名]上课记录_[日期段]by[教师ID]_时间戳
+            let studentNameForFilename = '全部学生';
+            if (student_id) {
+                const studentResult = await db.query('SELECT name FROM students WHERE id = $1', [parseInt(student_id)]);
+                if (studentResult.rows.length > 0) {
+                    studentNameForFilename = studentResult.rows[0].name;
+                }
+            }
+
+            const dateRangeStr = `${startDate.replace(/-/g, '')}-${endDate.replace(/-/g, '')}`;
+            const timestamp = exportService.getTimestamp();
+            const filename = `[${studentNameForFilename}]上课记录_${dateRangeStr}by${myTeacherId}_${timestamp}.xlsx`;
+
+            // 6. 记录审计日志
+            try {
+                const { recordAudit } = require('../middleware/audit');
+                await recordAudit(req, {
+                    op: 'export_headteacher_students_advanced',
+                    entityType: 'teacher',
+                    entityId: Number(myTeacherId),
+                    details: {
+                        startDate,
+                        endDate,
+                        studentId: student_id || 'all',
+                        teacherId: teacher_id || 'all',
+                        recordCount: rawData.length
+                    }
+                });
+            } catch (auditError) {
+                console.warn('记录班主任导出审计日志失败:', auditError.message);
+            }
+
+            res.json({
+                success: true,
+                data: exportData,
+                filename: filename,
+                format: 'excel',
+                recordCount: exportData.length
+            });
+
+        } catch (error) {
+            console.error('班主任导出学生数据错误:', error);
+            res.status(500).json(standardResponse(false, null, '导出数据失败，请稍后重试'));
         }
     }
 
