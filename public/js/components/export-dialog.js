@@ -1327,12 +1327,20 @@ window.ExportDialog = (function () {
             }
             let filename = '';
 
-            // 优先使用后端返回的文件名，但在 "老师授课记录" 和 "学生排课记录" 场景下，强制使用前端生成的格式
-            if (exportResult && exportResult.filename &&
-                state.selectedType !== EXPORT_TYPES.TEACHER_SCHEDULE &&
-                state.selectedType !== EXPORT_TYPES.STUDENT_SCHEDULE) {
-                filename = exportResult.filename;
-            } else {
+            // 文件名生成逻辑
+            if (exportResult && exportResult.filename) {
+                // 教师端直接使用后端返回的文件名（后端已按需求格式生成）
+                if (userType === 'teacher') {
+                    filename = exportResult.filename;
+                } else if (state.selectedType !== EXPORT_TYPES.TEACHER_SCHEDULE &&
+                           state.selectedType !== EXPORT_TYPES.STUDENT_SCHEDULE) {
+                    // 管理端的非排课类型使用后端文件名
+                    filename = exportResult.filename;
+                }
+            }
+
+            // 如果后端没有返回文件名，或管理端排课类型，使用前端生成的格式
+            if (!filename) {
                 if (userType === 'admin') {
                     // 管理员格式
                     // 授课记录指定时间 -> 这里的 typeConfig.label 可能是 "教师授课记录" 或 "学生授课记录"
@@ -1364,8 +1372,7 @@ window.ExportDialog = (function () {
                     // 格式：教师授课/学生排课记录[学生筛选][老师筛选][导出日期段][导出人用户名]_当前时间戳
                     filename = `${coreName}[${studentFilterStr}][${teacherFilterStr}]${dateRangeStr}[${adminName}]_${timestamp}`;
                 } else {
-                    // 教师/学生格式
-                    // [姓名]授课记录[开始_结束]_当前
+                    // 学生格式
                     const myName = appUser.name || appUser.username || '用户';
 
                     filename = `[${myName}]授课记录${dateRangeStr}_${timestamp}`;
