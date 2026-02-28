@@ -59,6 +59,13 @@ export async function initStudentSchedulesSection() {
     }
     bindNavigation();
     bindFeeModalEvents();
+
+    // 绑定导出学生数据按钮
+    const exportBtn = document.getElementById('exportTeacherStudentsBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportTeacherStudents);
+    }
+
     await loadSchedules(currentWeekStart);
 }
 
@@ -643,6 +650,7 @@ function buildCompactMobileScheduleCard(group) {
         const typeLabel = schedule.schedule_type_cn || schedule.schedule_type || '课程';
         const st = (schedule.status || 'pending').toLowerCase();
         const status = st;
+        const teacherName = schedule.teacher_name || '未指定教师';
 
         if (st === 'cancelled') {
             card.classList.add('status-cancelled');
@@ -653,13 +661,13 @@ function buildCompactMobileScheduleCard(group) {
         else if (typeLabel.includes('试教')) typeClass = 'type-trial';
         else if (typeLabel.includes('评审')) typeClass = 'type-review';
 
-        const nameSpan = createElement('span', '', { textContent: teacherName, style: 'font-weight: 500; font-size: 15px;' });
+        const nameSpan = createElement('span', '', { textContent: teacherName, style: 'font-weight: 600; font-size: 15px; color: #1e293b;' });
         card.appendChild(nameSpan);
-        card.appendChild(document.createTextNode('（'));
+        card.appendChild(document.createTextNode(' ('));
 
         const typeChip = createElement('span', `chip ${typeClass}`, { textContent: typeLabel });
         card.appendChild(typeChip);
-        card.appendChild(document.createTextNode('，'));
+        card.appendChild(document.createTextNode(', '));
 
         const statusSelect = createElement('select', `status-select ${status}`);
         statusSelect.dataset.lastStatus = status;
@@ -704,24 +712,24 @@ function buildCompactMobileScheduleCard(group) {
         });
 
         card.appendChild(statusSelect);
-        card.appendChild(document.createTextNode('）'));
+        card.appendChild(document.createTextNode(')'));
 
-        if (index < group.length - 1) card.appendChild(document.createTextNode('，'));
+        if (index < group.length - 1) card.appendChild(document.createTextNode(', '));
     });
 
-    card.appendChild(document.createTextNode('，'));
+    // 时间显示
+    const timeText = formatTimeRange(first.start_time, first.end_time);
+    const timeInfo = createElement('div', '', { style: 'margin-top: 4px; font-size: 14px; color: #475569; display: flex; align-items: center; gap: 4px;' });
+    timeInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`;
+    card.appendChild(timeInfo);
 
-    const timeText = formatTimeRange(first);
-    card.appendChild(createElement('span', '', { textContent: timeText, style: 'font-size: 15px; font-weight: 500;' }));
-    card.appendChild(document.createTextNode('，'));
-
+    // 地点显示
     const loc = first.location || '';
-    card.appendChild(createElement('span', '', {
-        innerHTML: loc ? loc : '<span style="font-style: italic; color: #9CA3AF;">地点待定</span>',
-        style: 'color: #9CA3AF; font-size: 14px;'
-    }));
+    const locInfo = createElement('div', '', { style: 'margin-top: 2px; font-size: 14px; color: #64748b; display: flex; align-items: center; gap: 4px;' });
+    locInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`;
+    card.appendChild(locInfo);
 
-    // 费用挂载
+    // 费用显示逻辑
     let mTotalTransport = 0;
     let mTotalOther = 0;
     group.forEach(s => {
@@ -730,12 +738,12 @@ function buildCompactMobileScheduleCard(group) {
     });
     const mHasFee = mTotalTransport > 0 || mTotalOther > 0;
 
-    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; align-items: center; justify-content: center; gap: 6px;' });
+    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; display: flex; align-items: center; gap: 6px;' });
     feeWrapper.style.display = window.teacherStudentFeeShow ? 'flex' : 'none';
 
     if (mHasFee) {
         const feeInfo = createElement('span', '', {
-            style: 'font-size: 12px; color: #d97706; background: #fef3c7; padding: 3px 8px; border-radius: 4px; cursor: pointer;'
+            style: 'font-size: 12px; color: #d97706; background: #fef3c7; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: 500;'
         });
         feeInfo.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -749,7 +757,7 @@ function buildCompactMobileScheduleCard(group) {
     } else {
         const feeBtn = createElement('button', 'add-fee-btn', {
             textContent: '添加费用',
-            style: 'padding: 2px 8px; font-size: 11px; min-width: auto; height: 22px; margin: 0 auto;'
+            style: 'padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px dashed #d1d5db; background: transparent; color: #6b7280; cursor: pointer;'
         });
         feeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -758,9 +766,7 @@ function buildCompactMobileScheduleCard(group) {
         feeWrapper.appendChild(feeBtn);
     }
 
-    if (feeWrapper.hasChildNodes()) {
-        card.appendChild(feeWrapper);
-    }
+    card.appendChild(feeWrapper);
 
     return card;
 }
@@ -1114,5 +1120,19 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
         if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
+    }
+}
+
+/**
+ * 导出班主任关联的学生数据
+ */
+async function exportTeacherStudents() {
+    if (window.ExportDialog) {
+        window.ExportDialog.open({
+            type: 'teacher_schedule'
+        });
+    } else {
+        console.error('ExportDialog not found');
+        if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
     }
 }
