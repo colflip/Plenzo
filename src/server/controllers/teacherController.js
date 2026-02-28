@@ -1371,7 +1371,7 @@ const teacherController = {
 
             const dateRangeStr = `${startDate.replace(/-/g, '')}_${endDate.replace(/-/g, '')}`;
             const timestamp = exportService.getTimestamp();
-            const filename = `[${studentNameForFilename}]记录明细及统计[${dateRangeStr}]_${timestamp}.xlsx`;
+            const filename = `[${studentNameForFilename}]入户记录明细及统计[${dateRangeStr}]_${timestamp}.xlsx`;
 
             // 6. 记录审计日志
             try {

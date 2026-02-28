@@ -471,6 +471,23 @@ ca.id as schedule_id,
         const groupKey = role === 'teacher' ? 'student_name' : 'teacher_name';
         const stats = {};
 
+        // 类型归一化映射：线上类型 → 基础类型
+        const normalizeType = (typeName) => {
+            if (!typeName) return typeName;
+            const lower = String(typeName).toLowerCase();
+            // 线上入户 → 入户
+            if (lower.includes('线上入户') || lower.includes('（线上）入户') || lower === 'visit_online' || lower === 'online_visit') return '入户';
+            // 线上评审 → 评审
+            if (lower.includes('线上评审') || lower.includes('（线上）评审') || lower === 'review_online' || lower === 'online_review') return '评审';
+            // 线上咨询 → 咨询
+            if (lower.includes('线上咨询') || lower.includes('（线上）咨询') || lower === 'consultation_online' || lower === 'online_consultation' || lower === 'advisory_online') return '咨询';
+            // 线上评审记录 → 评审记录
+            if (lower.includes('线上评审记录') || lower.includes('（线上）评审记录') || lower === 'review_record_online') return '评审记录';
+            // 线上咨询记录 → 咨询记录
+            if (lower.includes('线上咨询记录') || lower.includes('（线上）咨询记录') || lower === 'consultation_record_online') return '咨询记录';
+            return typeName;
+        };
+
         rawData.forEach(row => {
             const name = row[groupKey] || '未知';
             if (!stats[name]) {
@@ -487,7 +504,8 @@ ca.id as schedule_id,
                 };
             }
 
-            const type = row.type_name;
+            // 归一化类型名称（线上类型等效为线下类型）
+            const type = normalizeType(row.type_name);
             if (type && stats[name].hasOwnProperty(type)) {
                 stats[name][type]++;
             } else if (type === '入户课') { // 兼容旧名称

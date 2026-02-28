@@ -88,7 +88,12 @@ window.ExportDialog = (function () {
     // ============ 类型标准化工具 ============
     /**
      * 标准化类型名称（英文key）
-     * 将线上类型统一为基础类型：review_online → review, visit_online → visit
+     * 将线上类型统一为基础类型：
+     * - review_online → review
+     * - visit_online → visit
+     * - consultation_online → consultation
+     * - review_record_online → review_record
+     * - consultation_record_online → consultation_record
      * @param {string} typeKey - 类型英文标识 (如 review, review_online, visit, visit_online)
      * @returns {string} 标准化后的类型英文标识
      */
@@ -98,12 +103,18 @@ window.ExportDialog = (function () {
         if (lower === 'review_online' || lower === 'online_review') return 'review';
         // 线上入户 → 入户
         if (lower === 'visit_online' || lower === 'online_visit') return 'visit';
+        // 线上咨询 → 咨询
+        if (lower === 'consultation_online' || lower === 'online_consultation' || lower === 'advisory_online' || lower === 'online_advisory') return 'consultation';
+        // 线上评审记录 → 评审记录
+        if (lower === 'review_record_online' || lower === 'online_review_record') return 'review_record';
+        // 线上咨询记录 → 咨询记录
+        if (lower === 'consultation_record_online' || lower === 'online_consultation_record') return 'consultation_record';
         return lower;
     };
 
     /**
      * 标准化类型中文描述
-     * 将（线上）评审/（线上）入户统一为评审/入户
+     * 将（线上）评审/（线上）入户/（线上）咨询统一为基础类型
      * @param {string} typeDesc - 类型中文描述 (如 评审, （线上）评审, 入户, （线上）入户)
      * @returns {string} 标准化后的中文描述
      */
@@ -113,6 +124,12 @@ window.ExportDialog = (function () {
         if (desc === '（线上）评审' || desc === '(线上)评审' || desc === '线上评审') return '评审';
         // （线上）入户 / 线上入户 → 入户
         if (desc === '（线上）入户' || desc === '(线上)入户' || desc === '线上入户') return '入户';
+        // （线上）咨询 / 线上咨询 → 咨询
+        if (desc === '（线上）咨询' || desc === '(线上)咨询' || desc === '线上咨询') return '咨询';
+        // （线上）评审记录 / 线上评审记录 → 评审记录
+        if (desc === '（线上）评审记录' || desc === '(线上)评审记录' || desc === '线上评审记录') return '评审记录';
+        // （线上）咨询记录 / 线上咨询记录 → 咨询记录
+        if (desc === '（线上）咨询记录' || desc === '(线上)咨询记录' || desc === '线上咨询记录') return '咨询记录';
         return desc;
     };
 
@@ -2383,22 +2400,41 @@ window.ExportDialog = (function () {
                     } else {
                         typeKey = String(typeVal || '');
                     }
-                    typeKey = typeKey.toLowerCase();
+                    
+                    // 标准化处理：线上类型 → 基础类型
+                    typeKey = normalizeTypeKey(typeKey);
 
                     // 统计逻辑
-                    if (typeKey === 'visit' || typeKey === 'half_visit' || /visit/i.test(typeKey)) {
+                    if (typeKey === 'visit' || typeKey === 'half_visit') {
                         stat.visitSet.add(timeKey);
-                    } else if (typeKey === 'review' || typeKey === 'review_record' || /review/i.test(typeKey)) {
+                    } else if (typeKey === 'review' || typeKey === 'review_record') {
                         // 评审 和 评审记录 都算作评审，且去重
                         stat.reviewSet.add(timeKey);
-                    } else if (typeKey === 'trial' || /trial/i.test(typeKey)) {
+                    } else if (typeKey === 'trial') {
                         stat.trial++;
-                    } else if (typeKey === 'consultation' || /consultation/i.test(typeKey)) {
+                    } else if (typeKey === 'consultation' || typeKey === 'consultation_record') {
                         stat.consultation++;
-                    } else if (typeKey === 'group_activity' || /group/i.test(typeKey)) {
+                    } else if (typeKey === 'group_activity') {
                         stat.group_activity++;
                     } else {
-                        stat.others++;
+                        // Regex fallbacks only if strict match fails
+                        if (/half_visit/i.test(typeKey)) {
+                            stat.visitSet.add(timeKey);
+                        } else if (/visit/i.test(typeKey)) {
+                            stat.visitSet.add(timeKey);
+                        } else if (/review_record/i.test(typeKey)) {
+                            stat.reviewSet.add(timeKey);
+                        } else if (/review/i.test(typeKey)) {
+                            stat.reviewSet.add(timeKey);
+                        } else if (/trial/i.test(typeKey)) {
+                            stat.trial++;
+                        } else if (/consultation/i.test(typeKey)) {
+                            stat.consultation++;
+                        } else if (/group/i.test(typeKey)) {
+                            stat.group_activity++;
+                        } else {
+                            stat.others++;
+                        }
                     }
                 });
 

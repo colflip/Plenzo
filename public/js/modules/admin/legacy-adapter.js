@@ -4037,25 +4037,32 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = ''
                 const lower = trimmed.toLowerCase();
 
                 // 辅助匹配函数（同时匹配 Code / ID / 中文名）
-                // ID对照: 1=visit, 5=half_visit, 3=review, 4=review_record, 6=group_activity, 7=advisory
+                // ID对照: 1=visit, 5=half_visit, 3=review, 4=review_record, 6=group_activity, 7=advisory/consultation
                 const isType = (code, id, name) => {
                     return lower === code || trimmed == id || lower === name;
                 };
 
-                // 折算规则
-                if (isType('visit', 1, '入户') || lower.includes('线上入户') || lower.includes('（线上）入户') || lower.includes('(线上)入户')) {
+                // 辅助函数：检查是否为线上类型
+                const isOnlineType = (baseName) => {
+                    return lower.includes(`线上${baseName}`) || lower.includes(`（线上）${baseName}`) || lower.includes(`(线上)${baseName}`);
+                };
+
+                // 折算规则（线上类型等效为线下类型）
+                if (isType('visit', 1, '入户') || isOnlineType('入户')) {
                     typeCounts.visit += 1;
                 } else if (isType('half_visit', 5, '半次入户')) {
                     typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || lower.includes('线上评审') || lower.includes('（线上）评审') || lower.includes('(线上)评审')) {
+                } else if (isType('review', 3, '评审') || isOnlineType('评审')) {
                     typeCounts.review += 1;
-                } else if (isType('review_record', 4, '评审记录')) {
+                } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录')) {
                     typeCounts.review += 1;    // 评审记录 = 1次评审
                     typeCounts.visit += 0.5;   // + 0.5次入户
-                } else if (isType('group_activity', 6, '集体活动') || lower === 'group') { // 兼容旧代码'group'
+                } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
                     typeCounts.group += 1;
-                } else if (isType('advisory', 7, '咨询') || lower === 'consult' || lower.includes('线上辅导') || lower.includes('线上咨询') || lower.includes('心理咨询')) { // 兼容旧代码'consult'
+                } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult' || isOnlineType('咨询') || lower.includes('线上辅导') || lower.includes('心理咨询')) {
                     typeCounts.consult += 1;
+                } else if (lower.includes('咨询记录') || isOnlineType('咨询记录')) {
+                    typeCounts.consult += 1;    // 咨询记录 = 1次咨询
                 } else if (lower.includes('试教')) {
                     // 试教暂不计入或计入特定类型？用户未提及，暂忽略或保持未匹配
                     console.log(`[Teacher-Chart] 忽略类型: "${trimmed}"`);
@@ -5989,6 +5996,11 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
             consult: 0     // 咨询
         };
 
+        // 辅助函数：检查是否为线上类型
+        const isOnlineType = (baseName, lower) => {
+            return lower.includes(`线上${baseName}`) || lower.includes(`（线上）${baseName}`) || lower.includes(`(线上)${baseName}`);
+        };
+
         stuRows.forEach(r => {
             const typesStr = String(r.schedule_types || '').trim();
             const types = typesStr ? typesStr.split(',') : [];
@@ -6000,20 +6012,22 @@ function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStudent = ''
                     return lower === code || trimmed == id || lower === name;
                 };
 
-                // 折算规则
-                if (isType('visit', 1, '入户') || lower.includes('线上入户') || lower.includes('（线上）入户') || lower.includes('(线上)入户')) {
+                // 折算规则（线上类型等效为线下类型）
+                if (isType('visit', 1, '入户') || isOnlineType('入户', lower)) {
                     typeCounts.visit += 1;
                 } else if (isType('half_visit', 5, '半次入户')) {
                     typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || lower.includes('线上评审') || lower.includes('（线上）评审') || lower.includes('(线上)评审')) {
+                } else if (isType('review', 3, '评审') || isOnlineType('评审', lower)) {
                     typeCounts.review += 1;
-                } else if (isType('review_record', 4, '评审记录')) {
+                } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录', lower)) {
                     typeCounts.review += 1;    // 评审记录 = 1次评审
                     typeCounts.visit += 0.5;   // + 0.5次入户
                 } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
                     typeCounts.group += 1;
-                } else if (isType('advisory', 7, '咨询') || lower === 'consult' || lower.includes('线上辅导') || lower.includes('线上咨询') || lower.includes('心理咨询')) {
+                } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult' || isOnlineType('咨询', lower) || lower.includes('线上辅导') || lower.includes('心理咨询')) {
                     typeCounts.consult += 1;
+                } else if (lower.includes('咨询记录') || isOnlineType('咨询记录', lower)) {
+                    typeCounts.consult += 1;    // 咨询记录 = 1次咨询
                 }
             });
         });
