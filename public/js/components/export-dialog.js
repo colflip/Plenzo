@@ -2097,31 +2097,13 @@ window.ExportDialog = (function () {
                         return { ...row };
                     });
 
-                    // 2. 工作汇总 (Sheet 2)
+                    // 2. 教师授课/学生上课统计 (Sheet 2)
                     let sheet2Data = [];
                     const fz = (v) => (v === 0 || v === '0' || !v) ? '/' : v;
                     if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
-                        sheet2Data = teacherStats.map(stat => ({
-                            '教师姓名': stat['姓名'],
-                            '试教': fz(stat['试教']),
-                            '入户': fz(stat['入户']),
-                            '评审': fz(stat['评审']),
-                            '集体活动': fz(stat['集体活动']),
-                            '咨询': fz(stat['咨询']),
-                            '汇总': fz(stat['汇总']),
-                            '核对': '未核对' // 修正为可选项状态，默认未核对
-                        }));
+                        sheet2Data = teacherStats;
                     } else {
-                        sheet2Data = studentStats.map(stat => ({
-                            '学生姓名': stat['姓名'],
-                            '试教': fz(stat['试教']),
-                            '入户': fz(stat['入户']),
-                            '评审': fz(stat['评审']),
-                            '集体活动': fz(stat['集体活动']),
-                            '咨询': fz(stat['咨询']),
-                            '汇总': fz(stat['汇总']),
-                            '核对': '未核对'
-                        }));
+                        sheet2Data = studentStats;
                     }
 
                     // 3. 排课原始记录 (Sheet 3 - 21个列精准映射)
@@ -2292,8 +2274,8 @@ window.ExportDialog = (function () {
                     });
 
                     const sheetNames = state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE ?
-                        ['每日排课明细', '教师授课汇总', '排课原始记录', '教师授课统计'] :
-                        ['每日排课明细', '学生上课汇总', '排课原始记录', '学生上课统计'];
+                        ['每日排课明细', '教师授课统计', '排课原始记录', '教师授课汇总'] :
+                        ['每日排课明细', '学生上课统计', '排课原始记录', '学生上课汇总'];
 
                     return {
                         [sheetNames[0]]: sheet1Data,
@@ -2368,14 +2350,20 @@ window.ExportDialog = (function () {
                     if (!statsMap.has(studentName)) {
                         statsMap.set(studentName, {
                             name: studentName,
-                            // trial: 0, // Removed per request
+                            trial: 0,
+                            visit: 0,
+                            half_visit: 0,
+                            review: 0,
+                            review_record: 0,
                             consultation: 0,
+                            consultation_record: 0,
                             group_activity: 0,
+                            online_visit: 0,
+                            online_review: 0,
+                            online_consultation: 0,
                             others: 0,
-                            // 用于去重计数: key = date + '_' + start_time
                             visitSet: new Set(),
                             reviewSet: new Set(),
-
                             dates: new Set()
                         });
                     }
@@ -2389,7 +2377,7 @@ window.ExportDialog = (function () {
                     // 时间 Key 用于去重
                     let startTime = row.start_time || '';
                     if (startTime && startTime.length > 5) startTime = startTime.substring(0, 5);
-                    const timeKey = `${dateStr}_${startTime} `; // e.g. "2023-01-01_10:00"
+                    const timeKey = `${dateStr}_${startTime}`;
 
                     // 类型判断
                     let typeKey = '';
@@ -2400,83 +2388,75 @@ window.ExportDialog = (function () {
                     } else {
                         typeKey = String(typeVal || '');
                     }
-                    
-                    // 标准化处理：线上类型 → 基础类型
-                    typeKey = normalizeTypeKey(typeKey);
+                    typeKey = typeKey.toLowerCase();
 
-                    // 统计逻辑
-                    if (typeKey === 'visit' || typeKey === 'half_visit') {
+                    // 判断是否为线上类型
+                    const isOnline = typeKey.includes('online') || typeKey.includes('线上');
+
+                    // 分类统计（线上类型单独统计）
+                    if (typeKey === 'visit' || (!isOnline && /visit/i.test(typeKey) && !typeKey.includes('half'))) {
+                        stat.visit++;
                         stat.visitSet.add(timeKey);
-                    } else if (typeKey === 'review' || typeKey === 'review_record') {
-                        // 评审 和 评审记录 都算作评审，且去重
+                    } else if (typeKey === 'half_visit' || typeKey.includes('half_visit')) {
+                        stat.half_visit++;
+                    } else if (typeKey === 'review' || (!isOnline && /review/i.test(typeKey) && !typeKey.includes('record'))) {
+                        stat.review++;
                         stat.reviewSet.add(timeKey);
-                    } else if (typeKey === 'trial') {
+                    } else if (typeKey === 'review_record' || (!isOnline && /review_record/i.test(typeKey))) {
+                        stat.review_record++;
+                        stat.reviewSet.add(timeKey);
+                    } else if (typeKey === 'trial' || /trial/i.test(typeKey)) {
                         stat.trial++;
-                    } else if (typeKey === 'consultation' || typeKey === 'consultation_record') {
+                    } else if (typeKey === 'consultation' || typeKey === 'advisory' || (!isOnline && /consultation|advisory/i.test(typeKey) && !typeKey.includes('record'))) {
                         stat.consultation++;
-                    } else if (typeKey === 'group_activity') {
+                    } else if (typeKey === 'consultation_record' || (!isOnline && /consultation_record|advisory_record/i.test(typeKey))) {
+                        stat.consultation_record++;
+                    } else if (typeKey === 'group_activity' || /group/i.test(typeKey)) {
                         stat.group_activity++;
+                    } else if (isOnline && /visit/i.test(typeKey) && !typeKey.includes('half')) {
+                        stat.online_visit++;
+                        stat.visitSet.add(timeKey);
+                    } else if (isOnline && /review/i.test(typeKey) && !typeKey.includes('record')) {
+                        stat.online_review++;
+                        stat.reviewSet.add(timeKey);
+                    } else if (isOnline && /consultation|advisory/i.test(typeKey) && !typeKey.includes('record')) {
+                        stat.online_consultation++;
                     } else {
-                        // Regex fallbacks only if strict match fails
-                        if (/half_visit/i.test(typeKey)) {
-                            stat.visitSet.add(timeKey);
-                        } else if (/visit/i.test(typeKey)) {
-                            stat.visitSet.add(timeKey);
-                        } else if (/review_record/i.test(typeKey)) {
-                            stat.reviewSet.add(timeKey);
-                        } else if (/review/i.test(typeKey)) {
-                            stat.reviewSet.add(timeKey);
-                        } else if (/trial/i.test(typeKey)) {
-                            stat.trial++;
-                        } else if (/consultation/i.test(typeKey)) {
-                            stat.consultation++;
-                        } else if (/group/i.test(typeKey)) {
-                            stat.group_activity++;
-                        } else {
-                            stat.others++;
-                        }
+                        stat.others++;
                     }
                 });
 
                 const result = [];
                 statsMap.forEach(stat => {
-                    // 计算日期范围
-                    let dateRangeStr = '';
-                    if (state.startDate && state.endDate) {
-                        const s = state.startDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-                        const e = state.endDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-                        dateRangeStr = `${s}至${e} `;
-                    } else {
-                        const sortedDates = Array.from(stat.dates).sort();
-                        if (sortedDates.length > 0) {
-                            dateRangeStr = sortedDates.length === 1 ? sortedDates[0] : `${sortedDates[0]}至${sortedDates[sortedDates.length - 1]} `;
-                        }
-                    }
+                    // 计算汇总
+                    const totalVisit = stat.visit + stat.half_visit * 0.5 + stat.online_visit;
+                    const totalReview = stat.review + stat.review_record + stat.online_review;
+                    const totalConsultation = stat.consultation + stat.consultation_record + stat.online_consultation;
 
-                    // 学生汇总逻辑也应用相同的折算逻辑 (按去重后的 Set 计算)
-                    // 注意：Set 中存储的是排课记录，对于学生端，去重后的 key 代表一次排课动作
-                    const visitCount = stat.visitSet.size;
-                    const reviewCount = stat.reviewSet.size;
+                    const details = [];
+                    if (totalVisit > 0) details.push(`${totalVisit}次入户`);
+                    if (stat.trial > 0) details.push(`${stat.trial}次试教`);
+                    if (totalReview > 0) details.push(`${totalReview}次评审`);
+                    if (stat.group_activity > 0) details.push(`${stat.group_activity}次集体活动`);
+                    if (totalConsultation > 0) details.push(`${totalConsultation}次咨询`);
 
-                    // 备注：学生姓名，日期段，X次... (仅显示次数 > 0 的项)
-                    const remarkParts = [stat.name, dateRangeStr];
-                    if (visitCount > 0) remarkParts.push(`${visitCount} 次入户`);
-                    if (reviewCount > 0) remarkParts.push(`${reviewCount} 次评审`);
-                    if (stat.group_activity > 0) remarkParts.push(`${stat.group_activity} 次集体活动`);
-                    if (stat.consultation > 0) remarkParts.push(`${stat.consultation} 次咨询`);
-
-                    const remarks = remarkParts.join('，');
+                    const summaryStr = details.length > 0 ? details.join('、') : '/';
 
                     result.push({
-                        '姓名': stat.name,
-                        '试教': stat.trial || 0,
-                        '入户': visitCount,
-                        '评审': reviewCount,
-                        '集体活动': stat.group_activity,
-                        '咨询': stat.consultation,
-                        '汇总': remarks, // 学生的汇总目前显示备注详情
-                        '核对': '确定',
-                        '备注': remarks
+                        '学生姓名': stat.name,
+                        '入户': stat.visit || '/',
+                        '试教': stat.trial || '/',
+                        '评审': stat.review || '/',
+                        '评审记录': stat.review_record || '/',
+                        '半次入户': stat.half_visit || '/',
+                        '集体活动': stat.group_activity || '/',
+                        '咨询': stat.consultation || '/',
+                        '(线上)评审': stat.online_review || '/',
+                        '(线上)入户': stat.online_visit || '/',
+                        '(线上)咨询': stat.online_consultation || '/',
+                        '咨询记录': stat.consultation_record || '/',
+                        '汇总': summaryStr,
+                        '备注': ''
                     });
                 });
 
@@ -2500,21 +2480,25 @@ window.ExportDialog = (function () {
                     }
 
                     const teacherName = row.teacher_name || row.name || row['教师名称'] || '未知老师';
-                    const teacherId = row.teacher_id || row.id || row['教师ID'] || 999999;  // 收集教师ID,默认值为大数字
+                    const teacherId = row.teacher_id || row.id || row['教师ID'] || 999999;
 
                     if (!statsMap.has(teacherName)) {
                         statsMap.set(teacherName, {
                             name: teacherName,
-                            teacher_id: teacherId,  // 添加教师ID字段
-                            trial: 0,        // 试教
-                            home_visit: 0,   // 入户
-                            half_visit: 0,   // 半次入户
-                            review: 0,       // 评审
-                            review_record: 0,// 评审记录
-                            consultation: 0, // 咨询/advisory
-                            group_activity: 0, // 集体活动
+                            teacher_id: teacherId,
+                            trial: 0,
+                            visit: 0,
+                            half_visit: 0,
+                            review: 0,
+                            review_record: 0,
+                            consultation: 0,
+                            consultation_record: 0,
+                            group_activity: 0,
+                            online_visit: 0,
+                            online_review: 0,
+                            online_consultation: 0,
                             others: 0,
-                            dates: new Set() // 用于记录日期范围
+                            dates: new Set()
                         });
                     }
 
@@ -2526,94 +2510,84 @@ window.ExportDialog = (function () {
                     if (dateStr) stat.dates.add(dateStr);
 
                     // 统计类型
-                    let typeKey = ''; // english key: visit, review, etc.
-                    // let typeName = ''; // localized name
-
+                    let typeKey = '';
                     const typeVal = row.course_id || row.type || row.schedule_type || row['类型'];
 
                     if (window.ScheduleTypesStore && window.ScheduleTypesStore.getById) {
                         const t = window.ScheduleTypesStore.getById(typeVal);
-                        typeKey = t ? t.name : String(typeVal); // name is usually the english key
+                        typeKey = t ? t.name : String(typeVal);
                     } else {
-                        // Fallback if store not loaded
                         typeKey = String(typeVal || '');
                     }
+                    typeKey = typeKey.toLowerCase();
 
-                    // 标准化处理：线上类型 → 基础类型 (review_online → review, visit_online → visit)
-                    typeKey = normalizeTypeKey(typeKey);
+                    // 判断是否为线上类型
+                    const isOnline = typeKey.includes('online') || typeKey.includes('线上');
 
-                    // Strict matching based on schedule_types table (image provided by user)
-                    if (typeKey === 'visit') stat.home_visit++;
-                    else if (typeKey === 'half_visit') stat.half_visit++;
-                    else if (typeKey === 'review') stat.review++;
-                    else if (typeKey === 'review_record') stat.review_record++;
-                    else if (typeKey === 'trial') stat.trial++;
-                    else if (typeKey === 'consultation' || typeKey === 'advisory') stat.consultation++;
-                    else if (typeKey === 'group_activity') stat.group_activity++;
-                    else {
-                        // Regex fallbacks only if strict match fails
-                        if (/half_visit/i.test(typeKey)) stat.half_visit++;
-                        else if (/visit/i.test(typeKey)) stat.home_visit++;
-                        else if (/review_record/i.test(typeKey)) stat.review_record++;
-                        else if (/review/i.test(typeKey)) stat.review++;
-                        else if (/trial/i.test(typeKey)) stat.trial++;
-                        else if (/consultation|advisory/i.test(typeKey)) stat.consultation++;
-                        else if (/group/i.test(typeKey)) stat.group_activity++;
-                        else stat.others++;
+                    // 分类统计（线上类型单独统计）
+                    if (typeKey === 'visit' || (!isOnline && /visit/i.test(typeKey) && !typeKey.includes('half'))) {
+                        stat.visit++;
+                    } else if (typeKey === 'half_visit' || typeKey.includes('half_visit')) {
+                        stat.half_visit++;
+                    } else if (typeKey === 'review' || (!isOnline && /review/i.test(typeKey) && !typeKey.includes('record'))) {
+                        stat.review++;
+                    } else if (typeKey === 'review_record' || (!isOnline && /review_record/i.test(typeKey))) {
+                        stat.review_record++;
+                    } else if (typeKey === 'trial' || /trial/i.test(typeKey)) {
+                        stat.trial++;
+                    } else if (typeKey === 'consultation' || typeKey === 'advisory' || (!isOnline && /consultation|advisory/i.test(typeKey) && !typeKey.includes('record'))) {
+                        stat.consultation++;
+                    } else if (typeKey === 'consultation_record' || (!isOnline && /consultation_record|advisory_record/i.test(typeKey))) {
+                        stat.consultation_record++;
+                    } else if (typeKey === 'group_activity' || /group/i.test(typeKey)) {
+                        stat.group_activity++;
+                    } else if (isOnline && /visit/i.test(typeKey) && !typeKey.includes('half')) {
+                        stat.online_visit++;
+                    } else if (isOnline && /review/i.test(typeKey) && !typeKey.includes('record')) {
+                        stat.online_review++;
+                    } else if (isOnline && /consultation|advisory/i.test(typeKey) && !typeKey.includes('record')) {
+                        stat.online_consultation++;
+                    } else {
+                        stat.others++;
                     }
                 });
 
                 const result = [];
-                // 转换 Map 为数组并可以计算衍生字段
                 statsMap.forEach(stat => {
-                    // 计算日期范围字符串
-                    let dateRangeStr = '';
-                    if (state.startDate && state.endDate) {
-                        const s = state.startDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-                        const e = state.endDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-                        dateRangeStr = `${s}至${e} `;
-                    } else {
-                        const sortedDates = Array.from(stat.dates).sort();
-                        if (sortedDates.length > 0) {
-                            dateRangeStr = sortedDates.length === 1 ? sortedDates[0] : `${sortedDates[0]}至${sortedDates[sortedDates.length - 1]} `;
-                        }
-                    }
-
-                    // ============ 核心计算逻辑修正 ============
-                    // 入户 = 入户 + 0.5 * 半次入户 + 0.5 * 评审记录
-                    const effectiveVisits = stat.home_visit + (stat.half_visit * 0.5) + (stat.review_record * 0.5);
-                    // 评审 = 评审 + 评审记录
-                    const effectiveReviews = stat.review + stat.review_record;
-
-                    let cleanDateRange = dateRangeStr.trim().replace('至', ' 至 ');
+                    // 计算汇总
+                    const totalVisit = stat.visit + stat.half_visit * 0.5 + stat.online_visit;
+                    const totalReview = stat.review + stat.review_record + stat.online_review;
+                    const totalConsultation = stat.consultation + stat.consultation_record + stat.online_consultation;
 
                     const details = [];
+                    if (totalVisit > 0) details.push(`${totalVisit}次入户`);
                     if (stat.trial > 0) details.push(`${stat.trial}次试教`);
-                    if (effectiveVisits > 0) details.push(`${effectiveVisits}次入户`);
-                    if (effectiveReviews > 0) details.push(`${effectiveReviews}次评审`);
+                    if (totalReview > 0) details.push(`${totalReview}次评审`);
                     if (stat.group_activity > 0) details.push(`${stat.group_activity}次集体活动`);
-                    if (stat.consultation > 0) details.push(`${stat.consultation}次咨询`);
+                    if (totalConsultation > 0) details.push(`${totalConsultation}次咨询`);
 
-                    const detailsStr = details.length > 0 ? details.join('、') : '无';
-                    const remarks = `${stat.name}老师好！${cleanDateRange} 期间，在[${studentName}]处入户相关数据为 ：${detailsStr}。请问是否正确？`;
+                    const summaryStr = details.length > 0 ? details.join('、') : '/';
 
                     result.push({
-                        '姓名': stat.name,
-                        '_teacher_id': stat.teacher_id,  // 内部字段用于排序
-                        '试教': stat.trial,
-                        '入户': effectiveVisits,
-                        '评审': effectiveReviews,
-                        '集体活动': stat.group_activity,
-                        '咨询': stat.consultation,
-                        '汇总': detailsStr,
-                        '核对': '确定', // 默认为确定，管理员可手动微调
-                        '备注': remarks
+                        '教师姓名': stat.name,
+                        '_teacher_id': stat.teacher_id,
+                        '入户': stat.visit || '/',
+                        '试教': stat.trial || '/',
+                        '评审': stat.review || '/',
+                        '评审记录': stat.review_record || '/',
+                        '半次入户': stat.half_visit || '/',
+                        '集体活动': stat.group_activity || '/',
+                        '咨询': stat.consultation || '/',
+                        '(线上)评审': stat.online_review || '/',
+                        '(线上)入户': stat.online_visit || '/',
+                        '(线上)咨询': stat.online_consultation || '/',
+                        '咨询记录': stat.consultation_record || '/',
+                        '汇总': summaryStr,
+                        '备注': ''
                     });
                 });
 
-                // 按教师ID从小到大排序
                 result.sort((a, b) => Number(a._teacher_id) - Number(b._teacher_id));
-
                 return result;
             }
 
