@@ -1360,7 +1360,7 @@ const teacherController = {
                 student_comment: row.student_comment || ''
             }));
 
-            // 5. 生成文件名：[学生姓名]上课记录_[日期段]by[教师ID]_时间戳
+            // 5. 生成文件名：[学生姓名]记录明细及统计[开始日期_结束日期]_时间戳
             let studentNameForFilename = '全部学生';
             if (student_id) {
                 const studentResult = await db.query('SELECT name FROM students WHERE id = $1', [parseInt(student_id)]);
@@ -1369,9 +1369,9 @@ const teacherController = {
                 }
             }
 
-            const dateRangeStr = `${startDate.replace(/-/g, '')}-${endDate.replace(/-/g, '')}`;
+            const dateRangeStr = `${startDate.replace(/-/g, '')}_${endDate.replace(/-/g, '')}`;
             const timestamp = exportService.getTimestamp();
-            const filename = `[${studentNameForFilename}]上课记录_${dateRangeStr}by${myTeacherId}_${timestamp}.xlsx`;
+            const filename = `[${studentNameForFilename}]记录明细及统计[${dateRangeStr}]_${timestamp}.xlsx`;
 
             // 6. 记录审计日志
             try {
