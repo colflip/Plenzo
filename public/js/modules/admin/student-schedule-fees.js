@@ -343,9 +343,18 @@
 
             // 保存成功后，执行定点局部刷新，消除全表重绘闪烁
             if (window.ScheduleManager && typeof window.ScheduleManager.refreshCell === 'function') {
-                const studentId = state.studentId;
-                const dateKey = state.currentDate; // 费用模块 state 中存有当前日期
-                window.ScheduleManager.refreshCell(studentId, dateKey);
+                // 从 activeScheduleGroup 获取正确的 studentId 和 dateKey
+                if (activeScheduleGroup && activeScheduleGroup.length > 0) {
+                    const firstSchedule = activeScheduleGroup[0];
+                    const studentId = firstSchedule.student_id;
+                    const dateKey = firstSchedule.date || firstSchedule.class_date;
+                    if (studentId && dateKey) {
+                        window.ScheduleManager.refreshCell(studentId, dateKey);
+                    } else {
+                        // 如果无法获取，使用当前选择的日期进行全局刷新
+                        window.ScheduleManager.loadSchedules(false);
+                    }
+                }
             }
         } catch (err) {
             console.error('[StudentScheduleFees] 保存费用失败，回滚操作:', err);
