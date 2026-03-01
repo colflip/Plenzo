@@ -1369,6 +1369,21 @@ export async function updateScheduleStatus(id, newStatus) {
 export async function deleteSchedule(id) {
     if (!confirm('确定要删除此排课吗？')) return;
 
+    // 先从缓存中获取记录信息（在乐观删除之前，确保能获取到数据）
+    let dateKey = null;
+    let studentId = null;
+    
+    for (const entry of WeeklyDataStore.schedules.values()) {
+        if (entry && entry.rows) {
+            const rec = entry.rows.find(r => String(r.id) === String(id));
+            if (rec) {
+                dateKey = rec.date || rec.class_date;
+                studentId = rec.student_id;
+                break;
+            }
+        }
+    }
+
     // 乐观删除：立即从UI移除 (返回 undo 句柄)
     const backup = optimisticDelete(id);
 
@@ -1394,14 +1409,12 @@ export async function deleteSchedule(id) {
             }
         }
 
-        // 更新本地内存并执行局部刷新，彻底消除全表重绘闪烁
-        WeeklyDataStore.updateLocalRecord(id, true);
-
-        // 获取受影响的日期以便刷新单元格
-        const dateKey = backup.originalData.date;
-        const studentId = backup.originalData.student_id;
-
-        await refreshCell(studentId, dateKey);
+        if (dateKey && studentId) {
+            await refreshCell(studentId, dateKey);
+        } else {
+            // 如果定位失败，退回到全局刷新
+            await loadSchedules(false);
+        }
 
         window.apiUtils.showSuccessToast('删除成功');
     } catch (e) {
@@ -1793,11 +1806,11 @@ export async function setupScheduleEventListeners() {
                 await WeeklyDataStore.getAllSchedules(true);
 
                 // 提取日期和学生 ID 进行定点刷新
-                const studentId = formData.studentIds ? (Array.isArray(formData.studentIds) ? formData.studentIds[0] : formData.studentIds) : null;
-                const dateKey = formData.date;
+                const finalStudentId = body.student_ids ? (Array.isArray(body.student_ids) ? body.student_ids[0] : body.student_ids) : null;
+                const finalDateKey = body.date;
 
-                if (studentId && dateKey) {
-                    await refreshCell(studentId, dateKey);
+                if (finalStudentId && finalDateKey) {
+                    await refreshCell(finalStudentId, finalDateKey);
                 } else {
                     // 如果定位失败，退回到全局刷新（无 Overlay）
                     await loadSchedules(false);
