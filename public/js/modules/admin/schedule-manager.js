@@ -327,15 +327,10 @@ function optimisticDelete(id) {
         originalHTML: card.outerHTML
     };
 
-    // 添加删除动画
-    card.style.opacity = '0.5';
-    card.style.transition = 'opacity 0.3s';
-
-    setTimeout(() => {
-        if (card.parentNode) {
-            card.remove();
-        }
-    }, 300);
+    // 立即移除元素（不使用动画，避免与 refreshCell 冲突）
+    if (card.parentNode) {
+        card.remove();
+    }
 
     return backup;
 }
@@ -561,7 +556,8 @@ export const WeeklyDataStore = {
         this.schedules.clear();
         // Clear all schedule related keys from localStorage
         Object.keys(localStorage).forEach(k => {
-            if (k.startsWith(this._CACHE_KEY_prefix + 'schedules_')) {
+            if (k.startsWith(this._CACHE_KEY_prefix + 'schedules_') ||
+                k === this._CACHE_KEY_prefix + 'admin_all_schedules') {
                 localStorage.removeItem(k);
             }
         });
@@ -621,8 +617,8 @@ export async function refreshCell(studentId, dateKey) {
     }
 
     try {
-        // 从内存 Store 获取最新数据（不触网）
-        const schedules = await WeeklyDataStore.getSchedules(dateKey, dateKey, null, null, null, false);
+        // 强制从服务器获取最新数据（force=true），确保删除后数据同步
+        const schedules = await WeeklyDataStore.getSchedules(dateKey, dateKey, null, null, null, true);
         const cellItems = schedules.filter(s => {
             if (String(s.student_id) === String(studentId)) return true;
             if (s.student_ids) {
