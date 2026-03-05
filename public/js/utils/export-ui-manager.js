@@ -215,7 +215,7 @@ window.ExportUIManager = (function() {
             showProgressIndicator(100, '导出完成！');
             return true;
         } catch (error) {
-            console.error('创建Excel文件失败:', error);
+            
             hideProgressIndicator();
             throw error;
         }

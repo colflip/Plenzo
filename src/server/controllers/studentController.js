@@ -11,7 +11,23 @@ const db = require('../db/db');
  * @param {string} alias - 表别名
  * @returns {Promise<string>} SQL日期表达式
  */
+// 性能优化：缓存列信息和日期表达式（仿照教师端 initSchemaCache 模式）
 const __dateExprCache = {};
+const __schemaCache = { initialized: false, teacherHasStatus: false, studentHasStatus: false };
+
+async function initSchemaCache() {
+    if (__schemaCache.initialized) return;
+    try {
+        const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
+        const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
+        __schemaCache.teacherHasStatus = (tCols.rows || []).length > 0;
+        __schemaCache.studentHasStatus = (sCols.rows || []).length > 0;
+        __schemaCache.initialized = true;
+    } catch (_) {
+        __schemaCache.initialized = true;
+    }
+}
+
 async function getDateExpr(alias) {
     const key = `expr_${alias || ''}`;
     if (__dateExprCache[key]) return __dateExprCache[key];
@@ -304,15 +320,19 @@ const studentController = {
         try {
             const { startDate, endDate, status } = req.query;
 
+            // 初始化 Schema 缓存（仅首次有开销，之后直接命中缓存）
+            await initSchemaCache();
             const dateExpr = await getDateExpr('ca');
             let query = `
                 SELECT 
                     ca.id,
-                    ${dateExpr} AS date,
+                    (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
                     ca.teacher_id, t.name as teacher_name,
-                    sty.name as schedule_type
+                    sty.name as schedule_type,
+                    sty.description as schedule_type_cn,
+                    ca.course_id
                 FROM course_arrangement ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN schedule_types sty ON ca.course_id = sty.id
@@ -321,15 +341,9 @@ const studentController = {
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            // 若存在 status 列，则过滤仅展示正常状态账号的记录
-            try {
-                const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                const teacherHasStatus = (tCols.rows || []).length > 0;
-                const studentHasStatus = (sCols.rows || []).length > 0;
-                if (teacherHasStatus) query += ` AND t.status = 1`;
-                if (studentHasStatus) query += ` AND s.status = 1`;
-            } catch (_) { }
+            // 使用缓存的 Schema 信息过滤停用账号（不再每次查询 information_schema）
+            if (__schemaCache.teacherHasStatus) query += ` AND t.status = 1`;
+            if (__schemaCache.studentHasStatus) query += ` AND s.status = 1`;
 
             const values = [req.user.id, startDate, endDate];
 
@@ -349,7 +363,7 @@ const studentController = {
     },
 
     /**
-     * 获取统计数据
+     * 获取统计数据 (优化版：直接返回聚合结果)
      * @description 获取学生的课程类型统计和月度课程统计
      * @param {string} req.query.startDate - 开始日期
      * @param {string} req.query.endDate - 结束日期
@@ -357,37 +371,63 @@ const studentController = {
     async getStatistics(req, res) {
         try {
             const { startDate, endDate } = req.query;
+            if (!startDate || !endDate) {
+                return res.status(400).json({ message: '请提供日期范围' });
+            }
 
-            // 获取课程类型统计
-            const dateExprCa = await getDateExpr('ca');
+            const dateExpr = await getDateExpr('ca');
+
+            // 1. 获取按类型的聚合统计 (排除已取消)
             const typeStats = await db.query(`
                 SELECT 
-                    sty.name as type,
-                    COUNT(*) as count
+                    COALESCE(sty.description, sty.name) as type,
+                    COUNT(*)::int as count
                 FROM course_arrangement ca
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.student_id = $1
-                  AND ${dateExprCa} BETWEEN $2 AND $3
+                  AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]);
 
-            // 获取每月课程数统计
-            const dateExprNoAlias = await getDateExpr('');
+            // 2. 获取每月课程数统计 (柱状图所需)
             const monthlyStats = await db.query(`
                 SELECT 
-                    DATE_TRUNC('month', ${dateExprNoAlias}) as month,
-                    COUNT(*) as count
-                FROM course_arrangement
-                WHERE student_id = $1
-                  AND ${dateExprNoAlias} BETWEEN $2 AND $3
+                    TO_CHAR(${dateExpr}, 'YYYY-MM') as month,
+                    COUNT(*)::int as count
+                FROM course_arrangement ca
+                WHERE ca.student_id = $1
+                  AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0')
                 GROUP BY month
                 ORDER BY month
             `, [req.user.id, startDate, endDate]);
 
+            // 3. 获取所有课程明细 (用于统计页下方的表格，此时已经过滤了日期)
+            // 之前是前端全量拉取，现在我们也在这里一并返回过滤后的结果
+            const schedules = await db.query(`
+                SELECT 
+                    ca.id,
+                    (${dateExpr})::text AS date,
+                    ca.start_time, ca.end_time, ca.status,
+                    ca.location,
+                    t.name as teacher_name,
+                    sty.name as schedule_type,
+                    sty.description as schedule_type_cn
+                FROM course_arrangement ca
+                LEFT JOIN teachers t ON ca.teacher_id = t.id
+                JOIN schedule_types sty ON ca.course_id = sty.id
+                WHERE ca.student_id = $1
+                  AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0')
+                ORDER BY date DESC, ca.start_time ASC
+            `, [req.user.id, startDate, endDate]);
+
             res.json({
                 typeStats: typeStats.rows,
-                monthlyStats: monthlyStats.rows
+                monthlyStats: monthlyStats.rows,
+                schedules: schedules.rows
             });
         } catch (error) {
             console.error('获取统计数据错误:', error);
@@ -419,13 +459,27 @@ const studentController = {
             const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
             const lastDayOfYear = new Date(today.getFullYear(), 11, 31);
 
-            const todayStr = today.toISOString().split('T')[0];
-            const weekStartStr = activeWeekStart.toISOString().split('T')[0];
-            const weekEndStr = activeWeekEnd.toISOString().split('T')[0];
-            const monthStartStr = firstDayOfMonth.toISOString().split('T')[0];
-            const monthEndStr = lastDayOfMonth.toISOString().split('T')[0];
-            const yearStartStr = firstDayOfYear.toISOString().split('T')[0];
-            const yearEndStr = lastDayOfYear.toISOString().split('T')[0];
+            // 修复时区偏差问题：确保返回纯数字的 YYYY-MM-DD 格式，避免 zh-CN 下出现“月”、“日”字符
+            const formatDate = (d) => {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    timeZone: 'Asia/Shanghai'
+                }).formatToParts(d);
+                const year = parts.find(p => p.type === 'year').value;
+                const month = parts.find(p => p.type === 'month').value;
+                const day = parts.find(p => p.type === 'day').value;
+                return `${year}-${month}-${day}`;
+            };
+
+            const todayStr = formatDate(today);
+            const weekStartStr = formatDate(activeWeekStart);
+            const weekEndStr = formatDate(activeWeekEnd);
+            const monthStartStr = formatDate(firstDayOfMonth);
+            const monthEndStr = formatDate(lastDayOfMonth);
+            const yearStartStr = formatDate(firstDayOfYear);
+            const yearEndStr = formatDate(lastDayOfYear);
 
             const dateExpr = await getDateExpr('ca');
 
@@ -457,7 +511,7 @@ const studentController = {
             const todaySchedules = await db.query(`
                 SELECT 
                     ca.id,
-                    ${dateExpr} AS date,
+                    (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
                     t.name as teacher_name,
@@ -500,12 +554,23 @@ const studentController = {
             const result = await db.query(`
                 SELECT 
                     ca.id,
-                    ${dateExpr} AS date,
+                    ca.id as schedule_id,
+                    (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
                     t.name as teacher_name,
-                    sty.name as schedule_type,
-                    sty.description as schedule_type_cn
+                    sty.name as type_name,
+                    sty.description as type_desc,
+                    ca.course_id,
+                    ca.teacher_id,
+                    ca.student_id,
+                    ca.transport_fee,
+                    ca.other_fee,
+                    ca.student_comment,
+                    ca.teacher_comment,
+                    ca.created_at,
+                    ca.updated_at,
+                    ca.last_auto_update
                 FROM course_arrangement ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN schedule_types sty ON ca.course_id = sty.id

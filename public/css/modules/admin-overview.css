@@ -3,131 +3,7 @@
    ========================================================================== */
 
 /* 1. Grid Container */
-#todayScheduleList {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 16px 0;
-    align-items: center;
-}
 
-/* 2. Modern Card Base */
-.today-card-modern {
-    display: flex;
-    flex-direction: row;
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-    margin-bottom: 0px;
-    overflow: hidden;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    min-height: 80px;
-    padding-left: 6px;
-    /* Space for the colored strip */
-    cursor: pointer;
-    width: 90%;
-    max-width: 1000px;
-}
-
-.today-card-modern:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    border-color: #CBD5E1;
-}
-
-/* 3. Color Strips (Pseudo-element) */
-.today-card-modern::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 6px;
-    background-color: #CBD5E1;
-}
-
-.today-card-modern.slot-morning::before {
-    background-color: #3B82F6;
-    /* Blue */
-}
-
-.today-card-modern.slot-afternoon::before {
-    background-color: #F59E0B;
-    /* Amber */
-}
-
-.today-card-modern.slot-evening::before {
-    background-color: #8B5CF6;
-    /* Purple */
-}
-
-/* 4. Time Section */
-.today-card-time {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    padding: 16px 20px;
-    background-color: #F8FAFC;
-    border-right: 1px solid #F1F5F9;
-    min-width: 110px;
-    flex-shrink: 0;
-}
-
-.today-card-time .time-range {
-    font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: #1E293B;
-    margin-bottom: 4px;
-    white-space: nowrap;
-    letter-spacing: -0.02em;
-}
-
-.today-card-time .time-slot-label {
-    font-size: 12px;
-    color: #64748B;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-/* 5. Info Section */
-.today-card-info {
-    flex: 1;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 10px;
-    min-width: 0;
-    /* Important for flex truncation */
-}
-
-.today-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.today-card-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #0F172A;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.sc-student-name {
-    font-size: 16px;
-    font-weight: 700;
-    color: #0F172A;
-}
 
 /* 加载状态文字缩小 */
 .stat-card.loading p {
@@ -279,16 +155,7 @@
 }
 
 
-.today-card-type-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    background-color: #E0F2FE;
-    color: #0284C7;
-    margin-left: 8px;
-}
+
 
 /* ==========================================================================
    Stat Card Tooltip & Reward Modal
@@ -525,94 +392,18 @@
     border-color: #DCFCE7;
 }
 
-/* Details Row */
-.today-card-details {
-    display: flex;
-    align-items: center;
-    gap: 28px;
-    color: #64748B;
-    font-size: 13px;
-    flex-wrap: wrap;
-}
 
-.today-card-detail-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-}
-
-.today-card-detail-item .material-icons-round {
-    font-size: 18px;
-    color: #94A3B8;
-}
-
-/* Ensure full text for location */
-.today-card-detail-item.location {
-    white-space: normal;
-    line-height: 1.4;
-}
-
-/* 6. Status Section */
-.today-card-status {
-    padding: 16px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-left: 1px solid #F1F5F9;
-    min-width: 110px;
-}
-
-/* Status Pills */
-.status-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 12px;
-    border-radius: 9999px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-}
-
-.status-pill.pending {
-    background-color: #FFF7ED;
-    color: #C2410C;
-    border: 1px solid #FFEDD5;
-}
-
-.status-pill.confirmed {
-    background-color: #F0FDF4;
-    color: #15803D;
-    border: 1px solid #DCFCE7;
-}
-
-.status-pill.completed {
-    background-color: #F8FAFC;
-    color: #475569;
-    border: 1px solid #E2E8F0;
-}
-
-.status-pill.cancelled {
-    background-color: #FEF2F2;
-    color: #B91C1C;
-    border: 1px solid #FECACA;
-}
 
 /* ==========================================================================
    Student Schedule Grouping
    ========================================================================== */
 
-/* 学生分组容器 */
 .student-schedule-group {
-    width: 95%;
-    max-width: 1000px;
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 0;
     margin-top: -10px;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
+    width: 100%;
 }
 
 .student-schedule-group:first-child {
@@ -626,178 +417,16 @@
 }
 
 /* 不同学生背景颜色 */
-.student-schedule-group:nth-child(odd) {
+.student-schedule-group:nth-child(even) {
     background-color: #EFF6FF;
-}
-
-/* 多种背景色方案 - 为不同学生使用不同颜色 */
-.student-schedule-group:nth-child(4n+1) {
-    background: #EFF6FF;
-    /* 浅蓝 */
-}
-
-.student-schedule-group:nth-child(4n+2) {
-    background: #F0FDF4;
-    /* 浅绿 */
-}
-
-.student-schedule-group:nth-child(4n+3) {
-    background: #FEF3C7;
-    /* 浅黄 */
-}
-
-.student-schedule-group:nth-child(4n+4) {
-    background: #FCE7F3;
-    /* 浅粉 */
-}
-
-/* Empty State */
-.today-empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-    color: #94A3B8;
-    background: #F8FAFC;
-    border-radius: 12px;
-    border: 2px dashed #E2E8F0;
-}
-
-.today-empty-state i {
-    font-size: 48px;
-    margin-bottom: 12px;
-    color: #CBD5E1;
-}
-
-.today-empty-state p {
-    font-size: 16px;
-    font-weight: 500;
-    margin: 0;
-    color: #64748B;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-    #todayScheduleList {
-        width: 100%;
-        padding: 4px;
-        gap: 6px;
-        /* Even smaller gap between cards */
-    }
 
-    .today-card-modern {
-        flex-direction: column;
-        width: 100%;
-        min-height: auto;
-        padding-left: 6px;
-        margin-bottom: 0px;
-        position: relative;
-        /* For absolute status positioning */
-    }
-
-    .today-card-modern::before {
-        width: 5px;
-    }
-
-    .today-card-time {
-        flex-direction: row;
-        justify-content: center;
-        /* Center time */
-        padding: 6px 12px;
-        width: 100%;
-        min-width: auto;
-        border-right: none;
-        border-bottom: 1px solid #F1F5F9;
-        background-color: #F8FAFC;
-        height: 32px;
-        /* Consistent height for the top bar */
-        align-items: center;
-    }
-
-    .today-card-time .time-range {
-        font-size: 13px;
-        font-weight: 800;
-        margin-bottom: 0;
-        color: #1a202c;
-    }
-
-    .today-card-info {
-        padding: 8px 12px;
-        gap: 6px;
-        align-items: center;
-        /* Center column items */
-    }
-
-    .today-card-header {
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
-        /* Center header */
-        gap: 6px;
-        width: 100%;
-    }
-
-    .today-card-title {
-        font-size: 14px;
-        line-height: 1.2;
-        justify-content: center;
-    }
-
-    .sc-student-name {
-        font-size: 14px;
-        font-weight: 700;
-    }
-
-    .today-card-details {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-top: 0px;
-        align-items: center;
-        justify-content: center;
-        /* Center details */
-        width: 100%;
-    }
-
-    .today-card-detail-item {
-        font-size: 11px;
-        gap: 2px;
-    }
-
-    .today-card-detail-item i {
-        font-size: 14px !important;
-    }
-
-    .today-card-detail-item.location {
-        width: auto;
-        /* Not full width */
-        margin-top: 0;
-        color: #64748b;
-    }
-
-    /* Move status to top right of the whole card */
-    .today-card-status {
-        position: absolute;
-        top: 6px;
-        right: 12px;
-        padding: 0;
-        border: none;
-        background: transparent;
-        z-index: 10;
-        min-width: auto;
-    }
-
-    .status-pill {
-        padding: 1px 6px;
-        font-size: 9px;
-        border-radius: 4px;
-    }
 
     .student-schedule-group {
         width: 100%;
         padding: 2px;
-        gap: 4px;
     }
 }

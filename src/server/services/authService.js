@@ -40,6 +40,24 @@ function getJwtSecret() {
 }
 
 /**
+ * 获取 JWT 过期时间
+ * @returns {string}
+ * @private
+ */
+function getJwtExpiresIn() {
+    return process.env.JWT_EXPIRES_IN || '24h';
+}
+
+/**
+ * 获取 Refresh Token 过期时间
+ * @returns {string}
+ * @private
+ */
+function getRefreshTokenExpiresIn() {
+    return process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
+}
+
+/**
  * 验证密码格式 (Bcrypt)
  * @param {string} val 
  * @returns {boolean}
@@ -125,7 +143,18 @@ class AuthService {
                 permissionLevel: user.permission_level || null
             },
             getJwtSecret(),
-            { expiresIn: '24h' }
+            { expiresIn: getJwtExpiresIn() }
+        );
+
+        // 5.1 生成 Refresh Token (可选)
+        const refreshToken = jwt.sign(
+            {
+                id: user.id,
+                userType,
+                type: 'refresh'
+            },
+            getJwtSecret(),
+            { expiresIn: getRefreshTokenExpiresIn() }
         );
 
         // 6. 返回结果 (去除敏感信息)
@@ -137,13 +166,15 @@ class AuthService {
 
         return {
             token,
+            refreshToken,
+            expiresIn: getJwtExpiresIn(),
             user: {
                 id: safeUser.id,
                 username: safeUser.username,
                 name: safeUser.name,
                 userType,
                 status: safeUser.status,
-                ...safeUser // 保留其他可能需要的字段
+                ...safeUser
             }
         };
     }

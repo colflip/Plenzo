@@ -7,12 +7,34 @@ import * as UserManager from './user-manager.js';
 import * as ScheduleManager from './schedule-manager.js';
 import * as UIHelper from './ui-helper.js';
 import { StatisticsManager } from './statistics.js';
+import * as Overview from './overview.js';
+import * as UILayout from './ui-layout.js';
+import * as ScheduleUtils from './schedule-utils.js';
 
 // Expose modules globally
 window.UserManager = UserManager;
 window.ScheduleManager = ScheduleManager;
 window.UIHelper = UIHelper;
 window.StatisticsManager = StatisticsManager;
+window.Overview = Overview;
+window.UILayout = UILayout;
+window.ScheduleUtils = ScheduleUtils;
+
+// Aliases for legacy-adapter.js
+window.normalizeScheduleRows = ScheduleUtils.normalizeScheduleRows;
+window.sanitizeTimeString = ScheduleUtils.sanitizeTimeString;
+window.hhmmToMinutes = ScheduleUtils.hhmmToMinutes;
+window.minutesToHHMM = ScheduleUtils.minutesToHHMM;
+window.computeSlotByStartMin = ScheduleUtils.computeSlotByStartMin;
+window.clusterByOverlap = ScheduleUtils.clusterByOverlap;
+window.buildMergedRowText = ScheduleUtils.buildMergedRowText;
+window.updateScheduleStatus = ScheduleUtils.updateScheduleStatus;
+window.renderWeeklyLoading = ScheduleUtils.renderWeeklyLoading;
+window.renderWeeklyError = ScheduleUtils.renderWeeklyError;
+
+// Provide global aliases for legacy-adapter.js to find them during transition
+window.loadOverviewStats = Overview.loadOverviewStats;
+window.showSection = UILayout.showSection;
 
 
 // Expose functions globally for legacy inline event handlers (onclick="...")

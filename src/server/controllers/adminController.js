@@ -706,7 +706,8 @@ const adminController = {
         try {
             // 离线开发模式：返回示例行，确保前端渲染不被阻塞
             if (process.env.OFFLINE_DEV === 'true') {
-                const today = new Date().toISOString().split('T')[0];
+                const tzOffset = 8 * 60 * 60 * 1000;
+                const today = new Date(Date.now() + tzOffset).toISOString().split('T')[0];
                 return res.json([
                     { id: 70, student_id: 201, student_name: '李同学', teacher_id: 101, teacher_name: '张老师', schedule_type: '入户', schedule_types: '入户', date: today, start_time: '09:00', end_time: '10:30', location: '第一教室', status: 'confirmed' }
                 ]);

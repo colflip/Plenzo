@@ -5,29 +5,29 @@
 
 import { TIME_ZONE } from './constants.js';
 
-console.log('[Schedule-Manager] 🚀 模块开始加载...');
-console.log('[Schedule-Manager] TIME_ZONE导入成功:', TIME_ZONE);
-
 // --- Global State ---
 window.adminFeeShow = false;
 
 window.toggleAdminFeeVisibility = function () {
     window.adminFeeShow = !window.adminFeeShow;
-    const btnText = document.getElementById('adminFeeBtnText');
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
+    const btnText = document.getElementById('adminFeeBtnText');
 
     if (btnText) {
         btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
     }
+
     if (toggleBtn) {
+        // 维持与“添加排课”一致的主调色 (#2ECC71)
+        const primaryColor = '#2ECC71';
+        toggleBtn.style.backgroundColor = primaryColor;
+        toggleBtn.style.color = 'white';
+        toggleBtn.style.borderColor = primaryColor;
+
         if (window.adminFeeShow) {
             toggleBtn.classList.add('fee-active');
-            toggleBtn.style.backgroundColor = '#10b981';
-            toggleBtn.style.color = 'white';
         } else {
             toggleBtn.classList.remove('fee-active');
-            toggleBtn.style.backgroundColor = 'white';
-            toggleBtn.style.color = '#10b981';
         }
     }
 
@@ -46,10 +46,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnText = document.getElementById('adminFeeBtnText');
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
     if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    if (toggleBtn && window.adminFeeShow) {
-        toggleBtn.classList.add('fee-active');
-        toggleBtn.style.backgroundColor = '#10b981';
+    if (toggleBtn) {
+        // 初始化时也确保使用统一的主题色
+        toggleBtn.style.backgroundColor = '#2ECC71';
         toggleBtn.style.color = 'white';
+        toggleBtn.style.borderColor = '#2ECC71';
     }
 
     // 初始化全局样式以便接管
@@ -164,7 +165,7 @@ function saveFormMemory(formData) {
         };
         localStorage.setItem(FORM_MEMORY_KEY, JSON.stringify(memory));
     } catch (err) {
-        console.warn('[Form Memory] 保存失败:', err);
+        
     }
 }
 
@@ -185,7 +186,7 @@ function loadFormMemory() {
 
         return data;
     } catch (err) {
-        console.warn('[Form Memory] 加载失败:', err);
+        
         return null;
     }
 }
@@ -210,7 +211,7 @@ function applyFormMemory() {
 
         return true;
     } catch (err) {
-        console.warn('[Form Memory] 应用失败:', err);
+        
         return false;
     }
 }
@@ -225,45 +226,7 @@ function applyFormMemory() {
  * @returns {Object} 包含tempId和backup的对象，用于回滚
  */
 function optimisticAdd(scheduleData) {
-    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const dateISO = scheduleData.date;
-    const studentId = scheduleData.student_ids?.[0];
-
-    // 找到对应的单元格
-    // 找到对应的单元格 (修正选择器)
-    // tr[data-student-id="..."] td[data-date="..."]
-    const row = document.querySelector(`tr[data-student-id="${studentId}"]`);
-    const cell = row ? row.querySelector(`td[data-date="${dateISO}"]`) : null;
-    if (!cell) {
-        console.warn('[Optimistic Add] 未找到对应单元格');
-        return { tempId, backup: null };
-    }
-
-    // 保存原始内容用于回滚
-    const backup = {
-        cell,
-        originalHTML: cell.innerHTML,
-        tempId
-    };
-
-    // 创建临时卡片（带loading状态）
-    const tempCard = document.createElement('div');
-    tempCard.className = 'schedule-card temp-schedule optimistic-loading';
-    tempCard.dataset.tempId = tempId;
-    tempCard.innerHTML = `
-        <div class=\"schedule-card-header\">
-            <span class=\"schedule-time\">${scheduleData.start_time}-${scheduleData.end_time}</span>
-            <span class=\"schedule-status-badge status-pending\">添加中...</span>
-        </div>
-        <div class=\"schedule-card-body\">
-            <div class=\"schedule-info\">保存中...</div>
-        </div>
-    `;
-
-    // 添加到单元格
-    cell.appendChild(tempCard);
-
-    return backup;
+    return { tempId: null, backup: null };
 }
 
 /**
@@ -275,7 +238,7 @@ function optimisticAdd(scheduleData) {
 function optimisticUpdate(id, changes) {
     const card = document.querySelector(`[data-schedule-id=\"${id}\"]`);
     if (!card) {
-        console.warn('[Optimistic Update] 未找到卡片:', id);
+        
         return { backup: null };
     }
 
@@ -313,26 +276,7 @@ function optimisticUpdate(id, changes) {
  * @returns {Object} 包含原始数据的backup对象
  */
 function optimisticDelete(id) {
-    const card = document.querySelector(`[data-schedule-id=\"${id}\"]`);
-    if (!card) {
-        console.warn('[Optimistic Delete] 未找到卡片:', id);
-        return { backup: null };
-    }
-
-    // 保存原始状态
-    const backup = {
-        card,
-        parent: card.parentNode,
-        nextSibling: card.nextSibling,
-        originalHTML: card.outerHTML
-    };
-
-    // 立即移除元素（不使用动画，避免与 refreshCell 冲突）
-    if (card.parentNode) {
-        card.remove();
-    }
-
-    return backup;
+    return { backup: null };
 }
 
 /**
@@ -342,7 +286,7 @@ function optimisticDelete(id) {
  */
 function rollbackOperation(backup, operation) {
     if (!backup) {
-        console.warn('[Rollback] 无备份数据');
+        
         return;
     }
 
@@ -361,7 +305,7 @@ function rollbackOperation(backup, operation) {
             case 'update':
                 // 恢复原始HTML和class
                 if (backup.card) {
-                    backup.card.innerHTML = backup.originalHTML;
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(backup.card, backup.originalHTML); } else { backup.card.innerHTML = backup.originalHTML; }
                     backup.card.className = backup.originalClasses;
                 }
                 break;
@@ -370,7 +314,7 @@ function rollbackOperation(backup, operation) {
                 // 重新插入卡片
                 if (backup.parent) {
                     const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = backup.originalHTML;
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tempDiv, backup.originalHTML); } else { tempDiv.innerHTML = backup.originalHTML; }
                     const restoredCard = tempDiv.firstElementChild;
 
                     if (backup.nextSibling) {
@@ -382,7 +326,7 @@ function rollbackOperation(backup, operation) {
                 break;
         }
     } catch (err) {
-        console.error('[Rollback] 回滚失败:', err);
+        
     }
 }
 
@@ -413,7 +357,7 @@ export const WeeklyDataStore = {
         try {
             const item = { data, ts: Date.now() };
             localStorage.setItem(this._CACHE_KEY_prefix + key, JSON.stringify(item));
-        } catch (e) { console.warn('Cache write failed', e); }
+        } catch (e) {  }
     },
 
     async getAllSchedules(force = false) {
@@ -453,7 +397,7 @@ export const WeeklyDataStore = {
                     // trigger re-load but without force false to pick up memory
                     // slightly complex, maybe just leave for next interaction for V1
                 }
-            } catch (e) { console.warn('Background sync failed', e); }
+            } catch (e) {  }
         }
     },
 
@@ -481,11 +425,10 @@ export const WeeklyDataStore = {
                 end_date: toISODate(end)
             };
 
-            console.log('[WeeklyDataStore] Fetching all schedules:', params);
             const rows = await window.apiUtils.get('/admin/schedules/grid', params);
             return normalizeScheduleRows(Array.isArray(rows) ? rows : []);
         } catch (err) {
-            console.error('[WeeklyDataStore] Fetch failed:', err);
+            
             throw err;
         }
     },
@@ -591,12 +534,6 @@ export const WeeklyDataStore = {
 };
 
 window.WeeklyDataStore = WeeklyDataStore;
-console.log('[Schedule-Manager] ✅ WeeklyDataStore 已挂载到 window 对象');
-console.log('[Schedule-Manager] 验证挂载:', {
-    '存在window.WeeklyDataStore': !!window.WeeklyDataStore,
-    'getSchedules类型': typeof window.WeeklyDataStore.getSchedules,
-    'getSchedules签名': window.WeeklyDataStore.getSchedules.toString().substring(0, 100) + '...'
-});
 
 // --- Main Logic ---
 
@@ -612,13 +549,13 @@ export async function refreshCell(studentId, dateKey) {
     // 定位目标单元格
     const td = tbody.querySelector(`tr[data-student-id="${studentId}"] td[data-date="${dateKey}"]`);
     if (!td) {
-        console.warn('[Refresh-Cell] 未找到单元格:', { studentId, dateKey });
+        
         return;
     }
 
     try {
-        // 强制从服务器获取最新数据（force=true），确保删除后数据同步
-        const schedules = await WeeklyDataStore.getSchedules(dateKey, dateKey, null, null, null, true);
+        // 从内存 Store 获取最新数据（不触网），利用前置操作已写好在 localStorage 的数据，实现真正的秒级更新
+        const schedules = await WeeklyDataStore.getSchedules(dateKey, dateKey, null, null, null, false);
         const cellItems = schedules.filter(s => {
             if (String(s.student_id) === String(studentId)) return true;
             if (s.student_ids) {
@@ -628,9 +565,9 @@ export async function refreshCell(studentId, dateKey) {
         });
 
         // 执行局部重绘
-        td.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, ''); } else { td.innerHTML = ''; }
         if (cellItems.length === 0) {
-            td.innerHTML = '<div class="no-schedule">-</div>';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>'); } else { td.innerHTML = '<div class="no-schedule">-</div>'; }
         } else {
             // 获取学生信息
             const studentList = await WeeklyDataStore.getStudents();
@@ -638,7 +575,7 @@ export async function refreshCell(studentId, dateKey) {
             renderGroupedMergedSlots(td, cellItems, student || { id: studentId, name: '未知学生' }, dateKey);
         }
     } catch (e) {
-        console.error('[Refresh-Cell] 失败:', e);
+        
     }
 }
 
@@ -729,7 +666,7 @@ export async function loadSchedules(force = false) {
         renderWeeklyBody(students, schedules, weekDates);
 
     } catch (err) {
-        console.error('Load schedules error', err);
+        
         renderWeeklyError(err.message);
     } finally {
         // 移除加载遮罩
@@ -755,7 +692,7 @@ function buildDatesArray(start, end) {
 function renderWeeklyLoading() {
     const tbody = document.getElementById('weeklyBody');
     if (tbody) {
-        tbody.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
         // Create 5 skeleton rows
         for (let i = 0; i < 5; i++) {
             const tr = document.createElement('tr');
@@ -786,15 +723,15 @@ function renderWeeklyLoading() {
 
 function renderWeeklyError(msg) {
     const tbody = document.getElementById('weeklyBody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`;
+    if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`); } else { tbody.innerHTML = `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`; }
 }
 
 function renderWeeklyHeader(weekDates) {
     const thead = document.getElementById('weeklyHeader');
     if (!thead) return;
-    thead.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, ''); } else { thead.innerHTML = ''; }
     const tr = document.createElement('tr');
-    tr.innerHTML = '<th class="sticky-col student-cell">学生姓名</th>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<th class="sticky-col student-cell">学生姓名</th>'); } else { tr.innerHTML = '<th class="sticky-col student-cell">学生姓名</th>'; }
 
     const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
     weekDates.forEach(d => {
@@ -830,7 +767,7 @@ function renderWeeklyHeader(weekDates) {
 function renderWeeklyBody(students, schedules, weekDates) {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
-    tbody.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
 
     // Sort students by ID ascending (User Request)
     students.sort((a, b) => (a.id || 0) - (b.id || 0));
@@ -883,7 +820,7 @@ function renderWeeklyBody(students, schedules, weekDates) {
 
             const items = cellIndex.get(`${student.id}|${dateKey}`) || [];
             if (items.length === 0) {
-                td.innerHTML = '<div class="no-schedule">-</div>';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>'); } else { td.innerHTML = '<div class="no-schedule">-</div>'; }
             } else {
                 renderGroupedMergedSlots(td, items, student, dateKey);
             }
@@ -1089,7 +1026,7 @@ async function handleStudentRowCapture(student, originalTr) {
         if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${student.name} 的课表图片`);
 
     } catch (err) {
-        console.error('Capture failed', err);
+        
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
         if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
@@ -1231,7 +1168,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
                 // No Success Toast
             } catch (err) {
                 // Revert
-                console.error('Status update failed:', err);
+                
                 statusSelect.value = oldStatus;
                 statusSelect.className = `status-select ${oldStatus}`;
                 if (window.apiUtils) window.apiUtils.showToast('修改失败: ' + (err.message || '未知错误'), 'error');
@@ -1355,7 +1292,7 @@ export async function updateScheduleStatus(id, newStatus) {
 
         window.apiUtils.showSuccessToast('状态已更新');
     } catch (err) {
-        console.error('[更新状态] 失败:', err);
+        
         // 回滚UI
         rollbackOperation(backup, 'update');
         window.apiUtils.showToast('更新状态失败', 'error');
@@ -1368,7 +1305,7 @@ export async function deleteSchedule(id) {
     // 先从缓存中获取记录信息（在乐观删除之前，确保能获取到数据）
     let dateKey = null;
     let studentId = null;
-    
+
     for (const entry of WeeklyDataStore.schedules.values()) {
         if (entry && entry.rows) {
             const rec = entry.rows.find(r => String(r.id) === String(id));
@@ -1414,7 +1351,7 @@ export async function deleteSchedule(id) {
 
         window.apiUtils.showSuccessToast('删除成功');
     } catch (e) {
-        console.error('[删除排课] 失败:', e);
+        
         // 回滚UI
         rollbackOperation(backup, 'delete');
         window.apiUtils.showToast('删除失败: ' + e.message, 'error');
@@ -1559,7 +1496,7 @@ export async function editSchedule(id) {
         updateTeacherStatusHints();
 
     } catch (err) {
-        console.error('[加载排课详情] 失败:', err);
+        
         window.apiUtils.showToast('加载详情失败', 'error');
     }
 }
@@ -1568,7 +1505,7 @@ async function loadScheduleFormOptions() {
     const typeSel = document.getElementById('scheduleTypeSelect');
     if (typeSel && window.ScheduleTypesStore) {
         const types = window.ScheduleTypesStore.getAll();
-        typeSel.innerHTML = '<option value="">选择类型</option>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
         types.forEach(t => {
             const o = document.createElement('option');
             o.value = t.id; o.textContent = t.description || t.name;
@@ -1581,7 +1518,7 @@ async function loadScheduleFormOptions() {
     const [teachers, students] = await Promise.all([WeeklyDataStore.getTeachers(), WeeklyDataStore.getStudents()]);
 
     if (teacherSel) {
-        teacherSel.innerHTML = '<option value="">选择教师</option>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>'); } else { teacherSel.innerHTML = '<option value="">选择教师</option>'; }
         const restricted = [];
         const normal = [];
 
@@ -1608,7 +1545,7 @@ async function loadScheduleFormOptions() {
     }
 
     if (studentSel) {
-        studentSel.innerHTML = '<option value="">选择学生</option>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>'); } else { studentSel.innerHTML = '<option value="">选择学生</option>'; }
         students.forEach(s => {
             if (String(s.status) == '-1') return;
             const o = document.createElement('option');
@@ -1665,7 +1602,7 @@ async function updateTeacherStatusHints() {
             }
             opt.textContent = baseName + hint;
         });
-    } catch (e) { console.warn('[ScheduleManager] 冲突检测失败:', e); }
+    } catch (e) {  }
 }
 
 export async function setupScheduleEventListeners() {
@@ -1737,7 +1674,7 @@ export async function setupScheduleEventListeners() {
                                 const typeSelect = form.querySelector('#scheduleTypeSelect');
                                 const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '老师';
                                 const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '课程';
-                                infoDiv.innerHTML = `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`;
+                                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(infoDiv, `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`); } else { infoDiv.innerHTML = `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`; }
                             }
                         }
                     }
@@ -1768,7 +1705,7 @@ export async function setupScheduleEventListeners() {
                         if (cDiv && cName) cDiv.textContent = cName;
 
                         const locP = currentCard.querySelector('.location-text');
-                        if (locP && body.location) locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`;
+                        if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
                     }
 
                     // 异步请求后端
@@ -1812,14 +1749,14 @@ export async function setupScheduleEventListeners() {
                     await loadSchedules(false);
                 }
             } catch (err) {
-                console.error('[保存排课] 失败:', err);
+                
 
                 // 万一报错了，回滚操作（反欺骗）
                 if (mode === 'add' && backup) {
                     rollbackOperation(backup, 'add');
                 } else if (mode === 'edit' && currentCard && originalCardHtml) {
                     // 悲观恢复原来的DOM卡片
-                    currentCard.innerHTML = originalCardHtml;
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(currentCard, originalCardHtml); } else { currentCard.innerHTML = originalCardHtml; }
                     currentCard.classList.remove('optimistic-updating');
                 }
 
@@ -1897,7 +1834,7 @@ async function initScheduleFilters() {
         try {
             const teachers = await WeeklyDataStore.getTeachers();
             const current = tf.value;
-            tf.innerHTML = '<option value="">全部教师</option>';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tf, '<option value="">全部教师</option>'); } else { tf.innerHTML = '<option value="">全部教师</option>'; }
             teachers.forEach(t => {
                 if (String(t.status) == '-1') return;
                 const o = document.createElement('option');
@@ -1905,7 +1842,7 @@ async function initScheduleFilters() {
                 tf.appendChild(o);
             });
             if (current) tf.value = current;
-        } catch (e) { console.warn('Init teacher filter failed', e); }
+        } catch (e) {  }
     }
 }
 
@@ -1922,4 +1859,4 @@ window.ScheduleManager = {
     }
 };
 
-console.log('[Schedule-Manager] ✅ ScheduleManager 接口已就绪');
+// Expose required methods to window for legacy code

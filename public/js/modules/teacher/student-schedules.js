@@ -31,12 +31,12 @@ window.toggleTeacherStudentFeeVisibility = function () {
     if (toggleBtn) {
         if (window.teacherStudentFeeShow) {
             toggleBtn.classList.add('fee-active');
-            toggleBtn.style.backgroundColor = '#10b981';
+            toggleBtn.style.backgroundColor = '#2ECC71';
             toggleBtn.style.color = 'white';
         } else {
             toggleBtn.classList.remove('fee-active');
             toggleBtn.style.backgroundColor = 'white';
-            toggleBtn.style.color = '#10b981';
+            toggleBtn.style.color = '#2ECC71';
         }
     }
 
@@ -54,7 +54,7 @@ export async function initStudentSchedulesSection() {
     if (btnText) btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
     if (toggleBtn && window.teacherStudentFeeShow) {
         toggleBtn.classList.add('fee-active');
-        toggleBtn.style.backgroundColor = '#10b981';
+        toggleBtn.style.backgroundColor = '#2ECC71';
         toggleBtn.style.color = 'white';
     }
     bindNavigation();
@@ -63,6 +63,8 @@ export async function initStudentSchedulesSection() {
     // 绑定导出学生数据按钮
     const exportBtn = document.getElementById('exportTeacherStudentsBtn');
     if (exportBtn) {
+        exportBtn.style.backgroundColor = '#2ECC71';
+        exportBtn.style.color = 'white';
         exportBtn.addEventListener('click', exportTeacherStudents);
     }
 
@@ -123,7 +125,7 @@ function bindFeeModalEvents() {
         const container = document.getElementById('dynamicFeeInputsContainer');
         if (container) {
             container.style.display = 'none';
-            container.innerHTML = '';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
         }
     };
 
@@ -193,7 +195,7 @@ function bindFeeModalEvents() {
                 closeModal();
                 await loadSchedules(currentWeekStart); // reload
             } catch (error) {
-                console.error(error);
+
                 if (window.apiUtils && window.apiUtils.showToast) {
                     window.apiUtils.showToast(error.message || '保存失败', 'error');
                 } else {
@@ -263,7 +265,7 @@ function openFeeModal(group) {
         if (defaultOther) defaultOther.style.display = 'none';
         if (container) {
             container.style.display = 'block';
-            container.innerHTML = '';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
 
             activeScheduleGroup.forEach(schedule => {
                 const row = document.createElement('div');
@@ -306,15 +308,24 @@ async function loadSchedules(baseDate) {
     const rangeLabel = document.getElementById('ssWeekRange');
     if (rangeLabel) rangeLabel.textContent = formatWeekRangeText(weekDates[0], weekDates[weekDates.length - 1]);
 
+    // 立刻渲染表头，确保视觉同步
+    if (!isMobileView()) {
+        renderTableHeader(weekDates);
+    }
+
     const feedback = document.getElementById('ssScheduleFeedback');
 
     const body = document.getElementById('ssWeeklyBody');
     if (body) {
         body.innerHTML = `
-            <div class="flex flex-col items-center justify-center" style="min-height: 300px; width: 100%; grid-column: 1 / -1;">
-                <div class="loading-spinner mb-4" style="width: 40px; height: 40px; border-width: 3px;"></div>
-                <div style="color: var(--color-gray-500); font-size: 15px; font-weight: 500;">正在加载学生课程安排...</div>
-            </div>
+            <tr>
+                <td colspan="8" style="padding: 0; border: none;">
+                    <div class="flex flex-col items-center justify-center" style="min-height: 300px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                        <div class="loading-spinner" style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
+                        <div style="color: #64748b; font-size: 15px; font-weight: 500;">正在加载学生课程安排...</div>
+                    </div>
+                </td>
+            </tr>
         `;
     }
 
@@ -347,8 +358,8 @@ async function loadSchedules(baseDate) {
         renderSchedulesGrid(weekDates, cachedSchedules, cachedStudents);
         showInlineFeedback(feedback, '', '');
     } catch (error) {
-        console.error('加载班主任关联学生课程安排失败', error);
-        if (body) body.innerHTML = '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>';
+
+        if (body) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(body, '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'); } else { body.innerHTML = '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'; }
         showInlineFeedback(feedback, '加载课程安排失败', 'error');
     }
 }
@@ -406,45 +417,13 @@ function isMobileView() {
 }
 
 function renderDesktopScheduleTable(weekDates, schedules, students = []) {
-    const thead = document.getElementById('ssWeeklyHeader');
     const tbody = document.getElementById('ssWeeklyBody');
-    if (!thead || !tbody) return;
+    if (!tbody) return;
 
-    clearChildren(thead);
+    // 渲染表头并获取 thead
+    renderTableHeader(weekDates);
+
     clearChildren(tbody);
-
-    // 1. 渲染表头 (日期)
-    const headerRow = document.createElement('tr');
-
-    const nameTh = createElement('th', 'date-header');
-    nameTh.innerHTML = `<div class="date-label">学生姓名</div>`;
-    headerRow.appendChild(nameTh);
-    weekDates.forEach(date => {
-        const iso = toISODate(date);
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-        const weekday = weekdayNames[date.getDay()];
-
-        // 农历显示
-        let lunarLabel = '';
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
-            }
-        } catch (e) { }
-
-        const th = createElement('th', 'date-header');
-        th.dataset.date = iso;
-        th.innerHTML = `
-            <div class="date-label">${month}月${day}日${lunarLabel}</div>
-            <div class="day-label">${weekday}</div>
-        `;
-        headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
 
     // 2. 渲染表体
     // 用后端返回的学生列表构建完整行（即使该学生本周无排课也显示空行）
@@ -507,7 +486,7 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
 
         // 第一列：学生姓名
         const nameCell = createElement('td', 'student-name-cell');
-        nameCell.innerHTML = `<div>${studentData.student_name}</div>`;
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(nameCell, `<div>${studentData.student_name}</div>`); } else { nameCell.innerHTML = `<div>${studentData.student_name}</div>`; }
         nameCell.title = "点击生成图片并复制";
         nameCell.style.cursor = 'copy';
         nameCell.addEventListener('click', (e) => {
@@ -552,6 +531,46 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     });
 }
 
+function renderTableHeader(weekDates) {
+    const thead = document.getElementById('ssWeeklyHeader');
+    if (!thead) return;
+
+    clearChildren(thead);
+    const headerRow = document.createElement('tr');
+
+    const nameTh = createElement('th', 'date-header');
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(nameTh, `<div class="date-label">学生姓名</div>`); } else { nameTh.innerHTML = `<div class="date-label">学生姓名</div>`; }
+    headerRow.appendChild(nameTh);
+
+    weekDates.forEach(date => {
+        const iso = toISODate(date);
+        const parts = iso.split('-');
+        const month = parts[1];
+        const day = parts[2];
+        const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+        const weekday = weekdayNames[date.getDay()];
+
+        // 农历显示
+        let lunarLabel = '';
+        try {
+            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
+            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
+            if (match) {
+                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+            }
+        } catch (e) { }
+
+        const th = createElement('th', 'date-header');
+        th.dataset.date = iso;
+        th.innerHTML = `
+            <div class="date-label">${month}月${day}日${lunarLabel}</div>
+            <div class="day-label">${weekday}</div>
+        `;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+}
+
 function groupSchedulesBySlot(schedules) {
     const slots = new Map();
     schedules.forEach(s => {
@@ -587,9 +606,12 @@ function renderMobileScheduleTable(weekDates, schedules) {
     const tbody = document.createElement('tbody');
     weekDates.forEach(date => {
         const iso = toISODate(date);
+        const parts = iso.split('-');
+        const month = parts[1];
+        const day = parts[2];
+
         const row = document.createElement('tr');
 
-        const day = date.getDate();
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const weekday = weekdayNames[date.getDay()];
 
@@ -600,7 +622,7 @@ function renderMobileScheduleTable(weekDates, schedules) {
             if (match) lunarParen = `(${match[0]})`;
         } catch (e) { }
 
-        const dateCell = createElement('td', 'mobile-date-cell', { textContent: `${day}/${weekday}${lunarParen}` });
+        const dateCell = createElement('td', 'mobile-date-cell', { textContent: `${month}/${day} ${weekday}${lunarParen}` });
         row.appendChild(dateCell);
 
         const detailsCell = createElement('td', 'mobile-details-cell');
@@ -720,13 +742,13 @@ function buildCompactMobileScheduleCard(group) {
     // 时间显示
     const timeText = formatTimeRange(first.start_time, first.end_time);
     const timeInfo = createElement('div', '', { style: 'margin-top: 4px; font-size: 14px; color: #475569; display: flex; align-items: center; gap: 4px;' });
-    timeInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(timeInfo, `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`); } else { timeInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`; }
     card.appendChild(timeInfo);
 
     // 地点显示
     const loc = first.location || '';
     const locInfo = createElement('div', '', { style: 'margin-top: 2px; font-size: 14px; color: #64748b; display: flex; align-items: center; gap: 4px;' });
-    locInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locInfo, `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`); } else { locInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`; }
     card.appendChild(locInfo);
 
     // 费用显示逻辑
@@ -778,7 +800,7 @@ function buildScheduleCard(group) {
     let slot = 'morning';
     const h = parseInt((first.start_time || '00:00').substring(0, 2), 10);
     if (h >= 12) slot = 'afternoon';
-    if (h >= 19) slot = 'evening';
+    if (h >= 18) slot = 'evening';
 
     const colors = {
         morning: { bg: '#DBEAFE', border: '#93C5FD' },
@@ -819,7 +841,7 @@ function buildScheduleCard(group) {
 
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
-        marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`;
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(marqueeContent, `<span class="course-type-text">(${typeStr})</span>`); } else { marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`; }
 
         marqueeWrapper.appendChild(marqueeContent);
         left.appendChild(nameSpan);
@@ -1116,7 +1138,7 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
         if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${studentName} 的课表图片`);
 
     } catch (err) {
-        console.error('Capture failed', err);
+
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
         if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
@@ -1132,7 +1154,7 @@ async function exportTeacherStudents() {
             type: 'teacher_schedule'
         });
     } else {
-        console.error('ExportDialog not found');
+
         if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
     }
 }

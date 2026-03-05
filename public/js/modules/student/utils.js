@@ -111,7 +111,7 @@ export function showToast(message, type = 'info') {
  * Handle API errors
  */
 export function handleApiError(error, defaultMessage = '操作失败') {
-    console.error('API Error:', error);
+
     const message = error.message || defaultMessage;
     showToast(message, 'error');
 }
@@ -133,7 +133,7 @@ export function createElement(tag, className, props = {}) {
     if (className) el.className = className;
     Object.entries(props).forEach(([key, value]) => {
         if (key === 'textContent') el.textContent = value;
-        else if (key === 'innerHTML') el.innerHTML = value;
+        else if (key === 'innerHTML') if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(el, value); } else { el.innerHTML = value; }
         else el.setAttribute(key, value);
     });
     return el;
@@ -164,10 +164,26 @@ export function formatTimeRange(start, end) {
  */
 export function toISODate(dateLike) {
     if (!dateLike) return '';
-    const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+
+    // Ensure we have a Date object
+    let date;
+    if (dateLike instanceof Date) {
+        date = dateLike;
+    } else {
+        // Handle ISO strings by converting to Date object
+        date = new Date(dateLike);
+    }
+
     if (Number.isNaN(date.getTime())) return '';
-    const d = new Date(date);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Standardize to Beijing Time (Asia/Shanghai) to avoid UTC offset issues
+    // format "en-CA" returns "YYYY-MM-DD"
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
 }
 
 export function assertElement(selectorOrElement) {

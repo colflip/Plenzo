@@ -320,7 +320,7 @@
 
       // 检查Chart.js是否加载
       if (typeof window.Chart === 'undefined') {
-        console.error('renderStackedBarChart: Chart.js is not loaded');
+        
         // 显示错误提示
         const parent = el.parentElement;
         if (parent) {
@@ -442,7 +442,7 @@
 
       // 可选：添加总计折线图叠加
       if (opts.showTotalLine) {
-        console.log('[Stats-Plugins] showTotalLine 已启用，准备添加蓝色虚线折线图');
+        
 
         // 计算每日总数
         const totalPerDay = formattedLabels.map((_, dayIdx) => {
@@ -452,13 +452,6 @@
         // 美观的渐变蓝色（带透明度）
         const lineColor = 'rgba(59, 130, 246, 0.85)';  // 蓝色，85%透明度
         const pointColor = 'rgba(59, 130, 246, 1)';     // 实心点
-
-        console.log('[Stats-Plugins] 折线图配置:', {
-          颜色: lineColor,
-          虚线样式: [8, 4],
-          光滑度: 0.4,
-          数据点数: totalPerDay.length
-        });
 
         datasets.push({
           type: 'line',
@@ -540,7 +533,7 @@
                   chart.setDatasetVisibility(idx, !vis);
                   chart.update();
                 } catch (err) {
-                  console.error('Error handling legend click:', err);
+                  
                 }
               },
               labels: {
@@ -659,9 +652,16 @@
       // 添加响应式处理
       const handleResize = () => {
         try {
+          // 检查 canvas 元素是否仍然存在
+          const canvas = document.getElementById(canvasId);
+          if (!canvas || !document.body.contains(canvas)) {
+            // Canvas 已被移除，清理事件监听器
+            window.removeEventListener('resize', handleResize);
+            return;
+          }
           chart.resize();
         } catch (err) {
-          console.error('Error resizing chart:', err);
+          
         }
       };
 
@@ -678,7 +678,7 @@
       return chart;
 
     } catch (error) {
-      console.error('Error rendering stacked bar chart:', error);
+      
 
       // 隐藏加载状态并显示错误
       const loadingContainer = document.getElementById(`${canvasId}-loading`);

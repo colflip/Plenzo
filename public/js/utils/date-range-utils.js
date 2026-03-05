@@ -35,5 +35,115 @@
     if (!target) return;
     target.textContent = formatRangeText(start, end);
   }
-  window.DateRangeUtils = { getWeekDates, formatYMD, getISOWeekNumber, formatRangeText, updateRangeText };
+  function computeRange(preset) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    let start, end;
+
+    const p = String(preset || '').toLowerCase().replace(/_/g, '-');
+
+    switch (p) {
+      case 'today':
+        start = end = today;
+        break;
+      case 'yesterday':
+        start = end = new Date(today);
+        start.setDate(today.getDate() - 1);
+        break;
+      case 'week':
+      case 'this-week': {
+        const day = today.getDay() || 7;
+        start = new Date(today);
+        start.setDate(today.getDate() - (day - 1));
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        break;
+      }
+      case 'prev-week':
+      case 'last-week': {
+        const day = today.getDay() || 7;
+        const thisMon = new Date(today);
+        thisMon.setDate(today.getDate() - (day - 1));
+        start = new Date(thisMon);
+        start.setDate(thisMon.getDate() - 7);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        break;
+      }
+      case 'month':
+      case 'this-month':
+        start = new Date(year, month, 1);
+        end = new Date(year, month + 1, 0);
+        break;
+      case 'prev-month':
+      case 'last-month':
+        start = new Date(year, month - 1, 1);
+        end = new Date(year, month, 0);
+        break;
+      case 'quarter':
+      case 'this-quarter': {
+        const q = Math.floor(month / 3);
+        start = new Date(year, q * 3, 1);
+        end = new Date(year, (q + 1) * 3, 0);
+        break;
+      }
+      case 'prev-quarter':
+      case 'last-quarter': {
+        const q = Math.floor(month / 3);
+        let sMonth = (q * 3) - 3;
+        let sYear = year;
+        if (sMonth < 0) { sMonth += 12; sYear--; }
+        start = new Date(sYear, sMonth, 1);
+        end = new Date(sYear, sMonth + 3, 0);
+        break;
+      }
+      case 'year':
+      case 'this-year':
+        start = new Date(year, 0, 1);
+        end = new Date(year, 11, 31);
+        break;
+      case 'prev-year':
+      case 'last-year':
+        start = new Date(year - 1, 0, 1);
+        end = new Date(year - 1, 11, 31);
+        break;
+      default:
+        return null;
+    }
+    return { start: formatYMD(start), end: formatYMD(end) };
+  }
+
+  function syncPresetButtons(startDate, endDate, container) {
+    if (!container) return;
+    const btns = container.querySelectorAll('.preset-btn');
+    if (!btns || btns.length === 0) return;
+
+    btns.forEach(btn => {
+      const preset = btn.getAttribute('data-preset') || btn.getAttribute('data-range');
+      const range = computeRange(preset);
+      const isActive = (range && range.start === startDate && range.end === endDate);
+
+      if (isActive) {
+        btn.classList.add('active');
+        // 兼容 Teacher/Student 端的硬编码样式样式
+        if (btn.style) {
+          btn.style.backgroundColor = '#dcfce7';
+          btn.style.color = '#15803d';
+          btn.style.borderColor = 'transparent';
+          btn.style.outline = 'none';
+        }
+      } else {
+        btn.classList.remove('active');
+        if (btn.style) {
+          btn.style.backgroundColor = 'white';
+          btn.style.color = '#333';
+          btn.style.borderColor = '#d1d5db';
+        }
+      }
+    });
+  }
+
+  window.DateRangeUtils = { getWeekDates, formatYMD, getISOWeekNumber, formatRangeText, updateRangeText, computeRange, syncPresetButtons };
 })();

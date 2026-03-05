@@ -54,3 +54,6 @@ netlify.toml
 _archive/
 prompt.md
 src/server/scripts/
+scripts/archive/
+
+

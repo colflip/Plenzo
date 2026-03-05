@@ -4,34 +4,38 @@ const connectionString = process.env.DATABASE_URL || '';
 const preferServerless =
   process.env.DB_DRIVER === 'neon' || connectionString.includes('neon.tech');
 
-// 统一数据库会话时区为UTC
 const TIME_ZONE = 'UTC';
+
+const isProduction = process.env.NODE_ENV === 'production';
+const isVercel = process.env.VERCEL === '1';
+const isRender = process.env.RENDER === 'true';
 
 let query;
 let getClient;
 
 if (preferServerless) {
-  // 通过 443 端口的 HTTPS/WebSocket 连接 Neon
   const { neon } = require('@neondatabase/serverless');
+  
+  const fetchTimeout = parseInt(process.env.DB_FETCH_TIMEOUT) || 10000;
+  const maxRetries = parseInt(process.env.DB_MAX_RETRIES) || 5;
+  const initialDelay = parseInt(process.env.DB_RETRY_DELAY) || 1000;
+
   const sql = neon(connectionString, {
-    fetchOptions: { timeout: 10000 } // 10秒超时
+    fetchOptions: { timeout: fetchTimeout },
+    connectionCache: true
   });
 
   let tzInitialized = false;
 
-  // 内部执行器，直接调用 neon
   const executeQuery = async (text, params) => {
-    // 优先使用 sql.query（若可用）
     if (typeof sql.query === 'function') {
       const res = await sql.query(text, params);
       return res && res.rows ? res : { rows: res };
     }
-    // 使用模板标签执行
     const res = await sql`${sql.unsafe(text, params)}`;
     return Array.isArray(res) ? { rows: res } : (res && res.rows ? res : { rows: res });
   };
 
-  // 导出 query 函数，包含初始化和重试逻辑
   query = async (text, params = []) => {
     if (!tzInitialized) {
       try {
@@ -42,24 +46,25 @@ if (preferServerless) {
       tzInitialized = true;
     }
 
-    const MAX_RETRIES = 5;
-    let delay = 1000;
+    let delay = initialDelay;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await executeQuery(text, params);
       } catch (err) {
         const errMsg = String(err.message || '');
         const isRetriable = err.code === 'ECONNRESET' ||
           err.code === 'ETIMEDOUT' ||
+          err.code === 'UND_ERR_CONNECT_TIMEOUT' ||
           errMsg.includes('fetch failed') ||
           errMsg.includes('socket disconnected') ||
-          errMsg.includes('connection reset');
+          errMsg.includes('connection reset') ||
+          errMsg.includes('timeout');
 
-        if (isRetriable && attempt < MAX_RETRIES) {
-          console.warn(`[DB] 查询失败 (尝试 ${attempt}/${MAX_RETRIES}): ${errMsg}。正在 ${delay}ms 后重试...`);
+        if (isRetriable && attempt < maxRetries) {
+          console.warn(`[DB] 查询失败 (尝试 ${attempt}/${maxRetries}): ${errMsg}。正在 ${delay}ms 后重试...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2;
+          delay = Math.min(delay * 2, 10000);
           continue;
         }
         throw err;
@@ -78,14 +83,18 @@ if (preferServerless) {
     return /sslmode=require/i.test(connectionString);
   })();
 
-  const pool = new Pool({
+  const poolConfig = {
     connectionString,
     ssl: shouldUseSSL ? { rejectUnauthorized: false } : undefined,
     keepAlive: true,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-  });
+    max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX) || 10),
+    min: isVercel || isRender ? 0 : 2,
+    idleTimeoutMillis: isVercel || isRender ? 5000 : 30000,
+    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT) || 10000,
+    allowExitOnIdle: isVercel || isRender
+  };
+
+  const pool = new Pool(poolConfig);
 
   pool.on('connect', async (client) => {
     try {
@@ -93,6 +102,10 @@ if (preferServerless) {
     } catch (e) {
       console.warn('设置会话时区失败(pg)：', e?.message || e);
     }
+  });
+
+  pool.on('error', (err, client) => {
+    console.error('数据库连接池错误:', err.message);
   });
 
   query = (text, params) => pool.query(text, params);

@@ -31,6 +31,16 @@ const {
     asyncHandler,
     errorResponse
 } = require('./error');
+const {
+    loginLimiter,
+    apiLimiter,
+    strictLimiter
+} = require('./rateLimit');
+const {
+    securityHeaders,
+    additionalSecurityHeaders,
+    corsOptions
+} = require('./security');
 
 module.exports = {
     // 认证
@@ -61,5 +71,13 @@ module.exports = {
     errorHandler,
     notFoundHandler,
     asyncHandler,
-    errorResponse
+    errorResponse,
+
+    // 安全
+    loginLimiter,
+    apiLimiter,
+    strictLimiter,
+    securityHeaders,
+    additionalSecurityHeaders,
+    corsOptions
 };

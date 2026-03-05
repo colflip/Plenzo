@@ -96,7 +96,7 @@
             state.schedules = Array.isArray(data) ? data : [];
             renderTable(state.schedules);
         } catch (err) {
-            console.error('[StudentScheduleFees] 加载失败:', err);
+            
             tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:#ef4444;">
                 加载失败，请重试
             </td></tr>`;
@@ -115,7 +115,7 @@
             return;
         }
 
-        tbody.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
         schedules.forEach(rec => {
             const tr = document.createElement('tr');
             tr.className = 'ssf-row';
@@ -209,7 +209,7 @@
             if (defaultOther) defaultOther.style.display = 'none';
             if (container) {
                 container.style.display = 'block';
-                container.innerHTML = '';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
 
                 activeScheduleGroup.forEach(schedule => {
                     const row = document.createElement('div');
@@ -316,6 +316,15 @@
                 rec.transport_fee = upd.transport_fee;
                 rec.other_fee = upd.other_fee;
             }
+
+            // 同步更新跨组件共享的全局每周排课大缓存 (保证其它地方重新读取缓存时能读到最新费用)
+            if (window.ScheduleManager && window.ScheduleManager.WeeklyDataStore && typeof window.ScheduleManager.WeeklyDataStore.updateLocalRecord === 'function') {
+                window.ScheduleManager.WeeklyDataStore.updateLocalRecord({
+                    id: upd.id,
+                    transport_fee: upd.transport_fee,
+                    other_fee: upd.other_fee
+                });
+            }
         });
 
         // 乐观地在网络响应前刷新费用明细表和周表统览
@@ -357,7 +366,7 @@
                 }
             }
         } catch (err) {
-            console.error('[StudentScheduleFees] 保存费用失败，回滚操作:', err);
+            
             window.apiUtils.showToast('保存失败：' + (err.message || '未知错误'), 'error');
 
             // --- 悲观回滚：网络故障导致未存储成功，逆向还原状态 ---

@@ -713,44 +713,82 @@
                 <section id="overview" class="dashboard-section active">
                     <div class="overview-stats-grid">
                         <!-- Time Based Stats -->
-                        <div class="stat-card summary-card time-stats" data-tooltip="本周内所有已安排的课程总数">
-                            <h3>本周排课</h3>
-                            <p class="stat-value" id="weeklyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);"
+                            data-tooltip="本周内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #0369a1;">school</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #0369a1;">本周课程</h3>
+                                <p class="gradient-value" style="color: #0369a1;" id="weeklyLessons">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card time-stats" data-tooltip="本月内所有已安排的课程总数">
-                            <h3>本月排课</h3>
-                            <p class="stat-value" id="monthlyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);"
+                            data-tooltip="本月内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #15803d;">calendar_month</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #15803d;">本月课程</h3>
+                                <p class="gradient-value" style="color: #15803d;" id="monthlyLessons">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card time-stats" data-tooltip="本年度内所有已安排的课程总数">
-                            <h3>本年排课</h3>
-                            <p class="stat-value" id="yearlyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);"
+                            data-tooltip="本年度内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #7c3aed;">local_library</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #7c3aed;">本年课程</h3>
+                                <p class="gradient-value" style="color: #7c3aed;" id="yearlyLessons">--</p>
+                            </div>
                         </div>
 
                         <!-- Status Based Stats -->
-                        <div class="stat-card summary-card status-pending" data-tooltip="当前等待教师确认的课程申请">
-                            <h3>待确认排课(全部)</h3>
-                            <p class="stat-value" id="totalPending">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);"
+                            data-tooltip="当前等待教师确认的课程申请">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #be185d;">more_time</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #be185d;">待排课确认</h3>
+                                <p class="gradient-value" style="color: #be185d;" id="totalPending">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card status-completed" data-tooltip="历史累计已顺利完成的课程总节数">
-                            <h3>已完成排课(全部)</h3>
-                            <p class="stat-value" id="totalCompleted">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);"
+                            data-tooltip="历史累计已顺利完成的课程总节数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #166534;">task_alt</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #166534;">已学课程</h3>
+                                <p class="gradient-value" style="color: #166534;" id="totalCompleted">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card status-cancelled" data-tooltip="历史累计已被取消的预约记录">
-                            <h3>已取消排课(全部)</h3>
-                            <p class="stat-value" id="totalCancelled">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);"
+                            data-tooltip="历史累计已被取消的预约记录">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #475569;">event_busy</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #475569;">课程取消</h3>
+                                <p class="gradient-value" style="color: #475569;" id="totalCancelled">--</p>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="stats-unified-card" style="margin-top: 20px; padding: 24px;">
-                        <div class="form-header"
-                            style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0;">今日课程</h3>
-                            <button id="refreshTodaySchedulesBtn" class="info-btn"
-                                style="padding: 6px 12px; font-size: 13px;">
-                                <span class="material-icons-round" style="font-size: 16px;">refresh</span> 刷新
+                    <!-- 今日课程 -->
+                    <div class="overview-today-section">
+                        <div class="overview-today-header">
+                            <div class="overview-today-title">
+                                <span class="material-icons-round">event_note</span>
+                                <h3>今日课程</h3>
+                            </div>
+                            <button id="refreshTodaySchedulesBtn" class="overview-today-refresh">
+                                <span class="material-icons-round">refresh</span> 刷新
                             </button>
                         </div>
-                        <div id="todayScheduleList" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div id="todayScheduleList" class="overview-today-list">
                             <!-- Dynamic Content -->
                         </div>
                     </div>
@@ -781,7 +819,8 @@
                             <div class="form-header">
                                 <h3>详细信息</h3>
                                 <div class="action-buttons" style="display:flex; gap:10px;">
-                                    <button id="changePasswordBtn" class="search-btn" style="background:#3b82f6;">
+                                    <button id="changePasswordBtn" class="search-btn"
+                                        style="background:#ef4444; color: white;">
                                         <span class="material-icons-round" style="font-size: 16px;">lock</span>
                                         更改密码
                                     </button>
@@ -1020,6 +1059,8 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
     <script src="/js/core/api-client.js"></script>
+    <script src="/js/components/export-manager.js"></script>
+    <script src="/js/utils/color-utils.js"></script>
     <script src="/js/utils/date-range-utils.js"></script>
     <script src="/js/core/schedule-types-store.js"></script>
     <script type="module" src="/js/modules/student/entry.js"></script>

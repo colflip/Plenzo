@@ -6,6 +6,7 @@ export const API_ENDPOINTS = {
     PROFILE: '/api/student/profile',
     AVAILABILITY: '/api/student/availability',
     SCHEDULES: '/api/student/schedules',
+    STATISTICS: '/api/student/statistics',
     DATA_SUMMARY: '/api/student/data-summary',
     OVERVIEW: '/api/student/overview',
     CONFIRM_SCHEDULE: '/api/student/confirm-schedule'
@@ -67,6 +68,7 @@ export const SCHEDULE_TYPE_MAP = {
     'offline_tutoring': '线下辅导',
     'group_activity': '集体活动',
     'half_visit': '半次入户',
+    'visit_online': '(线上)入户',
     'visit': '入户',
     'other': '其他'
 };

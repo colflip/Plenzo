@@ -110,7 +110,7 @@ function renderOneToOneSchedules(schedules, container, showActions = true) {
     if (!container) return;
     
     if (!schedules || schedules.length === 0) {
-        container.innerHTML = '<div class="no-schedule">暂无1对1课程安排</div>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-schedule">暂无1对1课程安排</div>'); } else { container.innerHTML = '<div class="no-schedule">暂无1对1课程安排</div>'; }
         return;
     }
     
@@ -190,7 +190,7 @@ async function confirmOneToOneSchedule(scheduleId, isConfirmed) {
         // 重新加载课程数据
         loadOneToOneSchedules();
     } catch (error) {
-        console.error('确认课程错误:', error);
+        
         alert(error.message || '操作失败，请重试');
         
         // 恢复按钮状态
@@ -213,7 +213,7 @@ async function loadOneToOneSchedules(baseDate = new Date()) {
         // 显示加载中状态
         const container = document.getElementById('oneToOneSchedulesContainer');
         if (container) {
-            container.innerHTML = '<div class="loading">加载中...</div>';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="loading">加载中...</div>'); } else { container.innerHTML = '<div class="loading">加载中...</div>'; }
         }
         
         // 计算日期范围（本周）
@@ -238,10 +238,10 @@ async function loadOneToOneSchedules(baseDate = new Date()) {
             renderOneToOneSchedules(schedules, container);
         }
     } catch (error) {
-        console.error('加载1对1课程安排错误:', error);
+        
         const container = document.getElementById('oneToOneSchedulesContainer');
         if (container) {
-            container.innerHTML = '<div class="error-message">加载失败，请刷新页面重试</div>';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="error-message">加载失败，请刷新页面重试</div>'); } else { container.innerHTML = '<div class="error-message">加载失败，请刷新页面重试</div>'; }
         }
     }
 }

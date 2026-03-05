@@ -146,7 +146,7 @@ const teacherController = {
                 SELECT column_name 
                 FROM information_schema.columns 
                 WHERE table_schema = 'public' AND table_name = 'teachers'
-                    AND column_name IN ('status','last_login','created_at')
+                    AND column_name IN ('status','last_login','created_at','student_ids')
             `);
             const availableCols = new Set(columnResult.rows.map(r => r.column_name));
             const selectCols = [
@@ -166,6 +166,9 @@ const teacherController = {
             }
             if (availableCols.has('created_at')) {
                 selectCols.push('created_at');
+            }
+            if (availableCols.has('student_ids')) {
+                selectCols.push('student_ids');
             }
 
             const result = await db.query(
@@ -254,6 +257,36 @@ const teacherController = {
         } catch (error) {
             console.error('Export error:', error);
             res.status(error.status || 500).json({ error: error.message || '导出失败' });
+        }
+    },
+
+    /**
+     * 高级导出（供直接获取 JSON 数据给前端通用模块使用）
+     */
+    async advancedExport(req, res) {
+        try {
+            const teacherId = req.user.id;
+            const { startDate, endDate } = req.query;
+
+            if (!startDate || !endDate) {
+                return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
+            }
+
+            const exportService = new AdvancedExportService(db);
+            const exportData = await exportService.exportTeacherSchedule(startDate, endDate, { teacher_id: teacherId });
+
+            const responseData = {
+                data: exportData,
+                filename: `[${req.user.name || req.user.username || '教师'}]授课记录_${startDate}_${endDate}.xlsx`,
+                format: 'excel',
+                recordCount: exportData.length
+            };
+
+            // 保持返回格式和 adminController 中 advancedExport 一致
+            res.json(standardResponse(true, responseData, '教师数据导出成功'));
+        } catch (error) {
+            console.error('Teacher Advanced Export Error:', error);
+            res.status(500).json(standardResponse(false, null, error.message || '导出失败'));
         }
     },
 
@@ -728,13 +761,27 @@ const teacherController = {
             const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
             const lastDayOfYear = new Date(today.getFullYear(), 11, 31);
 
-            const todayStr = today.toISOString().split('T')[0];
-            const weekStartStr = activeWeekStart.toISOString().split('T')[0];
-            const weekEndStr = activeWeekEnd.toISOString().split('T')[0];
-            const monthStartStr = firstDayOfMonth.toISOString().split('T')[0];
-            const monthEndStr = lastDayOfMonth.toISOString().split('T')[0];
-            const yearStartStr = firstDayOfYear.toISOString().split('T')[0];
-            const yearEndStr = lastDayOfYear.toISOString().split('T')[0];
+            // 修复时区偏差问题：确保返回纯数字的 YYYY-MM-DD 格式，避免 zh-CN 下出现“月”、“日”字符
+            const formatDate = (d) => {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    timeZone: 'Asia/Shanghai'
+                }).formatToParts(d);
+                const year = parts.find(p => p.type === 'year').value;
+                const month = parts.find(p => p.type === 'month').value;
+                const day = parts.find(p => p.type === 'day').value;
+                return `${year}-${month}-${day}`;
+            };
+
+            const todayStr = formatDate(today);
+            const weekStartStr = formatDate(activeWeekStart);
+            const weekEndStr = formatDate(activeWeekEnd);
+            const monthStartStr = formatDate(firstDayOfMonth);
+            const monthEndStr = formatDate(lastDayOfMonth);
+            const yearStartStr = formatDate(firstDayOfYear);
+            const yearEndStr = formatDate(lastDayOfYear);
 
             const dateExpr = await getDateExpr('ca');
             await initSchemaCache();
@@ -1217,6 +1264,93 @@ const teacherController = {
             res.json(standardResponse(true, studentsResult.rows, '获取学生列表成功'));
         } catch (error) {
             console.error('获取关联学生列表错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 获取关联学生详细信息列表
+     */
+    async getAssociatedStudentsDetail(req, res) {
+        try {
+            const teacherId = req.user.id;
+            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
+            if (teacherResult.rows.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+            }
+
+            const studentIdsStr = teacherResult.rows[0].student_ids || '';
+            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+            if (studentIds.length === 0) {
+                return res.json(standardResponse(true, [], '未绑定学生'));
+            }
+
+            const studentsResult = await db.query(
+                `SELECT id, username, name, profession, contact, visit_location, home_address, status, last_login 
+                 FROM students WHERE id = ANY($1::int[]) ORDER BY name`,
+                [studentIds]
+            );
+            res.json(standardResponse(true, studentsResult.rows, '获取学生详细信息成功'));
+        } catch (error) {
+            console.error('获取关联学生详细信息错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 更新关联学生信息
+     */
+    async updateAssociatedStudent(req, res) {
+        try {
+            const teacherId = req.user.id;
+            const studentId = req.params.id;
+            const { name, profession, contact, visit_location, home_address, status } = req.body;
+
+            if (!studentId) {
+                return res.status(400).json(standardResponse(false, null, '缺少学生ID'));
+            }
+
+            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
+            if (teacherResult.rows.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+            }
+
+            const studentIdsStr = teacherResult.rows[0].student_ids || '';
+            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+            if (!studentIds.includes(parseInt(studentId))) {
+                return res.status(403).json(standardResponse(false, null, '无权修改该学生信息'));
+            }
+
+            let sets = ['name = $1', 'profession = $2', 'contact = $3', 'visit_location = $4', 'home_address = $5'];
+            let values = [name, profession, contact, visit_location, home_address];
+            let vi = 6;
+            if (typeof status !== 'undefined') {
+                const s = Number(status);
+                if (![-1, 0, 1].includes(s)) {
+                    return res.status(400).json(standardResponse(false, null, '非法状态值'));
+                }
+                sets.push(`status = $${vi++}`);
+                values.push(s);
+            }
+            values.push(parseInt(studentId));
+
+            const result = await db.query(
+                `UPDATE students
+                SET ${sets.join(', ')}
+                WHERE id = $${vi}
+                RETURNING id, username, name, profession, contact, visit_location, home_address, status`,
+                values
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '未找到学生信息'));
+            }
+
+            res.json(standardResponse(true, result.rows[0], '学生信息更新成功'));
+        } catch (error) {
+            console.error('更新关联学生信息错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },

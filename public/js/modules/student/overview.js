@@ -90,7 +90,7 @@ export async function loadOverview() {
 
         updateOverviewDisplay(data);
     } catch (error) {
-        console.error('加载总览数据失败', error);
+
         showStatsErrorState();
         renderTodaySchedules([]);
     }
@@ -197,30 +197,30 @@ function createConfetti() {
 }
 
 function updateOverviewDisplay(data) {
-    // Helper to setup click
-    const setupClick = (elId, title, value, type) => {
-        const el = document.getElementById(elId);
-        if (el) {
-            setText(el, value);
-            // Find parent card to attach listener
-            const card = el.closest('.stat-card');
-            if (card) {
-                // Remove old listeners
-                const newCard = card.cloneNode(true);
-                card.parentNode.replaceChild(newCard, card);
-                newCard.addEventListener('click', () => showReward(title, value, type));
-                newCard.style.cursor = 'pointer';
-            }
+    // 卡片数据列表（HTML 已包含渐变卡片结构，仅更新数值）
+    const cardDataList = [
+        { id: 'weeklyLessons', label: '本周课程', value: data.weeklyCount || 0, type: 'weekly' },
+        { id: 'monthlyLessons', label: '本月课程', value: data.monthlyCount || 0, type: 'monthly' },
+        { id: 'yearlyLessons', label: '本年课程', value: data.yearlyCount || 0, type: 'yearly' },
+        { id: 'totalPending', label: '待排课确认', value: data.totalPending || 0, type: 'pending' },
+        { id: 'totalCompleted', label: '已学课程', value: data.totalCompleted || 0, type: 'completed' },
+        { id: 'totalCancelled', label: '课程取消', value: data.totalCancelled || 0, type: 'cancelled' }
+    ];
+
+    cardDataList.forEach((item) => {
+        const el = document.getElementById(item.id);
+        if (!el) return;
+        el.textContent = item.value;
+
+        // 绑定点击事件
+        const card = el.closest('.stat-card');
+        if (card) {
+            const newCard = card.cloneNode(true);
+            card.parentNode.replaceChild(newCard, card);
+            newCard.addEventListener('click', () => showReward(item.label, item.value, item.type));
+            newCard.style.cursor = 'pointer';
         }
-    };
-
-    setupClick('weeklyLessons', '本周课程', data.weeklyCount || 0, 'weekly');
-    setupClick('monthlyLessons', '本月课程', data.monthlyCount || 0, 'monthly');
-    setupClick('yearlyLessons', '本年课程', data.yearlyCount || 0, 'yearly');
-
-    setupClick('totalPending', '待确认', data.totalPending || 0, 'pending');
-    setupClick('totalCompleted', '已完成', data.totalCompleted || 0, 'completed');
-    setupClick('totalCancelled', '已取消', data.totalCancelled || 0, 'cancelled');
+    });
 
     // Update today's schedules
     renderTodaySchedules(data.todaySchedules || []);
@@ -286,13 +286,41 @@ function buildTodayScheduleCard(schedule, items = []) {
     };
     const displayStatus = statusMap[status] || status;
 
-    // Get time slot for background color
     const timeStr = schedule.start_time;
-    const slotId = getTimeSlotId(timeStr);
-    const slotClass = slotId ? `slot-${slotId}` : '';
+    const h = parseInt((timeStr || '00:00').substring(0, 2), 10);
+    let slotId = 'morning';
+    let slotLabel = '上午';
+    if (h >= 12) {
+        slotId = 'afternoon';
+        slotLabel = '下午';
+    }
+    if (h >= 18) {
+        slotId = 'evening';
+        slotLabel = '晚上';
+    }
+    const slotClass = `slot-${slotId}`;
+
+    // Get Type Info
+    let typeLabel = schedule.schedule_type_cn;
+    if (!typeLabel) {
+        if (window.ScheduleTypesStore && window.ScheduleTypesStore.getAll) {
+            const allTypes = window.ScheduleTypesStore.getAll();
+            const found = allTypes.find(t =>
+                (schedule.course_id && t.id == schedule.course_id) ||
+                (schedule.schedule_type && t.name === schedule.schedule_type)
+            );
+            if (found) typeLabel = found.description || found.name;
+        }
+        if (!typeLabel) typeLabel = schedule.schedule_type || '课程';
+    }
+
+    let typeClass = 'type-default';
+    if (typeLabel.includes('入户')) typeClass = 'type-visit';
+    else if (typeLabel.includes('试教')) typeClass = 'type-trial';
+    else if (typeLabel.includes('评审')) typeClass = 'type-review';
 
     // Create Card Container
-    const card = createElement('div', `today-card-modern ${slotClass}`);
+    const card = createElement('div', `today-card-modern ${slotClass} ${typeClass} sc-status-${status}`);
     card.setAttribute('role', 'listitem');
 
     // 1. Time Column
@@ -301,12 +329,6 @@ function buildTodayScheduleCard(schedule, items = []) {
     const timeText = createElement('div', 'time-range', {
         textContent: formatTimeRange(schedule.start_time, schedule.end_time)
     });
-
-    // Slot Label (Morning/Afternoon/Evening)
-    let slotLabel = '';
-    if (slotId === 'morning') slotLabel = '上午';
-    else if (slotId === 'afternoon') slotLabel = '下午';
-    else if (slotId === 'evening') slotLabel = '晚上';
 
     const slotLabelEl = createElement('div', 'time-slot-label', { textContent: slotLabel });
 
@@ -328,24 +350,9 @@ function buildTodayScheduleCard(schedule, items = []) {
     }
 
     const titleDiv = createElement('div', 'today-card-title');
-    const nameSpan = createElement('span', '', { textContent: teacherNameText });
+    const nameSpan = createElement('span', 'sc-student-name', { textContent: teacherNameText });
     if (isMerged) nameSpan.title = items.map(i => i.teacher_name).join(', ');
     titleDiv.appendChild(nameSpan);
-
-    // Type Badge (Attempt CN lookup)
-    let typeLabel = schedule.schedule_type_cn;
-    if (!typeLabel) {
-        // Fallback lookup
-        if (window.ScheduleTypesStore && window.ScheduleTypesStore.getAll) {
-            const allTypes = window.ScheduleTypesStore.getAll();
-            const found = allTypes.find(t =>
-                (schedule.course_id && t.id == schedule.course_id) ||
-                (schedule.schedule_type && t.name === schedule.schedule_type)
-            );
-            if (found) typeLabel = found.description || found.name;
-        }
-        if (!typeLabel) typeLabel = schedule.schedule_type || '课程';
-    }
 
     const typeBadge = createElement('span', 'today-card-type', { textContent: typeLabel });
     titleDiv.appendChild(typeBadge);
@@ -368,13 +375,16 @@ function buildTodayScheduleCard(schedule, items = []) {
     const locationItem = createElement('div', 'today-card-detail-item location');
     const locIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
 
-    // Task 29: Handle empty location
-    const locHtml = schedule.location ?
-        `<span>${schedule.location}</span>` :
-        `<span style="font-style: italic; color: #94a3b8;">地点待定</span>`;
-
     locationItem.appendChild(locIcon);
-    locationItem.innerHTML += locHtml; // Append HTML after icon
+
+    const locSpan = createElement('span', '', {
+        textContent: schedule.location || '地点待定'
+    });
+    if (!schedule.location) {
+        locSpan.style.fontStyle = 'italic';
+        locSpan.style.color = '#94a3b8';
+    }
+    locationItem.appendChild(locSpan);
     details.appendChild(locationItem);
 
     infoCol.appendChild(details);

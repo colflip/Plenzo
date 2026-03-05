@@ -681,11 +681,12 @@ body {
 
 /* Grid Container */
 #todayScheduleList {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
-    padding: 20px 0 0 0;
-    /* Padding top for separation */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 16px 0;
+    width: 100%;
 }
 
 /* Card Component */
@@ -6878,78 +6879,102 @@ svg {
 }
 
 /* Today's Schedule Unified Card Redesign */
-.today-schedule-card {
+/* ==========================================================================
+   今日排课 (Overview Today Section) - 统一方案
+   ========================================================================== */
+
+.overview-today-section {
     background: #FFFFFF;
-    border-radius: var(--card-radius, 12px);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-radius: 20px;
+    padding: 24px;
     margin-top: 24px;
-    overflow: hidden;
-    border: 1px solid #E2E8F0;
-    /* Slate-200 */
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
 }
 
-.today-schedule-card .card-header {
+.overview-today-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 24px;
-    border-bottom: 1px solid #F1F5F9;
-    /* Slate-100 */
-    background-color: #FFFFFF;
+    margin-bottom: 24px;
 }
 
-.today-schedule-card .header-title-group {
+.overview-today-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-}
-
-.today-schedule-card .header-title-group h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: #1E293B;
-    /* Slate-800 */
-    letter-spacing: -0.01em;
-}
-
-.today-schedule-card .refresh-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background-color: transparent;
-    color: var(--secondary-color, #64748b);
-    border: 1px solid #E2E8F0;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.today-schedule-card .refresh-btn:hover {
-    background-color: #F8FAFC;
-    color: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
-}
-
-.today-schedule-card .refresh-btn .material-icons-round {
-    font-size: 16px;
-}
-
-.today-schedule-card .card-content {
-    padding: 16px 24px 24px 24px;
-    display: flex;
-    flex-direction: column;
     gap: 12px;
 }
 
-.today-schedule-card .no-data {
-    text-align: center;
-    color: #94A3B8;
-    padding: 24px 0;
-    font-size: 14px;
+.overview-today-title .material-icons-round {
+    background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-size: 24px;
+}
+
+.overview-today-title h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.02em;
+}
+
+.overview-today-refresh {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.overview-today-refresh:hover {
+    background: #f1f5f9;
+    color: #1e293b;
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+}
+
+.overview-today-refresh .material-icons-round {
+    font-size: 16px;
+}
+
+.overview-today-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 统一空状态样式 */
+.today-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 0;
+    color: #94a3b8;
+    background: rgba(248, 250, 252, 0.5);
+    border-radius: 16px;
+    border: 2px dashed #e2e8f0;
+}
+
+.today-empty-state .material-icons-round {
+    font-size: 48px;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+}
+
+.today-empty-state p {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
 }
 
 /* ==========================================================================
@@ -7407,241 +7432,241 @@ svg {
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
     border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-    margin-bottom: 16px;
+    margin-bottom: 0;
     overflow: hidden;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     min-height: 80px;
     padding-left: 6px;
-    /* Space for the colored strip if using border-left directly on container, or pseudoelement */
-}
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    cursor: pointer;
 
-.today-card-modern:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-}
-
-/* Color Strips as Pseudo-element */
-.today-card-modern::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 6px;
-    /* Variable width strip */
-    background-color: #CBD5E1;
-}
-
-.today-card-modern.slot-morning::before {
-    background-color: #3B82F6;
-}
-
-.today-card-modern.slot-afternoon::before {
-    background-color: #F59E0B;
-}
-
-.today-card-modern.slot-evening::before {
-    background-color: #8B5CF6;
-}
-
-/* Layout Sections */
-.today-card-time {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    padding: 16px 20px;
-    background-color: #F8FAFC;
-    border-right: 1px solid #F1F5F9;
-    min-width: 110px;
-    flex-shrink: 0;
-    /* Prevent shrinking */
-}
-
-.today-card-time .time-range {
-    font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: #1E293B;
-    margin-bottom: 4px;
-    white-space: nowrap;
-}
-
-.today-card-time .time-slot-label {
-    font-size: 12px;
-    color: #64748B;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.today-card-info {
-    flex: 1;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 8px;
-    min-width: 0;
-    /* Important for text truncation in flex items */
-}
-
-.today-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-}
-
-.today-card-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #0F172A;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    /* efficient wrapping for badges */
-}
-
-.today-card-type {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    background-color: #F1F5F9;
-    color: #475569;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    border: 1px solid #E2E8F0;
-}
-
-.today-card-details {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    color: #64748B;
-    font-size: 13px;
-    flex-wrap: wrap;
-}
-
-.today-card-detail-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.today-card-detail-item .material-icons-round {
-    font-size: 16px;
-    color: #94A3B8;
-}
-
-/* Ensure full text for location */
-.today-card-detail-item.location {
-    white-space: normal;
-    line-height: 1.4;
-}
-
-.today-card-status {
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-left: 1px solid #F1F5F9;
-    min-width: 100px;
-}
-
-/* Status Badges within Card */
-.status-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 12px;
-    border-radius: 9999px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-}
-
-.status-pill.pending {
-    background-color: #FFF7ED;
-    color: #C2410C;
-    border: 1px solid #FFEDD5;
-}
-
-.status-pill.confirmed {
-    background-color: #F0FDF4;
-    color: #15803D;
-    border: 1px solid #DCFCE7;
-}
-
-.status-pill.completed {
-    background-color: #F8FAFC;
-    color: #475569;
-    border: 1px solid #E2E8F0;
-}
-
-.status-pill.cancelled {
-    background-color: #FEF2F2;
-    color: #B91C1C;
-    border: 1px solid #FECACA;
-}
-
-/* Responsive adjustments */
-@media (max-width: 640px) {
     .today-card-modern {
-        flex-direction: column;
-        padding-left: 0;
-        border-top: 4px solid #CBD5E1;
-        /* Top strip on mobile */
+        display: flex;
+        flex-direction: row;
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        margin-bottom: 0;
+        overflow: hidden;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        min-height: 80px;
+        padding-left: 6px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        cursor: pointer;
+        width: 100%;
+        min-width: 0;
+        flex-shrink: 0;
+        box-sizing: border-box;
     }
 
-    .today-card-modern.slot-morning {
-        border-top-color: #3B82F6;
-    }
-
-    .today-card-modern.slot-afternoon {
-        border-top-color: #F59E0B;
-    }
-
-    .today-card-modern.slot-evening {
-        border-top-color: #8B5CF6;
+    .today-card-modern:hover {
+        transform: translateX(4px);
+        border-color: #CBD5E1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     }
 
     .today-card-modern::before {
-        display: none;
-        /* Hide left strip */
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        background-color: #CBD5E1;
+    }
+
+    .today-card-modern.slot-morning::before {
+        background: linear-gradient(to bottom, #60a5fa, #3b82f6);
+    }
+
+    .today-card-modern.slot-afternoon::before {
+        background: linear-gradient(to bottom, #fbbf24, #f59e0b);
+    }
+
+    .today-card-modern.slot-evening::before {
+        background: linear-gradient(to bottom, #a78bfa, #8b5cf6);
     }
 
     .today-card-time {
-        flex-direction: row;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-right: none;
-        border-bottom: 1px solid #F1F5F9;
-        background-color: #fff;
-        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 16px 20px;
+        background-color: #F8FAFC;
+        border-right: 1px solid #F1F5F9;
+        min-width: 110px;
+        flex-shrink: 0;
+    }
+
+    .today-card-time .time-range {
+        font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 16px;
+        font-weight: 700;
+        color: #1E293B;
+        margin-bottom: 4px;
+        white-space: nowrap;
+        letter-spacing: -0.02em;
+    }
+
+    .today-card-time .time-slot-label {
+        font-size: 12px;
+        color: #64748B;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     .today-card-info {
-        padding: 16px;
+        flex: 1;
+        padding: 16px 20px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+        min-width: 0;
     }
 
-    .today-card-status {
-        border-left: none;
-        padding: 0 16px 16px;
-        justify-content: flex-start;
+    .today-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .today-card-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #0F172A;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
     }
 
     .today-card-details {
-        gap: 12px;
-        flex-direction: column;
-        align-items: flex-start;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        color: #64748B;
+        font-size: 13px;
+        flex-wrap: wrap;
+    }
+
+    .today-card-detail-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .today-card-detail-item .material-icons-round {
+        font-size: 18px;
+        color: #94A3B8;
+    }
+
+    .today-card-status {
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-left: 1px solid #F1F5F9;
+        min-width: 110px;
+    }
+
+    /* Responsive (Locked to Mobile only) */
+    @media (max-width: 768px) {
+        .today-card-modern {
+            flex-direction: column;
+            min-height: auto;
+        }
+
+        .today-card-time {
+            flex-direction: row;
+            padding: 8px 16px;
+            min-width: auto;
+            border-right: none;
+            border-bottom: 1px solid #F1F5F9;
+            height: auto;
+            gap: 8px;
+        }
+
+        .today-card-time .time-range {
+            font-size: 14px;
+            margin-bottom: 0;
+        }
+
+        .today-card-info {
+            padding: 12px 16px;
+            align-items: center;
+            text-align: center;
+        }
+
+        .today-card-header {
+            justify-content: center;
+        }
+
+        .today-card-details {
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .today-card-status {
+            padding: 12px;
+            border-left: none;
+            border-top: 1px solid #F1F5F9;
+            min-width: auto;
+        }
+    }
+
+    /* Status Badges within Card */
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.02em;
+    }
+
+    .status-pill.pending {
+        background: #fff7ed;
+        color: #ea580c;
+        border: 1px solid rgba(253, 186, 116, 0.3);
+    }
+
+    .status-pill.confirmed {
+        background: #f0fdf4;
+        color: #16a34a;
+        border: 1px solid rgba(134, 239, 172, 0.3);
+    }
+
+    .status-pill.completed {
+        background: #f8fafc;
+        color: #64748b;
+        border: 1px solid #e2e8f0;
+    }
+
+    .status-pill.cancelled {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 1px solid rgba(252, 165, 165, 0.3);
     }
 }
+
+/* Secondary Mobile Cleanup */
+@media (max-width: 768px) {
+    .overview-today-section {
+        padding: 16px;
+    }
+}
+
 
 /* =================================
    8. Teacher Overview Stats Grid
@@ -7656,9 +7681,8 @@ svg {
     grid-template-columns: repeat(6, 1fr);
     gap: 16px;
     margin: 0 auto 24px auto;
-    /* Centered with bottom margin */
     width: 90%;
-    /* Reduce width by 10% as requested */
+    /* 左右留出 5% 宽度 */
 }
 
 /* Admin-style Card Design */
@@ -7774,9 +7798,10 @@ svg {
 }
 
 /* Responsive Grid */
-@media (max-width: 1400px) {
+@media (max-width: 1200px) {
     .overview-stats-grid {
         grid-template-columns: repeat(3, 1fr);
+        width: 95%;
     }
 }
 
@@ -8502,4 +8527,326 @@ svg {
     width: 20% !important;
     /* 操作按钮固定剩余比例 */
     min-width: 120px !important;
+}
+
+/* ============================================
+   统计模块查询区域绿色主题样式
+   ============================================ */
+
+/* 统计模块查询区域 - 绿色主题 */
+.statistics-container .query-section {
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-muted, #e5e7eb);
+    border-radius: var(--radius-unified, 8px);
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+
+.statistics-container .query-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* 日期选择器组 - 绿色主题 */
+.statistics-container .date-range-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.statistics-container .date-range-group input[type="date"] {
+    padding: 8px 12px;
+    border: 1px solid var(--border-muted, #d1d5db);
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 140px;
+    transition: all 0.2s ease;
+}
+
+.statistics-container .date-range-group input[type="date"]:focus {
+    outline: none;
+    border-color: #2ECC71;
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
+}
+
+.statistics-container .date-range-group span {
+    color: var(--text-secondary, #6b7280);
+    font-size: 14px;
+}
+
+/* 操作按钮组 */
+.statistics-container .action-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    flex-wrap: wrap;
+}
+
+/* 查询按钮 - 绿色主题 */
+.statistics-container .search-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #2ECC71;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.statistics-container .search-btn:hover {
+    background: #27ae60;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+}
+
+.statistics-container .search-btn:active {
+    transform: translateY(0);
+}
+
+/* 预设按钮组 - 绿色主题 */
+.statistics-container .preset-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.statistics-container .preset-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-muted, #d1d5db);
+    background: var(--bg-surface, #ffffff);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-secondary, #6b7280);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.statistics-container .preset-btn:hover {
+    background: rgba(46, 204, 113, 0.1);
+    border-color: #2ECC71;
+    color: #2ECC71;
+}
+
+.statistics-container .preset-btn.active {
+    background: #2ECC71;
+    color: white;
+    border-color: #2ECC71;
+}
+
+/* 加载动画 - 绿色主题 */
+.statistics-container .loading-spinner {
+    border: 3px solid rgba(46, 204, 113, 0.2);
+    border-top-color: #2ECC71;
+}
+
+/* 平板端响应式 (1024px以下) */
+@media (max-width: 1024px) {
+    .statistics-container .query-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .statistics-container .date-range-group {
+        justify-content: center;
+    }
+
+    .statistics-container .action-group {
+        justify-content: center;
+    }
+}
+
+/* 移动端响应式 (768px以下) */
+@media (max-width: 768px) {
+    .statistics-container .query-section {
+        padding: 12px 16px;
+    }
+
+    .statistics-container .query-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .statistics-container .date-range-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .statistics-container .date-range-group input[type="date"] {
+        width: 100%;
+        min-width: auto;
+    }
+
+    .statistics-container .action-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .statistics-container .search-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .statistics-container .preset-buttons {
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .statistics-container .preset-btn {
+        flex: 1;
+        min-width: 60px;
+        max-width: 80px;
+        text-align: center;
+    }
+}
+
+/* 小屏幕移动端 (480px以下) */
+@media (max-width: 480px) {
+    .statistics-container .preset-buttons {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 6px;
+    }
+
+    .statistics-container .preset-btn {
+        max-width: none;
+        padding: 6px 4px;
+        font-size: 12px;
+    }
+}
+
+/* ============================================
+   统计页水平指标卡样式 (Statistics Horizontal Metric Cards)
+   ============================================ */
+.stats-metric-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    background: white;
+    border: 1px solid #f1f5f9;
+    border-radius: 14px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    min-width: 140px;
+    flex: 1;
+}
+
+.stats-metric-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.06), 0 4px 8px -2px rgba(0, 0, 0, 0.03);
+    border-color: rgba(59, 130, 246, 0.1);
+}
+
+.stats-metric-card .metric-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: transform 0.3s ease;
+}
+
+.stats-metric-card:hover .metric-icon-box {
+    transform: scale(1.08) rotate(3deg);
+}
+
+.stats-metric-card .metric-icon-box .material-icons-round {
+    font-size: 24px;
+}
+
+.stats-metric-card .metric-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.stats-metric-card .metric-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    letter-spacing: 0.3px;
+}
+
+.stats-metric-card .metric-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #1e293b;
+    line-height: 1;
+}
+
+/* 统计页指标卡容器 */
+#teachingTypeStats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+/* 总览页渐变卡片样式 (Overview Gradient Cards) */
+.overview-gradient-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px;
+    border-radius: 16px;
+    border: none;
+    position: relative;
+    overflow: hidden;
+    min-height: 120px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.overview-gradient-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.12);
+}
+
+.overview-gradient-card .gradient-bg-icon {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    opacity: 0.15;
+    transform: scale(3.5) translate(-15%, 15%);
+    pointer-events: none;
+}
+
+.overview-gradient-card .gradient-content {
+    position: relative;
+    z-index: 1;
+}
+
+.overview-gradient-card .gradient-content h3 {
+    opacity: 0.95;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.overview-gradient-card .gradient-content .gradient-value {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1;
 }

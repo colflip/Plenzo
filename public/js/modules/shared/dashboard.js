@@ -160,7 +160,7 @@ function loadUsers() {
     if (!userTable) return;
 
     // 清空表格
-    userTable.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(userTable, '<tr><td colspan="5">加载中...</td></tr>'); } else { userTable.innerHTML = '<tr><td colspan="5">加载中...</td></tr>'; }
 
     // 获取用户列表
     fetch('/api/users', {
@@ -174,11 +174,11 @@ function loadUsers() {
         .then(data => {
             if (data.success) {
                 if (data.users.length === 0) {
-                    userTable.innerHTML = '<tr><td colspan="5">暂无用户</td></tr>';
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(userTable, '<tr><td colspan="5">暂无用户</td></tr>'); } else { userTable.innerHTML = '<tr><td colspan="5">暂无用户</td></tr>'; }
                     return;
                 }
 
-                userTable.innerHTML = '';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(userTable, ''); } else { userTable.innerHTML = ''; }
                 data.users.forEach(user => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
@@ -209,11 +209,11 @@ function loadUsers() {
                     });
                 });
             } else {
-                userTable.innerHTML = `<tr><td colspan="5">加载失败: ${data.message}</td></tr>`;
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(userTable, `<tr><td colspan="5">加载失败: ${data.message}</td></tr>`); } else { userTable.innerHTML = `<tr><td colspan="5">加载失败: ${data.message}</td></tr>`; }
             }
         })
         .catch(error => {
-            userTable.innerHTML = `<tr><td colspan="5">加载失败: ${error.message}</td></tr>`;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(userTable, `<tr><td colspan="5">加载失败: ${error.message}</td></tr>`); } else { userTable.innerHTML = `<tr><td colspan="5">加载失败: ${error.message}</td></tr>`; }
         });
 }
 
@@ -408,7 +408,7 @@ function loadSchedules() {
     if (!scheduleTable) return;
 
     // 清空表格
-    scheduleTable.innerHTML = '<tr><td colspan="7">加载中...</td></tr>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(scheduleTable, '<tr><td colspan="7">加载中...</td></tr>'); } else { scheduleTable.innerHTML = '<tr><td colspan="7">加载中...</td></tr>'; }
 
     // 获取排课列表（管理员路由）
     fetch('/api/admin/schedules', {
@@ -422,11 +422,11 @@ function loadSchedules() {
         .then(list => {
             const schedules = Array.isArray(list) ? list : (list && Array.isArray(list.schedules) ? list.schedules : []);
             if (schedules.length === 0) {
-                scheduleTable.innerHTML = '<tr><td colspan="7">暂无排课</td></tr>';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(scheduleTable, '<tr><td colspan="7">暂无排课</td></tr>'); } else { scheduleTable.innerHTML = '<tr><td colspan="7">暂无排课</td></tr>'; }
                 return;
             }
 
-            scheduleTable.innerHTML = '';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(scheduleTable, ''); } else { scheduleTable.innerHTML = ''; }
             schedules.forEach(schedule => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -460,7 +460,7 @@ function loadSchedules() {
             });
         })
         .catch(error => {
-            scheduleTable.innerHTML = `<tr><td colspan="7">加载失败: ${error.message}</td></tr>`;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(scheduleTable, `<tr><td colspan="7">加载失败: ${error.message}</td></tr>`); } else { scheduleTable.innerHTML = `<tr><td colspan="7">加载失败: ${error.message}</td></tr>`; }
         });
 }
 
@@ -470,7 +470,7 @@ function loadTeachers() {
     if (!teacherSelect) return;
 
     // 清空下拉列表
-    teacherSelect.innerHTML = '<option value="">选择教师</option>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSelect, '<option value="">选择教师</option>'); } else { teacherSelect.innerHTML = '<option value="">选择教师</option>'; }
 
     // 获取教师列表
     fetch('/api/users?type=teacher', {
@@ -492,7 +492,7 @@ function loadTeachers() {
             }
         })
         .catch(error => {
-            console.error('加载教师列表失败:', error);
+            
         });
 }
 
@@ -502,7 +502,7 @@ function loadStudents() {
     if (!studentSelect) return;
 
     // 清空下拉列表
-    studentSelect.innerHTML = '<option value="">选择学生</option>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">选择学生</option>'); } else { studentSelect.innerHTML = '<option value="">选择学生</option>'; }
 
     // 获取学生列表
     fetch('/api/users?type=student', {
@@ -524,7 +524,7 @@ function loadStudents() {
             }
         })
         .catch(error => {
-            console.error('加载学生列表失败:', error);
+            
         });
 }
 
@@ -543,7 +543,7 @@ function loadTeacherStatistics() {
     if (!teacherStatsContainer) return;
 
     // 清空容器
-    teacherStatsContainer.innerHTML = '<div class="loading">加载中...</div>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherStatsContainer, '<div class="loading">加载中...</div>'); } else { teacherStatsContainer.innerHTML = '<div class="loading">加载中...</div>'; }
 
     // 获取教师统计数据
     fetch('/api/statistics/teachers', {
@@ -557,11 +557,11 @@ function loadTeacherStatistics() {
         .then(data => {
             if (data.success) {
                 if (data.teachers.length === 0) {
-                    teacherStatsContainer.innerHTML = '<div class="no-data">暂无教师数据</div>';
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherStatsContainer, '<div class="no-data">暂无教师数据</div>'); } else { teacherStatsContainer.innerHTML = '<div class="no-data">暂无教师数据</div>'; }
                     return;
                 }
 
-                teacherStatsContainer.innerHTML = '';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherStatsContainer, ''); } else { teacherStatsContainer.innerHTML = ''; }
                 data.teachers.forEach(teacher => {
                     const teacherCard = document.createElement('div');
                     teacherCard.className = 'stat-card teacher-stat';
@@ -583,11 +583,11 @@ function loadTeacherStatistics() {
                     teacherStatsContainer.appendChild(teacherCard);
                 });
             } else {
-                teacherStatsContainer.innerHTML = `<div class="error">加载失败: ${data.message}</div>`;
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherStatsContainer, `<div class="error">加载失败: ${data.message}</div>`); } else { teacherStatsContainer.innerHTML = `<div class="error">加载失败: ${data.message}</div>`; }
             }
         })
         .catch(error => {
-            teacherStatsContainer.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherStatsContainer, `<div class="error">加载失败: ${error.message}</div>`); } else { teacherStatsContainer.innerHTML = `<div class="error">加载失败: ${error.message}</div>`; }
         });
 }
 
@@ -597,7 +597,7 @@ function loadStudentStatistics() {
     if (!studentStatsContainer) return;
 
     // 清空容器
-    studentStatsContainer.innerHTML = '<div class="loading">加载中...</div>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentStatsContainer, '<div class="loading">加载中...</div>'); } else { studentStatsContainer.innerHTML = '<div class="loading">加载中...</div>'; }
 
     // 获取学生统计数据
     fetch('/api/statistics/students', {
@@ -611,11 +611,11 @@ function loadStudentStatistics() {
         .then(data => {
             if (data.success) {
                 if (data.students.length === 0) {
-                    studentStatsContainer.innerHTML = '<div class="no-data">暂无学生数据</div>';
+                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentStatsContainer, '<div class="no-data">暂无学生数据</div>'); } else { studentStatsContainer.innerHTML = '<div class="no-data">暂无学生数据</div>'; }
                     return;
                 }
 
-                studentStatsContainer.innerHTML = '';
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentStatsContainer, ''); } else { studentStatsContainer.innerHTML = ''; }
                 data.students.forEach(student => {
                     const studentCard = document.createElement('div');
                     studentCard.className = 'stat-card student-stat';
@@ -637,11 +637,11 @@ function loadStudentStatistics() {
                     studentStatsContainer.appendChild(studentCard);
                 });
             } else {
-                studentStatsContainer.innerHTML = `<div class="error">加载失败: ${data.message}</div>`;
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentStatsContainer, `<div class="error">加载失败: ${data.message}</div>`); } else { studentStatsContainer.innerHTML = `<div class="error">加载失败: ${data.message}</div>`; }
             }
         })
         .catch(error => {
-            studentStatsContainer.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentStatsContainer, `<div class="error">加载失败: ${error.message}</div>`); } else { studentStatsContainer.innerHTML = `<div class="error">加载失败: ${error.message}</div>`; }
         });
 }
 
