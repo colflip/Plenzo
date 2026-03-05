@@ -26,7 +26,7 @@ window.initDashboard = initDashboard;
 
 document.addEventListener('DOMContentLoaded', () => {
     initDashboard().catch(error => {
-        console.error('初始化学生仪表盘失败:', error);
+        
     });
 });
 
@@ -65,7 +65,7 @@ function updateStudentName() {
                 studentNameElement.textContent = name;
             }
         } catch (error) {
-            console.error('解析用户数据失败:', error);
+            
         }
     }
 }
@@ -207,7 +207,7 @@ function setupNavigation() {
             if (!sectionId) return;
 
             activateSection(sectionId).catch(error => {
-                console.error(`切换到模块 ${sectionId} 时出错:`, error);
+                
             });
         });
     });

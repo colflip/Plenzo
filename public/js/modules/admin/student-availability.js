@@ -45,7 +45,7 @@ async function loadStudentAvailability() {
 
     if (!tableBody || !weekRangeSpan) return;
 
-    tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'); } else { tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'; }
 
     const curr = new Date(studentAvailabilityState.currentDate);
     const day = curr.getDay();
@@ -93,7 +93,7 @@ async function loadStudentAvailability() {
             if (window.WeeklyDataStore && window.WeeklyDataStore.getStudents) {
                 try {
                     students = await window.WeeklyDataStore.getStudents();
-                } catch (e) { console.warn('WeeklyDataStore.getStudents failed', e); }
+                } catch (e) {  }
             }
 
             if ((!students || students.length === 0) && window.apiUtils) {
@@ -117,8 +117,8 @@ async function loadStudentAvailability() {
                 throw new Error('No students found in fallback');
             }
         } catch (fallbackError) {
-            console.error('Fallback loading failed:', fallbackError);
-            tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>';
+            
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'); } else { tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'; }
         }
     }
 }
@@ -151,7 +151,7 @@ function renderStudentAvailabilityHeader(dates) {
         </th>`;
     });
     html += '</tr>';
-    thead.innerHTML = html;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, html); } else { thead.innerHTML = html; }
 }
 
 function renderStudentAvailabilityBody(students, dates) {
@@ -159,7 +159,7 @@ function renderStudentAvailabilityBody(students, dates) {
     if (!tbody) return;
 
     if (!students || students.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>'; }
         return;
     }
 
@@ -182,7 +182,7 @@ function renderStudentAvailabilityBody(students, dates) {
         html += `</tr>`;
     });
 
-    tbody.innerHTML = html;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, html); } else { tbody.innerHTML = html; }
 }
 
 function renderStudentAvailabilityCell(data, studentId, dateKey) {
@@ -280,7 +280,7 @@ window.toggleStudentAvailability = function (studentId, dateKey, period) {
 
     const newState = StudentPendingChangesManager.toggle(studentId, dateKey, period, original);
 
-    cellEl.innerHTML = renderStudentInnerCell(newState, studentId, dateKey);
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(cellEl, renderStudentInnerCell(newState, studentId, dateKey)); } else { cellEl.innerHTML = renderStudentInnerCell(newState, studentId, dateKey); }
 };
 
 window.saveStudentAvailabilityChanges = async function () {
@@ -339,7 +339,7 @@ window.saveStudentAvailabilityChanges = async function () {
         });
 
     } catch (e) {
-        console.error(e);
+        
         window.apiUtils.showToast('保存失败: ' + e.message, 'error');
     } finally {
         const btn = document.getElementById('saveStudentAvailabilityBtn');

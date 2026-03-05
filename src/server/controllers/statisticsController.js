@@ -137,10 +137,11 @@ const statisticsController = {
         try {
             const { startDate, endDate } = req.query;
 
-            // 教师课程统计
             const dateExprCa2 = await getDateExpr('ca');
-            const teacherStats = await db.query(`
+
+            const teacherStatsRaw = await db.query(`
                 SELECT 
+                    t.id as teacher_id,
                     t.name as teacher_name,
                     COUNT(ca.id) as total_schedules,
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END) as completed_schedules,
@@ -148,12 +149,39 @@ const statisticsController = {
                 FROM teachers t
                 LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id AND ${dateExprCa2} BETWEEN $1 AND $2
                 GROUP BY t.id, t.name
-                ORDER BY total_schedules DESC
+                ORDER BY t.id ASC
             `, [startDate, endDate]);
 
-            // 学生课程统计
-            const studentStats = await db.query(`
+            const teacherTypeStats = await db.query(`
                 SELECT 
+                    t.id as teacher_id,
+                    st.name as type,
+                    COUNT(*) as count
+                FROM teachers t
+                LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                JOIN schedule_types st ON ca.course_id = st.id
+                GROUP BY t.id, st.name
+                ORDER BY t.id ASC, count DESC
+            `, [startDate, endDate]);
+
+            const teacherStats = teacherStatsRaw.rows.map(teacher => {
+                const types = {};
+                teacherTypeStats.rows
+                    .filter(t => String(t.teacher_id) === String(teacher.teacher_id))
+                    .forEach(t => {
+                        types[t.type] = parseInt(t.count) || 0;
+                    });
+                return {
+                    id: teacher.teacher_id,
+                    name: teacher.teacher_name,
+                    total: parseInt(teacher.total_schedules) || 0,
+                    types
+                };
+            });
+
+            const studentStatsRaw = await db.query(`
+                SELECT 
+                    st.id as student_id,
                     st.name as student_name,
                     COUNT(ca.id) as total_schedules,
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END) as completed_schedules,
@@ -161,12 +189,39 @@ const statisticsController = {
                 FROM students st
                 LEFT JOIN course_arrangement ca ON st.id = ca.student_id AND ${dateExprCa2} BETWEEN $1 AND $2
                 GROUP BY st.id, st.name
-                ORDER BY total_schedules DESC
+                ORDER BY st.id ASC
             `, [startDate, endDate]);
 
+            const studentTypeStats = await db.query(`
+                SELECT 
+                    st.id as student_id,
+                    srt.name as type,
+                    COUNT(*) as count
+                FROM students st
+                LEFT JOIN course_arrangement ca ON st.id = ca.student_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                JOIN schedule_types srt ON ca.course_id = srt.id
+                GROUP BY st.id, srt.name
+                ORDER BY st.id ASC, count DESC
+            `, [startDate, endDate]);
+
+            const studentStats = studentStatsRaw.rows.map(student => {
+                const types = {};
+                studentTypeStats.rows
+                    .filter(s => String(s.student_id) === String(student.student_id))
+                    .forEach(s => {
+                        types[s.type] = parseInt(s.count) || 0;
+                    });
+                return {
+                    id: student.student_id,
+                    name: student.student_name,
+                    total: parseInt(student.total_schedules) || 0,
+                    types
+                };
+            });
+
             res.json({
-                teacherStats: teacherStats.rows,
-                studentStats: studentStats.rows
+                teacherStats,
+                studentStats
             });
         } catch (error) {
             console.error('获取管理员用户统计错误:', error);

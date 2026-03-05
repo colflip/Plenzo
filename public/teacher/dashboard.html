@@ -692,44 +692,82 @@
                 <section id="overview" class="dashboard-section active">
                     <div class="overview-stats-grid">
                         <!-- Time Based Stats -->
-                        <div class="stat-card summary-card time-stats" data-tooltip="本周内所有已安排的课程总数">
-                            <h3>本周排课</h3>
-                            <p class="stat-value" id="weeklyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);"
+                            data-tooltip="本周内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #0369a1;">menu_book</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #0369a1;">本周授课</h3>
+                                <p class="gradient-value" style="color: #0369a1;" id="weeklyLessons">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card time-stats" data-tooltip="本月内所有已安排的课程总数">
-                            <h3>本月排课</h3>
-                            <p class="stat-value" id="monthlyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);"
+                            data-tooltip="本月内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #15803d;">calendar_today</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #15803d;">本月授课</h3>
+                                <p class="gradient-value" style="color: #15803d;" id="monthlyLessons">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card time-stats" data-tooltip="本年度内所有已安排的课程总数">
-                            <h3>本年排课</h3>
-                            <p class="stat-value" id="yearlyLessons">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);"
+                            data-tooltip="本年度内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #7c3aed;">auto_stories</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #7c3aed;">本年授课</h3>
+                                <p class="gradient-value" style="color: #7c3aed;" id="yearlyLessons">--</p>
+                            </div>
                         </div>
 
                         <!-- Status Based Stats -->
-                        <div class="stat-card summary-card status-pending" data-tooltip="当前等待您确认的课程">
-                            <h3>待确认排课(全部)</h3>
-                            <p class="stat-value" id="totalPending">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);"
+                            data-tooltip="当前等待您确认的课程">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #be185d;">notification_important</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #be185d;">待我确认</h3>
+                                <p class="gradient-value" style="color: #be185d;" id="totalPending">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card status-completed" data-tooltip="历史累计已顺利完成的课程总节数">
-                            <h3>已完成排课(全部)</h3>
-                            <p class="stat-value" id="totalCompleted">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);"
+                            data-tooltip="历史累计已顺利完成的课程总节数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #166534;">verified</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #166534;">已完成授课</h3>
+                                <p class="gradient-value" style="color: #166534;" id="totalCompleted">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card summary-card status-cancelled" data-tooltip="历史累计已被取消的课程记录">
-                            <h3>已取消排课(全部)</h3>
-                            <p class="stat-value" id="totalCancelled">--</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);"
+                            data-tooltip="历史累计已被取消的课程记录">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #475569;">cancel</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #475569;">已取消记录</h3>
+                                <p class="gradient-value" style="color: #475569;" id="totalCancelled">--</p>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="stats-unified-card" style="margin-top: 20px; padding: 24px;">
-                        <div class="form-header"
-                            style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0;">今日排课</h3>
-                            <button id="refreshTodaySchedulesBtn" class="info-btn"
-                                style="padding: 6px 12px; font-size: 13px;">
-                                <span class="material-icons-round" style="font-size: 16px;">refresh</span> 刷新
+                    <!-- 今日排课 -->
+                    <div class="overview-today-section">
+                        <div class="overview-today-header">
+                            <div class="overview-today-title">
+                                <span class="material-icons-round">event_note</span>
+                                <h3>今日排课</h3>
+                            </div>
+                            <button id="refreshTodaySchedulesBtn" class="overview-today-refresh">
+                                <span class="material-icons-round">refresh</span> 刷新
                             </button>
                         </div>
-                        <div id="todayScheduleList" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div id="todayScheduleList" class="overview-today-list">
                             <!-- Dynamic Content -->
                         </div>
                     </div>
@@ -760,7 +798,8 @@
                             <div class="form-header">
                                 <h3>详细信息</h3>
                                 <div class="action-buttons" style="display:flex; gap:10px;">
-                                    <button id="changePasswordBtn" class="search-btn" style="background:#3b82f6;">
+                                    <button id="changePasswordBtn" class="search-btn"
+                                        style="background:#ef4444; color: white;">
                                         <span class="material-icons-round" style="font-size: 16px;">lock</span>
                                         更改密码
                                     </button>
@@ -807,7 +846,71 @@
                             </form>
                         </div>
                     </div>
+
+                    <!-- 班主任管理学生模块 -->
+                    <div id="studentManagementSection" class="stats-unified-card"
+                        style="display: none; margin-top: 20px;">
+                        <div class="form-header">
+                            <h3>管理关联学生</h3>
+                            <button id="refreshStudentsBtn" class="info-btn"
+                                style="padding: 6px 12px; font-size: 13px;">
+                                <span class="material-icons-round" style="font-size: 16px;">refresh</span> 刷新
+                            </button>
+                        </div>
+                        <div id="studentListContainer" style="margin-top: 16px;">
+                            <p style="color: var(--text-secondary); text-align: center;">暂无关联学生</p>
+                        </div>
+                    </div>
                 </section>
+
+                <!-- 学生信息编辑弹窗 -->
+                <div id="studentEditModal" class="modal" style="display: none;">
+                    <div class="modal-overlay"></div>
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>编辑学生信息</h3>
+                            <button class="modal-close" id="closeStudentEditModal">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="studentEditForm">
+                                <input type="hidden" id="editStudentId">
+                                <div class="form-group">
+                                    <label>姓名</label>
+                                    <input type="text" id="editStudentName" name="name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>专业</label>
+                                    <input type="text" id="editStudentProfession" name="profession">
+                                </div>
+                                <div class="form-group">
+                                    <label>联系方式</label>
+                                    <input type="text" id="editStudentContact" name="contact">
+                                </div>
+                                <div class="form-group">
+                                    <label>入户地点</label>
+                                    <input type="text" id="editStudentVisitLocation" name="visit_location">
+                                </div>
+                                <div class="form-group">
+                                    <label>家庭地址</label>
+                                    <input type="text" id="editStudentHomeAddress" name="home_address">
+                                </div>
+                                <div class="form-group">
+                                    <label>状态</label>
+                                    <select id="editStudentStatus" name="status">
+                                        <option value="1">正常</option>
+                                        <option value="0">暂停</option>
+                                        <option value="-1">删除</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer"
+                            style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                            <button id="cancelStudentEdit" class="search-btn">取消</button>
+                            <button id="saveStudentEdit" class="primary-btn">保存</button>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Availability Section -->
                 <section id="availability" class="dashboard-section">
@@ -878,36 +981,20 @@
                                 查询
                             </button>
                             <div class="preset-btn-group" style="display:flex; gap:8px; margin-left: 10px;">
-                                <button class="preset-btn" data-range="yesterday"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">昨天</button>
-                                <button class="preset-btn" data-range="prev_week"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上周</button>
-                                <button class="preset-btn" data-range="prev_month"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上月</button>
-                                <button class="preset-btn" data-range="prev_quarter"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上季度</button>
-                                <button class="preset-btn" data-range="prev_year"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上年</button>
-                                <button class="preset-btn" data-range="today"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">今天</button>
-                                <button class="preset-btn" data-range="this_week"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本周</button>
-                                <button class="preset-btn" data-range="this_month"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本月</button>
-                                <button class="preset-btn" data-range="this_quarter"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本季度</button>
-                                <button class="preset-btn" data-range="this_year"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本年</button>
+                                <button class="preset-btn" data-range="yesterday">昨天</button>
+                                <button class="preset-btn" data-range="prev_week">上周</button>
+                                <button class="preset-btn" data-range="prev_month">上月</button>
+                                <button class="preset-btn" data-range="prev_quarter">上季度</button>
+                                <button class="preset-btn" data-range="prev_year">上年</button>
+                                <button class="preset-btn" data-range="today">今天</button>
+                                <button class="preset-btn" data-range="this_week">本周</button>
+                                <button class="preset-btn" data-range="this_month">本月</button>
+                                <button class="preset-btn" data-range="this_quarter">本季度</button>
+                                <button class="preset-btn" data-range="this_year">本年</button>
                             </div>
-                            <button id="teachingExportBtn" class="query-btn export-btn" style="margin-left: 8px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                </svg>
-                                导出
+                            <button id="teachingExportBtn" class="export-data-btn" style="margin-left: 8px;">
+                                <span class="material-icons-round">file_download</span>
+                                <span>导出数据</span>
                             </button>
 
                         </div>
@@ -969,16 +1056,13 @@
                                 <span class="material-icons-round">chevron_right</span>
                             </button>
                         </div>
-                        <button id="toggleTeacherStudentFeeBtn" class="add-btn btn-outline"
-                            style="margin-left:8px; background-color: white; color: #10b981; border: 1px solid #10b981;"
+                        <button id="toggleTeacherStudentFeeBtn" class="export-data-btn" style="margin-left:8px;"
                             onclick="window.toggleTeacherStudentFeeVisibility()">
                             <span style="font-style: normal; font-size: 15px; font-weight: 600;">¥</span>&nbsp;<span
                                 id="teacherStudentFeeBtnText">显示费用</span>
                         </button>
-                        <button id="exportTeacherStudentsBtn" class="add-btn btn-outline"
-                            style="margin-left: 8px; background-color: #10b981; color: white; border: 1px solid #10b981; transition: all 0.2s ease;"
-                            onmouseover="this.style.backgroundColor='#059669'; this.style.color='white';"
-                            onmouseout="this.style.backgroundColor='#10b981'; this.style.color='white';">
+                        <button id="exportTeacherStudentsBtn" class="export-data-btn"
+                            style="margin-left: 8px; background-color: #10b981; color: white;">
                             <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
                             导出数据
                         </button>
@@ -1087,9 +1171,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
     <script src="/js/core/api-client.js"></script>
+    <script src="/js/utils/color-utils.js"></script>
     <script src="/js/utils/date-range-utils.js"></script>
     <script src="/js/core/schedule-types-store.js"></script>
     <script src="/js/components/toast.js"></script>
+    <script src="/js/components/export-manager.js?v=1"></script>
     <script src="/js/components/export-dialog.js"></script>
     <script type="module" src="/js/modules/teacher/entry.js"></script>
 

@@ -114,22 +114,31 @@
 .schedule-controls .add-btn {
     background-color: var(--sch-primary);
     color: white;
-    border: none;
+    border: 1px solid var(--sch-primary);
     border-radius: var(--sch-radius-sm);
-    padding: 8px 20px;
+    padding: 10px 20px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    transition: background-color 0.2s, transform 0.1s;
-    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.15);
+    line-height: 1.2;
+    min-width: 100px;
+}
+
+.schedule-controls .add-btn .material-icons-round {
+    font-size: 18px;
 }
 
 .schedule-controls .add-btn:hover {
     background-color: var(--sch-primary-hover);
+    border-color: var(--sch-primary-hover);
     transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(46, 204, 113, 0.25);
 }
 
 .schedule-controls .add-btn:active {

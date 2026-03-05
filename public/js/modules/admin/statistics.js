@@ -5,7 +5,7 @@
 
 export const StatisticsManager = {
     init: () => {
-        console.log('StatisticsManager module loaded.');
+        
     },
 
     // Placeholder methods that might be expected

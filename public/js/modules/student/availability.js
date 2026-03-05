@@ -85,7 +85,7 @@ export async function loadAvailability(baseDate) {
         renderTable(weekDates, availabilityState);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
-        console.error('加载学生时间安排失败', error);
+        
         availabilityState = buildStateFromResponse(weekDates, []);
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
@@ -159,7 +159,7 @@ function renderMobileTable(weekDates, state) {
         container = document.querySelector('.table-container');
     }
     if (!container) {
-        console.warn('[Mobile Availability] Container not found');
+        
         return;
     }
 
@@ -400,7 +400,7 @@ async function saveAvailability() {
         originalState = cloneState(availabilityState);
         showTimedFeedback('时间安排已保存', 'success');
     } catch (error) {
-        console.error('保存时间安排失败', error);
+        
         showInlineFeedback(elements.feedback(), '保存失败，请稍后重试', 'error');
         throw error;
     } finally {

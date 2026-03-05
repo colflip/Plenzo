@@ -178,7 +178,7 @@ async function handlePasswordChange(event) {
         showToast('密码修改成功', 'success');
         closePasswordModalFn();
     } catch (error) {
-        console.error('密码修改失败:', error);
+        
         showToast(error.message || '密码修改失败', 'error');
     }
 }

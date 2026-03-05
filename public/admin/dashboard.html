@@ -360,53 +360,104 @@
                 <!-- 总览部分 -->
                 <section id="overview" class="dashboard-section active">
                     <div class="stats-grid">
-                        <div class="stat-card user-stat" data-tooltip="系统中注册的教师总人数">
-                            <h3>总教师数</h3>
-                            <p id="teacherCount">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);"
+                            data-tooltip="系统中注册的教师总人数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #0369a1;">person_outline</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #0369a1;">总教师数</h3>
+                                <p class="gradient-value" style="color: #0369a1;" id="teacherCount">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card user-stat" data-tooltip="系统中注册的学生总人数">
-                            <h3>总学生数</h3>
-                            <p id="studentCount">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);"
+                            data-tooltip="系统中注册的学生总人数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #15803d;">face</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #15803d;">总学生数</h3>
+                                <p class="gradient-value" style="color: #15803d;" id="studentCount">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card time-stat" data-tooltip="本周内所有已安排的课程总数">
-                            <h3>本周排课</h3>
-                            <p id="weeklySchedules">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);"
+                            data-tooltip="本周内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #7c3aed;">date_range</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #7c3aed;">本周排课</h3>
+                                <p class="gradient-value" style="color: #7c3aed;" id="weeklySchedules">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card time-stat" data-tooltip="本月内所有已安排的课程总数">
-                            <h3>本月排课</h3>
-                            <p id="monthlySchedules">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);"
+                            data-tooltip="本月内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #c2410c;">calendar_month</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #c2410c;">本月排课</h3>
+                                <p class="gradient-value" style="color: #c2410c;" id="monthlySchedules">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card time-stat" data-tooltip="本年度内所有已安排的课程总数">
-                            <h3>本年排课</h3>
-                            <p id="yearlySchedules">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #e0f2fe 0%, #a5d8ff 100%);"
+                            data-tooltip="本年度内所有已安排的课程总数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #0c4a6e;">auto_graph</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #0c4a6e;">本年排课</h3>
+                                <p class="gradient-value" style="color: #0c4a6e;" id="yearlySchedules">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card status-pending" data-tooltip="当前等待确认的课程申请">
-                            <h3>待确认排课</h3>
-                            <p id="pendingConfirmations">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);"
+                            data-tooltip="当前等待确认的课程申请">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #be185d;">hourglass_empty</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #be185d;">待确认排课</h3>
+                                <p class="gradient-value" style="color: #be185d;" id="pendingConfirmations">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card status-completed" data-tooltip="历史累计已顺利完成的课程总节数">
-                            <h3>已完成排课</h3>
-                            <p id="completedSchedules">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);"
+                            data-tooltip="历史累计已顺利完成的课程总节数">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #166534;">check_circle_outline</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #166534;">已完成排课</h3>
+                                <p class="gradient-value" style="color: #166534;" id="completedSchedules">--</p>
+                            </div>
                         </div>
-                        <div class="stat-card status-cancelled" data-tooltip="历史累计已被取消的课程记录">
-                            <h3>已取消排课</h3>
-                            <p id="cancelledSchedules">-</p>
+                        <div class="stat-card summary-card overview-gradient-card"
+                            style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);"
+                            data-tooltip="历史累计已被取消的课程记录">
+                            <div class="gradient-bg-icon"><span class="material-icons-round"
+                                    style="color: #475569;">block</span></div>
+                            <div class="gradient-content">
+                                <h3 style="color: #475569;">已取消排课</h3>
+                                <p class="gradient-value" style="color: #475569;" id="cancelledSchedules">--</p>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Today's Schedules Section -->
-                    <!-- Today's Schedules Section -->
-                    <div class="today-schedule-card">
-                        <div class="card-header">
-                            <div class="header-title-group">
+                    <!-- 今日排课 -->
+                    <div class="overview-today-section">
+                        <div class="overview-today-header">
+                            <div class="overview-today-title">
+                                <span class="material-icons-round">event_note</span>
                                 <h3>今日排课</h3>
                             </div>
-                            <button id="refreshTodaySchedulesBtn" class="refresh-btn">
+                            <button id="refreshTodaySchedulesBtn" class="overview-today-refresh">
                                 <span class="material-icons-round">refresh</span> 刷新
                             </button>
                         </div>
-                        <div id="todayScheduleList" class="card-content">
-                            <div class="no-data">-</div>
+                        <div id="todayScheduleList" class="overview-today-list">
+                            <div class="today-empty-state">
+                                <span class="material-icons-round">event_available</span>
+                                <p>加载中...</p>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -629,10 +680,10 @@
                             <button id="addScheduleBtn" class="add-btn" onclick="window.showAddScheduleModal()">
                                 <span class="material-icons-round">add</span> 添加排课
                             </button>
-                            <button id="toggleAdminFeeBtn" class="add-btn btn-outline"
-                                style="margin-left:8px; background-color: white; color: #10b981; border: 1px solid #10b981;"
+                            <button id="toggleAdminFeeBtn" class="add-btn" style="margin-left:8px;"
                                 onclick="window.toggleAdminFeeVisibility()">
-                                <span style="font-style: normal; font-size: 15px; font-weight: 600;">¥</span>&nbsp;<span
+                                <span
+                                    style="font-style: normal; font-size: 14px; font-weight: bold; margin-right: 4px;">¥</span><span
                                     id="adminFeeBtnText">显示费用</span>
                             </button>
                         </div>
@@ -1029,6 +1080,9 @@
 
     <div class="dashboard-container">
         <script src="/js/core/api-client.js"></script>
+        <script src="/js/utils/auth.js"></script>
+        <script src="/js/utils/color-utils.js"></script>
+        <script src="/js/utils/format.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <script src="/js/modules/admin/stats-plugins.js"></script>
@@ -1036,8 +1090,16 @@
         <script src="/js/core/schedule-types-store.js"></script>
         <script src="/js/utils/i18n-utils.js"></script>
         <script src="/js/utils/export-ui-manager.js"></script>
+        <script src="/js/components/export-manager.js?v=1"></script>
         <script src="/js/components/export-dialog.js?v=20240121"></script>
         <script type="module" src="/js/modules/admin/statistics.js"></script>
+        <script type="module" src="/js/modules/admin/stats-logic.js"></script>
+        <script type="module" src="/js/modules/admin/user-logic.js"></script>
+        <script type="module" src="/js/modules/admin/schedule-logic.js"></script>
+        <script type="module" src="/js/modules/admin/teacher-availability.js"></script>
+        <script type="module" src="/js/modules/admin/schedule-types.js"></script>
+        <script type="module" src="/js/modules/admin/admin-reward.js"></script>
+        <script type="module" src="/js/modules/admin/schedule-utils.js"></script>
         <script type="module" src="/js/modules/admin/index.js"></script>
         <script src="/js/modules/admin/today-logic.js?v=2"></script>
         <script type="module" src="/js/modules/admin/schedule-manager.js"></script>

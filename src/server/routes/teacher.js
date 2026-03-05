@@ -30,6 +30,8 @@ router.patch('/schedules/:id/fees', authMiddleware, teacherController.updateSche
 router.get('/student-schedules', authMiddleware, teacherController.getHeadTeacherStudentSchedules);
 router.get('/student-schedules/export', authMiddleware, teacherController.exportHeadTeacherStudentData);
 router.get('/associated-students', authMiddleware, teacherController.getAssociatedStudents);
+router.get('/associated-students/detail', authMiddleware, teacherController.getAssociatedStudentsDetail);
+router.put('/associated-students/:id', authMiddleware, teacherController.updateAssociatedStudent);
 router.get('/all-teachers', authMiddleware, teacherController.getAllTeachers);
 router.post('/batch-fees', authMiddleware, teacherController.batchUpdateScheduleFees);
 
@@ -40,6 +42,7 @@ router.get('/overview', authMiddleware, teacherController.getOverview);
 router.get('/statistics', authMiddleware, teacherController.getStatistics);
 router.get('/teaching-count', authMiddleware, teacherController.getTeachingCount);
 router.get('/export', authMiddleware, teacherController.exportMySchedules);
+router.get('/export-advanced', authMiddleware, teacherController.advancedExport);
 router.get('/detailed-schedules', authMiddleware, teacherController.getDetailedSchedules);
 
 module.exports = router;

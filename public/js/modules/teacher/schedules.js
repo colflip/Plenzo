@@ -11,6 +11,7 @@ import {
     toISODate,
     showActionSheet
 } from './utils.js';
+import { escapeHtml, safeSetHTML } from '../../core/security.js';
 
 
 
@@ -103,7 +104,7 @@ export async function loadSchedules(baseDate) {
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
-        console.error('加载教师课程安排失败', error);
+        
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
     }
@@ -138,7 +139,7 @@ function renderMobileScheduleTable(weekDates, grouped) {
         container = document.querySelector('.table-container');
     }
     if (!container) {
-        console.warn('[Mobile Schedule] 容器未找到');
+        
         return;
     }
 
@@ -392,22 +393,28 @@ function renderHeader(weekDates) {
         const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
 
-        // 农历显示
-        let lunarLabel = '';
+        const th = createElement('th', 'date-header');
+        th.dataset.date = iso;
+        
+        const dateLabel = createElement('div', 'date-label');
+        dateLabel.textContent = `${month}月${day}日`;
+        
         try {
             const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
             const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
             if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+                const lunarSpan = createElement('span', '', {
+                    textContent: `(${match[0]})`,
+                    style: 'font-size: 11px; color: #64748B;'
+                });
+                dateLabel.appendChild(document.createElement('br'));
+                dateLabel.appendChild(lunarSpan);
             }
         } catch (e) { }
-
-        const th = createElement('th', 'date-header');
-        th.dataset.date = iso;
-        th.innerHTML = `
-            <div class="date-label">${month}月${day}日${lunarLabel}</div>
-            <div class="day-label">${weekday}</div>
-        `;
+        
+        const dayLabel = createElement('div', 'day-label', { textContent: weekday });
+        th.appendChild(dateLabel);
+        th.appendChild(dayLabel);
         row.appendChild(th);
     });
     thead.appendChild(row);
@@ -546,7 +553,10 @@ function buildScheduleCard(group) {
 
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
-        marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`;
+        const typeSpan = createElement('span', 'course-type-text', {
+            textContent: `(${typeStr})`
+        });
+        marqueeContent.appendChild(typeSpan);
 
         marqueeWrapper.appendChild(marqueeContent);
         left.appendChild(nameSpan);
@@ -604,10 +614,13 @@ function buildScheduleCard(group) {
     const timeRange = `${first.start_time ? first.start_time.substring(0, 5) : ''} - ${first.end_time ? first.end_time.substring(0, 5) : ''}`;
     const loc = first.location || '';
 
-    footer.innerHTML = `
-        <div class="time-text">${timeRange}</div>
-        <div class="location-text" style="flex:1;">${loc}</div>
-    `;
+    const timeDiv = createElement('div', 'time-text', { textContent: timeRange });
+    const locDiv = createElement('div', 'location-text', { 
+        textContent: loc,
+        style: 'flex:1;'
+    });
+    footer.appendChild(timeDiv);
+    footer.appendChild(locDiv);
 
     const tFee = parseFloat(first.transport_fee) || 0;
     const oFee = parseFloat(first.other_fee) || 0;
@@ -762,7 +775,7 @@ async function handleStatusChange(scheduleId, newStatus, cardElement, statusSele
         }, 3000);
 
     } catch (error) {
-        console.error('更新课程状态失败:', error);
+        
 
         // 恢复原状态
         if (statusSelect && originalStatus) {
@@ -882,7 +895,7 @@ function initFeeModal() {
                 throw new Error(res?.message || '保存失败');
             }
         } catch (error) {
-            console.error('保存费用失败:', error);
+            
             if (window.apiUtils.showErrorToast) {
                 window.apiUtils.showErrorToast(error.message || '保存费用失败');
             } else {

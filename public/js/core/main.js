@@ -144,7 +144,6 @@ function initLogin() {
             }
 
         } catch (error) {
-            console.error('Login error:', error);
             showError(error.message || '登录失败，请检查用户名或密码');
         } finally {
             loginBtn.disabled = false;

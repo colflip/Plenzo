@@ -9,6 +9,7 @@ const STATUS_TEXT_MAP = Object.freeze({
 
 let cachedProfile = null;
 let isEditMode = false;
+let cachedStudents = [];
 
 const elements = {
     avatar: () => document.getElementById('profileAvatar'),
@@ -37,12 +38,30 @@ const elements = {
     modalConfirmPassword: () => document.getElementById('modalConfirmPassword'),
     modalPasswordMatchFeedback: () => document.getElementById('modalPasswordMatchFeedback'),
     closePasswordModal: () => document.getElementById('closePasswordModal'),
-    cancelPasswordChange: () => document.getElementById('cancelPasswordChange')
+    cancelPasswordChange: () => document.getElementById('cancelPasswordChange'),
+    // 学生管理元素
+    studentManagementSection: () => document.getElementById('studentManagementSection'),
+    studentListContainer: () => document.getElementById('studentListContainer'),
+    refreshStudentsBtn: () => document.getElementById('refreshStudentsBtn'),
+    // 学生编辑弹窗
+    studentEditModal: () => document.getElementById('studentEditModal'),
+    studentEditForm: () => document.getElementById('studentEditForm'),
+    editStudentId: () => document.getElementById('editStudentId'),
+    editStudentName: () => document.getElementById('editStudentName'),
+    editStudentProfession: () => document.getElementById('editStudentProfession'),
+    editStudentContact: () => document.getElementById('editStudentContact'),
+    editStudentVisitLocation: () => document.getElementById('editStudentVisitLocation'),
+    editStudentHomeAddress: () => document.getElementById('editStudentHomeAddress'),
+    editStudentStatus: () => document.getElementById('editStudentStatus'),
+    closeStudentEditModal: () => document.getElementById('closeStudentEditModal'),
+    cancelStudentEdit: () => document.getElementById('cancelStudentEdit'),
+    saveStudentEdit: () => document.getElementById('saveStudentEdit')
 };
 
 export async function initProfileSection() {
     bindProfileActions();
     bindPasswordModalActions();
+    bindStudentManagementActions();
     await loadProfile();
 }
 
@@ -108,8 +127,11 @@ async function loadProfile() {
         const profile = await window.apiUtils.get('/teacher/profile');
         cachedProfile = profile;
         renderProfile(profile);
+        if (profile.student_ids) {
+            loadAssociatedStudents();
+        }
     } catch (error) {
-        console.error('加载教师个人信息失败', error);
+        
         window.apiUtils.showErrorToast(error);
     }
 }
@@ -124,7 +146,8 @@ function renderProfile(profile) {
         home_address = '',
         status = 1,
         last_login,
-        last_login_iso
+        last_login_iso,
+        student_ids
     } = profile;
 
     setText(elements.summaryName(), name);
@@ -157,6 +180,15 @@ function renderProfile(profile) {
     if (statusSelect) statusSelect.value = String(status ?? 1);
     const lastLoginInput = elements.lastLoginInput();
     if (lastLoginInput) lastLoginInput.value = formattedLastLogin;
+
+    const studentManagementSection = elements.studentManagementSection();
+    if (studentManagementSection) {
+        if (student_ids && student_ids.trim() !== '') {
+            studentManagementSection.style.display = 'block';
+        } else {
+            studentManagementSection.style.display = 'none';
+        }
+    }
 
     disableEditMode(false);
 }
@@ -270,7 +302,7 @@ async function handlePasswordChange(event) {
         window.apiUtils.showSuccessToast('密码修改成功');
         closePasswordModal();
     } catch (error) {
-        console.error('密码修改失败:', error);
+        
         window.apiUtils.showErrorToast(error);
     }
 }
@@ -323,9 +355,183 @@ async function saveProfile() {
         window.apiUtils.showSuccessToast('个人信息更新成功');
         renderProfile(cachedProfile);
     } catch (error) {
-        console.error('保存教师个人信息失败', error);
+        
         window.apiUtils.showErrorToast(error);
     } finally {
         disableEditMode(false);
+    }
+}
+
+// ============ 学生管理功能 ============
+
+function bindStudentManagementActions() {
+    elements.refreshStudentsBtn()?.addEventListener('click', loadAssociatedStudents);
+    
+    elements.closeStudentEditModal()?.addEventListener('click', closeStudentEditModalFn);
+    elements.cancelStudentEdit()?.addEventListener('click', closeStudentEditModalFn);
+    elements.saveStudentEdit()?.addEventListener('click', handleSaveStudentEdit);
+    
+    const modal = elements.studentEditModal();
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeStudentEditModalFn();
+            }
+        });
+    }
+    
+    const modalContent = modal?.querySelector('.modal-content');
+    if (modalContent) {
+        modalContent.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+}
+
+async function loadAssociatedStudents() {
+    try {
+        const response = await window.apiUtils.get('/teacher/associated-students/detail');
+        if (response.success && response.data) {
+            cachedStudents = response.data;
+            renderStudentList(response.data);
+        } else {
+            renderStudentList([]);
+        }
+    } catch (error) {
+        
+        window.apiUtils.showErrorToast(error);
+    }
+}
+
+function renderStudentList(students) {
+    const container = elements.studentListContainer();
+    if (!container) return;
+
+    if (!students || students.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">暂无关联学生</p>';
+        return;
+    }
+
+    const tableHTML = `
+        <table class="student-info-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">
+                    <th style="padding: 12px; text-align: left; font-weight: 500;">ID</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 500;">姓名</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 500;">专业</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 500;">联系方式</th>
+                    <th style="padding: 12px; text-align: left; font-weight: 500;">状态</th>
+                    <th style="padding: 12px; text-align: center; font-weight: 500;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${students.map(student => `
+                    <tr style="border-bottom: 1px solid var(--border-color);" data-student-id="${student.id}">
+                        <td style="padding: 12px;">${student.id}</td>
+                        <td style="padding: 12px;">${student.name || '-'}</td>
+                        <td style="padding: 12px;">${student.profession || '-'}</td>
+                        <td style="padding: 12px;">${student.contact || '-'}</td>
+                        <td style="padding: 12px;">
+                            <span class="status-badge ${getStatusClass(student.status)}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+                                ${STATUS_TEXT_MAP[String(student.status)] || '未知'}
+                            </span>
+                        </td>
+                        <td style="padding: 12px; text-align: center;">
+                            <button class="edit-student-btn info-btn" data-student-id="${student.id}" style="padding: 6px 12px; font-size: 13px;">
+                                <span class="material-icons-round" style="font-size: 16px;">edit</span> 编辑
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    
+    container.innerHTML = tableHTML;
+    
+    container.querySelectorAll('.edit-student-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const studentId = parseInt(btn.dataset.studentId);
+            openStudentEditModal(studentId);
+        });
+    });
+}
+
+function getStatusClass(status) {
+    switch (String(status)) {
+        case '1': return 'status-active';
+        case '0': return 'status-pending';
+        case '-1': return 'status-cancelled';
+        default: return '';
+    }
+}
+
+function openStudentEditModal(studentId) {
+    const student = cachedStudents.find(s => s.id === studentId);
+    if (!student) {
+        window.apiUtils.showErrorToast('未找到学生信息');
+        return;
+    }
+
+    elements.editStudentId()?.setAttribute('value', student.id);
+    const nameInput = elements.editStudentName();
+    if (nameInput) nameInput.value = student.name || '';
+    const professionInput = elements.editStudentProfession();
+    if (professionInput) professionInput.value = student.profession || '';
+    const contactInput = elements.editStudentContact();
+    if (contactInput) contactInput.value = student.contact || '';
+    const visitLocationInput = elements.editStudentVisitLocation();
+    if (visitLocationInput) visitLocationInput.value = student.visit_location || '';
+    const homeAddressInput = elements.editStudentHomeAddress();
+    if (homeAddressInput) homeAddressInput.value = student.home_address || '';
+    const statusSelect = elements.editStudentStatus();
+    if (statusSelect) statusSelect.value = String(student.status ?? 1);
+
+    const modal = elements.studentEditModal();
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function closeStudentEditModalFn() {
+    const modal = elements.studentEditModal();
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function handleSaveStudentEdit() {
+    const studentId = elements.editStudentId()?.value;
+    const nameInput = elements.editStudentName();
+    
+    try {
+        window.apiUtils.validate.required(nameInput?.value, '姓名');
+    } catch (validationError) {
+        window.apiUtils.showErrorToast(validationError);
+        nameInput?.focus();
+        return;
+    }
+
+    const payload = {
+        name: nameInput?.value?.trim() ?? '',
+        profession: elements.editStudentProfession()?.value?.trim() ?? '',
+        contact: elements.editStudentContact()?.value?.trim() ?? '',
+        visit_location: elements.editStudentVisitLocation()?.value?.trim() ?? '',
+        home_address: elements.editStudentHomeAddress()?.value?.trim() ?? '',
+        status: parseInt(elements.editStudentStatus()?.value ?? '1', 10)
+    };
+
+    try {
+        const response = await window.apiUtils.put(`/teacher/associated-students/${studentId}`, payload);
+        if (response.success) {
+            window.apiUtils.showSuccessToast('学生信息更新成功');
+            closeStudentEditModalFn();
+            await loadAssociatedStudents();
+        } else {
+            throw new Error(response.message || '更新失败');
+        }
+    } catch (error) {
+        
+        window.apiUtils.showErrorToast(error);
     }
 }

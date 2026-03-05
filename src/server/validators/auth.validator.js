@@ -6,7 +6,32 @@
 
 const Joi = require('joi');
 
-// 登录验证
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
+const strongPasswordSchema = Joi.string()
+    .min(8)
+    .max(100)
+    .pattern(passwordPattern)
+    .required()
+    .messages({
+        'string.min': '密码长度至少8个字符',
+        'string.max': '密码长度不能超过100个字符',
+        'string.pattern.base': '密码必须包含大写字母、小写字母和数字',
+        'any.required': '密码是必填项'
+    });
+
+const weakPasswordSchema = Joi.string()
+    .min(6)
+    .max(100)
+    .required()
+    .messages({
+        'string.min': '密码长度至少6个字符',
+        'string.max': '密码长度不能超过100个字符',
+        'any.required': '密码是必填项'
+    });
+
+const requireStrongPassword = process.env.REQUIRE_STRONG_PASSWORD === 'true';
+
 const loginSchema = Joi.object({
     username: Joi.string().min(3).max(50).required()
         .messages({
@@ -14,9 +39,8 @@ const loginSchema = Joi.object({
             'string.max': '用户名最多50个字符',
             'any.required': '用户名不能为空'
         }),
-    password: Joi.string().min(6).required()
+    password: Joi.string().min(1).required()
         .messages({
-            'string.min': '密码至少6个字符',
             'any.required': '密码不能为空'
         }),
     userType: Joi.string().valid('admin', 'teacher', 'student').required()
@@ -26,7 +50,6 @@ const loginSchema = Joi.object({
         })
 });
 
-// 注册验证（管理员创建用户）
 const registerSchema = Joi.object({
     username: Joi.string().alphanum().min(3).max(50).required()
         .messages({
@@ -35,12 +58,7 @@ const registerSchema = Joi.object({
             'string.max': '用户名长度不能超过50个字符',
             'any.required': '用户名是必填项'
         }),
-    password: Joi.string().min(6).max(100).required()
-        .messages({
-            'string.min': '密码长度至少6个字符',
-            'string.max': '密码长度不能超过100个字符',
-            'any.required': '密码是必填项'
-        }),
+    password: requireStrongPassword ? strongPasswordSchema : weakPasswordSchema,
     name: Joi.string().min(1).max(50).required()
         .messages({
             'string.min': '姓名不能为空',
@@ -74,27 +92,19 @@ const registerSchema = Joi.object({
             'any.required': '管理员必须指定权限级别'
         })
 })
-    // 兼容 snake_case 输入
     .rename('permission_level', 'permissionLevel', { override: true, ignoreUndefined: true })
     .rename('user_type', 'userType', { override: true, ignoreUndefined: true });
 
-// 修改密码验证
 const changePasswordSchema = Joi.object({
     oldPassword: Joi.string().required()
         .messages({
             'any.required': '原密码不能为空'
         }),
-    newPassword: Joi.string().min(6).max(100).required()
-        .messages({
-            'string.min': '新密码长度至少6个字符',
-            'string.max': '新密码长度不能超过100个字符',
-            'any.required': '新密码不能为空'
-        })
+    newPassword: requireStrongPassword ? strongPasswordSchema : weakPasswordSchema
 })
     .rename('old_password', 'oldPassword', { override: true, ignoreUndefined: true })
     .rename('new_password', 'newPassword', { override: true, ignoreUndefined: true });
 
-// 刷新Token验证
 const refreshTokenSchema = Joi.object({
     refreshToken: Joi.string().required()
         .messages({
@@ -103,9 +113,48 @@ const refreshTokenSchema = Joi.object({
 })
     .rename('refresh_token', 'refreshToken', { override: true, ignoreUndefined: true });
 
+const validatePassword = (password) => {
+    const result = {
+        valid: true,
+        errors: [],
+        strength: 0
+    };
+
+    if (!password || password.length < 8) {
+        result.valid = false;
+        result.errors.push('密码长度至少8个字符');
+        return result;
+    }
+
+    if (password.length >= 12) result.strength += 1;
+    if (password.length >= 16) result.strength += 1;
+    if (/[a-z]/.test(password)) result.strength += 1;
+    if (/[A-Z]/.test(password)) result.strength += 1;
+    if (/\d/.test(password)) result.strength += 1;
+    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) result.strength += 2;
+
+    if (!/[a-z]/.test(password)) {
+        result.valid = false;
+        result.errors.push('密码必须包含小写字母');
+    }
+    if (!/[A-Z]/.test(password)) {
+        result.valid = false;
+        result.errors.push('密码必须包含大写字母');
+    }
+    if (!/\d/.test(password)) {
+        result.valid = false;
+        result.errors.push('密码必须包含数字');
+    }
+
+    return result;
+};
+
 module.exports = {
     loginSchema,
     registerSchema,
     changePasswordSchema,
-    refreshTokenSchema
+    refreshTokenSchema,
+    validatePassword,
+    strongPasswordSchema,
+    weakPasswordSchema
 };

@@ -15,12 +15,11 @@ export async function initStatisticsSection() {
     try {
         // Parallel load for better performance
         // Start with summary for immediate feedback
-        const summaryPromise = loadTeachingSummary();
-        const detailedPromise = loadTeachingCount();
+        await loadTeachingSummary();
 
-        await Promise.allSettled([summaryPromise, detailedPromise]);
+        // Load details in background without blocking
+        loadTeachingCount();
     } catch (error) {
-        console.error('[Teaching Display] Failed to auto-load data:', error);
         updateDisplay({ schedules: [], typeStats: {} }, '', '');
     }
 }
@@ -120,8 +119,11 @@ function setupEventListeners() {
             queryBtn.textContent = '加载中...';
 
             try {
-                // Use the same loading function as auto-load for consistency
-                await loadTeachingCount();
+                // Load summary immediately to update top cards & chart
+                await loadTeachingSummary();
+
+                // Fetch detailed table data in background to stay responsive
+                loadTeachingCount();
             } finally {
                 queryBtn.disabled = false;
                 queryBtn.textContent = originalText;
@@ -130,107 +132,42 @@ function setupEventListeners() {
     }
 
     // Quick Query Buttons Logic (Delegation or Nodelist)
-    const presetBtns = document.querySelectorAll('.preset-btn');
+    let container = document.getElementById('teachingStatsContent') || document;
+    const presetBtns = container.querySelectorAll('.preset-btn');
     presetBtns.forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            // UI Feedback
-            presetBtns.forEach(b => {
-                b.style.backgroundColor = 'white';
-                b.style.color = '#333';
-            });
-            e.target.style.backgroundColor = '#dcfce7';
-            e.target.style.color = '#15803d';
+            const preset = e.target.dataset.range || e.target.dataset.preset;
+            if (!window.DateRangeUtils) return;
+            const range = window.DateRangeUtils.computeRange(preset);
+            if (!range) return;
 
-            const range = e.target.dataset.range;
-            const today = new Date();
-            let start = new Date();
-            let end = new Date(); // End is always today
-
-            switch (range) {
-                case 'today':
-                    start = new Date(today);
-                    end = new Date(today);
-                    break;
-                case 'yesterday':
-                    start = new Date(today);
-                    start.setDate(today.getDate() - 1);
-                    end = new Date(start);
-                    break;
-                case 'this_week':
-                    // 本周 (Current ISO Week: Monday to Sunday)
-                    const dayThis = today.getDay();
-                    const diffToMonThis = today.getDate() - dayThis + (dayThis === 0 ? -6 : 1);
-                    const thisMon = new Date(today);
-                    thisMon.setDate(diffToMonThis);
-                    const thisSun = new Date(thisMon);
-                    thisSun.setDate(thisMon.getDate() + 6);
-                    start = thisMon;
-                    end = thisSun;
-                    break;
-                case 'prev_week':
-                    // 上周 (Last full week: Monday to Sunday)
-                    const day = today.getDay();
-                    const diffToMon = today.getDate() - day + (day === 0 ? -6 : 1);
-                    const lastSun = new Date(today);
-                    lastSun.setDate(diffToMon - 1);
-                    const lastMon = new Date(today);
-                    lastMon.setDate(diffToMon - 7);
-                    start = lastMon;
-                    end = lastSun;
-                    break;
-                case 'this_month':
-                    start = new Date(today.getFullYear(), today.getMonth(), 1);
-                    end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                    break;
-                case 'prev_month':
-                    // 上月 (Last full Month)
-                    start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                    end = new Date(today.getFullYear(), today.getMonth(), 0);
-                    break;
-                case 'this_quarter':
-                    const currQ = Math.floor((today.getMonth() + 3) / 3);
-                    start = new Date(today.getFullYear(), (currQ - 1) * 3, 1);
-                    end = new Date(today.getFullYear(), currQ * 3, 0);
-                    break;
-                case 'prev_quarter':
-                    // 上季度 (Last full Quarter)
-                    const currentQuarter = Math.floor((today.getMonth() + 3) / 3);
-                    const lastQuarter = currentQuarter - 1;
-                    if (lastQuarter === 0) { // Was Q1, so now Q4 of last year
-                        start = new Date(today.getFullYear() - 1, 9, 1);
-                        end = new Date(today.getFullYear() - 1, 12, 0);
-                    } else {
-                        start = new Date(today.getFullYear(), (lastQuarter - 1) * 3, 1);
-                        end = new Date(today.getFullYear(), lastQuarter * 3, 0);
-                    }
-                    break;
-                case 'this_year':
-                    start = new Date(today.getFullYear(), 0, 1);
-                    end = new Date(today.getFullYear(), 11, 31);
-                    break;
-                case 'prev_year':
-                    // 去年 (Last full Year)
-                    start = new Date(today.getFullYear() - 1, 0, 1);
-                    end = new Date(today.getFullYear() - 1, 11, 31);
-                    break;
-            }
-
-            // Set inputs
             const startDateInput = document.getElementById('teachingStartDate');
             const endDateInput = document.getElementById('teachingEndDate');
+            if (startDateInput) startDateInput.value = range.start;
+            if (endDateInput) endDateInput.value = range.end;
 
-            if (startDateInput && endDateInput) {
-                // Ensure date objects are valid before formatting
-                if (!isNaN(start) && !isNaN(end)) {
-                    startDateInput.value = formatDate(start);
-                    endDateInput.value = formatDate(end);
+            // Trigger Highlight Sync
+            window.DateRangeUtils.syncPresetButtons(range.start, range.end, container);
 
-                    // Trigger Query
-                    if (queryBtn) queryBtn.click();
-                }
-            }
+            // Load data: summary awaits to unblock UI, count in background
+            await loadTeachingSummary();
+            loadTeachingCount();
         });
     });
+
+    const startDateInput = document.getElementById('teachingStartDate');
+    const endDateInput = document.getElementById('teachingEndDate');
+    if (startDateInput && endDateInput) {
+        const sync = () => {
+            if (window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
+                window.DateRangeUtils.syncPresetButtons(startDateInput.value, endDateInput.value, container);
+            }
+        };
+        startDateInput.addEventListener('change', sync);
+        endDateInput.addEventListener('change', sync);
+        // 初次同步
+        sync();
+    }
 
     const exportBtn = document.getElementById('teachingExportBtn');
     if (exportBtn) {
@@ -244,16 +181,14 @@ function setupEventListeners() {
             }
 
             const originalText = exportBtn.innerHTML;
-            exportBtn.innerHTML = '导出中...';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>'); } else { exportBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>'; }
             exportBtn.disabled = true;
 
             try {
-                const response = await fetch(`/api/teacher/export?startDate=${startDate}&endDate=${endDate}`, {
+                const response = await fetch(`/api/teacher/export-advanced?startDate=${startDate}&endDate=${endDate}`, {
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}` // Ensure token is passed if needed, though cookie usually handles it. 
-                        // If token is in header:
-                        // 'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -262,62 +197,48 @@ function setupEventListeners() {
                     throw new Error(errorJson.message || errorJson.error || '导出失败');
                 }
 
-                // Get filename from header or default
-                const disposition = response.headers.get('Content-Disposition');
-                let filename = 'export.xlsx';
-                if (disposition && disposition.indexOf('attachment') !== -1) {
-                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
-                    if (matches != null && matches[1]) {
-                        filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
-                    }
+                const result = await response.json();
+                if (!result.success || !result.data) {
+                    throw new Error(result.message || '获取导出数据失败');
                 }
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                // 借助通用 ExportManager 输出 Excel
+                if (window.ExportManager && result.data && result.data.data) {
+                    const EXPORT_TYPES = { TEACHER_SCHEDULE: 'teacher_schedule', STUDENT_SCHEDULE: 'student_schedule' };
+                    const state = {
+                        startDate: new Date(startDate),
+                        endDate: new Date(endDate),
+                        selectedType: EXPORT_TYPES.TEACHER_SCHEDULE
+                    };
+                    const teacherName = document.getElementById('teacherName')?.textContent || '教师';
+                    const timestamp = new Date().getTime();
+                    const fileName = `我的授课记录[${teacherName}][${startDate}至${endDate}]_${timestamp}.xlsx`;
+
+                    const transformedData = window.ExportManager.transformExportData(
+                        result.data.data,
+                        null,
+                        '全部学生',
+                        'teacher',
+                        state,
+                        EXPORT_TYPES
+                    );
+                    await window.ExportManager.generateExcelFile(transformedData, fileName);
+                    if (window.Toast) { window.Toast.show('导出成功', 'success'); } else { alert('导出成功'); }
+                } else {
+                    throw new Error('导出组件未加载或返回数据异常');
+                }
 
             } catch (error) {
-                console.error('Export failed:', error);
-                alert('导出失败: ' + error.message);
+                console.error('Export Error:', error);
+                if (window.Toast) { window.Toast.show('导出失败: ' + error.message, 'error'); } else { alert('导出失败: ' + error.message); }
             } finally {
-                exportBtn.innerHTML = originalText;
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, originalText); } else { exportBtn.innerHTML = originalText; }
                 exportBtn.disabled = false;
             }
         });
     }
 
-    // Preset Buttons Logic
-    const presets = [
-        { id: 'btnLastWeek', type: 'last-week' },
-        { id: 'btnLastMonth', type: 'last-month' },
-        { id: 'btnLastQuarter', type: 'last-quarter' },
-        { id: 'btnLastYear', type: 'last-year' }
-    ];
-    presets.forEach(preset => {
-        const btn = document.getElementById(preset.id);
-        if (btn) {
-            btn.addEventListener('click', async () => {
-                // Reset all buttons to default color
-                presets.forEach(p => {
-                    const b = document.getElementById(p.id);
-                    if (b) b.style.backgroundColor = '#64748b'; // Default slate color
-                });
-                // Set active button to green
-                btn.style.backgroundColor = '#10b981'; // Green for active state
-
-                applyDatePreset(preset.type);
-                // Trigger query
-                const queryBtn = document.getElementById('teachingQueryBtn');
-                if (queryBtn) queryBtn.click();
-            });
-        }
-    });
+    // Preset buttons manual styling is handled by DateRangeUtils now, removing conflicting preset logic.
 }
 
 /**
@@ -328,7 +249,7 @@ export async function loadTeachingCount() {
     const endDate = document.getElementById('teachingEndDate')?.value;
 
     if (!startDate || !endDate) {
-        console.error('请选择日期范围');
+
         return;
     }
 
@@ -359,22 +280,23 @@ export async function loadTeachingCount() {
             return status !== 'cancelled';
         });
 
-        // Calculate stats by type
-        const typeStats = {};
-        schedules.forEach(schedule => {
-            // Use Chinese description if available, otherwise fallback to name or '其他'
-            const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '其他';
-            typeStats[type] = (typeStats[type] || 0) + 1;
-        });
+        // Preserve typeStats and dailyStats from the summary fetch if available
+        currentTeachingData = currentTeachingData || {};
+        currentTeachingData.schedules = schedules;
 
-        currentTeachingData = {
-            schedules: schedules,
-            typeStats: typeStats
-        };
+        // If typeStats empty, calculate it minimally from schedules for fallback
+        if (!currentTeachingData.typeStats || Object.keys(currentTeachingData.typeStats).length === 0) {
+            const typeStats = {};
+            schedules.forEach(schedule => {
+                const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '其他';
+                typeStats[type] = (typeStats[type] || 0) + 1;
+            });
+            currentTeachingData.typeStats = typeStats;
+        }
 
         updateDisplay(currentTeachingData, startDate, endDate);
     } catch (error) {
-        console.error('加载授课数据失败:', error);
+
         updateDisplay({ schedules: [], typeStats: {} }, startDate, endDate);
     }
 }
@@ -421,7 +343,7 @@ export async function loadTeachingSummary() {
     } catch (err) {
         if (err.name === 'AbortError') {
         } else {
-            console.error('[Teaching Summary] Error:', err);
+
         }
     }
 }
@@ -430,26 +352,55 @@ export async function loadTeachingSummary() {
  * Update display using aggregated data (avoids iterating full schedule list)
  */
 function updateDisplayFromAggregates(data, startDate, endDate) {
-    // Update type stats
+    // 使用淡色渐变卡片渲染课程类型统计
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
-        statsGrid.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
         const types = Object.keys(data.typeStats || {});
         if (types.length === 0) {
             statsGrid.innerHTML = `
-                <div class="type-stat-card">
-                    <h3>总授课数</h3>
-                    <div class="count-value">0</div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: none; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
+                    <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
+                        <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
+                    </div>
+                    <div style="position: relative; z-index: 1;">
+                        <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: 15px;">总授课数</h3>
+                        <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
+                    </div>
                 </div>
             `;
         } else {
-            types.forEach(type => {
+            const uiColors = [
+                { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
+                { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
+                { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
+                { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
+                { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
+                { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
+            ];
+
+            types.forEach((type, index) => {
                 const count = data.typeStats[type];
+                const colorConfig = uiColors[index % uiColors.length];
                 const card = document.createElement('div');
-                card.className = 'stat-card';
+                card.className = 'stat-card scale-hover';
+                card.style.background = colorConfig.bg;
+                card.style.border = 'none';
+                card.style.position = 'relative';
+                card.style.overflow = 'hidden';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.justifyContent = 'center';
+                card.style.minHeight = '120px';
+
                 card.innerHTML = `
-                    <h3>${type}</h3>
-                    <p>${count}</p>
+                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
+                        <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
+                    </div>
+                    <div style="position: relative; z-index: 1;">
+                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: 15px;">${type}</h3>
+                        <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
+                    </div>
                 `;
                 statsGrid.appendChild(card);
             });
@@ -459,8 +410,11 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
     // Render chart from dailyStats or schedules
     // Always use the full renderDailyTeachingChart for consistency
     // It will handle the full date range properly
-    if (data.schedules && data.schedules.length > 0) {
-        renderDailyTeachingChart(data.schedules);
+    // Render chart from dailyStats
+    if (data.dailyStats && data.dailyStats.length > 0) {
+        renderDailyTeachingChart(data.schedules, data.dailyStats);
+    } else if (data.schedules && data.schedules.length > 0) {
+        renderDailyTeachingChart(data.schedules, null);
     } else {
         // If only aggregated data available, clear the chart
         const canvas = document.getElementById('dailyTeachingChart');
@@ -470,10 +424,13 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
         }
     }
 
+    // Mark summary as rendered so detailed fetch doesn't overwrite it
+    data.summaryRendered = true;
+
     // Clear or show placeholder in details table until detailed fetch completes
     const tbody = document.getElementById('teachingDetailsBody');
-    if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#888;">正在加载明细（如需完整明细，请点击 查询）</td></tr>';
+    if (tbody && !data.schedules) {
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="6" style="text-align:center; padding:30px; color:#64748b; background:#f8fafc; border-radius:8px;">正在飞速加载明细数据...</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#64748b; background:#f8fafc; border-radius:8px;">正在飞速加载明细数据...</td></tr>'; }
     }
 }
 
@@ -528,44 +485,76 @@ async function fetchDetailedSchedulesBackground(replaceImmediately = false) {
  * Update the display with teaching stats and detailed table
  */
 function updateDisplay(data, startDate, endDate) {
-    // Update type stats grid
-    const statsGrid = document.getElementById('teachingTypeStats');
-    if (statsGrid) {
-        statsGrid.innerHTML = '';
+    if (!data.summaryRendered) {
+        // 回退：使用淡色渐变卡片渲染
+        const statsGrid = document.getElementById('teachingTypeStats');
+        if (statsGrid) {
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
 
-        const types = Object.keys(data.typeStats);
-        if (types.length === 0) {
-            statsGrid.innerHTML = `
-                <div class="type-stat-card">
-                    <h3>总授课数</h3>
-                    <div class="count-value">0</div>
-                </div>
-            `;
-        } else {
-            types.forEach(type => {
-                const count = data.typeStats[type];
-                const card = document.createElement('div');
-                card.className = 'stat-card';
-                card.innerHTML = `
-                    <h3>${type}</h3>
-                    <p>${count}</p>
+            const types = Object.keys(data.typeStats || {});
+            if (types.length === 0) {
+                statsGrid.innerHTML = `
+                    <div class="stat-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: none; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
+                        <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
+                            <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
+                        </div>
+                        <div style="position: relative; z-index: 1;">
+                            <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: 15px;">总授课数</h3>
+                            <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
+                        </div>
+                    </div>
                 `;
-                statsGrid.appendChild(card);
-            });
-        }
-    }
+            } else {
+                const uiColors = [
+                    { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
+                    { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
+                    { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
+                    { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
+                    { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
+                    { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
+                ];
 
-    // Render daily teaching chart
-    renderDailyTeachingChart(data.schedules);
+                types.forEach((type, index) => {
+                    const count = data.typeStats[type];
+                    const colorConfig = uiColors[index % uiColors.length];
+                    const card = document.createElement('div');
+                    card.className = 'stat-card scale-hover';
+                    card.style.background = colorConfig.bg;
+                    card.style.border = 'none';
+                    card.style.position = 'relative';
+                    card.style.overflow = 'hidden';
+                    card.style.display = 'flex';
+                    card.style.flexDirection = 'column';
+                    card.style.justifyContent = 'center';
+                    card.style.minHeight = '120px';
+
+                    card.innerHTML = `
+                        <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
+                            <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
+                        </div>
+                        <div style="position: relative; z-index: 1;">
+                            <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: 15px;">${type}</h3>
+                            <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
+                        </div>
+                    `;
+                    statsGrid.appendChild(card);
+                });
+            }
+        }
+
+        // Render daily teaching chart only as a fallback
+        renderDailyTeachingChart(data.schedules, data.dailyStats);
+        data.summaryRendered = true; // prevent repeated fallback
+    }
 
     // Update details table
     const tbody = document.getElementById('teachingDetailsBody');
     if (tbody) {
-        tbody.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
 
         if (!data.schedules || data.schedules.length === 0) {
             const tr = document.createElement('tr');
-            tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无授课记录</td>';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无授课记录</td>'); } else { tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无授课记录</td>'; }
             tbody.appendChild(tr);
             return;
         }
@@ -588,59 +577,15 @@ function updateDisplay(data, startDate, endDate) {
 let dailyChartInstance = null;
 
 /**
- * Get color for teaching type (matches admin dashboard with comprehensive type coverage)
- * Uses a carefully selected palette for maximum visual differentiation
+ * Get color for teaching type
  */
 function getLegendColor(name) {
-    // Primary color mapping - matches admin dashboard exactly
-    const LEGEND_COLOR_MAP = {
-        // Core teaching types
-        '入户': '#3366CC',           // Blue - primary teaching type
-        '试教': '#FF9933',           // Orange - trial lessons
-        '评审': '#7C4DFF',           // Purple - evaluations
-        '评审记录': '#B39DDB',       // Light purple - evaluation records
-        '心理咨询': '#33CC99',       // Teal - counseling
-        '线上辅导': '#0099C6',       // Cyan - online tutoring
-        '线下辅导': '#5C6BC0',       // Indigo - offline tutoring
-        '集体活动': '#DC3912',       // Red - group activities
-        '半次入户': '#4E79A7',       // Steel blue - half visit
-        '家访': '#8E8CD8',           // Lavender - home visit
-
-        // Extended types for comprehensive coverage
-        '正式课': '#1976D2',         // Deep blue
-        '体验课': '#FFA726',         // Amber
-        '补课': '#66BB6A',           // Green
-        '测评': '#AB47BC',           // Deep purple
-        '家长会': '#EF5350',         // Light red
-        '培训': '#26A69A',           // Teal green
-        '观摩': '#5C6BC0',           // Blue grey
-        '研讨': '#8D6E63',           // Brown
-        '其他': '#78909C',           // Grey blue
-        '未分类': '#9E9E9E'          // Grey - fallback
-    };
-
-    const key = String(name || '').trim();
-
-    // Direct match
-    if (key && LEGEND_COLOR_MAP[key]) {
-        return LEGEND_COLOR_MAP[key];
+    if (window.ColorUtils && window.ColorUtils.getLegendColor) {
+        return window.ColorUtils.getLegendColor(name);
     }
-
-    // Partial match for flexibility (e.g., "入户课程" matches "入户")
-    for (const [typeKey, color] of Object.entries(LEGEND_COLOR_MAP)) {
-        if (key.includes(typeKey) || typeKey.includes(key)) {
-            return color;
-        }
-    }
-
-    // Fallback: generate consistent color from hash
-    // Using a curated palette for better visual distinction
-    const hash = Array.from(key).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    const fallbackPalette = [
-        '#3366CC', '#FF9933', '#33CC99', '#DC3912', '#7C4DFF',
-        '#0099C6', '#5C6BC0', '#66AA00', '#E91E63', '#00ACC1',
-        '#8BC34A', '#FF5722', '#9C27B0', '#FF6F00', '#00897B'
-    ];
+    // Fallback if not loaded
+    const hash = Array.from(String(name || '')).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const fallbackPalette = ['#3366CC', '#FF9933', '#33CC99', '#DC3912', '#7C4DFF'];
     return fallbackPalette[hash % fallbackPalette.length];
 }
 
@@ -663,7 +608,7 @@ function generateDateRange(startDate, endDate) {
 /**
  * Render daily teaching chart
  */
-function renderDailyTeachingChart(schedules) {
+function renderDailyTeachingChart(schedules, dailyStats = null) {
     const canvas = document.getElementById('dailyTeachingChart');
     if (!canvas) return;
 
@@ -673,7 +618,7 @@ function renderDailyTeachingChart(schedules) {
         dailyChartInstance = null;
     }
 
-    if (!schedules || schedules.length === 0) {
+    if ((!schedules || schedules.length === 0) && (!dailyStats || dailyStats.length === 0)) {
         return;
     }
 
@@ -699,38 +644,50 @@ function renderDailyTeachingChart(schedules) {
         dailyData[date] = {};
     });
 
-    schedules.forEach(schedule => {
-        // Normalize date to YYYY-MM-DD
-        let dateKey = schedule.date || schedule.lesson_date;
-        if (dateKey) {
-            // Handle ISO strings or other formats
-            try {
-                if (dateKey.includes('T')) {
-                    dateKey = dateKey.split('T')[0];
-                } else {
-                    // Try to parse and format if it's not already YYYY-MM-DD
-                    const d = new Date(dateKey);
-                    if (!isNaN(d.getTime())) {
-                        const year = d.getFullYear();
-                        const month = String(d.getMonth() + 1).padStart(2, '0');
-                        const day = String(d.getDate()).padStart(2, '0');
-                        dateKey = `${year}-${month}-${day}`;
+    if (dailyStats && dailyStats.length > 0) {
+        dailyStats.forEach(stat => {
+            const dateKey = stat.date;
+            const type = stat.type || '未分类';
+            const count = parseInt(stat.count, 10);
+            if (dailyData[dateKey]) {
+                dailyData[dateKey][type] = (dailyData[dateKey][type] || 0) + count;
+                allTypes.add(type);
+            }
+        });
+    } else if (schedules && schedules.length > 0) {
+        schedules.forEach(schedule => {
+            // Normalize date to YYYY-MM-DD
+            let dateKey = schedule.date || schedule.lesson_date;
+            if (dateKey) {
+                // Handle ISO strings or other formats
+                try {
+                    if (dateKey.includes('T')) {
+                        dateKey = dateKey.split('T')[0];
+                    } else {
+                        // Try to parse and format if it's not already YYYY-MM-DD
+                        const d = new Date(dateKey);
+                        if (!isNaN(d.getTime())) {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            dateKey = `${year}-${month}-${day}`;
+                        }
                     }
+                } catch (e) {
                 }
-            } catch (e) {
             }
-        }
 
-        const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '未分类';
+            const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '未分类';
 
-        if (dailyData[dateKey]) {
-            if (!dailyData[dateKey][type]) {
-                dailyData[dateKey][type] = 0;
+            if (dailyData[dateKey]) {
+                if (!dailyData[dateKey][type]) {
+                    dailyData[dateKey][type] = 0;
+                }
+                dailyData[dateKey][type]++;
+                allTypes.add(type);
             }
-            dailyData[dateKey][type]++;
-            allTypes.add(type);
-        }
-    });
+        });
+    }
 
     const types = Array.from(allTypes);
 
@@ -742,7 +699,9 @@ function renderDailyTeachingChart(schedules) {
             backgroundColor: getLegendColor(type),
             borderColor: getLegendColor(type),
             borderWidth: 0,
-            borderRadius: 4
+            borderRadius: 6,
+            barPercentage: 0.6,
+            categoryPercentage: 0.8
         };
     });
 
@@ -798,16 +757,28 @@ function renderDailyTeachingChart(schedules) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                duration: 800,
+                easing: 'easeOutQuart'
+            },
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
             scales: {
                 x: {
                     stacked: true,
+                    border: { display: false },
                     grid: {
                         display: false
                     },
                     ticks: {
                         font: {
-                            size: isSmallMobile ? 9 : (isMobile ? 10 : 11)
+                            family: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                            size: isSmallMobile ? 9 : (isMobile ? 10 : 11),
+                            weight: '500'
                         },
+                        padding: 8,
                         maxRotation: isMobile ? 45 : 0,
                         minRotation: isMobile ? 45 : 0,
                         autoSkip: true,
@@ -820,24 +791,31 @@ function renderDailyTeachingChart(schedules) {
                                 const day = date.getDay();
                                 // 周六(6)或周日(0)显示红色
                                 if (day === 0 || day === 6) {
-                                    return '#DC2626'; // 红色
+                                    return '#ef4444'; // 红色
                                 }
                             }
-                            return '#374151'; // 默认深灰色
+                            return '#64748b'; // 默认深灰色
                         }
                     }
                 },
                 y: {
                     stacked: true,
                     beginAtZero: true,
+                    border: { display: false },
                     ticks: {
                         stepSize: 1,
+                        padding: 12,
                         font: {
-                            size: isSmallMobile ? 9 : (isMobile ? 10 : 11)
-                        }
+                            family: "'Inter', 'Segoe UI', system-ui, sans-serif",
+                            size: isSmallMobile ? 9 : (isMobile ? 10 : 11),
+                            weight: '500'
+                        },
+                        color: '#94a3b8'
                     },
                     grid: {
-                        color: 'rgba(55,65,81,0.08)'
+                        color: '#f1f5f9',
+                        drawTicks: false,
+                        borderDash: [5, 5]
                     }
                 }
             },
@@ -883,19 +861,34 @@ function renderDailyTeachingChart(schedules) {
                     }
                 },
                 tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleColor: '#fff',
-                    bodyColor: '#fff',
-                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#f8fafc',
+                    footerColor: '#cbd5e1',
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
                     borderWidth: 1,
                     padding: 12,
+                    cornerRadius: 8,
+                    titleFont: {
+                        family: "'Inter', sans-serif",
+                        size: 13,
+                        weight: '600'
+                    },
+                    bodyFont: {
+                        family: "'Inter', sans-serif",
+                        size: 12
+                    },
+                    footerFont: {
+                        family: "'Inter', sans-serif",
+                        size: 12,
+                        weight: 'bold'
+                    },
                     displayColors: true,
+                    boxPadding: 4,
                     callbacks: {
                         title: function (context) {
                             const dateStr = allDates[context[0].dataIndex];
-                            return `日期: ${formatDateDisplay(dateStr)}`;
+                            return `${formatDateDisplay(dateStr)}`;
                         },
                         label: function (context) {
                             const label = context.dataset.label || '';
@@ -914,8 +907,7 @@ function renderDailyTeachingChart(schedules) {
             },
             // Responsive behavior for different screen sizes
             interaction: {
-                mode: 'nearest',
-                axis: 'x',
+                mode: 'index',
                 intersect: false
             }
         }

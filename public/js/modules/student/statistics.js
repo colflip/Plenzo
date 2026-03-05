@@ -3,8 +3,8 @@
  * Displays total learning count within a selected date range
  */
 
-import { API_ENDPOINTS, STATUS_LABELS, SCHEDULE_TYPE_MAP } from './constants.js';
-import { formatDateDisplay, handleApiError } from './utils.js';
+import { API_ENDPOINTS, STATUS_LABELS, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
+import { formatDateDisplay, handleApiError, showToast } from './utils.js';
 
 // 声明Chart为全局变量（由CDN加载）
 const Chart = window.Chart;
@@ -24,7 +24,7 @@ export async function initStatisticsSection() {
     try {
         await loadLearningStats();
     } catch (error) {
-        console.error('[Statistics] Failed to auto-load data:', error);
+
         updateDisplay({ schedules: [], typeStats: {} });
     }
 }
@@ -85,167 +85,113 @@ function setupEventListeners() {
 
     const exportBtn = document.getElementById('teachingExportBtn');
     if (exportBtn) {
+        // 统一样式为翠绿色
+        exportBtn.style.backgroundColor = '#10b981';
+        exportBtn.style.color = '#ffffff';
+
         exportBtn.replaceWith(exportBtn.cloneNode(true)); // Remove old listeners
         const newExportBtn = document.getElementById('teachingExportBtn');
         newExportBtn.addEventListener('click', exportLearningData);
     }
 
     // Quick Query Buttons Logic
-    const presetBtns = document.querySelectorAll('.preset-btn');
+    let container = document.getElementById('learningStatsContent') || document;
+    const presetBtns = container.querySelectorAll('.preset-btn');
     presetBtns.forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            // UI Feedback
-            presetBtns.forEach(b => {
-                b.style.backgroundColor = 'white';
-                b.style.color = '#333';
-            });
-            e.target.style.backgroundColor = '#dcfce7';
-            e.target.style.color = '#15803d';
+            const preset = e.target.dataset.range || e.target.dataset.preset;
+            if (!window.DateRangeUtils) return;
+            const range = window.DateRangeUtils.computeRange(preset);
+            if (!range) return;
 
-            const range = e.target.dataset.range;
-            const today = new Date();
-            let start = new Date();
-            let end = new Date(); // End is always today
-
-            switch (range) {
-                case 'today':
-                    start = new Date(today);
-                    end = new Date(today);
-                    break;
-                case 'yesterday':
-                    start = new Date(today);
-                    start.setDate(today.getDate() - 1);
-                    end = new Date(start);
-                    break;
-                case 'this_week':
-                    // 本周 (Current ISO Week: Monday to Sunday)
-                    const dayThis = today.getDay();
-                    const diffToMonThis = today.getDate() - dayThis + (dayThis === 0 ? -6 : 1);
-                    const thisMon = new Date(today);
-                    thisMon.setDate(diffToMonThis);
-                    const thisSun = new Date(thisMon);
-                    thisSun.setDate(thisMon.getDate() + 6);
-                    start = thisMon;
-                    end = thisSun;
-                    break;
-                case 'prev_week':
-                    // 上周 (Last full week: Monday to Sunday)
-                    const day = today.getDay();
-                    const diffToMon = today.getDate() - day + (day === 0 ? -6 : 1);
-                    const lastSun = new Date(today);
-                    lastSun.setDate(diffToMon - 1);
-                    const lastMon = new Date(today);
-                    lastMon.setDate(diffToMon - 7);
-                    start = lastMon;
-                    end = lastSun;
-                    break;
-                case 'this_month':
-                    start = new Date(today.getFullYear(), today.getMonth(), 1);
-                    end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                    break;
-                case 'prev_month':
-                    // 上月 (Last full Month)
-                    start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                    end = new Date(today.getFullYear(), today.getMonth(), 0);
-                    break;
-                case 'this_quarter':
-                    const currQ = Math.floor((today.getMonth() + 3) / 3);
-                    start = new Date(today.getFullYear(), (currQ - 1) * 3, 1);
-                    end = new Date(today.getFullYear(), currQ * 3, 0);
-                    break;
-                case 'prev_quarter':
-                    // 上季度 (Last full Quarter)
-                    const currentQuarter = Math.floor((today.getMonth() + 3) / 3);
-                    const lastQuarter = currentQuarter - 1;
-                    if (lastQuarter === 0) { // Was Q1, so now Q4 of last year
-                        start = new Date(today.getFullYear() - 1, 9, 1);
-                        end = new Date(today.getFullYear() - 1, 12, 0);
-                    } else {
-                        start = new Date(today.getFullYear(), (lastQuarter - 1) * 3, 1);
-                        end = new Date(today.getFullYear(), lastQuarter * 3, 0);
-                    }
-                    break;
-                case 'this_year':
-                    start = new Date(today.getFullYear(), 0, 1);
-                    end = new Date(today.getFullYear(), 11, 31);
-                    break;
-                case 'prev_year':
-                    // 去年 (Last full Year)
-                    start = new Date(today.getFullYear() - 1, 0, 1);
-                    end = new Date(today.getFullYear() - 1, 11, 31);
-                    break;
-            }
-
-            // Set inputs
             const startDateInput = document.getElementById('teachingStartDate');
             const endDateInput = document.getElementById('teachingEndDate');
+            if (startDateInput) startDateInput.value = range.start;
+            if (endDateInput) endDateInput.value = range.end;
 
-            if (startDateInput && endDateInput) {
-                // Ensure date objects are valid before formatting
-                if (!isNaN(start) && !isNaN(end)) {
-                    startDateInput.value = formatDate(start);
-                    endDateInput.value = formatDate(end);
+            // Trigger Highlight Sync
+            window.DateRangeUtils.syncPresetButtons(range.start, range.end, container);
 
-                    // Trigger Query
-                    if (queryBtn) queryBtn.click();
-                }
-            }
+            // Trigger Query
+            if (typeof loadLearningStats === 'function') await loadLearningStats();
         });
     });
+
+    const startDateInput = document.getElementById('teachingStartDate');
+    const endDateInput = document.getElementById('teachingEndDate');
+    if (startDateInput && endDateInput) {
+        const sync = () => {
+            if (window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
+                window.DateRangeUtils.syncPresetButtons(startDateInput.value, endDateInput.value, container);
+            }
+        };
+        startDateInput.addEventListener('change', sync);
+        endDateInput.addEventListener('change', sync);
+        // 初次同步
+        sync();
+    }
 }
 
 /**
- * Load learning data from API
+ * Load learning data from API (Optimized: Use statistics endpoint)
  */
 export async function loadLearningStats() {
     const startDate = document.getElementById('teachingStartDate')?.value;
     const endDate = document.getElementById('teachingEndDate')?.value;
 
     if (!startDate || !endDate) {
-        console.error('请选择日期范围');
         return;
     }
 
     try {
-        // Use schedules endpoint to get detailed data
+        // 使用 AbortController 设置超时
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
         const response = await fetch(
-            `${API_ENDPOINTS.SCHEDULES}?startDate=${startDate}&endDate=${endDate}`,
+            `${API_ENDPOINTS.STATISTICS}?startDate=${startDate}&endDate=${endDate}`,
             {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
+                },
+                signal: controller.signal
             }
         );
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
-            throw new Error('获取学习数据失败');
+            throw new Error('获取学习统计失败');
         }
 
         const data = await response.json();
-        let schedules = Array.isArray(data) ? data : [];
 
-        // Filter out cancelled courses
-        schedules = schedules.filter(schedule => {
-            const status = (schedule.status || '').toLowerCase();
-            return status !== 'cancelled';
-        });
-
-        // Calculate stats by type
-        const typeStats = {};
-        schedules.forEach(schedule => {
-            const typeCode = schedule.schedule_type || '';
-            const type = schedule.schedule_type_cn || SCHEDULE_TYPE_MAP[typeCode] || typeCode || '其他';
-            typeStats[type] = (typeStats[type] || 0) + 1;
-        });
+        // 转换 typeStats 数组为对象
+        const statsObj = {};
+        if (Array.isArray(data.typeStats)) {
+            data.typeStats.forEach(item => {
+                statsObj[item.type] = item.count;
+            });
+        }
 
         currentLearningData = {
-            schedules: schedules,
-            typeStats: typeStats
+            schedules: data.schedules || [],
+            typeStats: statsObj,
+            monthlyStats: data.monthlyStats || []
         };
 
+        // 第一阶段：立即渲染卡片和图表（轻量级）
         updateDisplay(currentLearningData);
+
+        // 第二阶段：延迟渲染详情表格（避免阻塞 UI）
+        requestAnimationFrame(() => {
+            renderDetailsTable(currentLearningData.schedules);
+        });
     } catch (error) {
-        console.error('加载学习数据失败:', error);
+        if (error.name === 'AbortError') {
+            console.warn('加载统计超时');
+        } else {
+            console.error('加载统计失败:', error);
+        }
         handleApiError(error, '加载学习统计失败');
         updateDisplay({ schedules: [], typeStats: {} });
     }
@@ -255,27 +201,56 @@ export async function loadLearningStats() {
  * Update the display with learning stats and detailed table
  */
 function updateDisplay(data) {
-    // Update type stats grid
+    // 使用深色渐变卡片渲染课程类型统计
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
-        statsGrid.innerHTML = '';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
 
         const types = Object.keys(data.typeStats);
         if (types.length === 0) {
-            statsGrid.innerHTML = `
-                <div class="type-stat-card">
-                    <h3>总课程数</h3>
-                    <div class="count-value">0</div>
-                </div>
+            const emptyCard = document.createElement('div');
+            emptyCard.className = 'type-stat-card';
+            emptyCard.style.cssText = 'background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px dashed #cbd5e1;';
+            emptyCard.innerHTML = `
+                <h3>总学习次数</h3>
+                <div class="count-value">0</div>
             `;
+            statsGrid.appendChild(emptyCard);
         } else {
+            // 深色渐变卡片配色
+            const colorMap = {
+                '试教': { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', icon: 'auto_stories', shadow: 'rgba(16, 185, 129, 0.2)' },
+                '入户': { bg: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', icon: 'home', shadow: 'rgba(59, 130, 246, 0.2)' },
+                '评审': { bg: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', icon: 'fact_check', shadow: 'rgba(139, 92, 246, 0.2)' },
+                '咨询': { bg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', icon: 'forum', shadow: 'rgba(245, 158, 11, 0.2)' },
+                '待确认': { bg: 'linear-gradient(135deg, #64748b 0%, #475569 100%)', icon: 'pending_actions', shadow: 'rgba(100, 116, 139, 0.2)' },
+                'default': { bg: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', icon: 'stars', shadow: 'rgba(14, 165, 233, 0.2)' }
+            };
+
             types.forEach(type => {
                 const count = data.typeStats[type];
+                const cardConfig = colorMap[type] || colorMap['default'];
                 const card = document.createElement('div');
-                card.className = 'stat-card';
+                card.className = 'type-stat-card premium-card';
+                card.style.cssText = `
+                    background: ${cardConfig.bg};
+                    box-shadow: 0 10px 20px -5px ${cardConfig.shadow};
+                    color: white;
+                    padding: 24px;
+                    border-radius: 16px;
+                    position: relative;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    min-width: 160px;
+                    flex: 1;
+                `;
                 card.innerHTML = `
-                    <h3>${type}</h3>
-                    <p>${count}</p>
+                    <span class="material-icons-round" style="position: absolute; right: -10px; bottom: -10px; font-size: 80px; opacity: 0.15; transform: rotate(-15deg); pointer-events: none;">${cardConfig.icon}</span>
+                    <h3 style="margin: 0; font-size: 14px; font-weight: 500; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">${type}</h3>
+                    <div class="count-value" style="font-size: 32px; font-weight: 800; margin-top: 8px; text-shadow: 0 2px 4px rgba(0,0,0,0.1);">${count}</div>
                 `;
                 statsGrid.appendChild(card);
             });
@@ -284,69 +259,51 @@ function updateDisplay(data) {
 
     // Render daily chart
     renderDailyLearningChart(data.schedules);
+}
 
-    // Update details table
+/**
+ * 渲染详情表格（独立函数，支持延迟渲染）
+ */
+function renderDetailsTable(schedules) {
     const tbody = document.getElementById('teachingDetailsBody');
-    if (tbody) {
-        tbody.innerHTML = '';
+    if (!tbody) return;
 
-        if (!data.schedules || data.schedules.length === 0) {
-            const tr = document.createElement('tr');
-            tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>';
-            tbody.appendChild(tr);
-            return;
-        }
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
 
-        data.schedules.forEach(schedule => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${formatDateDisplay(schedule.date || schedule.lesson_date)}</td>
-                <td>${schedule.start_time} - ${schedule.end_time}</td>
-                <td>${schedule.schedule_type_cn || SCHEDULE_TYPE_MAP[schedule.schedule_type] || schedule.schedule_type || '--'}</td>
-                <td>${schedule.teacher_name || '--'}</td>
-                <td>${schedule.location || '--'}</td>
-                <td>${STATUS_LABELS[schedule.status] || schedule.status}</td>
-            `;
-            tbody.appendChild(tr);
-        });
+    if (!schedules || schedules.length === 0) {
+        const tr = document.createElement('tr');
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>'); } else { tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>'; }
+        tbody.appendChild(tr);
+        return;
     }
+
+    // 使用 DocumentFragment 批量插入，减少重排
+    const fragment = document.createDocumentFragment();
+    schedules.forEach(schedule => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${formatDateDisplay(schedule.date || schedule.lesson_date)}</td>
+            <td>${schedule.start_time} - ${schedule.end_time}</td>
+            <td>${getScheduleTypeLabel(schedule.schedule_type)}</td>
+            <td>${schedule.teacher_name || '--'}</td>
+            <td>${schedule.location || '--'}</td>
+            <td>${STATUS_LABELS[schedule.status] || schedule.status}</td>
+        `;
+        fragment.appendChild(tr);
+    });
+    tbody.appendChild(fragment);
 }
 
 /**
  * Get color for course type
  */
 function getLegendColor(name) {
-    const LEGEND_COLOR_MAP = {
-        '入户': '#3366CC',
-        '试教': '#FF9933',
-        '评审': '#7C4DFF',
-        '评审记录': '#B39DDB',
-        '心理咨询': '#33CC99',
-        '线上辅导': '#0099C6',
-        '线下辅导': '#5C6BC0',
-        '集体活动': '#DC3912',
-        '半次入户': '#4E79A7',
-        '家访': '#8E8CD8',
-        '其他': '#78909C',
-        '未分类': '#9E9E9E'
-    };
-
-    const key = String(name || '').trim();
-    if (key && LEGEND_COLOR_MAP[key]) {
-        return LEGEND_COLOR_MAP[key];
+    if (window.ColorUtils && window.ColorUtils.getLegendColor) {
+        return window.ColorUtils.getLegendColor(name);
     }
-
-    for (const [typeKey, color] of Object.entries(LEGEND_COLOR_MAP)) {
-        if (key.includes(typeKey) || typeKey.includes(key)) {
-            return color;
-        }
-    }
-
-    const hash = Array.from(key).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    const fallbackPalette = [
-        '#3366CC', '#FF9933', '#33CC99', '#DC3912', '#7C4DFF',
-        '#0099C6', '#5C6BC0', '#66AA00', '#E91E63', '#00ACC1'
-    ];
+    // Fallback if not loaded
+    const hash = Array.from(String(name || '')).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const fallbackPalette = ['#3366CC', '#FF9933', '#33CC99', '#DC3912', '#7C4DFF'];
     return fallbackPalette[hash % fallbackPalette.length];
 }
 
@@ -408,8 +365,7 @@ function renderDailyLearningChart(schedules) {
             }
         }
 
-        const typeCode = schedule.schedule_type || '';
-        const type = schedule.schedule_type_cn || SCHEDULE_TYPE_MAP[typeCode] || typeCode || '未分类';
+        const type = getScheduleTypeLabel(schedule.schedule_type);
 
         if (dailyData[dateKey]) {
             if (!dailyData[dateKey][type]) {
@@ -537,76 +493,73 @@ async function exportLearningData() {
     const exportBtn = document.getElementById('teachingExportBtn');
 
     if (!startDate || !endDate) {
-        alert('请先选择日期范围');
+        showToast('请先选择日期范围', 'error');
         return;
     }
 
+    const originalText = exportBtn ? exportBtn.innerHTML : '导出数据';
     if (exportBtn) {
         exportBtn.disabled = true;
-        exportBtn.innerHTML = '<span class="material-icons-round spinner" style="font-size:18px; margin-right:4px; animation:spin 1s linear infinite;">sync</span> 导出中...';
+        if (window.SecurityUtils) {
+            window.SecurityUtils.safeSetHTML(exportBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>');
+        } else {
+            exportBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>';
+        }
     }
 
     try {
-        const response = await fetch(`/api/student/export?startDate=${startDate}&endDate=${endDate}`, {
+        // 获取汇总数据 JSON (高级导出流程)
+        const response = await fetch(`${API_ENDPOINTS.DATA_SUMMARY}?startDate=${startDate}&endDate=${endDate}`, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('token')}`
             }
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || '导出失败');
+            const errorJson = await response.json().catch(() => ({}));
+            throw new Error(errorJson.message || errorJson.error || '导出失败');
         }
 
-        // Check Content-Type
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            const error = await response.json();
-            throw new Error(error.message || '导出虽成功但在返回JSON: ' + JSON.stringify(error));
+        const rawData = await response.json();
+
+        if (window.ExportManager && rawData) {
+            const EXPORT_TYPES = { TEACHER_SCHEDULE: 'teacher_schedule', STUDENT_SCHEDULE: 'student_schedule' };
+            const state = {
+                startDate: new Date(startDate),
+                endDate: new Date(endDate),
+                selectedType: EXPORT_TYPES.STUDENT_SCHEDULE
+            };
+
+            const studentName = document.getElementById('studentName')?.textContent || '学生';
+            const timestamp = new Date().getTime();
+            const fileName = `我的学习记录[${studentName}][${startDate}至${endDate}]_${timestamp}.xlsx`;
+
+            // 调用多 Sheet 转换逻辑 (由 export-manager.js 内部根据 student 角色处理后续)
+            const transformedData = window.ExportManager.transformExportData(
+                rawData,
+                null,
+                '全部老师',
+                'student',
+                state,
+                EXPORT_TYPES
+            );
+            await window.ExportManager.generateExcelFile(transformedData, fileName);
+            showToast('导出成功', 'success');
+        } else {
+            throw new Error('导出组件未加载或返回数据异常');
         }
-
-        // Get Filename from headers
-        const disposition = response.headers.get('Content-Disposition');
-        let filename = `学习记录_${startDate}_${endDate}.xlsx`; // Fallback
-
-        // Try to get student name from UI for better fallback
-        const studentName = document.querySelector('.user-info .name')?.textContent?.trim() || '';
-        if (studentName) {
-            filename = `[${studentName}]${filename}`;
-        }
-
-        if (disposition && disposition.indexOf('attachment') !== -1) {
-            // Regex to capture filename="encoded_string"
-            const matches = /filename="([^"]*)"/.exec(disposition);
-            if (matches != null && matches[1]) {
-                filename = decodeURIComponent(matches[1]);
-            }
-        }
-
-        const blob = await response.blob();
-
-        if (blob.size < 100) {
-            // Suspiciously small, might be an error text
-            const text = await blob.text();
-            // Don't throw yet, let user try to open it, or alert?
-        }
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
 
     } catch (error) {
-        console.error('Export failed:', error);
-        alert('导出失败: ' + error.message);
+        console.error('Export Error:', error);
+        showToast('导出失败: ' + error.message, 'error');
     } finally {
         if (exportBtn) {
+            if (window.SecurityUtils) {
+                window.SecurityUtils.safeSetHTML(exportBtn, originalText);
+            } else {
+                exportBtn.innerHTML = originalText;
+            }
             exportBtn.disabled = false;
-            exportBtn.innerHTML = '<span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span> 导出';
         }
     }
 }

@@ -13,6 +13,7 @@ import {
     startOfWeek,
     getTimeSlotId
 } from './utils.js';
+import { escapeHtml, safeSetHTML } from '../../core/security.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];
@@ -121,6 +122,10 @@ export async function loadSchedules(baseDate) {
         document.head.appendChild(style);
     }
 
+    // 立即渲染表头，消除导航时"头身不一致"的中间状态
+    if (!isMobileView()) {
+        renderHeader(weekDates);
+    }
     showLoadingState();
 
     try {
@@ -145,7 +150,7 @@ export async function loadSchedules(baseDate) {
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
-        console.error('加载学生课程安排失败', error);
+
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
     }
@@ -205,7 +210,7 @@ function renderMobileScheduleTable(weekDates, grouped) {
         container = document.querySelector('.table-container');
     }
     if (!container) {
-        console.warn('[Mobile Schedule] Container not found');
+
         return;
     }
 
@@ -402,22 +407,28 @@ function renderHeader(weekDates) {
         const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
 
-        // 农历显示
-        let lunarLabel = '';
+        const th = createElement('th', 'date-header');
+        th.dataset.date = iso;
+
+        const dateLabel = createElement('div', 'date-label');
+        dateLabel.textContent = `${month}月${day}日`;
+
         try {
             const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
             const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
             if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+                const lunarSpan = createElement('span', '', {
+                    textContent: `(${match[0]})`,
+                    style: 'font-size: 11px; color: #64748B;'
+                });
+                dateLabel.appendChild(document.createElement('br'));
+                dateLabel.appendChild(lunarSpan);
             }
         } catch (e) { }
 
-        const th = createElement('th', 'date-header');
-        th.dataset.date = iso;
-        th.innerHTML = `
-            <div class="date-label">${month}月${day}日${lunarLabel}</div>
-            <div class="day-label">${weekday}</div>
-        `;
+        const dayLabel = createElement('div', 'day-label', { textContent: weekday });
+        th.appendChild(dateLabel);
+        th.appendChild(dayLabel);
         row.appendChild(th);
     });
     thead.appendChild(row);
@@ -470,7 +481,7 @@ function renderBody(weekDates, schedules) {
 function renderFullEmptyState(weekDates) {
     const tbody = elements.body();
     const row = document.createElement('tr');
-    row.appendChild(createElement('td', 'sticky-col', { textContent: '-' }));
+    // 学生端单行布局不需要左侧教师姓名列 (sticky-col)，直接渲染 7 天
     weekDates.forEach(() => {
         const cell = createElement('td', 'schedule-cell');
         cell.appendChild(createElement('div', 'no-schedule-dash', { textContent: '-' }));
@@ -579,7 +590,10 @@ function buildScheduleCard(group) {
 
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
-        marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`;
+        const typeSpan = createElement('span', 'course-type-text', {
+            textContent: `(${typeStr})`
+        });
+        marqueeContent.appendChild(typeSpan);
 
         marqueeWrapper.appendChild(marqueeContent);
         left.appendChild(nameSpan);
@@ -627,16 +641,19 @@ function buildScheduleCard(group) {
     const timeRange = formatTimeRange(first.start_time, first.end_time);
     const loc = first.location || '';
 
-    // Match Admin Footer Style (Boxed location?)
-    // Based on image, it looks like simple text similar to admin
-    const locationHtml = loc ?
-        `<div class="location-text">${loc}</div>` :
-        `<div class="location-text" style="font-style: italic; color: #94a3b8;">地点待定</div>`;
+    const timeDiv = createElement('div', 'time-text', { textContent: timeRange });
+    footer.appendChild(timeDiv);
 
-    footer.innerHTML = `
-        <div class="time-text">${timeRange}</div>
-        ${locationHtml}
-    `;
+    if (loc) {
+        const locDiv = createElement('div', 'location-text', { textContent: loc });
+        footer.appendChild(locDiv);
+    } else {
+        const locDiv = createElement('div', 'location-text', {
+            textContent: '地点待定',
+            style: 'font-style: italic; color: #94a3b8;'
+        });
+        footer.appendChild(locDiv);
+    }
     content.appendChild(footer);
     card.appendChild(content);
 
@@ -674,7 +691,7 @@ function renderEmptyState(message) {
     clearChildren(tbody);
     const row = document.createElement('tr');
     const cell = createElement('td', 'no-schedule', { textContent: message });
-    cell.colSpan = 8;
+    cell.colSpan = 7; // 学生端为 7 列
     cell.style.textAlign = 'center';
     row.appendChild(cell);
     tbody.appendChild(row);
@@ -712,14 +729,12 @@ function showLoadingState() {
         row.className = 'schedule-loading-row';
 
         /* 
-        // Single row layout (Student View) might just be 8 columns or 1 + 7 
-        // Student view typically has just days? Let's check renderBody logic.
-        // renderBody uses: row -> 7 cells (or maybe 1 + 7 if sticky col is used for empty state)
-        // renderEmptyState uses colSpan=8. 
-        // Let's assume 8 columns to match Admin-like structure or just fill the width.
+        // 学生端单行布局为 7 列 (对应周一至周日)
+        // 不需要像管理端/教师端那样额外增加一列教师姓名列
         */
 
-        for (let j = 0; j < 8; j++) {
+        // 学生端为 7 列布局
+        for (let j = 0; j < 7; j++) {
             const cell = document.createElement('td');
             const skeleton = document.createElement('div');
             skeleton.className = 'skeleton-loader';

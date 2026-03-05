@@ -107,7 +107,7 @@ function updateTypeStatsGrid(typeStats) {
     const grid = document.getElementById('summaryTypeStats');
     if (!grid) return;
 
-    grid.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(grid, ''); } else { grid.innerHTML = ''; }
 
     const types = Object.keys(typeStats);
     if (types.length === 0) {
@@ -139,10 +139,10 @@ function updateDetailsTable(schedules) {
     const tbody = document.getElementById('summaryDetailsBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
 
     if (schedules.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>'; }
         return;
     }
 

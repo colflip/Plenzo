@@ -4,11 +4,15 @@ async function loadTodaySchedules() {
     const container = document.getElementById('todayScheduleList');
     if (!container) return;
 
-    container.innerHTML = '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">加载中...</div>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">加载中...</div>'); } else { container.innerHTML = '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">加载中...</div>'; }
 
     try {
-        const today = new Date();
-        const dateStr = today.toISOString().split('T')[0];
+        // Fix: Use local date instead of server UTC date to avoid 0:00 timezone issues
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
 
         // 复用 WeeklyDataStore.getSchedules 或直接调用 API
         // 这里直接调用 API 以获取今日所有排课（不分老师/学生）
@@ -20,8 +24,8 @@ async function loadTodaySchedules() {
         const normalized = normalizeScheduleRows(Array.isArray(schedules) ? schedules : []);
         renderTodaySchedules(normalized);
     } catch (error) {
-        console.error('加载今日排课失败:', error);
-        container.innerHTML = '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>';
+
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>'); } else { container.innerHTML = '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>'; }
     }
 }
 
@@ -31,7 +35,7 @@ function renderTodaySchedules(schedules) {
     const container = document.getElementById('todayScheduleList');
     if (!container) return;
 
-    container.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
 
     // Ensure container styling matches teacher's if not already handled by CSS
     // Teacher uses flex-col gap-12px. Admin CSS has gap-16px. Close enough.
@@ -102,11 +106,14 @@ function buildTodayScheduleCard(schedule, items = []) {
     // Time Slot Logic (保留slotId用于CSS样式，不显示标签)
     const h = parseInt((schedule.start_time || '00:00').substring(0, 2), 10);
     let slotId = 'morning';
+    let slotLabel = '上午';
     if (h >= 12) {
         slotId = 'afternoon';
+        slotLabel = '下午';
     }
-    if (h >= 19) {
+    if (h >= 18) {
         slotId = 'evening';
+        slotLabel = '晚上';
     }
 
     // 智能选择主要课程类型（出现次数最多的）
@@ -127,7 +134,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     });
 
     // 调试日志
-    console.log('[Today Card] Type Map:', Array.from(typeCountMap.entries()), 'Selected:', typeName);
+
 
     // Determine Course Type Class
     let typeClass = 'type-default';
@@ -146,6 +153,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     timeCol.className = 'today-card-time';
     timeCol.innerHTML = `
         <div class="time-range">${(schedule.start_time || '').substring(0, 5)} - ${(schedule.end_time || '').substring(0, 5)}</div>
+        <div class="time-slot-label">${slotLabel}</div>
     `;
     card.appendChild(timeCol);
 
@@ -168,26 +176,21 @@ function buildTodayScheduleCard(schedule, items = []) {
     const titleDiv = document.createElement('div');
     titleDiv.className = 'today-card-title';
 
-    // Student Name Span
+    // Type Badge (Unified structure: [Student Name] [Type Badge])
     const nameSpan = document.createElement('span');
     nameSpan.className = 'sc-student-name';
     nameSpan.textContent = studentDisplay;
     nameSpan.title = studentNames.join(', ');
     titleDiv.appendChild(nameSpan);
 
-    // Type Badge (wrapped in class to match CSS expectations if any, or direct span)
-    // Teacher.js uses: header -> titleDiv -> typeBadge (span.today-card-type)
-    // Admin CSS might expect .type-visit .sc-type-badge structure?
-    // Let's stick to the Teacher structure which seems cleaner in the new CSS context:
-    // But wait, `admin-overview.css` has `.sc-type-badge` styling inside `.type-visit`.
-    // So we need a wrapper or apply class to wrapper.
-    const typeWrapper = document.createElement('span');
-    typeWrapper.className = typeClass; // e.g. type-visit
     const typeBadge = document.createElement('span');
-    typeBadge.className = 'sc-type-badge';
+    typeBadge.className = 'today-card-type';
     typeBadge.textContent = typeName;
-    typeWrapper.appendChild(typeBadge);
-    titleDiv.appendChild(typeWrapper);
+
+    // Add type category class to card for border color
+    card.classList.add(typeClass);
+
+    titleDiv.appendChild(typeBadge);
 
     // Merged Badge
     if (isMerged) {
@@ -197,7 +200,7 @@ function buildTodayScheduleCard(schedule, items = []) {
         // Let's use the class sc-merged-count from previous admin code or adapt. 
         // overview.js uses inline styles for merged badge. Let's replicate or use a clean class.
         // I'll use a class and ensure it is styled or inline if needed.
-        mergedBadge.innerHTML = `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`;
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(mergedBadge, `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`); } else { mergedBadge.innerHTML = `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`; }
         titleDiv.appendChild(mergedBadge);
     }
 
@@ -250,7 +253,7 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     const teacherItem = document.createElement('div');
     teacherItem.className = 'today-card-detail-item';
-    teacherItem.innerHTML = `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherItem, `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`); } else { teacherItem.innerHTML = `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`; }
     details.appendChild(teacherItem);
 
     // Location Info
@@ -262,7 +265,7 @@ function buildTodayScheduleCard(schedule, items = []) {
         `<span>${schedule.location}</span>` :
         `<span style="font-style: italic; color: #94a3b8;">地点待定</span>`;
 
-    locationItem.innerHTML = `<i class="material-icons-round">place</i> ${locationHtml}`;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locationItem, `<i class="material-icons-round">place</i> ${locationHtml}`); } else { locationItem.innerHTML = `<i class="material-icons-round">place</i> ${locationHtml}`; }
     details.appendChild(locationItem);
 
     infoCol.appendChild(details);
@@ -271,7 +274,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     // 3. Status Column
     const statusCol = document.createElement('div');
     statusCol.className = 'today-card-status';
-    statusCol.innerHTML = `<span class="status-pill ${status}">${displayStatus}</span>`;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statusCol, `<span class="status-pill ${status}">${displayStatus}</span>`); } else { statusCol.innerHTML = `<span class="status-pill ${status}">${displayStatus}</span>`; }
     card.appendChild(statusCol);
 
     // Interaction

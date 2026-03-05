@@ -68,7 +68,6 @@ class EventBus {
                 try {
                     callback(...args);
                 } catch (error) {
-                    console.error(`事件 ${event} 处理出错:`, error);
                 }
             });
         }

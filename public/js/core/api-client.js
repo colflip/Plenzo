@@ -176,9 +176,9 @@ class ApiUtils {
     /**
      * 处理API错误
      */
-    handleError(error, showToast = true, suppressConsole = false) {
+    handleError(error, showToast = true, suppressConsole = true) {
         if (!suppressConsole) {
-            console.error('API Error:', error);
+            
         }
 
         // 401先提示再跳转

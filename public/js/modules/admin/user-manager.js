@@ -159,7 +159,7 @@ async function handleUserFormSubmit(e) {
                     loadUsers(type, { reset: true }); // refresh table
                     refreshFullUserCache(type);
                 }
-            } catch (e) { console.warn('Refresh after add failed', e); }
+            } catch (e) {  }
         } else {
             await withRetry((attempt, isFinal) => window.apiUtils.put(`/admin/users/${type}/${id}`, body, { suppressErrorToast: !isFinal }));
             closeUserFormModal();
@@ -173,7 +173,7 @@ async function handleUserFormSubmit(e) {
         if (err.message === 'USER_CANCELLED') {
             if (window.apiUtils) window.apiUtils.showToast('已取消保存', 'info');
         } else {
-            console.error('保存用户失败:', err);
+            
             if (window.apiUtils) window.apiUtils.showToast(err.message || '保存失败', 'error');
         }
     } finally {
@@ -206,7 +206,7 @@ export async function loadUsers(type, opts = {}) {
             state.page = 1;
             state.hasMore = true;
             const tbody = document.getElementById('usersTableBody');
-            if (tbody) tbody.innerHTML = '';
+            if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
             window.__usersCache = window.__usersCache || {};
             window.__usersCache[state.type] = [];
             state.sort = { key: 'id', direction: 'asc' };
@@ -223,9 +223,41 @@ export async function loadUsers(type, opts = {}) {
             state.page = 1;
             state.hasMore = true;
             const tbody = document.getElementById('usersTableBody');
-            if (tbody) tbody.innerHTML = '';
+            if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
             window.__usersCache = window.__usersCache || {};
             window.__usersCache[state.type] = [];
+        }
+
+        // --- Proactive cache warming for teachers ---
+        // Load student names if needed to map IDs correctly in the table
+        if (state.type === 'teacher' && (!window.__usersCache?.student || window.__usersCache.student.length === 0)) {
+            // Non-blocking fetch to ensure names appear after first load or tab switch
+            (async () => {
+                try {
+                    // Try to use full cache from storage first for instant names
+                    const cached = localStorage.getItem('cached_students_full');
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        if (Array.isArray(parsed)) {
+                            window.__usersCache = window.__usersCache || {};
+                            window.__usersCache.student = parsed;
+                        }
+                    }
+                    // Fetch fresh list from server in background if small enough
+                    const res = await window.apiUtils.get(`/admin/users/student?limit=1000`);
+                    const list = res?.data || res || [];
+                    if (Array.isArray(list)) {
+                        window.__usersCache = window.__usersCache || {};
+                        window.__usersCache.student = list;
+                        localStorage.setItem('cached_students_full', JSON.stringify(list));
+
+                        // If we already finished rendering teachers, they might show [ID]. 
+                        // A quick re-render from cache would fix it if needed.
+                        // However, appendUserRow is usually fast enough that if this resolves before 
+                        // the teacher request finishes, it will be fine.
+                    }
+                } catch (e) {  }
+            })();
         }
 
         renderUsersTableHeader(state.type);
@@ -278,14 +310,14 @@ export async function loadUsers(type, opts = {}) {
 
         // 加载完成，如果是第一页或不追加模式，则清空容器（移除加载行）
         if (!opts.append) {
-            tbody.innerHTML = '';
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
         } else {
             // 如果是追加模式，尝试移除可能存在的单一加载行
             const loadingRows = tbody.querySelectorAll('.loading-row');
             loadingRows.forEach(row => row.remove());
         }
         if (state.page === 1 && users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`); } else { tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`; }
             state.hasMore = false;
             state.loading = false;
             return;
@@ -317,7 +349,7 @@ export async function loadUsers(type, opts = {}) {
         setupSentinel(state, tbody);
 
     } catch (err) {
-        console.error('加载用户列表错误:', err);
+        
         const state = window.__usersState || {};
         state.loading = false;
         if (window.apiUtils) window.apiUtils.showToast('加载用户列表失败', 'error');
@@ -352,7 +384,7 @@ function renderFromCache(state, tbody) {
         return av > bv ? dir : -dir;
     });
 
-    tbody.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
     toRender.forEach(u => appendUserRow(state.type, u));
     const sentinel = document.getElementById('usersListSentinel');
     if (sentinel) sentinel.remove();
@@ -363,7 +395,7 @@ function setupSentinel(state, tbody) {
     if (!sentinel && state.hasMore) {
         sentinel = document.createElement('tr');
         sentinel.id = 'usersListSentinel';
-        sentinel.innerHTML = `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`;
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(sentinel, `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`); } else { sentinel.innerHTML = `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`; }
         tbody.appendChild(sentinel);
         const io = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -382,7 +414,7 @@ export function renderUsersTableHeader(type) {
     if (!thead) return;
     const tr = thead.querySelector('tr');
     if (!tr) return;
-    tr.innerHTML = '';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, ''); } else { tr.innerHTML = ''; }
 
     const fields = USER_FIELDS[type] || USER_FIELDS['admin'];
     fields.forEach(field => {
@@ -410,6 +442,38 @@ export function renderUsersTableHeader(type) {
     tr.appendChild(opsTh);
 }
 
+/**
+ * 格式化关联学生 ID 列表为 姓名[ID] 格式
+ */
+function formatStudentIds(idsStr) {
+    if (!idsStr) return '-';
+    // 优先从内存缓存获取学生数据
+    let studentList = (window.__usersCache && window.__usersCache.student) || [];
+
+    // 如果内存缓存为空，尝试从 localStorage 获取(由 refreshFullUserCache 维护)
+    if (studentList.length === 0) {
+        try {
+            const cached = localStorage.getItem('cached_students_full');
+            if (cached) studentList = JSON.parse(cached);
+        } catch (e) { }
+    }
+
+    const ids = String(idsStr).split(',').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return '-';
+
+    const result = ids.map(id => {
+        const student = studentList.find(s => String(s.id) === String(id));
+        if (student) {
+            // 优先使用姓名，无姓名则使用用户名
+            const displayName = student.name || student.username || '未知';
+            return `${displayName}[${id}]`;
+        }
+        return `[${id}]`;
+    });
+
+    return result.join(', ');
+}
+
 export function appendUserRow(type, user) {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
@@ -435,6 +499,8 @@ export function appendUserRow(type, user) {
             } else value = '';
         }
         if (field === 'contact') value = user.contact || user.phone || user.email || '';
+        if (field === 'student_ids') value = formatStudentIds(value);
+
         if (field === 'status') {
             const badge = document.createElement('span');
             badge.className = `status-badge ${getUserStatusClass(value)}`;
@@ -444,6 +510,9 @@ export function appendUserRow(type, user) {
             const span = document.createElement('span');
             span.className = 'clip';
             span.textContent = (value ?? '');
+            if (field === 'student_ids' && value && value !== '-') {
+                span.title = value; // 增加悬浮提示，防止学生过多被截断
+            }
             td.appendChild(span);
         }
         tr.appendChild(td);
@@ -487,7 +556,7 @@ async function generateNextUserId() {
         // 建议下一个ID
         userIdInput.value = maxId + 1;
     } catch (err) {
-        console.error('生成ID失败:', err);
+        
         userIdInput.value = '';
     }
 }
@@ -517,7 +586,7 @@ export function showAddUserModal() {
 export function showEditUserModal(id, userType) {
     const users = (window.__usersCache && window.__usersCache[userType]) || [];
     const user = users.find(u => String(u.id) === String(id));
-    if (!user) { console.warn('User not found in cache'); return; }
+    if (!user) {  return; }
 
     const form = document.getElementById('userForm');
     document.getElementById('userFormTitle').textContent = '编辑用户';
@@ -635,7 +704,7 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
     const container = document.getElementById('userStudentIdsContainer');
     if (!container) return;
 
-    container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>';
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>'); } else { container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>'; }
 
     let students = window.__usersCache?.student || [];
     if (students.length === 0) {
@@ -645,14 +714,14 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
             if (!window.__usersCache) window.__usersCache = {};
             window.__usersCache.student = students;
         } catch (err) {
-            console.error('Failed to load students for checkboxes', err);
-            container.innerHTML = '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>';
+            
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>'); } else { container.innerHTML = '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>'; }
             return;
         }
     }
 
     if (students.length === 0) {
-        container.innerHTML = '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>';
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>'); } else { container.innerHTML = '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>'; }
         return;
     }
 
@@ -669,7 +738,7 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
         `;
     });
 
-    container.innerHTML = html;
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, html); } else { container.innerHTML = html; }
 
     const checkboxes = container.querySelectorAll('.student-checkbox');
     const updateHiddenInput = () => {
@@ -731,7 +800,7 @@ export async function deleteUser(userType, userId) {
         loadUsers(userType, { reset: true });
         refreshFullUserCache(userType);
     } catch (err) {
-        console.error('删除用户失败:', err);
+        
         if (window.apiUtils) window.apiUtils.showToast('删除失败', 'error');
     }
 }
@@ -749,6 +818,6 @@ export async function refreshFullUserCache(type) {
         const list = Array.isArray(response) ? response : (response.data || []);
         localStorage.setItem(storageKey, JSON.stringify(list));
     } catch (e) {
-        console.warn(`[Cache] Failed to refresh ${type} cache`, e);
+        
     }
 }

@@ -4,16 +4,16 @@
  */
 
 async function runUserManagementTests() {
-    console.group('User Management UI Verification');
+    
     let passed = 0;
     let failed = 0;
 
     const assert = (condition, message) => {
         if (condition) {
-            console.log(`✅ PASS: ${message}`);
+            
             passed++;
         } else {
-            console.error(`❌ FAIL: ${message}`);
+            
             failed++;
         }
     };
@@ -50,7 +50,7 @@ async function runUserManagementTests() {
         assert(styles.fontSize === '14px', `Type Button font size is ${styles.fontSize} (Expected: 14px to match Stats)`);
         assert(isBold, `Type Button font weight is ${styles.fontWeight} (Expected: Bold/700)`);
     } else {
-        console.warn('⚠️ Course Type Button not found (check visibility)');
+        
     }
 
     // 4. Verify Table Styles inheritance
@@ -81,16 +81,16 @@ async function runUserManagementTests() {
             // Restore admin
             window.UserManager.renderUsersTableHeader('admin');
         } else {
-            console.warn('⚠️ UserManager not accessible directly for testing methods');
+            
         }
     } catch (e) {
         assert(false, `Error testing header rendering: ${e.message}`);
     }
 
-    console.log(`\nTest Summary: ${passed} Passed, ${failed} Failed`);
-    console.groupEnd();
+    
+    
 }
 
 // Expose to window for manual run
 window.runUserManagementTests = runUserManagementTests;
-console.log('User Management tests loaded. Run runUserManagementTests() to verify.');
+
