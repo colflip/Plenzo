@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/server/app.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "src/server/app.js"
+    },
+    {
+      "src": "/admin/(.*)",
+      "dest": "src/server/app.js"
+    },
+    {
+      "src": "/teacher/(.*)",
+      "dest": "src/server/app.js"
+    },
+    {
+      "src": "/student/(.*)",
+      "dest": "src/server/app.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "src/server/app.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
