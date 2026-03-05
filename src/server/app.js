@@ -82,7 +82,9 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    module.exports = app;
+} else {
     app.listen(PORT, () => {
         console.log(`=================================`);
         console.log(`🚀 服务器已启动`);
@@ -98,6 +100,7 @@ if (process.env.NODE_ENV !== 'test') {
             console.error('❌ 定时任务启动失败:', err);
         }
     });
+    module.exports = app;
 }
 
 module.exports = app;
