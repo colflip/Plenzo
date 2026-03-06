@@ -53,7 +53,21 @@ netlify.toml
 # Archive
 _archive/
 prompt.md
+# Scripts & Maintenance
+scripts/
 src/server/scripts/
-scripts/archive/
 
+# Testing
+jest.config.js
+**/__tests__/
+*.test.js
+
+# Local database (SQLite)
+src/server/db/*.db
+
+# Documentation
+docs/
+prompt.md
+README.md
+LICENSE
 
