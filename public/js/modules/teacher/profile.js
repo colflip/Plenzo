@@ -84,18 +84,19 @@ function bindPasswordModalActions() {
     elements.closePasswordModal()?.addEventListener('click', closePasswordModal);
     elements.cancelPasswordChange()?.addEventListener('click', closePasswordModal);
 
-    // Close on overlay click only (not on content click)
+    // 点击遮罩层（modal-overlay）关闭弹窗
     const modal = elements.passwordModal();
     if (modal) {
-        modal.addEventListener('click', (e) => {
-            // Only close if clicking the modal background, not the content
-            if (e.target === modal) {
+        const overlay = modal.querySelector('.modal-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                // 遮罩层被点击时关闭弹窗
                 closePasswordModal();
-            }
-        });
+            });
+        }
     }
 
-    // Prevent modal from closing when clicking inside modal-content
+    // 阻止点击 modal-content 内部时事件冒泡到 overlay
     const modalContent = modal?.querySelector('.modal-content');
     if (modalContent) {
         modalContent.addEventListener('click', (e) => {

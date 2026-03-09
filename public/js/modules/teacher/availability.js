@@ -42,13 +42,25 @@ function bindEvents() {
     elements.saveBtn()?.addEventListener('click', saveAvailability);
 }
 
-export async function loadAvailability(baseDate) {
+export async function loadAvailability(baseDate, showLoading = true) {
     const weekStart = getWeekStart(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
 
     updateRangeLabel(weekDates);
-    showLoadingState();
+
+    // 获取表格容器
+    const tableContainer = document.querySelector('#availability .schedule-unified-card');
+
+    // 1. 先渲染表头，以便加载动画能正确探测高度
+    if (!isMobileView()) {
+        renderHeader(weekDates);
+    }
+
+    // 2. 显示加载动画
+    if (showLoading && tableContainer && window.showTableLoading) {
+        window.showTableLoading(tableContainer, '正在加载时间安排数据...', '#weeklyHeaderAvail');
+    }
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -68,6 +80,11 @@ export async function loadAvailability(baseDate) {
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
         showInlineFeedback(elements.feedback(), '暂时无法获取最新的时间安排，已显示默认空白表格，请稍后重试', 'error');
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && tableContainer && window.hideTableLoading) {
+            window.hideTableLoading(tableContainer);
+        }
     }
 }
 

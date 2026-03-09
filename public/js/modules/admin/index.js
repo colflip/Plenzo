@@ -67,6 +67,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Init Statistics
     StatisticsManager.init();
 
-    // Initialize UI
-    // loadUsers('admin'); // admin.js might already do this
+    // 统一全局遮罩层点击关闭逻辑
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target !== overlay) return;
+            // 关闭所有可能打开的 form-container 弹窗
+            const containers = [
+                'userFormContainer',
+                'scheduleTypeFormContainer',
+                'scheduleFormContainer'
+            ];
+            containers.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.style.display !== 'none') {
+                    el.style.display = 'none';
+                }
+            });
+            overlay.style.display = 'none';
+        });
+    }
 });

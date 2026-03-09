@@ -86,16 +86,17 @@ export function showSection(sectionId) {
             setHeaderTitle('管理员总览');
             break;
         case 'users':
-            // 默认加载教师视图
+            setHeaderTitle('用户管理');
+            // 立即激活 Tab 样式（教师 Tab 默认激活）
             const teacherTabForSection = document.querySelector('#userRoleTabs .tab-btn[data-type="teacher"]');
             if (teacherTabForSection) {
                 const allTabs = document.querySelectorAll('#userRoleTabs .tab-btn');
                 allTabs.forEach(t => t.classList.remove('active'));
                 teacherTabForSection.classList.add('active');
             }
-            if (window.UserManager && window.UserManager.loadUsers) window.UserManager.loadUsers('teacher');
-            else if (window.loadUsers) window.loadUsers('teacher');
-            setHeaderTitle('用户管理');
+            // 首次加载使用 reset: true 确保完整加载
+            if (window.UserManager && window.UserManager.loadUsers) window.UserManager.loadUsers('teacher', { reset: true });
+            else if (window.loadUsers) window.loadUsers('teacher', { reset: true });
             break;
         case 'schedule':
             if (window.ScheduleManager && window.ScheduleManager.loadSchedules) window.ScheduleManager.loadSchedules();

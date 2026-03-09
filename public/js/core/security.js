@@ -71,7 +71,7 @@ export function sanitizeHtml(html, options = {}) {
 
     const {
         allowedTags = ['b', 'i', 'u', 'strong', 'em', 'span', 'br', 'div', 'p', 'button', 'a', 'img', 'svg', 'path', 'g', 'circle', 'line', 'thead', 'tbody', 'tr', 'th', 'td', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'hr', 'label', 'input', 'select', 'option'],
-        allowedAttributes = ['class', 'style', 'id', 'href', 'src', 'alt', 'title', 'target', 'viewbox', 'fill', 'xmlns', 'd', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'],
+        allowedAttributes = ['class', 'style', 'id', 'href', 'src', 'alt', 'title', 'target', 'viewbox', 'fill', 'xmlns', 'd', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'value', 'name', 'type', 'placeholder', 'disabled', 'readonly', 'checked', 'selected'],
         allowedProtocols = ['http', 'https', 'mailto']
     } = options;
 
@@ -84,14 +84,14 @@ export function sanitizeHtml(html, options = {}) {
     result = result.replace(/vbscript:/gi, '');
     result = result.replace(/data:text\/html/gi, ''); // only block data:text/html but allow data:image hooks
 
-    result = result.replace(/<([a-z][a-z0-9]*)\s*([^>]*)>/gi, (match, tagName, attributes) => {
+    result = result.replace(/<([a-z][a-z0-9-]*)\s*([^>]*)>/gi, (match, tagName, attributes) => {
         const lowerTagName = tagName.toLowerCase();
 
         if (!allowedTags.includes(lowerTagName)) {
             return '';
         }
 
-        const safeAttributes = attributes.replace(/(\w+)\s*=\s*["']([^"']*)["']/gi,
+        const safeAttributes = attributes.replace(/([\w-]+)\s*=\s*["']([^"']*)["']/gi,
             (attrMatch, attrName, attrValue) => {
                 const lowerAttrName = attrName.toLowerCase();
 

@@ -4,10 +4,13 @@
  * Mirrors the functionality of Teacher Availability in legacy-adapter.js
  */
 
+import { showTableLoading, hideTableLoading } from './ui-helper.js';
+
 const studentAvailabilityState = {
     currentDate: new Date(),
     initialized: false
 };
+
 
 // Expose init function globally so legacy-adapter.js can call it
 window.initStudentAvailability = function () {
@@ -42,10 +45,9 @@ window.initStudentAvailability = function () {
 async function loadStudentAvailability() {
     const tableBody = document.getElementById('studentAvailabilityBody');
     const weekRangeSpan = document.getElementById('avStudentWeekRange');
+    const tableContainer = document.querySelector('#student-availability.dashboard-section .weekly-table-container');
 
-    if (!tableBody || !weekRangeSpan) return;
-
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'); } else { tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'; }
+    if (!tableBody || !weekRangeSpan || !tableContainer) return;
 
     const curr = new Date(studentAvailabilityState.currentDate);
     const day = curr.getDay();
@@ -62,7 +64,12 @@ async function loadStudentAvailability() {
     const formatDateRange = (d) => `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, '0')}月${String(d.getDate()).padStart(2, '0')}日`;
     weekRangeSpan.textContent = `${formatDateRange(dates[0])} - ${formatDateRange(dates[6])}`;
 
+    // 1. 立即渲染表头，以便 showTableLoading 探测高度
     renderStudentAvailabilityHeader(dates);
+
+    // 2. 显示加载动画
+    // 显式指定表头 ID，确保探测精准，增加 5px 位移已在 ui-helper 中处理
+    showTableLoading(tableContainer, '正在加载学生空闲时段数据...', '#studentAvailabilityHeader');
 
     const toLocalISODate = (d) => {
         const year = d.getFullYear();
@@ -120,8 +127,12 @@ async function loadStudentAvailability() {
             
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'); } else { tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'; }
         }
+    } finally {
+        // 隐藏加载动画
+        hideTableLoading(tableContainer);
     }
 }
+
 
 function renderStudentAvailabilityHeader(dates) {
     const thead = document.getElementById('studentAvailabilityHeader');

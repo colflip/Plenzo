@@ -51,6 +51,7 @@ async function initDashboard() {
     setupSidebarToggle();
     setupLogout();
     setupNavigation();
+    setupModalClosures();
     await activateSection('overview');
 }
 
@@ -193,6 +194,18 @@ function setupLogout() {
         localStorage.removeItem('userData');
         redirectToLogin();
     });
+}
+
+function setupModalClosures() {
+    // 密码修改弹窗背景点击关闭
+    const passwordModal = document.getElementById('passwordChangeModal');
+    if (passwordModal) {
+        passwordModal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay') || e.target === passwordModal) {
+                passwordModal.style.display = 'none';
+            }
+        });
+    }
 }
 
 function setupNavigation() {

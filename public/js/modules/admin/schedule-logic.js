@@ -7,10 +7,12 @@ export async function showAddScheduleModal() {
     const formContainer = document.getElementById('scheduleFormContainer');
     const form = document.getElementById('scheduleForm');
     const title = document.getElementById('scheduleFormTitle');
+    const overlay = document.getElementById('modalOverlay');
     if (!formContainer || !form) {
         
         return;
     }
+    if (overlay) overlay.style.display = 'block';
     // ... rest of logic
     form.dataset.mode = 'add';
     form.dataset.id = '';
@@ -98,7 +100,9 @@ export async function editSchedule(scheduleId) {
         const formContainer = document.getElementById('scheduleFormContainer');
         const form = document.getElementById('scheduleForm');
         const title = document.getElementById('scheduleFormTitle');
+        const overlay = document.getElementById('modalOverlay');
         if (!formContainer || !form) return;
+        if (overlay) overlay.style.display = 'block';
 
         // Clear cache for edit mode as well (though date might change, fresh start is good)
         window.__availabilityCache = null;
@@ -299,6 +303,7 @@ export async function editSchedule(scheduleId) {
             newDel.addEventListener('click', () => deleteSchedule(scheduleId));
         }
         if (window.forceUpdateTeacherAvailability) window.forceUpdateTeacherAvailability();
+        if (overlay) overlay.style.display = 'block';
         formContainer.style.display = 'block';
     } catch (error) {
         

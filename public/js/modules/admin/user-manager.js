@@ -4,7 +4,8 @@
  */
 
 import { USER_FIELDS, FIELD_LABELS, TIME_ZONE, getUserStatusClass, getUserStatusLabel } from './constants.js';
-import { adjustSelectMinWidth } from './ui-helper.js';
+import { adjustSelectMinWidth, showTableLoading, hideTableLoading } from './ui-helper.js';
+
 
 // Retry helper
 /*
@@ -260,45 +261,43 @@ export async function loadUsers(type, opts = {}) {
             })();
         }
 
+        // 1. 立即渲染/刷新表头，确保 showTableLoading 能正确避开它
         renderUsersTableHeader(state.type);
+
         const tbody = document.getElementById('usersTableBody');
         if (!tbody) return;
 
-        // Stale-while-revalidate strategy:
-        // 1. Try to render from cache immediately
-        let renderedFromCache = false;
-        if (opts.useCache !== false) { // Default to true unless explicitly disabled
-            const cacheKey = state.type; // simple key
-            const cachedList = (window.__usersCache && window.__usersCache[cacheKey]);
-            if (cachedList && cachedList.length > 0) {
-                // Determine if cache covers the requested page
-                const startIdx = (state.page - 1) * state.pageSize;
-                const endIdx = startIdx + state.pageSize;
-                // If we have data for this page in cache (approximate check)
-                if (cachedList.length >= startIdx) {
-                    renderFromCache(state, tbody);
-                    renderedFromCache = true;
-                    // Don't return! Continue to fetch fresh data.
-                }
-            }
+        const tableContainer = document.querySelector('#users.dashboard-section .table-container');
+
+        // 2. 状态拦截检查（必须在显示加载动画之前）
+        if (state.loading && state.page > 1) {
+            // 如果正在加载且不是第一页，不阻塞
+        } else if (state.loading) {
+            // 第一页正在加载中，直接返回
+            return;
+        }
+        
+        if (!state.hasMore && !opts.reset && state.page > 1) {
+            // 非第一页且没有更多数据，不加载
+            return;
         }
 
-        if (state.loading || !state.hasMore) return;
-
-        // 显示加载中提示 - Only if NOT rendered from cache
-        if (state.page === 1 && !opts.append && !renderedFromCache) {
-            tbody.innerHTML = `
-                <tr class="loading-row">
-                    <td colspan="15" style="text-align: center; padding: 40px; color: #64748b;">
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
-                            <div class="loading-spinner" style="margin: 0 auto;"></div>
-                            <span>正在加载用户数据...</span>
-                        </div>
-                    </td>
-                </tr>
-            `;
+        // 3. 显示加载动画策略
+        // 始终在第一页非追加模式时显示加载动画，确保首次和后续进入动画一致
+        // 先清空tbody，确保动画位置一致
+        if (state.page === 1 && !opts.append) {
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+            
+            const typeLabels = {
+                teacher: '教师',
+                student: '学生',
+                admin: '管理员'
+            };
+            const loadingText = `正在加载${typeLabels[state.type] || ''}用户数据...`;
+            showTableLoading(tableContainer, loadingText);
         }
 
+        // 4. 设置加载状态
         state.loading = true;
 
         const data = await window.apiUtils.get(`/admin/users/${state.type}`, {
@@ -308,14 +307,14 @@ export async function loadUsers(type, opts = {}) {
 
         const users = Array.isArray(data) ? data : (data.users || data.data || data.results || []);
 
-        // 加载完成，如果是第一页或不追加模式，则清空容器（移除加载行）
+        // 加载完成，如果是第一页或不追加模式，则清空容器（移除显示残余内容）
         if (!opts.append) {
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
-        } else {
-            // 如果是追加模式，尝试移除可能存在的单一加载行
-            const loadingRows = tbody.querySelectorAll('.loading-row');
-            loadingRows.forEach(row => row.remove());
         }
+        
+        // 隐藏加载动画
+        hideTableLoading(tableContainer);
+
         if (state.page === 1 && users.length === 0) {
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`); } else { tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`; }
             state.hasMore = false;
@@ -352,7 +351,61 @@ export async function loadUsers(type, opts = {}) {
         
         const state = window.__usersState || {};
         state.loading = false;
-        if (window.apiUtils) window.apiUtils.showToast('加载用户列表失败', 'error');
+        const tableContainer = document.querySelector('#users.dashboard-section .table-container');
+        hideTableLoading(tableContainer);
+        
+        const tbody = document.getElementById('usersTableBody');
+        const typeLabels = {
+            teacher: '教师',
+            student: '学生',
+            admin: '管理员'
+        };
+        const errorMsg = err?.message || '网络错误';
+        const errorText = `加载${typeLabels[state.type] || ''}用户数据失败`;
+        
+        if (tbody) {
+            if (window.SecurityUtils) {
+                window.SecurityUtils.safeSetHTML(tbody, `
+                    <tr>
+                        <td colspan="${(USER_FIELDS[state.type] || []).length + 1}">
+                            <div style="text-align: center; padding: 40px 20px;">
+                                <div style="color: #ef4444; margin-bottom: 12px;">
+                                    <span class="material-icons-round" style="font-size: 48px;">error_outline</span>
+                                </div>
+                                <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
+                                <button onclick="window.UserManager?.loadUsers('${state.type}', { reset: true })" 
+                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                    <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
+                                    点击重试
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `);
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="${(USER_FIELDS[state.type] || []).length + 1}">
+                            <div style="text-align: center; padding: 40px 20px;">
+                                <div style="color: #ef4444; margin-bottom: 12px;">
+                                    <span class="material-icons-round" style="font-size: 48px;">error_outline</span>
+                                </div>
+                                <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
+                                <button onclick="window.UserManager?.loadUsers('${state.type}', { reset: true })" 
+                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                    <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
+                                    点击重试
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+        
+        if (window.apiUtils) {
+            window.apiUtils.showToast(`${errorText}：${errorMsg}`, 'error');
+        }
     }
 }
 
@@ -665,6 +718,18 @@ export function setupUserEventListeners() {
         });
     }
 
+    const closeBtn = document.getElementById('closeUserFormBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeUserFormModal);
+    const cancelBtn = document.getElementById('cancelUserFormBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeUserFormModal);
+
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeUserFormModal();
+        });
+    }
+
     const addUserBtn = document.getElementById('addUserBtn');
     if (addUserBtn) {
         addUserBtn.addEventListener('click', showAddUserModal);
@@ -808,16 +873,30 @@ export async function deleteUser(userType, userId) {
 export async function refreshFullUserCache(type) {
     if (!window.apiUtils) return;
     if (!type) {
-        refreshFullUserCache('student');
-        refreshFullUserCache('teacher');
-        return;
+        // 并发预取所有类型，实现极致 Tab 切换
+        return Promise.all([
+            refreshFullUserCache('student'),
+            refreshFullUserCache('teacher'),
+            refreshFullUserCache('admin')
+        ]);
     }
-    const storageKey = type === 'student' ? 'cached_students_full' : 'cached_teachers_full';
+    const storageKey = `cached_${type}s_full`;
     try {
-        const response = await window.apiUtils.get(`/admin/users/${type}`);
+        // 背景预取第一页数据（50条），足以覆盖 90% 的初始展示场景
+        const response = await window.apiUtils.get(`/admin/users/${type}`, { page: 1, size: 50 });
         const list = Array.isArray(response) ? response : (response.data || []);
-        localStorage.setItem(storageKey, JSON.stringify(list));
-    } catch (e) {
         
-    }
+        // 同步至内存缓存，供 loadUsers 瞬间调用
+        window.__usersCache = window.__usersCache || {};
+        window.__usersCache[type] = list;
+        
+        // 持久化备份
+        localStorage.setItem(storageKey, JSON.stringify(list));
+    } catch (e) { }
+}
+
+// 模块初始化时自动启动静默预取
+if (typeof window !== 'undefined') {
+    // 延迟 1 秒启动，避免抢占首屏关键资源
+    setTimeout(() => refreshFullUserCache(), 1000);
 }

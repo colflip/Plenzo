@@ -4,6 +4,8 @@
  */
 
 import { TIME_ZONE } from './constants.js';
+import { showTableLoading, hideTableLoading } from './ui-helper.js';
+
 
 // --- Global State ---
 window.adminFeeShow = false;
@@ -582,33 +584,20 @@ export async function refreshCell(studentId, dateKey) {
 /**
  * 加载并渲染排课数据
  * @param {boolean} force - 是否强制从服务器重新获取数据（跳过缓存）
+ * @param {boolean} showLoading - 是否显示全屏过渡动画(Loading)
  */
-export async function loadSchedules(force = false) {
+export async function loadSchedules(force = false, showLoading = true) {
     if (force) {
         // 如果是强制刷新，先清除本地内存缓存
         WeeklyDataStore.invalidateSchedules();
         window.__weeklyForceRefresh = true;
     }
 
-    // 获取表格容器,添加加载遮罩
+    // 获取表格容器
     const weeklyTableContainer = document.querySelector('#schedule .weekly-table-container');
-    let loadingOverlay = null;
 
     try {
         const tbody = document.getElementById('weeklyBody');
-
-        // 添加加载动画遮罩
-        if (weeklyTableContainer) {
-            loadingOverlay = document.createElement('div');
-            loadingOverlay.className = 'schedule-loading-overlay';
-            loadingOverlay.innerHTML = `
-                <div class="loading-spinner"></div>
-                <div class="loading-text">正在加载排课数据...</div>
-            `;
-            weeklyTableContainer.style.position = 'relative';
-            weeklyTableContainer.style.minHeight = '300px';
-            weeklyTableContainer.appendChild(loadingOverlay);
-        }
 
         let startDateISO, endDateISO, weekDates;
         const DRU = window.DateRangeUtils;
@@ -623,11 +612,10 @@ export async function loadSchedules(force = false) {
                 startDateISO = toISODate(weekDates[0]);
                 endDateISO = toISODate(weekDates[6]);
             } else {
-                // Fallback: Default to Current Week (Mon-Sun)
                 const d = new Date();
-                const day = d.getDay() || 7; // 1=Mon, 7=Sun
+                const day = d.getDay() || 7;
                 const start = new Date(d);
-                start.setDate(d.getDate() - day + 1); // Monday
+                start.setDate(d.getDate() - day + 1);
                 const dates = [];
                 for (let i = 0; i < 7; i++) {
                     const temp = new Date(start);
@@ -651,6 +639,15 @@ export async function loadSchedules(force = false) {
             document.getElementById('weekRange').textContent = `${formatDate(new Date(startDateISO))} - ${formatDate(new Date(endDateISO))}`;
         }
 
+        // 1. 立即渲染标题行，以便 showTableLoading 能够探测其实际高度
+        renderWeeklyHeader(weekDates);
+
+        // 2. 仅在需要时显示统一加载动画
+        if (showLoading && weeklyTableContainer) {
+            // 指定探测 weeklyHeader 所在的选择器
+            showTableLoading(weeklyTableContainer, '正在加载排课信息数据...', '#weeklyHeader');
+        }
+
         // Removed filters: status, type, teacherId
         const force = !!window.__weeklyForceRefresh;
 
@@ -669,12 +666,13 @@ export async function loadSchedules(force = false) {
         
         renderWeeklyError(err.message);
     } finally {
-        // 移除加载遮罩
-        if (loadingOverlay && loadingOverlay.parentNode) {
-            loadingOverlay.remove();
+        // 隐藏加载动画
+        if (weeklyTableContainer) {
+            hideTableLoading(weeklyTableContainer);
         }
     }
 }
+
 
 // --- Rendering ---
 
@@ -1292,7 +1290,6 @@ export async function updateScheduleStatus(id, newStatus) {
 
         window.apiUtils.showSuccessToast('状态已更新');
     } catch (err) {
-        
         // 回滚UI
         rollbackOperation(backup, 'update');
         window.apiUtils.showToast('更新状态失败', 'error');
@@ -1317,10 +1314,19 @@ export async function deleteSchedule(id) {
         }
     }
 
+    // 获取按钮反馈上下文
+    const delBtn = document.getElementById('scheduleFormDelete');
+    const originalText = delBtn ? delBtn.textContent : '删除';
+
     // 乐观删除：立即从UI移除 (返回 undo 句柄)
     const backup = optimisticDelete(id);
 
     try {
+        if (delBtn) {
+            delBtn.disabled = true;
+            delBtn.textContent = '删除中...';
+        }
+
         // 后台从服务器删除
         await window.apiUtils.delete(`/admin/schedules/${id}`);
 
@@ -1332,29 +1338,32 @@ export async function deleteSchedule(id) {
         // 清除内存缓存
         WeeklyDataStore.invalidateSchedules();
 
-        // 关闭表单
+        // 操作成功后的闭环处理：关闭表单容器及背景遮罩(阴影区域)
         const formContainer = document.getElementById('scheduleFormContainer');
-        if (formContainer && formContainer.style.display !== 'none') {
-            // 检查是否正在编辑被删除的排课
-            const form = document.getElementById('scheduleForm');
-            if (form && String(form.dataset.id) === String(id)) {
-                formContainer.style.display = 'none';
-            }
-        }
+        const overlay = document.getElementById('modalOverlay');
+        
+        if (formContainer) formContainer.style.display = 'none';
+        if (overlay) overlay.style.display = 'none';
 
-        if (dateKey && studentId) {
+        if (window.apiUtils) window.apiUtils.showSuccessToast('排课删除成功');
+
+        // 静默刷新的局部更新流程
+        await WeeklyDataStore.getAllSchedules(true);
+        if (studentId && dateKey) {
             await refreshCell(studentId, dateKey);
         } else {
-            // 如果定位失败，退回到全局刷新
-            await loadSchedules(false);
+            // 如果定位失败，执行无动画的周视图重绘
+            await loadSchedules(false, false);
         }
-
-        window.apiUtils.showSuccessToast('删除成功');
-    } catch (e) {
-        
+    } catch (err) {
         // 回滚UI
         rollbackOperation(backup, 'delete');
-        window.apiUtils.showToast('删除失败: ' + e.message, 'error');
+        if (window.apiUtils) window.apiUtils.showToast('删除失败: ' + (err.message || ''), 'error');
+    } finally {
+        if (delBtn) {
+            delBtn.disabled = false;
+            delBtn.textContent = originalText;
+        }
     }
 }
 
@@ -1419,6 +1428,8 @@ function openCellEditor(student, dateISO) {
             tempType.selectedIndex = 1;
         }
 
+        const overlay = document.getElementById('modalOverlay');
+        if (overlay) overlay.style.display = 'block';
         container.style.display = 'block';
     });
 }
@@ -1489,6 +1500,8 @@ export async function editSchedule(id) {
             if (typeEl && !typeEl.value && memory.type_id) typeEl.value = memory.type_id;
         }
 
+        const overlay = document.getElementById('modalOverlay');
+        if (overlay) overlay.style.display = 'block';
         container.style.display = 'block';
         form.dataset.snapshot = JSON.stringify(data);
 
@@ -1606,6 +1619,37 @@ async function updateTeacherStatusHints() {
 }
 
 export async function setupScheduleEventListeners() {
+    const closeForm = () => {
+        const container = document.getElementById('scheduleFormContainer');
+        const overlay = document.getElementById('modalOverlay');
+        if (container) container.style.display = 'none';
+        if (overlay) overlay.style.display = 'none';
+    };
+    
+    document.getElementById('closeScheduleFormBtn')?.addEventListener('click', closeForm);
+    document.getElementById('cancelScheduleFormBtn')?.addEventListener('click', closeForm);
+    
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeForm();
+        });
+    }
+    
+    document.getElementById('toggleAdminFeeBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof window.toggleAdminFeeVisibility === 'function') {
+            window.toggleAdminFeeVisibility();
+        }
+    });
+    
+    document.getElementById('addScheduleBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof window.showAddScheduleModal === 'function') {
+            window.showAddScheduleModal();
+        }
+    });
+
     const form = document.getElementById('scheduleForm');
     if (form) {
         form.addEventListener('submit', async (e) => {
@@ -1636,7 +1680,12 @@ export async function setupScheduleEventListeners() {
                 return;
             }
 
-            if (btn) btn.disabled = true;
+            let originalBtnText = '';
+            if (btn) {
+                btn.disabled = true;
+                originalBtnText = btn.textContent;
+                btn.textContent = '保存中...';
+            }
 
             let backup = null;
             let currentCard = null; // 用于编辑模式下的乐观更新
@@ -1644,8 +1693,8 @@ export async function setupScheduleEventListeners() {
 
             try {
                 if (mode === 'add') {
-                    // 乐观添加：立即在UI显示骨架模板
-                    backup = optimisticAdd(body);
+                    // 禁用乐观添加动画，直接保存
+                    // backup = optimisticAdd(body);
 
                     // 后台保存
                     const result = await window.apiUtils.post('/admin/schedules', body);
@@ -1657,56 +1706,36 @@ export async function setupScheduleEventListeners() {
                         type_id: body.type_ids && body.type_ids.length ? body.type_ids[0] : null
                     });
 
-                    // 将由于乐观添加产生的 “保存中...” UI替换为真实状态
-                    if (backup && backup.tempId) {
-                        const tempCard = document.querySelector(`.temp-schedule[data-temp-id="${backup.tempId}"]`);
-                        if (tempCard) {
-                            tempCard.classList.remove('optimistic-loading', 'temp-schedule');
-                            const statusBadge = tempCard.querySelector('.schedule-status-badge');
-                            if (statusBadge) {
-                                statusBadge.textContent = '已确认'; // 或根据 result 返回的 status
-                                statusBadge.className = 'schedule-status-badge status-confirmed';
-                            }
-                            const infoDiv = tempCard.querySelector('.schedule-info');
-                            if (infoDiv) {
-                                // 提取下老师名称和课程名字填充上去给个反馈
-                                const teacherSelect = form.querySelector('#scheduleTeacher');
-                                const typeSelect = form.querySelector('#scheduleTypeSelect');
-                                const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '老师';
-                                const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '课程';
-                                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(infoDiv, `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`); } else { infoDiv.innerHTML = `<div class="teacher-name">${tName}</div><div class="course-type">${cName}</div>`; }
-                            }
-                        }
-                    }
 
                     // 静默失效本地缓存。不进行全盘闪烁式刷新
                     WeeklyDataStore.invalidateSchedules();
-                    window.apiUtils.showSuccessToast('排课添加成功');
+                    // 移除成功提示 toast
+                    // window.apiUtils.showSuccessToast('排课添加成功');
                 } else {
-                    // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
-                    currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
-                    if (currentCard) {
-                        originalCardHtml = currentCard.innerHTML; // 快照
-                        currentCard.classList.add('optimistic-updating');
-
-                        // 从表单内爬取修改的字段并投射到卡片上
-                        const teacherSelect = form.querySelector('#scheduleTeacher');
-                        const typeSelect = form.querySelector('#scheduleTypeSelect');
-                        const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
-                        const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
-
-                        const timeSpan = currentCard.querySelector('.schedule-time');
-                        if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
-
-                        const tDiv = currentCard.querySelector('.teacher-name');
-                        if (tDiv && tName) tDiv.textContent = tName;
-
-                        const cDiv = currentCard.querySelector('.course-type');
-                        if (cDiv && cName) cDiv.textContent = cName;
-
-                        const locP = currentCard.querySelector('.location-text');
-                        if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
-                    }
+//                     // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
+//                     currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
+//                     if (currentCard) {
+//                         originalCardHtml = currentCard.innerHTML; // 快照
+//                         currentCard.classList.add('optimistic-updating');
+// 
+//                         // 从表单内爬取修改的字段并投射到卡片上
+//                         const teacherSelect = form.querySelector('#scheduleTeacher');
+//                         const typeSelect = form.querySelector('#scheduleTypeSelect');
+//                         const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
+//                         const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
+// 
+//                         const timeSpan = currentCard.querySelector('.schedule-time');
+//                         if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
+// 
+//                         const tDiv = currentCard.querySelector('.teacher-name');
+//                         if (tDiv && tName) tDiv.textContent = tName;
+// 
+//                         const cDiv = currentCard.querySelector('.course-type');
+//                         if (cDiv && cName) cDiv.textContent = cName;
+// 
+//                         const locP = currentCard.querySelector('.location-text');
+//                         if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
+//                     }
 
                     // 异步请求后端
                     await window.apiUtils.put(`/admin/schedules/${id}`, body);
@@ -1723,11 +1752,14 @@ export async function setupScheduleEventListeners() {
                         currentCard.classList.remove('optimistic-updating');
                     }
                     WeeklyDataStore.invalidateSchedules();
-                    window.apiUtils.showSuccessToast('排课更新成功');
+                    // 移除成功提示 toast
+                    // window.apiUtils.showSuccessToast('排课更新成功');
                 }
 
-                // 立即关闭表单
+                // 立即关闭表单并移除背景蒙层(阴影区域)
                 document.getElementById('scheduleFormContainer').style.display = 'none';
+                const overlay = document.getElementById('modalOverlay');
+                if (overlay) overlay.style.display = 'none';
 
                 // 局部更新流程：
                 // 1. 对于新增或修改，通常我们会收到完整的 record。
@@ -1745,8 +1777,8 @@ export async function setupScheduleEventListeners() {
                 if (finalStudentId && finalDateKey) {
                     await refreshCell(finalStudentId, finalDateKey);
                 } else {
-                    // 如果定位失败，退回到全局刷新（无 Overlay）
-                    await loadSchedules(false);
+                    // 如果定位失败，退回到局部刷新策略（不触发全局 Loading 动画）
+                    await loadSchedules(true, false);
                 }
             } catch (err) {
                 
@@ -1762,7 +1794,10 @@ export async function setupScheduleEventListeners() {
 
                 if (window.apiUtils) window.apiUtils.showToast('保存失败: ' + (err.message || ''), 'error');
             } finally {
-                if (btn) btn.disabled = false;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = originalBtnText || '保存';
+                }
             }
         });
     }
@@ -1850,12 +1885,12 @@ async function initScheduleFilters() {
 // 模块接口导出 - 置于末尾确保所有依赖已初始化 (避免 TDZ ReferenceError)
 // =============================================================================
 window.ScheduleManager = {
-    loadSchedules: (force = true) => loadSchedules(force), // 默认强制刷新
+    loadSchedules: (force = true, showLoading = true) => loadSchedules(force, showLoading), // 允许透传加载状态
     refreshCell: refreshCell, // 导出局部刷新
     WeeklyDataStore: WeeklyDataStore,
     renderCache: () => {
-        // 渲染当前内存中的数据，不发网络请求
-        loadSchedules(false);
+        // 渲染当前内存中的数据，不发网络请求，且不显示过渡动画
+        loadSchedules(false, false);
     }
 };
 

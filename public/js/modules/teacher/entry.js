@@ -61,6 +61,7 @@ async function initDashboard() {
     setupSidebarToggle();
     setupLogout();
     setupNavigation();
+    setupModalClosures();
     await activateSection('overview');
 }
 
@@ -213,6 +214,38 @@ function setupLogout() {
         localStorage.removeItem('userData');
         redirectToLogin();
     });
+}
+
+function setupModalClosures() {
+    // 密码修改弹窗背景点击关闭
+    const passwordModal = document.getElementById('passwordChangeModal');
+    if (passwordModal) {
+        passwordModal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay') || e.target === passwordModal) {
+                passwordModal.style.display = 'none';
+            }
+        });
+    }
+
+    // 教师端特有的学生编辑弹窗
+    const studentModal = document.getElementById('studentEditModal');
+    if (studentModal) {
+        studentModal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay') || e.target === studentModal) {
+                studentModal.style.display = 'none';
+            }
+        });
+    }
+
+    // 教师端特有的费用管理弹窗
+    const feeModal = document.getElementById('feeManagementModal');
+    if (feeModal) {
+        feeModal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay') || e.target === feeModal) {
+                feeModal.style.display = 'none';
+            }
+        });
+    }
 }
 
 function setupNavigation() {

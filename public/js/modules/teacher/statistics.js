@@ -304,10 +304,26 @@ export async function loadTeachingCount() {
 /**
  * Load aggregated summary (typeStats + dailyStats) from server - fast
  */
-export async function loadTeachingSummary() {
+export async function loadTeachingSummary(showLoading = true) {
     const startDate = document.getElementById('teachingStartDate')?.value;
     const endDate = document.getElementById('teachingEndDate')?.value;
     if (!startDate || !endDate) return;
+
+    // 获取统计卡片容器
+    const statsContainer = document.getElementById('teaching-display');
+
+    // 1. 先显示表头/内容，确保加载动画能正确探测高度
+    // （统计模块的"表头"是已有的卡片结构，无需额外渲染）
+
+    // 2. 显示加载动画
+    if (showLoading && statsContainer && window.showTableLoading) {
+        const cardContainers = statsContainer.querySelectorAll('.stats-component-card');
+        cardContainers.forEach((card, index) => {
+            if (index === 0 && card.querySelector('#teachingTypeStats')) {
+                window.showTableLoading(card, '正在加载统计数据...', null);
+            }
+        });
+    }
 
     try {
         const token = localStorage.getItem('token');
@@ -344,6 +360,16 @@ export async function loadTeachingSummary() {
         if (err.name === 'AbortError') {
         } else {
 
+        }
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && statsContainer && window.hideTableLoading) {
+            const cardContainers = statsContainer.querySelectorAll('.stats-component-card');
+            cardContainers.forEach((card, index) => {
+                if (index === 0 && card.querySelector('#teachingTypeStats')) {
+                    window.hideTableLoading(card);
+                }
+            });
         }
     }
 }

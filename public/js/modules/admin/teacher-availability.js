@@ -1,5 +1,8 @@
 
+import { showTableLoading, hideTableLoading } from './ui-helper.js';
+
 // formatDate is available globally via window.formatDate
+
 
 // ==========================================
 // 教师空闲时间段功能
@@ -11,8 +14,6 @@ export let availabilityState = {
 };
 
 export function initTeacherAvailability() {
-    
-    
     // 检查必需的DOM元素
     const tableBody = document.getElementById('availabilityBody');
     const weekRangeSpan = document.getElementById('avWeekRange');
@@ -20,13 +21,11 @@ export function initTeacherAvailability() {
     const nextBtn = document.getElementById('avNextWeek');
     
     if (!tableBody || !weekRangeSpan) {
-        
         return;
     }
 
     // 如果已经初始化，仅刷新数据
     if (availabilityState.initialized) {
-        
         loadAvailability();
         return;
     }
@@ -47,25 +46,16 @@ export function initTeacherAvailability() {
     }
 
     availabilityState.initialized = true;
-    
     loadAvailability();
 }
 
 export async function loadAvailability() {
     const tableBody = document.getElementById('availabilityBody');
     const weekRangeSpan = document.getElementById('avWeekRange');
+    const tableContainer = document.querySelector('#availability .weekly-table-container');
 
-    if (!tableBody || !weekRangeSpan) {
-        
+    if (!tableBody || !weekRangeSpan || !tableContainer) {
         return;
-    }
-
-    // 显示加载状态
-    const loadingHtml = '<tr><td colspan="8" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">正在加载教师空闲时段数据...</div></td></tr>';
-    if (window.SecurityUtils) { 
-        window.SecurityUtils.safeSetHTML(tableBody, loadingHtml); 
-    } else { 
-        tableBody.innerHTML = loadingHtml; 
     }
 
     try {
@@ -83,14 +73,17 @@ export async function loadAvailability() {
             dates.push(d);
         }
 
-        // 更新日期显示 (YYYY年MM月DD日 - YYYY年MM月DD日)
+        // 1. 立即更新日期显示和渲染表头
+        // 这样 showTableLoading 才能探测到表头高度并正确对齐
         const formatDateRange = (d) => `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, '0')}月${String(d.getDate()).padStart(2, '0')}日`;
         weekRangeSpan.textContent = `${formatDateRange(dates[0])} - ${formatDateRange(dates[6])}`;
-
-        // 渲染表头
         renderAvailabilityHeader(dates);
 
-        // 使用本地时间构建 YYYY-MM-DD，确保与 renderAvailabilityBody 中的 key 一致
+        // 2. 显示加载状态
+        // 显式指定表头 ID，确保探测精准，增加 5px 位移已在 ui-helper 中处理
+        showTableLoading(tableContainer, '正在加载教师空闲时段数据...', '#availabilityHeader');
+
+        // 使用本地时间构建 YYYY-MM-DD
         const toLocalISODate = (d) => {
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -100,8 +93,6 @@ export async function loadAvailability() {
 
         const queryStart = toLocalISODate(dates[0]);
         const queryEnd = toLocalISODate(dates[6]);
-
-        
 
         // 检查 apiUtils 是否可用
         if (!window.apiUtils) {
@@ -113,13 +104,10 @@ export async function loadAvailability() {
             endDate: queryEnd
         });
 
-        
-
         // 检查响应数据格式
         const teachers = Array.isArray(data) ? data : (data?.data || []);
         renderAvailabilityBody(teachers, dates);
     } catch (error) {
-        
         const errorMessage = error.message || '加载失败，请重试';
         const errorHtml = `<tr><td colspan="8" class="error-cell" style="text-align: center; padding: 40px 0; color: #dc2626;">
             <div style="margin-bottom: 12px;">⚠️ ${errorMessage}</div>
@@ -131,10 +119,12 @@ export async function loadAvailability() {
             tableBody.innerHTML = errorHtml; 
         }
         
-        // 显示错误提示
         if (window.apiUtils && window.apiUtils.showToast) {
             window.apiUtils.showToast('教师空闲时段加载失败: ' + errorMessage, 'error');
         }
+    } finally {
+        // 隐藏加载状态
+        hideTableLoading(tableContainer);
     }
 }
 
@@ -186,7 +176,6 @@ export function renderAvailabilityBody(teachers, dates) {
         html += `<td class="fixed-col font-medium">${teacher.name}</td>`;
 
         dates.forEach(date => {
-            // YYYY-MM-DD
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const da = String(date.getDate()).padStart(2, '0');
@@ -226,14 +215,12 @@ export function renderInnerCell(data, teacherId, dateKey) {
 }
 
 export function renderAvailabilityCell(data, teacherId, dateKey) {
-    // 读取当前有效状态（含 pending）
     const effective = PendingChangesManager.getStatus(teacherId, dateKey, {
         morning: data.morning,
         afternoon: data.afternoon,
         evening: data.evening
     });
 
-    // 存储原始状态到 dataset，方便 toggle 时读取
     return `<div id="cell-${teacherId}-${dateKey}" class="slot-container" 
         data-orig-m="${data.morning === true}" 
         data-orig-a="${data.afternoon === true}" 
@@ -244,9 +231,8 @@ export function renderAvailabilityCell(data, teacherId, dateKey) {
 
 // --- 待保存更改管理器 ---
 const PendingChangesManager = {
-    changes: new Map(), // Key: `${teacherId}|${dateKey}` -> { morning, afternoon, evening }
+    changes: new Map(),
 
-    // 获取当前状态（合并原始状态与挂起的更改）
     getStatus(teacherId, dateKey, originalData) {
         const key = `${teacherId}|${dateKey}`;
         if (this.changes.has(key)) {
@@ -296,7 +282,6 @@ window.toggleAvailability = function (teacherId, dateKey, period) {
     const cellEl = document.getElementById(cellId);
     if (!cellEl) return;
 
-    // 从 dataset 获取原始数据
     const origM = cellEl.dataset.origM === 'true';
     const origA = cellEl.dataset.origA === 'true';
     const origE = cellEl.dataset.origE === 'true';
@@ -304,7 +289,6 @@ window.toggleAvailability = function (teacherId, dateKey, period) {
 
     const newState = PendingChangesManager.toggle(teacherId, dateKey, period, original);
 
-    // 立即重新渲染该单元格
     if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(cellEl, renderInnerCell(newState, teacherId, dateKey)); } else { cellEl.innerHTML = renderInnerCell(newState, teacherId, dateKey); }
 };
 
@@ -312,9 +296,8 @@ window.toggleAvailability = function (teacherId, dateKey, period) {
 window.saveAvailabilityChanges = async function () {
     if (!PendingChangesManager.hasChanges()) return;
 
-    // 1. 记录受影响的 DOM 节点 Key，因为 clear() 后 map 会被清空
     const affectedKeys = Array.from(PendingChangesManager.changes.keys());
-    const changesSnapshot = new Map(PendingChangesManager.changes); // 快照
+    const changesSnapshot = new Map(PendingChangesManager.changes);
 
     try {
         const btn = document.getElementById('saveAvailabilityBtn');
@@ -332,23 +315,10 @@ window.saveAvailabilityChanges = async function () {
             });
         }
 
-        try {
-            await window.apiUtils.post('/admin/teacher-availability', { updates }, {
-                suppressErrorToast: true,
-                suppressConsole: true
-            });
-        } catch (postError) {
-            // Ignore 404 errors for now as backend endpoint is missing
-            if (postError.status !== 404 && !postError.message?.includes('不存在')) {
-                throw postError;
-            }
-            
-        }
+        await window.apiUtils.post('/admin/teacher-availability', { updates });
 
         window.apiUtils.showToast('时间安排已保存', 'success');
 
-        // 局部更新流程：
-        // A. 更新 DOM 的 data-orig-* 属性为最新提交的状态
         for (const [key, state] of changesSnapshot.entries()) {
             const [teacherId, dateKey] = key.split('|');
             const cellId = `cell-${teacherId}-${dateKey}`;
@@ -360,23 +330,17 @@ window.saveAvailabilityChanges = async function () {
             }
         }
 
-        // B. 清除管理器中的变更状态
         PendingChangesManager.clear();
 
-        // C. 重绘受影响的单元格
-        // 此时 getStatus 会读取步骤 A 更新后的 dataset，且无 pending 状态
-        // 效果：图标显示最新状态，且无"changed"蓝色光晕
         affectedKeys.forEach(key => {
             const [teacherId, dateKey] = key.split('|');
             const cellId = `cell-${teacherId}-${dateKey}`;
             const cellEl = document.getElementById(cellId);
             if (cellEl) {
-                // 从 DOM 读取最新 update 的 original
                 const origM = cellEl.dataset.origM === 'true';
                 const origA = cellEl.dataset.origA === 'true';
                 const origE = cellEl.dataset.origE === 'true';
 
-                // 重新生成 HTML
                 cellEl.innerHTML = renderInnerCell(
                     { morning: origM, afternoon: origA, evening: origE },
                     teacherId,
@@ -386,7 +350,6 @@ window.saveAvailabilityChanges = async function () {
         });
 
     } catch (e) {
-        
         window.apiUtils.showToast('保存失败: ' + e.message, 'error');
     } finally {
         const btn = document.getElementById('saveAvailabilityBtn');
@@ -396,13 +359,8 @@ window.saveAvailabilityChanges = async function () {
 
 window.cancelAvailabilityChanges = function () {
     if (confirm('确定放弃所有未保存的更改吗？')) {
-        // 1. 记录受影响的 DOM 节点 Key
         const affectedKeys = Array.from(PendingChangesManager.changes.keys());
-
-        // 2. 清除变更状态
         PendingChangesManager.clear();
-
-        // 3. 重绘受影响的单元格（恢复为 data-orig-* 的状态）
         affectedKeys.forEach(key => {
             const [teacherId, dateKey] = key.split('|');
             const cellId = `cell-${teacherId}-${dateKey}`;
@@ -412,7 +370,6 @@ window.cancelAvailabilityChanges = function () {
                 const origA = cellEl.dataset.origA === 'true';
                 const origE = cellEl.dataset.origE === 'true';
 
-                // 重新生成 HTML，PendingManager 已空，getStatus 会返回原始 dataset 状态
                 cellEl.innerHTML = renderInnerCell(
                     { morning: origM, afternoon: origA, evening: origE },
                     teacherId,
@@ -439,7 +396,6 @@ export function ensureFloatingBar() {
 }
 ensureFloatingBar();
 
-// 需要加一点对应的 CSS 样式
 // CSS 样式
 const style = document.createElement('style');
 style.textContent = `
@@ -453,24 +409,23 @@ style.textContent = `
     }
     .icon-slot {
         font-size: 20px; 
-        color: #e2e8f0; /* Default grey */
+        color: #e2e8f0;
         transition: all 0.2s;
         user-select: none;
     }
     .icon-slot.interactive {
         cursor: pointer;
     }
-     .icon-slot.interactive:hover {
+    .icon-slot.interactive:hover {
         transform: scale(1.15);
-     }
+    }
     .icon-slot.available {
-        color: #10b981; /* Green */
+        color: #10b981;
     }
     .icon-slot.busy {
-        color: #cbd5e1; /* Light Grey */
+        color: #cbd5e1;
     }
     .icon-slot.changed {
-        /* Blue glow for changed items */
         filter: drop-shadow(0 0 2px #3b82f6);
     }
     
@@ -493,8 +448,6 @@ style.textContent = `
     .th-day { font-size: 12px; color: #64748b; font-weight: normal; }
 `;
 document.head.appendChild(style);
-
-
 
 // Global exposure
 window.initTeacherAvailability = initTeacherAvailability;

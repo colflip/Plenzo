@@ -48,7 +48,7 @@ function bindNavigation() {
     });
 }
 
-export async function loadSchedules(baseDate) {
+export async function loadSchedules(baseDate, showLoading = true) {
     const weekStart = startOfWeek(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -89,7 +89,18 @@ export async function loadSchedules(baseDate) {
         document.head.appendChild(style);
     }
 
-    showLoadingState();
+    // 获取表格容器
+    const tableContainer = document.querySelector('#schedules .schedule-unified-card');
+
+    // 1. 先渲染表头，以便加载动画能正确探测高度
+    if (!isMobileView()) {
+        renderHeader(weekDates);
+    }
+
+    // 2. 显示加载动画
+    if (showLoading && tableContainer && window.showTableLoading) {
+        window.showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
+    }
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -107,6 +118,11 @@ export async function loadSchedules(baseDate) {
         
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && tableContainer && window.hideTableLoading) {
+            window.hideTableLoading(tableContainer);
+        }
     }
 }
 

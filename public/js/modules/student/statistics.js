@@ -201,56 +201,65 @@ export async function loadLearningStats() {
  * Update the display with learning stats and detailed table
  */
 function updateDisplay(data) {
-    // 使用深色渐变卡片渲染课程类型统计
+    // 使用与教师端一致的淡色渐变卡片样式
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
         if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
 
+        const uiColors = [
+            { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
+            { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
+            { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
+            { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
+            { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
+            { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
+        ];
+
         const types = Object.keys(data.typeStats);
         if (types.length === 0) {
             const emptyCard = document.createElement('div');
-            emptyCard.className = 'type-stat-card';
-            emptyCard.style.cssText = 'background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px dashed #cbd5e1;';
+            emptyCard.className = 'stat-card';
+            emptyCard.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
+            emptyCard.style.border = 'none';
+            emptyCard.style.position = 'relative';
+            emptyCard.style.overflow = 'hidden';
+            emptyCard.style.display = 'flex';
+            emptyCard.style.flexDirection = 'column';
+            emptyCard.style.justifyContent = 'center';
+            emptyCard.style.minHeight = '120px';
             emptyCard.innerHTML = `
-                <h3>总学习次数</h3>
-                <div class="count-value">0</div>
+                <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
+                    <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
+                </div>
+                <div style="position: relative; z-index: 1;">
+                    <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: 15px;">总学习次数</h3>
+                    <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
+                </div>
             `;
             statsGrid.appendChild(emptyCard);
         } else {
-            // 深色渐变卡片配色
-            const colorMap = {
-                '试教': { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', icon: 'auto_stories', shadow: 'rgba(16, 185, 129, 0.2)' },
-                '入户': { bg: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', icon: 'home', shadow: 'rgba(59, 130, 246, 0.2)' },
-                '评审': { bg: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', icon: 'fact_check', shadow: 'rgba(139, 92, 246, 0.2)' },
-                '咨询': { bg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', icon: 'forum', shadow: 'rgba(245, 158, 11, 0.2)' },
-                '待确认': { bg: 'linear-gradient(135deg, #64748b 0%, #475569 100%)', icon: 'pending_actions', shadow: 'rgba(100, 116, 139, 0.2)' },
-                'default': { bg: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', icon: 'stars', shadow: 'rgba(14, 165, 233, 0.2)' }
-            };
-
-            types.forEach(type => {
+            types.forEach((type, index) => {
                 const count = data.typeStats[type];
-                const cardConfig = colorMap[type] || colorMap['default'];
+                const colorConfig = uiColors[index % uiColors.length];
                 const card = document.createElement('div');
-                card.className = 'type-stat-card premium-card';
-                card.style.cssText = `
-                    background: ${cardConfig.bg};
-                    box-shadow: 0 10px 20px -5px ${cardConfig.shadow};
-                    color: white;
-                    padding: 24px;
-                    border-radius: 16px;
-                    position: relative;
-                    overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    align-items: center;
-                    min-width: 160px;
-                    flex: 1;
-                `;
+                card.className = 'stat-card scale-hover';
+                card.style.background = colorConfig.bg;
+                card.style.border = 'none';
+                card.style.position = 'relative';
+                card.style.overflow = 'hidden';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.justifyContent = 'center';
+                card.style.minHeight = '120px';
+
                 card.innerHTML = `
-                    <span class="material-icons-round" style="position: absolute; right: -10px; bottom: -10px; font-size: 80px; opacity: 0.15; transform: rotate(-15deg); pointer-events: none;">${cardConfig.icon}</span>
-                    <h3 style="margin: 0; font-size: 14px; font-weight: 500; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">${type}</h3>
-                    <div class="count-value" style="font-size: 32px; font-weight: 800; margin-top: 8px; text-shadow: 0 2px 4px rgba(0,0,0,0.1);">${count}</div>
+                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
+                        <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
+                    </div>
+                    <div style="position: relative; z-index: 1;">
+                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: 15px;">${type}</h3>
+                        <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
+                    </div>
                 `;
                 statsGrid.appendChild(card);
             });
