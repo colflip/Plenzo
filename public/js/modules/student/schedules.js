@@ -81,7 +81,7 @@ function bindNavigation() {
     }
 }
 
-export async function loadSchedules(baseDate) {
+export async function loadSchedules(baseDate, showLoading = true) {
     const weekStart = startOfWeek(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -122,11 +122,18 @@ export async function loadSchedules(baseDate) {
         document.head.appendChild(style);
     }
 
-    // 立即渲染表头，消除导航时"头身不一致"的中间状态
+    // 获取表格容器
+    const tableContainer = document.querySelector('#schedules .schedule-unified-card');
+
+    // 1. 先渲染表头，消除导航时"头身不一致"的中间状态
     if (!isMobileView()) {
         renderHeader(weekDates);
     }
-    showLoadingState();
+
+    // 2. 显示加载动画（与教师端保持一致）
+    if (showLoading && tableContainer && window.showTableLoading) {
+        window.showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
+    }
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -153,6 +160,11 @@ export async function loadSchedules(baseDate) {
 
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && tableContainer && window.hideTableLoading) {
+            window.hideTableLoading(tableContainer);
+        }
     }
 }
 
@@ -723,25 +735,17 @@ function showLoadingState() {
     if (!tbody) return;
     clearChildren(tbody);
 
-    // Create 5 skeleton rows
-    for (let i = 0; i < 5; i++) {
-        const row = document.createElement('tr');
-        row.className = 'schedule-loading-row';
-
-        /* 
-        // 学生端单行布局为 7 列 (对应周一至周日)
-        // 不需要像管理端/教师端那样额外增加一列教师姓名列
-        */
-
-        // 学生端为 7 列布局
-        for (let j = 0; j < 7; j++) {
-            const cell = document.createElement('td');
-            const skeleton = document.createElement('div');
-            skeleton.className = 'skeleton-loader';
-            skeleton.style.margin = '4px';
-            cell.appendChild(skeleton);
-            row.appendChild(cell);
-        }
-        tbody.appendChild(row);
+    const row = document.createElement('tr');
+    row.className = 'schedule-loading-row';
+    const loadingCell = document.createElement('td');
+    loadingCell.colSpan = 7;
+    loadingCell.style.textAlign = 'center';
+    loadingCell.style.padding = '40px 0';
+    if (window.SecurityUtils) {
+        window.SecurityUtils.safeSetHTML(loadingCell, '<div class="loading-container flex flex-col items-center justify-center"><div class="loading-spinner" style="margin-bottom: 12px;"></div><div style="color: var(--color-gray-500); font-weight: 500;">加载中...</div></div>');
+    } else {
+        loadingCell.innerHTML = '<div class="loading-container flex flex-col items-center justify-center"><div class="loading-spinner" style="margin-bottom: 12px;"></div><div style="color: var(--color-gray-500); font-weight: 500;">加载中...</div></div>';
     }
+    row.appendChild(loadingCell);
+    tbody.appendChild(row);
 }

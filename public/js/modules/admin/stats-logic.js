@@ -1,5 +1,7 @@
 // Extracted Statistics Logic
 // This file contains functions for rendering various statistics charts using Chart.js.
+import { showTableLoading, hideTableLoading } from './ui-helper.js';
+
 
 /**
  * 将 getUserStats API 返回的数据转换为 Chart.js 堆叠柱状图格式
@@ -1385,7 +1387,8 @@ export function setupTeacherChartsFilter(rows, dayLabels) {
             teachers.sort((a, b) => {
                 const wa = weight(a?.status), wb = weight(b?.status);
                 if (wa !== wb) return wa - wb;
-                return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN');
+                // 按教师 ID 数字从小到大排序
+                return Number(a?.id || 0) - Number(b?.id || 0);
             });
             teachers.forEach(t => {
                 const idStr = String(t.id || '');
@@ -1578,7 +1581,8 @@ export function setupStudentChartsFilter(rows, dayLabels) {
             students.sort((a, b) => {
                 const wa = weight(a?.status), wb = weight(b?.status);
                 if (wa !== wb) return wa - wb;
-                return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN');
+                // 按学生 ID 数字从小到大排序
+                return Number(a?.id || 0) - Number(b?.id || 0);
             });
             students.forEach(s => {
                 const idStr = String(s.id || '');
@@ -1863,6 +1867,7 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         card.style.position = 'relative';
         card.style.height = '320px';
 
+        // card.style.height = '320px'; // 保持原有样式设置
         const st = getStatus(studentId);
         const displayName = String(nameMap.get(studentId) || stuRows.find(r => r.student_name)?.student_name || '未分配');
 

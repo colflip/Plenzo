@@ -47,13 +47,16 @@ class ModalManager {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
+                background-color: rgba(0, 0, 0, 0.5);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 opacity: 0;
                 transition: opacity 0.3s ease;
                 backdrop-filter: blur(2px);
+                pointer-events: auto;
+                user-select: none;
+                -webkit-user-select: none;
             }
             .modal-overlay.visible { opacity: 1; }
 
@@ -68,6 +71,9 @@ class ModalManager {
                 flex-direction: column;
                 transform: scale(0.9) translateY(-20px);
                 transition: transform 0.3s ease;
+                pointer-events: auto;
+                user-select: text;
+                -webkit-user-select: text;
             }
             .modal-overlay.visible .modal-container {
                 transform: scale(1) translateY(0);

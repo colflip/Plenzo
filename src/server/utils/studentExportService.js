@@ -202,7 +202,20 @@ class StudentExportService {
         if (!data || data.length === 0) return;
         const keys = Object.keys(data[0]);
         const colWidths = keys.map(key => {
-            let maxWidth = this.getStringWidth(key);
+            let maxWidth = this.getStringWidth(key) + 4; // 添加基础内边距
+            
+            // 为特定列设置最小宽度限制
+            const MIN_WIDTHS = {
+                '日期': 14,
+                '时间段': 16,
+                '教师名称': 14,
+                '类型': 14
+            };
+            
+            if (MIN_WIDTHS[key] && maxWidth < MIN_WIDTHS[key]) {
+                maxWidth = MIN_WIDTHS[key];
+            }
+
             data.forEach(row => {
                 const val = row[key] ? String(row[key]) : '';
                 const width = this.getStringWidth(val);

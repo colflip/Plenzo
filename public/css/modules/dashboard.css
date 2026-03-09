@@ -301,17 +301,19 @@ body {
     .sidebar-overlay {
         position: fixed;
         inset: 0;
-        background-color: rgba(0, 0, 0, 0.5);
+        background-color: rgba(0, 0, 0, 0.5); /* 统一改为了0.5以保证三端一致 */
         z-index: 1000;
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.3s ease;
         backdrop-filter: blur(2px);
+        user-select: none;
+        -webkit-user-select: none;
     }
 
     .sidebar-overlay.active {
         opacity: 1;
-        pointer-events: auto;
+        pointer-events: auto; /* 打开时防止点击穿透 */
     }
 }
 
@@ -342,11 +344,15 @@ body {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background-color: rgba(0, 0, 0, 0.5);
     z-index: 999;
+    pointer-events: auto; /* 防止点击穿透 */
+    user-select: none; /* 防止遮罩层外的文本意外被选中 */
+    -webkit-user-select: none;
 }
 
-#userFormContainer.form-container {
+#userFormContainer.form-container,
+#scheduleFormContainer.form-container {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -358,9 +364,13 @@ body {
     border: 1px solid #E5E7EB;
     border-radius: 12px;
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+    pointer-events: auto; /* 恢复弹窗本身的事件 */
+    user-select: text; /* 恢复弹窗内的文本选择功能 */
+    -webkit-user-select: text;
 }
 
-#userFormContainer .form-header {
+#userFormContainer .form-header,
+#scheduleFormContainer .form-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -368,7 +378,8 @@ body {
     border-bottom: 1px solid #E5E7EB;
 }
 
-#userFormContainer .close-btn {
+#userFormContainer .close-btn,
+#scheduleFormContainer .close-btn {
     background: transparent;
     border: none;
     width: 28px;
@@ -377,7 +388,8 @@ body {
     cursor: pointer;
 }
 
-#userFormContainer .form-actions {
+#userFormContainer .form-actions,
+#scheduleFormContainer .form-actions {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
@@ -434,7 +446,7 @@ body {
 
 @keyframes slideDown {
     from {
-        transform: translateY(-20px);
+        transform: translateY(-1px);
         opacity: 0;
     }
 
@@ -575,6 +587,9 @@ body {
     /* 内容滚动，不溢出屏幕 */
     box-sizing: border-box;
     animation: modalFadeIn 0.3s ease;
+    pointer-events: auto; /* 恢复弹窗本身的事件 */
+    user-select: text; /* 恢复弹窗中表单正常文本选择 */
+    -webkit-user-select: text;
 }
 
 @keyframes modalFadeIn {
@@ -951,11 +966,23 @@ body {
     margin-top: 20px;
 }
 
-.form-actions button {
-    padding: 8px 15px;
+.form-actions button,
+.form-actions .btn,
+.form-actions .primary-btn,
+.form-actions .btn-secondary {
+    padding: 8px 24px !important;
     border: none;
     border-radius: 10px;
     cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    min-width: 110px !important;
+    height: 38px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
 }
 
 .form-actions button[type="button"] {
@@ -1004,6 +1031,7 @@ body {
     /* For border radius */
     margin-top: 0;
     /* Remove default margin as container handles spacing */
+    position: relative; /* 确保加载遮罩层定位正确 */
 }
 
 /* Data Table Clean Style */
@@ -1031,12 +1059,11 @@ body {
     /* Light grey header */
     color: var(--admin-text-body);
     font-weight: 600;
-    text-transform: uppercase;
-    font-size: 12px;
-    letter-spacing: 0.05em;
-    padding: 11px 24px;
-    border-bottom: 1px solid var(--admin-border);
-    text-align: left;
+    font-size: 14px;
+    letter-spacing: 0;
+    padding: 16px 12px;
+    border-bottom: 2px solid #E5E7EB;
+    text-align: center;
 }
 
 .data-table td,
@@ -1226,7 +1253,7 @@ body {
     justify-content: center;
 }
 
-.modal-overlay {
+.modal .modal-overlay {
     position: absolute;
     top: 0;
     left: 0;
@@ -1252,7 +1279,7 @@ body {
 @keyframes modalSlideIn {
     from {
         opacity: 0;
-        transform: translateY(-20px);
+        transform: translateY(-1px);
     }
 
     to {
@@ -2138,16 +2165,32 @@ tr:last-child td {
     word-break: break-word;
 }
 
+#usersTable thead th:last-child,
+#scheduleTypesTable thead th:last-child,
+#usersTable tbody td.actions,
+#scheduleTypesTable tbody td.actions {
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
 #usersTable td.actions,
 #scheduleTypesTable td.actions {
     white-space: nowrap;
-    display: flex;
-    justify-content: center;
+    display: table-cell; /* 显式恢复为 table-cell */
+    min-width: 120px;
+}
+
+#usersTable td.actions .btn-icon,
+#scheduleTypesTable td.actions .btn-icon,
+#usersTable td.actions .edit-type-btn,
+#scheduleTypesTable td.actions .edit-type-btn,
+#usersTable td.actions .delete-type-btn,
+#scheduleTypesTable td.actions .delete-type-btn {
+    display: inline-flex !important;
     align-items: center;
-    gap: 8px;
-    height: 100%;
-    min-height: 58px;
-    /* Match row height */
+    justify-content: center;
+    margin: 0 4px;
+    vertical-align: middle;
 }
 
 /* 用户管理操作区（右侧对齐） */
@@ -2310,10 +2353,23 @@ tr:last-child td {
     /* labels don't need fixed height if flex aligned */
 }
 
-/* Legacy support - will eventually replace */
+/* 排课/空闲时段控制区域（与 statistics-controls 保持一致规范） */
 .schedule-controls {
-    /* Inherits layout from header-toolbar when applied together */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-std);
+    padding: 16px 20px;
+    background: #ffffff;
+    border: 1px solid var(--border-muted, #e9ecef);
+    border-radius: var(--card-radius);
+    box-shadow: none;
+    min-height: var(--controls-min-height);
+    flex-wrap: wrap;
 }
+
+/* Legacy support - will eventually replace */
+/* 已统一为上面的完整样式 */
 
 .schedule-filters {
     display: flex;
@@ -2403,31 +2459,39 @@ tr:last-child td {
     display: flex;
     align-items: center;
     gap: 12px;
+    background: #F9FAFB;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid #E5E7EB;
 }
 
 .nav-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    min-width: 36px;
-    max-width: 44px;
-    height: 36px;
-    border: 1px solid #ced4da;
-    background: white;
-    border-radius: 8px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
+    color: #4B5563;
 }
 
 #prevWeek,
-#nextWeek {
+#nextWeek,
+#avPrevWeek,
+#avNextWeek,
+#avStudentPrevWeek,
+#avStudentNextWeek {
     flex: 0 0 auto;
 }
 
 .nav-btn:hover {
-    background: #e9ecef;
-    border-color: #adb5bd;
+    background: rgba(0, 0, 0, 0.05);
+    color: #1F2937;
 }
 
 .nav-btn .material-icons-round {
@@ -2435,12 +2499,15 @@ tr:last-child td {
     color: #495057;
 }
 
-#weekRange {
-    font-size: 16px;
-    font-weight: 500;
-    color: #495057;
-    min-width: 120px;
+#weekRange,
+#weekRangeAvail,
+#studentWeekRange {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1F2937;
+    min-width: 180px;
     text-align: center;
+    white-space: nowrap;
 }
 
 /* 排课详情弹窗样式 */
@@ -2594,6 +2661,12 @@ tr:last-child td {
         align-items: stretch;
     }
 
+    .statistics-controls {
+        flex-direction: column;
+        gap: 16px;
+        align-items: stretch;
+    }
+
     .schedule-filters {
         flex-wrap: wrap;
         gap: 12px;
@@ -2627,12 +2700,16 @@ tr:last-child td {
 }
 
 #weeklyHeader th,
-#weeklyBody td {
+#ssWeeklyHeader th,
+#weeklyHeaderAvail th,
+#weeklyBody td,
+#ssWeeklyBody td,
+#weeklyBodyAvail td {
     border: 1px solid #E9ECEF;
-    padding: 10px 12px;
+    padding: 16px 12px;
     text-align: center;
     vertical-align: middle;
-    line-height: 1.8;
+    line-height: 1.5;
 }
 
 /* 让日期表头在纵向滚动时保持可见 */
@@ -6259,48 +6336,8 @@ svg {
     min-height: 300px;
 }
 
-.stats-loading-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.95);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-    border-radius: 12px;
-    backdrop-filter: blur(4px);
-    transition: opacity 0.3s ease;
-}
 
-.stats-loading-overlay .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid #e2e8f0;
-    border-top: 3px solid #3b82f6;
-    border-radius: 50%;
-    animation: stats-spin 1s linear infinite;
-    margin-bottom: 16px;
-}
-
-.stats-loading-overlay .loading-text {
-    color: #64748b;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-@keyframes stats-spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
-}
+/* 移除了冗余的 .stats-loading-overlay 定义，统一使用 global.css 中的高级感样式 */
 
 /* =========================================
    Teacher Availability Table Customization
@@ -6308,6 +6345,7 @@ svg {
 
 /* Center Teacher Name Column (First Column) */
 #availabilityTable th:first-child,
+#studentAvailabilityTable th:first-child,
 #availabilityBody td:first-child,
 #availabilityBody .fixed-col,
 #scheduleTypesTable th,
@@ -6320,12 +6358,13 @@ svg {
 /* Reduce Row Height for Availability Table & Schedule Table */
 /* Teacher Availability & Weekly Schedule Spacing */
 #availabilityHeader th,
+#studentAvailabilityHeader th,
 #scheduleTypesTable thead th,
-#weeklyHeader th {
-    padding: 16px 4px !important;
-    /* Even larger padding for header */
-    height: 96px;
-    /* Even larger height for header (increased from 60 to 75) */
+#weeklyHeader th,
+#ssWeeklyHeader th,
+#weeklyHeaderAvail th {
+    padding: 16px 12px !important;
+    height: auto;
     line-height: 1.4 !important;
     vertical-align: middle;
 }
@@ -6333,10 +6372,10 @@ svg {
 #availabilityBody td,
 #scheduleTypesTable tbody td,
 #weeklyBody td {
-    padding: 14px 4px !important;
-    /* Further increased padding */
-    height: 72px;
-    /* Increased height for data rows (increased from 50 to 60) */
+    padding: 10px 4px !important;
+    /* 统一为用户管理模块基准高度 */
+    height: 96px;
+    /* 统一高度值 */
     line-height: 1.4 !important;
     vertical-align: middle;
 }
@@ -6349,11 +6388,13 @@ svg {
 }
 
 #availabilityHeader th,
+#studentAvailabilityHeader th,
 #scheduleTypesTable thead th,
-#weeklyHeader th {
-    font-size: 18px !important;
-    /* Small 3 (Increased to 18px per user request) */
-    font-weight: bold !important;
+#weeklyHeader th,
+#ssWeeklyHeader th,
+#weeklyHeaderAvail th {
+    font-size: 14px !important;
+    font-weight: 600 !important;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     /* Shadow style */
     background-color: #F9FAFB;
@@ -7039,7 +7080,9 @@ svg {
 }
 
 #weekRange,
-#weekRangeAvail {
+#weekRangeAvail,
+#avWeekRange,
+#avStudentWeekRange {
     font-size: 15px !important;
     font-weight: 600 !important;
     color: #1E293B !important;
@@ -7705,7 +7748,7 @@ svg {
 }
 
 .stat-card.summary-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-1px);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     border-color: #CBD5E1;
     z-index: 50;
@@ -8819,7 +8862,7 @@ svg {
 }
 
 .overview-gradient-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-1px);
     box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.12);
 }
 

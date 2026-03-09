@@ -82,8 +82,11 @@
         if (dateLabel) dateLabel.textContent = formatDateLabel(state.selectedDate);
 
         // 显示加载状态
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:#64748b;">
-            <div class="loading-spinner" style="margin:0 auto 10px;"></div>加载中...
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;">
+            <div class="loading-container flex flex-col items-center justify-center">
+                <div class="loading-spinner" style="margin-bottom: 12px;"></div>
+                <div style="color: var(--color-gray-500); font-weight: 500;">加载中...</div>
+            </div>
         </td></tr>`;
 
         try {

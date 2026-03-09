@@ -18,16 +18,21 @@ window.ExportDialog = (function () {
      */
     function getCurrentUser() {
         if (window.currentUser && window.currentUser.userType) return window.currentUser;
+        
         try {
-            const userData = localStorage.getItem('userData');
             const userType = localStorage.getItem('userType');
+            if (userType) return { userType };
+            
+            const userData = localStorage.getItem('userData');
             if (userData) {
                 const user = JSON.parse(userData);
-                user.userType = user.userType || userType || 'admin';
-                return user;
+                if (user && typeof user === 'object') {
+                    user.userType = user.userType || 'admin';
+                    return user;
+                }
             }
-            if (userType) return { userType };
         } catch (e) { }
+        
         return { userType: 'admin' };
     }
 
@@ -133,610 +138,30 @@ window.ExportDialog = (function () {
         return desc;
     };
 
-    /**
-     * 初始化对话框 HTML 结构
-     */
-    function createDialogHTML() {
-        // 根据角色过滤导出类型
-        const currentUser = getCurrentUser();
-        const userType = currentUser.userType || 'admin';
-
-        let filteredTypes = Object.entries(EXPORT_TYPE_CONFIG);
-        if (userType === 'teacher') {
-            // 班主任角色：只显示“教师排课记录”，删除其他（如学生信息、老师信息等）
-            filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.TEACHER_SCHEDULE);
-        } else if (userType === 'student') {
-            filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.STUDENT_SCHEDULE);
-        }
-
-        const html = `
-            <div id="exportDialogOverlay" class="export-dialog-overlay" style="display: none;">
-                <div id="exportDialog" class="export-dialog-container">
-                    <!-- 对话框头部 -->
-                    <div class="export-dialog-header">
-                        <div class="export-dialog-title">
-                            <span class="material-icons-round">file_download</span>
-                            <h2>数据导出</h2>
-                        </div>
-                        <button class="export-dialog-close" aria-label="关闭导出对话框">
-                            <span class="material-icons-round">close</span>
-                        </button>
-                    </div>
-
-                    <!-- 对话框内容 -->
-                    <div class="export-dialog-content">
-
-
-                        <!-- 步骤 1：选择导出类型 -->
-                        <div class="export-step-content active" data-step="1">
-                            <h3>选择导出类型</h3>
-                            <div class="export-type-selector" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                                ${filteredTypes.map(([typeId, config]) => `
-                                    <label class="export-type-option" data-type="${typeId}" style="margin-bottom: 0;">
-                                        <input type="radio" name="exportType" value="${typeId}" style="display: none;">
-                                        <div class="export-type-card" style="padding: 12px; height: 100%; display: flex; align-items: center; gap: 12px;">
-                                            <div class="export-type-icon" style="width: 36px; height: 36px; font-size: 20px;">
-                                                <span class="material-icons-round" style="font-size: 20px;">${config.icon}</span>
-                                            </div>
-                                            <div class="export-type-info" style="flex: 1;">
-                                                <h4 style="font-size: 14px; margin-bottom: 4px;">${config.label}</h4>
-                                                <p style="font-size: 12px; line-height: 1.3; margin-bottom: 0;">${config.description}</p>
-                                            </div>
-                                            <div class="export-type-check" style="top: 8px; right: 8px;">
-                                                <span class="material-icons-round" style="font-size: 16px;">check_circle</span>
-                                            </div>
-                                        </div>
-                                    </label>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <!-- 步骤 2：配置选项 -->
-                        <div class="export-step-content" data-step="2">
-                            <h3>配置导出选项</h3>
-                            
-                            <!-- 日期范围选择（仅对需要的类型显示） -->
-                            <div class="export-date-range-section" style="display: none;">
-                                <!-- 组合日期输入和快速选择 -->
-                                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-                                    <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-                                        <div class="export-form-group" style="flex: 1; margin-bottom: 0;">
-                                            <label for="exportStartDate">开始日期</label>
-                                            <input type="date" id="exportStartDate" required>
-                                        </div>
-                                        <div class="export-form-group" style="flex: 1; margin-bottom: 0;">
-                                            <label for="exportEndDate">结束日期</label>
-                                            <input type="date" id="exportEndDate" required>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="export-date-presets" style="margin: 0; padding: 0; border: none;">
-                                        <label style="margin-bottom: 8px; display: block;">快速选择:</label>
-                                        <div class="export-preset-buttons">
-                                            <button type="button" class="export-preset-btn" data-preset="week">本周</button>
-                                            <button type="button" class="export-preset-btn active" data-preset="month">本月</button>
-                                            <button type="button" class="export-preset-btn" data-preset="quarter">本季度</button>
-                                            <button type="button" class="export-preset-btn" data-preset="last-week">上周</button>
-                                            <button type="button" class="export-preset-btn" data-preset="last-month">上月</button>
-                                            <button type="button" class="export-preset-btn" data-preset="last-quarter">上季度</button>
-                                        </div>
-                                    </div>
-                                    <div class="export-date-validation" style="display: none; margin-top: 12px; padding: 8px 12px;">
-                                        <span class="material-icons-round" style="font-size: 16px;">info</span>
-                                        <span id="exportDateValidationMsg" style="font-size: 12px;">日期范围有效</span>
-                                    </div>
-                                </div>
-
-                                <div class="export-filters-row" style="display: flex; gap: 12px;">
-                                    <div class="export-form-group" id="exportStudentFilter" style="display: none; flex: 1;">
-                                        <label for="exportStudentSelect">筛选学生</label>
-                                        <select id="exportStudentSelect" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box;">
-                                            <option value="">全部学生</option>
-                                            <option value="loading" disabled>加载中...</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="export-form-group" id="exportTeacherFilter" style="display: none; flex: 1;">
-                                        <label for="exportTeacherSelect">筛选教师</label>
-                                        <select id="exportTeacherSelect" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box;">
-                                            <option value="">全部教师</option>
-                                            <option value="loading" disabled>加载中...</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div style="margin-top: 4px; display: none;" id="filterHint">
-                                     <p style="font-size: 12px; color: #94a3b8; margin: 0;">选择特定人员以导出相关记录</p>
-                                </div>
-                            </div>
-
-                            <!-- (已移除 CSV 选项，默认仅支持 Excel) -->
-                            <div class="export-format-section" style="display: none;">
-                                <h4>导出格式</h4>
-                                <div class="export-format-options">
-                                    <label class="export-format-option">
-                                        <input type="radio" name="exportFormat" value="excel" checked style="display: none;">
-                                        <div class="export-format-card">
-                                            <span class="material-icons-round">table_chart</span>
-                                            <span>Excel (.xlsx)</span>
-                                        </div>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- 导出信息汇总 -->
-                            <div class="export-config-summary">
-                                <h4>导出配置汇总</h4>
-                                <div class="export-summary-items">
-                                    <div class="export-summary-item">
-                                        <span class="export-summary-label">导出类型:</span>
-                                        <span class="export-summary-value" id="exportConfigType">-</span>
-                                    </div>
-                                    <div class="export-summary-item export-summary-date" style="display: none;">
-                                        <span class="export-summary-label">时间范围:</span>
-                                        <span class="export-summary-value" id="exportConfigRange">-</span>
-                                    </div>
-                                    <div class="export-summary-item">
-                                        <span class="export-summary-label">导出格式:</span>
-                                        <span class="export-summary-value" id="exportConfigFormat">Excel</span>
-                                    </div>
-                                </div>
-                                </div>
-                            </div>
-                            <!-- 隐藏之前的汇总部分减少高度 -->
-                        </div>
-
-                        <!-- 步骤 3：导出进度 -->
-                        <div class="export-step-content" data-step="3" style="height: 100%; display: none; flex-direction: column; justify-content: center;">
-                            <div style="text-align: center; margin-bottom: 24px;">
-                                <h3 style="margin-bottom: 8px;">导出进度</h3>
-                                <p style="color: #64748b; font-size: 14px; margin: 0;">正在生成文件，请稍候...</p>
-                            </div>
-                            <div class="export-progress-section" style="max-width: 400px; margin: 0 auto; width: 100%;">
-                                <div class="export-progress-bar-container" style="margin-bottom: 24px;">
-                                    <div class="export-progress-bar" style="height: 12px; background-color: #f1f5f9; border-radius: 6px;">
-                                        <div class="export-progress-fill" id="exportProgressFill" style="width: 0%; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #10b981, #10b981); transition: width 0.3s ease;"></div>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #64748b;">
-                                        <span id="exportProgressMsg">准备就绪</span>
-                                        <span id="exportProgressPercent" style="font-weight: 600; color: #10b981;">0%</span>
-                                    </div>
-                                </div>
-                                <div class="export-progress-details" id="exportProgressDetails" style="display: none; text-align: left; margin-top: 24px;">
-                                    <!-- 详细进度信息 -->
-                                </div>
-                            </div>
-                        </div>
-                        <!-- 步骤指示器 (移动到底部) -->
-                        <div class="export-steps" style="margin-top: 16px; padding: 0 16px;">
-                            <div class="step active" data-step="1">
-                                <span class="step-number" style="width: 24px; height: 24px; font-size: 12px;">1</span>
-                                <span class="step-label" style="font-size: 12px;">类型</span>
-                            </div>
-                            <div class="step-connector"></div>
-                            <div class="step" data-step="2">
-                                <span class="step-number" style="width: 24px; height: 24px; font-size: 12px;">2</span>
-                                <span class="step-label" style="font-size: 12px;">配置</span>
-                            </div>
-                            <div class="step-connector"></div>
-                            <div class="step" data-step="3">
-                                <span class="step-number" style="width: 24px; height: 24px; font-size: 12px;">3</span>
-                                <span class="step-label" style="font-size: 12px;">导出</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 对话框底部 -->
-                    <div class="export-dialog-footer">
-                        <div class="export-dialog-actions">
-                            <div class="export-dialog-spacer"></div>
-                            <button id="exportDialogPrevBtn" class="export-btn-secondary" style="margin-right: 12px; display: none;">
-                                <span class="material-icons-round">arrow_back</span>
-                                上一步
-                            </button>
-                            <button id="exportDialogCancelBtn" class="export-btn-secondary" style="margin-right: 12px;">
-                                取消
-                            </button>
-                            <!-- 复制按钮已移除 -->
-                            <button id="exportDialogNextBtn" class="export-btn-primary" disabled>
-                                <span class="material-icons-round">arrow_forward</span>
-                                下一步
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        return html;
-    }
+    // V1 createDialogHTML 已移除，统一使用文件末尾的 V2 版本
 
     /**
      * 初始化对话框样式
      */
-    function injectStyles() {
-        const existingStyle = document.getElementById('exportDialogStyles');
-        if (existingStyle) existingStyle.remove();
+    // V1 injectStyles 已移除，统一使用文件末尾的 V2 版本
 
-        const style = document.createElement('style');
-        style.id = 'exportDialogStyles';
-        style.textContent = `
-            /* ========== 现代弹窗样式 ========== */
-            .export-dialog-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(15, 23, 42, 0.45); /* 深色遮罩 */
-                backdrop-filter: blur(4px); /* 毛玻璃 */
-                z-index: 9999;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                animation: fadeIn 0.2s ease;
-            }
 
-            .export-dialog-container {
-                background: #ffffff;
-                border-radius: 16px; /* 更大的圆角 */
-                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-                width: 90%;
-                max-width: 600px;
-                max-height: 85vh;
-                display: flex !important;
-                flex-direction: column !important;
-                position: relative !important;
-                overflow: hidden;
-                animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            }
-
-            @keyframes scaleIn {
-                from { opacity: 0; transform: scale(0.95) translateY(10px); }
-                to { opacity: 1; transform: scale(1) translateY(0); }
-            }
-
-            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-            /* ========== 头部 ========== */
-            .export-dialog-header {
-                padding: 16px 24px;
-                border-bottom: 1px solid #f1f5f9;
-                background: #fff;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            }
-
-            .export-dialog-title {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin: 0;
-            }
-
-            .export-dialog-title h2 {
-                margin: 0;
-                font-size: 18px;
-                font-weight: 600;
-                color: #0f172a;
-                letter-spacing: -0.025em;
-            }
-
-            .export-dialog-title .material-icons-round {
-                color: #10b981; 
-                font-size: 24px;
-                background: #ecfdf5;
-                padding: 8px;
-                border-radius: 10px;
-            }
-
-            .export-dialog-close {
-                background: transparent;
-                border: none;
-                color: #94a3b8;
-                cursor: pointer;
-                padding: 8px;
-                border-radius: 8px;
-                transition: all 0.2s;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-
-            .export-dialog-close:hover {
-                background: #f1f5f9;
-                color: #64748b;
-            }
-
-            /* ========== 内容区域 ========== */
-            .export-dialog-content {
-                flex: 1;
-                overflow-y: auto;
-                padding: 24px;
-                display: flex;
-                flex-direction: column;
-                background: #fafafa; /* 极淡灰背景 */
-            }
-
-            .export-step-content {
-                animation: fadeIn 0.3s ease;
-            }
-
-            .export-step-content h3 {
-                margin: 0 0 16px 0;
-                font-size: 16px;
-                font-weight: 600;
-                color: #334155;
-            }
-
-            /* ========== 类型选择 ========== */
-            .export-type-selector {
-                gap: 16px;
-                display: flex;
-                flex-direction: column;
-            }
-
-            .export-type-option { 
-                cursor: pointer; 
-                user-select: none;
-            }
-
-            .export-type-card {
-                display: flex;
-                align-items: center;
-                gap: 16px;
-                padding: 16px;
-                background: #fff;
-                border: 1px solid #e2e8f0;
-                border-radius: 12px;
-                transition: all 0.2s ease;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            }
-
-            .export-type-option:hover .export-type-card {
-                border-color: #93c5fd;
-                transform: translateY(-1px);
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            }
-
-            .export-type-option input:checked + .export-type-card {
-                border-color: #10b981;
-                background: #ecfdf5;
-                box-shadow: 0 0 0 1px #10b981;
-            }
-
-            .export-type-icon {
-                width: 44px;
-                height: 44px;
-                background: #f8fafc;
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #64748b;
-                font-size: 22px;
-                transition: color 0.2s;
-            }
-
-            .export-type-option input:checked + .export-type-card .export-type-icon {
-                background: #d1fae5;
-                color: #10b981;
-            }
-
-            .export-type-info {
-                flex: 1;
-            }
-
-            .export-type-info h4 {
-                margin: 0 0 4px 0;
-                font-size: 15px;
-                font-weight: 600;
-                color: #0f172a;
-            }
-
-            .export-type-info p {
-                margin: 0;
-                font-size: 13px;
-                color: #64748b;
-            }
-            
-            .export-type-check {
-                display: none;
-                align-items: center;
-                justify-content: center;
-                width: 24px;
-                height: 24px;
-                color: #10b981;
-            }
-
-            .export-type-option input:checked + .export-type-card .export-type-check {
-                display: flex;
-            }
-
-            /* ========== 底部区域 (步骤条 + 按钮) ========== */
-            .export-dialog-footer {
-                padding: 16px 24px;
-                background: #fff;
-                border-top: 1px solid #f1f5f9;
-                display: flex;
-                flex-direction: column; 
-                gap: 16px;
-            }
-
-            /* Refined Steps Indicator */
-            .export-steps {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                margin-bottom: 8px;
-            }
-
-            .step {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                color: #94a3b8;
-                font-weight: 500;
-                font-size: 13px;
-                position: relative;
-            }
-
-            .step.active {
-                color: #10b981;
-                font-weight: 600;
-            }
-
-            .step-number {
-                width: 24px;
-                height: 24px;
-                border-radius: 50%;
-                background: #f1f5f9;
-                color: #64748b;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 12px;
-                font-weight: 700;
-                transition: all 0.3s;
-            }
-
-            .step.active .step-number {
-                background: #10b981;
-                color: #fff;
-                box-shadow: 0 0 0 3px #d1fae5;
-            }
-
-            .step-connector {
-                width: 40px;
-                height: 2px;
-                background: #e2e8f0;
-                margin: 0 12px;
-                border-radius: 2px;
-            }
-
-            .step.active + .step-connector {
-                background: #cbd5e1;
-            }
-
-            /* ========== 按钮组 ========== */
-            .export-dialog-actions {
-                display: flex;
-                justify-content: flex-end;
-                gap: 12px;
-                margin-top: 0; 
-            }
-
-            .btn-secondary {
-                padding: 10px 20px;
-                border: 1px solid #cbd5e1;
-                background: #fff;
-                color: #475569;
-                border-radius: 8px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-size: 14px;
-            }
-
-            .btn-secondary:hover {
-                background: #f8fafc;
-                border-color: #94a3b8;
-                color: #334155;
-            }
-
-            .btn-primary {
-                padding: 10px 24px;
-                background: #10b981;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s;
-                box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4);
-                font-size: 14px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-
-            .btn-primary:hover {
-                background: #059669;
-                transform: translateY(-1px);
-                box-shadow: 0 6px 8px -1px rgba(59, 130, 246, 0.5);
-            }
-
-            .btn-primary:disabled {
-                background: #94a3b8;
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: none;
-            }
-            
-            /* Form Style Polish */
-             .export-date-range-section {
-                background: #fff;
-                border: 1px solid #e2e8f0;
-                border-radius: 12px;
-                padding: 20px;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                margin-bottom: 20px;
-            }
-            
-            .export-form-group input, .export-form-group select {
-                width: 100%;
-                padding: 10px 14px;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                font-size: 14px;
-                transition: all 0.2s;
-                background: #fff;
-                box-sizing: border-box; 
-            }
-            .export-form-group input:focus, .export-form-group select:focus {
-                border-color: #10b981;
-                box-shadow: 0 0 0 3px #d1fae5;
-                outline: none;
-            }
-            
-            .export-preset-btn {
-                background: #fff;
-                border: 1px solid #e2e8f0;
-                color: #475569;
-                padding: 6px 12px;
-                border-radius: 6px;
-                font-size: 12px;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-            .export-preset-btn:hover {
-                border-color: #93c5fd;
-                color: #10b981;
-                background: #ecfdf5;
-            }
-            .export-preset-btn.active {
-                border-color: #10b981;
-                color: #10b981;
-                background: #ecfdf5;
-                font-weight: 500;
-                box-shadow: 0 0 0 1px #10b981;
-            }
-
-            /* Hidden Utility */
-            .hidden { display: none !important; }
-    `;
-
-        document.head.appendChild(style);
-    }
 
     /**
      * 关闭对话框
+     * @param {boolean} force - 是否强制关闭（用于导出完成后）
      */
-    function close() {
+    function close(force = false) {
+        // 如果正在导出且未强制关闭，则阻止关闭
+        if (state.isExporting && !force) {
+            return;
+        }
+        
         if (modalOverlay) modalOverlay.style.display = 'none';
         if (dialogElement) dialogElement.style.display = 'none';
         document.body.style.overflow = '';
         state.isOpen = false;
+        state.isExporting = false;
         resetState();
     }
 
@@ -858,7 +283,7 @@ window.ExportDialog = (function () {
         const filterSection = document.getElementById('exportFilterSection');
         const studentFilter = document.getElementById('exportStudentFilter');
         const teacherFilter = document.getElementById('exportTeacherFilter');
-        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE);
+        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.STUDENT_SCHEDULE);
 
         // 显示筛选区域容器
         if (filterSection) {
@@ -1313,7 +738,7 @@ window.ExportDialog = (function () {
                 state.isExporting = false;
                 setTimeout(() => {
                     showToast(`导出成功`, 'success');
-                    setTimeout(() => close(), 400);
+                    setTimeout(() => close(true), 400);
                 }, 300);
                 return;
             }
@@ -1440,7 +865,7 @@ window.ExportDialog = (function () {
             const transformedData = window.ExportManager.transformExportData(rawData, selectedStudentId, selectedStudentName, userType, state, EXPORT_TYPES);
 
             if (format === EXPORT_FORMATS.EXCEL) {
-                await window.ExportManager.generateExcelFile(transformedData, filename);
+                await window.ExportManager.generateExcelFile(transformedData, filename, userType);
             } else {
                 // CSV 不支持多 Sheet，如果是多 Sheet 数据，默认仅导出 "总览表"
                 let csvData = transformedData;
@@ -1476,23 +901,19 @@ window.ExportDialog = (function () {
             // 重置导出状态（放在前面确保后续点击能正常触发）
             state.isExporting = false;
 
-            // 优化关闭逻辑：缩短延迟，提升流畅度
-            setTimeout(() => {
-                showToast(`导出成功，共 ${recordCount} 条记录`, 'success');
-                // 下载完成后尽快关闭
-                setTimeout(() => {
-                    close();
-                }, 400);
-            }, 300);
+            // 导出成功，自动关闭对话框
+            const msg = `导出成功！文件名：${filename}`;
+            showToast(msg, 'success');
+            setTimeout(() => close(true), 400);
         } catch (error) {
             updateProgress(0, '导出失败');
 
             // 显示错误提示并提供重试按钮
             const progressMsg = document.getElementById('exportProgressMsg');
             if (progressMsg) {
-                progressMsg.innerHTML = `
-        < span style = "color: #ef4444;" > 导出失败: ${error.message || '未知错误'}</span >
-            <button onclick="window.ExportDialog.retryExport()" style="
+                    progressMsg.innerHTML = `
+                    <span style="color: #ef4444;">导出失败: ${error.message || '未知错误'}</span>
+                    <button onclick="window.ExportDialog.retryExport()" style="
                         margin-left: 12px;
                         padding: 4px 12px;
                         background: #10b981;
@@ -1502,7 +923,7 @@ window.ExportDialog = (function () {
                         cursor: pointer;
                         font-size: 12px;
                     ">重试</button>
-    `;
+                `;
             }
             showToast(`导出失败: ${error.message} `, 'error');
             state.isExporting = false;
@@ -1587,21 +1008,6 @@ window.ExportDialog = (function () {
 
         const overlay = document.getElementById('exportLoadingOverlay');
         if (overlay) overlay.style.display = 'none';
-
-        // 自动选择默认类型（优先选择"老师授课记录"，否则选第一个）
-        setTimeout(() => {
-            // EXPORT_TYPES.TEACHER_SCHEDULE value is 'teacher_schedule'
-            const defaultType = 'teacher_schedule';
-            let targetItem = document.querySelector(`.export-type-item[data-type="${defaultType}"]`);
-
-            if (!targetItem) {
-                targetItem = document.querySelector('.export-type-item');
-            }
-
-            if (targetItem) {
-                targetItem.click();
-            }
-        }, 0);
     }
 
     /**
@@ -1614,13 +1020,24 @@ window.ExportDialog = (function () {
         resetState(options);
 
         const currentUser = getCurrentUser();
+        
         if (currentUser.userType === 'teacher' || currentUser.userType === 'student') {
             // 针对班主任/学生，如果只有一个导出选项，侧边栏可能显得多余，但为了样式统一保留。
             // 强制选中对应的单选项。
             setTimeout(() => {
                 const type = currentUser.userType === 'teacher' ? 'teacher_schedule' : 'student_schedule';
                 const el = document.querySelector(`.export-type-item[data-type="${type}"]`);
-                if (el) el.click();
+                if (el) {
+                    el.click();
+                }
+            }, 50);
+        } else if (currentUser.userType === 'admin') {
+            // 管理员默认选中教师授课记录
+            setTimeout(() => {
+                const el = document.querySelector(`.export-type-item[data-type="teacher_schedule"]`);
+                if (el) {
+                    el.click();
+                }
             }, 50);
         }
 
@@ -1637,7 +1054,7 @@ window.ExportDialog = (function () {
         // 根据角色过滤导出类型
         const currentUser = getCurrentUser();
         const userType = currentUser.userType || 'admin';
-
+        
         let filteredTypes = Object.entries(EXPORT_TYPE_CONFIG);
         if (userType === 'teacher') {
             // 班主任只保留教师授课记录导出
@@ -1645,7 +1062,7 @@ window.ExportDialog = (function () {
         } else if (userType === 'student') {
             filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.STUDENT_SCHEDULE);
         }
-
+        
         const html = `
             <div id="exportDialogOverlay" class="export-dialog-overlay" style="display: none;">
                 <div id="exportDialog" class="export-dialog-container">

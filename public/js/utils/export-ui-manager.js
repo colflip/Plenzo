@@ -109,7 +109,7 @@ window.ExportUIManager = (function() {
                                fill.className = 'progress-fill';
                                fill.style.cssText = `
                                    height: 100%;
-                                   background: linear-gradient(90deg, #3b82f6, #2563eb);
+                                   background: linear-gradient(90deg, #2ECC71, #27AE60);
                                    width: 0%;
                                    transition: width 0.3s ease;
                                `;

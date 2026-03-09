@@ -26,7 +26,6 @@ const adminController = {
             switch (userType) {
                 case 'admin':
                     table = 'administrators';
-                    // administrators 表包含权限级别和邮箱
                     selectColumns = 'id, username, name, email, permission_level, last_login, created_at';
                     break;
                 case 'teacher':
@@ -41,38 +40,29 @@ const adminController = {
                     return res.status(400).json({ message: '无效的用户类型' });
             }
 
-            // 若存在 status 列，则动态追加到返回字段
-            try {
-                if (table === 'teachers' || table === 'students') {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
-                    if ((cols.rows || []).length > 0) {
-                        selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
-                    }
-                }
-            } catch (_) { }
+            // 分页参数
+            const page = parseInt(req.query.page) || 1;
+            const size = parseInt(req.query.size) || 50;
+            const offset = (page - 1) * size;
 
-            // 开发离线模式：返回示例数据以便预览UI
-            if (process.env.OFFLINE_DEV === 'true') {
-                const now = new Date();
-                if (userType === 'admin') {
-                    return res.json([
-                        { id: 1, username: 'admin', name: '系统管理员', permission_level: 1, last_login: now, created_at: now }
-                    ]);
-                }
-                if (userType === 'teacher') {
-                    return res.json([
-                        { id: 101, username: 'teach1', name: '张老师', profession: '数学', contact: '13800138001', work_location: '一号校区', home_address: '海淀区', last_login: now, created_at: now }
-                    ]);
-                }
-                if (userType === 'student') {
-                    return res.json([
-                        { id: 201, username: 'stu1', name: '李同学', profession: '一年级', contact: '13900139001', visit_location: '家访点A', home_address: '朝阳区', last_login: now, created_at: now }
-                    ]);
-                }
+            // 缓存 schema 检查结果
+            const schemaCacheKey = `has_status_${table}`;
+            adminController._schemaCache = adminController._schemaCache || {};
+            
+            if (adminController._schemaCache[schemaCacheKey] === undefined) {
+                try {
+                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
+                    adminController._schemaCache[schemaCacheKey] = (cols.rows || []).length > 0;
+                } catch (_) { adminController._schemaCache[schemaCacheKey] = false; }
+            }
+
+            if (adminController._schemaCache[schemaCacheKey]) {
+                selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
             }
 
             const result = await db.query(
-                `SELECT ${selectColumns} FROM ${table} ORDER BY id ASC`
+                `SELECT ${selectColumns} FROM ${table} ORDER BY id ASC LIMIT $1 OFFSET $2`,
+                [size, offset]
             );
 
             const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);

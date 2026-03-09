@@ -395,10 +395,11 @@
 }
 
 /* ==========================================================================
-   Optimistic Update Styles - 乐观更新样式
+   Optimistic Update Styles - 乐观更新样式 (已禁用)
    ========================================================================== */
 
-/* Loading状态的卡片 */
+/* Loading状态的卡片 - 已禁用 */
+/* 
 .optimistic-loading {
     opacity: 0.7;
     position: relative;
@@ -424,8 +425,10 @@
         transform: rotate(360deg);
     }
 }
+*/
 
-/* 临时添加的卡片样式 */
+/* 临时添加的卡片样式 - 已禁用 */
+/* 
 .temp-schedule {
     background: linear-gradient(135deg, rgba(46, 204, 113, 0.05) 0%, rgba(39, 174, 96, 0.1) 100%);
     border: 1px dashed rgba(46, 204, 113, 0.3) !important;
@@ -436,11 +439,14 @@
     color: #27AE60;
     font-weight: 500;
 }
+*/
 
-/* 删除动画过渡 */
+/* 删除动画过渡 - 已禁用 */
+/* 
 .schedule-card {
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
+*/
 
 /* --- 7. Schedule Loading Overlay --- */
 /* 排课数据加载遮罩 */

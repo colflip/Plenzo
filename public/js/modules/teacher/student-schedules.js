@@ -52,10 +52,14 @@ export async function initStudentSchedulesSection() {
     const btnText = document.getElementById('teacherStudentFeeBtnText');
     const toggleBtn = document.getElementById('toggleTeacherStudentFeeBtn');
     if (btnText) btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
-    if (toggleBtn && window.teacherStudentFeeShow) {
-        toggleBtn.classList.add('fee-active');
-        toggleBtn.style.backgroundColor = '#2ECC71';
-        toggleBtn.style.color = 'white';
+    if (toggleBtn) {
+        // 显式绑定费用切换按钮事件（替代 HTML onclick，确保在模块加载后绑定）
+        toggleBtn.addEventListener('click', window.toggleTeacherStudentFeeVisibility);
+        if (window.teacherStudentFeeShow) {
+            toggleBtn.classList.add('fee-active');
+            toggleBtn.style.backgroundColor = '#2ECC71';
+            toggleBtn.style.color = 'white';
+        }
     }
     bindNavigation();
     bindFeeModalEvents();
@@ -300,7 +304,7 @@ function openFeeModal(group) {
     modal.style.display = 'flex';
 }
 
-async function loadSchedules(baseDate) {
+async function loadSchedules(baseDate, showLoading = true) {
     const weekStart = startOfWeek(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -308,26 +312,20 @@ async function loadSchedules(baseDate) {
     const rangeLabel = document.getElementById('ssWeekRange');
     if (rangeLabel) rangeLabel.textContent = formatWeekRangeText(weekDates[0], weekDates[weekDates.length - 1]);
 
-    // 立刻渲染表头，确保视觉同步
+    // 获取表格容器
+    const tableContainer = document.querySelector('#student-schedules .schedule-unified-card');
+
+    // 1. 先渲染表头，以便加载动画能正确探测高度
     if (!isMobileView()) {
         renderTableHeader(weekDates);
     }
 
-    const feedback = document.getElementById('ssScheduleFeedback');
-
-    const body = document.getElementById('ssWeeklyBody');
-    if (body) {
-        body.innerHTML = `
-            <tr>
-                <td colspan="8" style="padding: 0; border: none;">
-                    <div class="flex flex-col items-center justify-center" style="min-height: 300px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <div class="loading-spinner" style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
-                        <div style="color: #64748b; font-size: 15px; font-weight: 500;">正在加载学生课程安排...</div>
-                    </div>
-                </td>
-            </tr>
-        `;
+    // 2. 显示加载动画
+    if (showLoading && tableContainer && window.showTableLoading) {
+        window.showTableLoading(tableContainer, '正在加载学生课程安排数据...', '#ssWeeklyHeader');
     }
+
+    const feedback = document.getElementById('ssScheduleFeedback');
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -359,8 +357,14 @@ async function loadSchedules(baseDate) {
         showInlineFeedback(feedback, '', '');
     } catch (error) {
 
+        const body = document.getElementById('ssWeeklyBody');
         if (body) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(body, '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'); } else { body.innerHTML = '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'; }
         showInlineFeedback(feedback, '加载课程安排失败', 'error');
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && tableContainer && window.hideTableLoading) {
+            window.hideTableLoading(tableContainer);
+        }
     }
 }
 
@@ -1158,3 +1162,6 @@ async function exportTeacherStudents() {
         if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
     }
 }
+
+// 暴露到全局，供按钮事件调用
+window.exportTeacherStudents = exportTeacherStudents;

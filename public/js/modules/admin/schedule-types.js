@@ -1,5 +1,8 @@
 
+import { showTableLoading, hideTableLoading } from './ui-helper.js';
+
 // Schedule Types Logic
+
 
 // ==========================================
 // 课程类型管理功能
@@ -8,9 +11,18 @@
 // 加载课程类型列表
 export async function loadScheduleTypes() {
     const tbody = document.getElementById('scheduleTypesTableBody');
-    if (!tbody) return;
+    const tableContainer = document.querySelector('#schedule-types.dashboard-section .table-container');
+    if (!tbody || !tableContainer) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="4" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px 0;"><div class="loading-spinner" style="margin: 0 auto 12px;"></div><div style="color: #64748b;">加载中...</div></td></tr>'; }
+    // 1. 先渲染表头（HTML中已有静态表头，此步骤确保DOM已准备好）
+    const thead = tableContainer.querySelector('table thead');
+    if (thead) {
+        // 强制触发重绘，确保表头DOM已渲染
+        void thead.offsetHeight;
+    }
+
+    // 2. 显示加载动画
+    showTableLoading(tableContainer, '正在加载课程类型数据...');
 
     try {
         const result = await window.apiUtils.get('/admin/schedule-types');
@@ -18,10 +30,14 @@ export async function loadScheduleTypes() {
         renderScheduleTypesTable(types);
     } catch (error) {
         
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="4" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'; }
+        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'; }
         if (window.apiUtils) window.apiUtils.showToast('加载课程类型失败', 'error');
+    } finally {
+        // 隐藏加载动画
+        hideTableLoading(tableContainer);
     }
 }
+
 
 // 渲染课程类型表格
 export function renderScheduleTypesTable(types) {
@@ -117,6 +133,18 @@ export function setupScheduleTypeListeners() {
     if (addBtn) {
         addBtn.addEventListener('click', () => {
             openScheduleTypeModal('add');
+        });
+    }
+
+    const closeBtn = document.getElementById('closeScheduleTypeFormBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeScheduleTypeFormModal);
+    const cancelBtn = document.getElementById('cancelScheduleTypeFormBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeScheduleTypeFormModal);
+
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeScheduleTypeFormModal();
         });
     }
 

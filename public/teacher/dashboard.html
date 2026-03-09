@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">
     <link rel="stylesheet" href="/css/modules/dashboard.css">
+    <link rel="stylesheet" href="/css/modules/admin-statistics.css">
     <style>
         /* 全局样式 - Copied from Admin Dashboard */
         :root {
@@ -320,35 +321,18 @@
             }
         }
 
-        /* 统计控制区优化 */
+        /* 统计控制区优化 - 与管理员端保持一致 */
+        /* 样式已移至 dashboard.css 统一管理 */
         .statistics-controls {
-            background-color: #f8fafc;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 20px;
-            border: 1px solid var(--border-color);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 0;
-            flex-wrap: nowrap;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .date-range {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 0;
-            padding-bottom: 0;
-            border-bottom: none;
-            margin-right: 8px;
-            flex-shrink: 0;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .date-range label {
-            white-space: nowrap;
-            font-size: 16px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         /* Teaching type stats card width limit */
@@ -366,121 +350,55 @@
         }
 
         .statistics-controls .date-range input[type="date"] {
-            padding: 8px 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background-color: white;
-            font-size: 14px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .search-btn {
-            padding: 6px 12px;
-            background-color: #2ECC71;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
-            margin-left: 0;
-            white-space: nowrap;
-            min-width: 90px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .search-btn:hover {
-            background-color: #27AE60;
-            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .search-btn:active {
-            transform: translateY(1px);
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .search-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-controls .statistics-tabs {
-            margin-top: 12px;
-            padding-top: 12px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-tabs .tab-btn-group {
-            display: flex;
-            gap: 8px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .statistics-tabs .tab-btn {
-            padding: 8px 18px;
-            background-color: white;
-            color: #2C3E50;
-            border: 1px solid rgba(0, 0, 0, 0.06);
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease, color .12s ease;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
-        .statistics-tabs .tab-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
-        }
-
-        .statistics-tabs .tab-btn.active {
-            background-color: #2ECC71;
-            color: white;
-            border-color: rgba(0, 0, 0, 0.06);
-            box-shadow: 0 6px 18px rgba(46, 204, 113, 0.18);
-        }
-
-        /* 导出数据按钮 */
         .statistics-tabs {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 12px;
-            padding-top: 12px;
-            gap: 16px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .export-data-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background-color: #2ECC71;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
-            box-shadow: 0 6px 18px rgba(46, 204, 113, 0.12);
-            white-space: nowrap;
-            margin-left: 0;
-            min-width: 110px;
-            justify-content: center;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .export-data-btn:hover {
-            background-color: #27AE60;
-            box-shadow: 0 4px 6px rgba(46, 204, 113, 0.6);
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .export-data-btn:active {
-            transform: translateY(1px);
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         .export-data-btn .material-icons-round {
-            font-size: 16px;
+            /* 使用 dashboard.css 中的统一样式 */
         }
 
         /* 统一背景卡片容器 - 包含查询组件和图表组件 */
@@ -914,20 +832,22 @@
 
                 <!-- Availability Section -->
                 <section id="availability" class="dashboard-section">
-                    <div class="schedule-controls">
-                        <div class="week-navigation">
-                            <button id="prevWeekAvail" class="search-btn">
-                                <span class="material-icons-round">chevron_left</span>
-                            </button>
-                            <span id="weekRangeAvail">加载中...</span>
-                            <button id="nextWeekAvail" class="search-btn">
-                                <span class="material-icons-round">chevron_right</span>
+                    <div class="header-toolbar schedule-controls">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
+                            <div class="week-navigation">
+                                <button id="prevWeekAvail" class="nav-btn">
+                                    <span class="material-icons-round">chevron_left</span>
+                                </button>
+                                <span id="weekRangeAvail">加载中...</span>
+                                <button id="nextWeekAvail" class="nav-btn">
+                                    <span class="material-icons-round">chevron_right</span>
+                                </button>
+                            </div>
+                            <button class="primary-btn" id="saveAvailability">
+                                <span class="material-icons-round" style="margin-right:4px;">save</span>
+                                保存安排
                             </button>
                         </div>
-                        <button class="primary-btn" id="saveAvailability">
-                            <span class="material-icons-round" style="margin-right:4px;">save</span>
-                            保存时间安排
-                        </button>
                     </div>
 
                     <div class="schedule-unified-card">
@@ -941,15 +861,17 @@
 
                 <!-- Schedules Section -->
                 <section id="schedules" class="dashboard-section">
-                    <div class="schedule-controls">
-                        <div class="week-navigation">
-                            <button id="prevWeek" class="search-btn">
-                                <span class="material-icons-round">chevron_left</span>
-                            </button>
-                            <span id="weekRange">加载中...</span>
-                            <button id="nextWeek" class="search-btn">
-                                <span class="material-icons-round">chevron_right</span>
-                            </button>
+                    <div class="header-toolbar schedule-controls">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
+                            <div class="week-navigation">
+                                <button id="prevWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_left</span>
+                                </button>
+                                <span id="weekRange">加载中...</span>
+                                <button id="nextWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_right</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -964,81 +886,87 @@
 
                 <!-- Statistics Section -->
                 <section id="teaching-display" class="dashboard-section">
-                    <div class="statistics-controls">
-                        <div class="stats-date-group">
-                            <div class="date-range">
-                                <input type="date" id="teachingStartDate">
-                            </div>
-                            <div class="date-range">
-                                <label>至</label>
-                                <input type="date" id="teachingEndDate">
-                            </div>
-                        </div>
-                        <div class="stats-btn-group">
-                            <button id="teachingQueryBtn" class="search-btn">
-                                <span class="material-icons-round"
-                                    style="font-size:18px; margin-right:4px;">search</span>
-                                查询
-                            </button>
-                            <div class="preset-btn-group" style="display:flex; gap:8px; margin-left: 10px;">
-                                <button class="preset-btn" data-range="yesterday">昨天</button>
-                                <button class="preset-btn" data-range="prev_week">上周</button>
-                                <button class="preset-btn" data-range="prev_month">上月</button>
-                                <button class="preset-btn" data-range="prev_quarter">上季度</button>
-                                <button class="preset-btn" data-range="prev_year">上年</button>
-                                <button class="preset-btn" data-range="today">今天</button>
-                                <button class="preset-btn" data-range="this_week">本周</button>
-                                <button class="preset-btn" data-range="this_month">本月</button>
-                                <button class="preset-btn" data-range="this_quarter">本季度</button>
-                                <button class="preset-btn" data-range="this_year">本年</button>
-                            </div>
-                            <button id="teachingExportBtn" class="export-data-btn" style="margin-left: 8px;">
-                                <span class="material-icons-round">file_download</span>
-                                <span>导出数据</span>
-                            </button>
+                    <div class="statistics-container">
+                        <div id="statsTeaching" class="stats-view active">
+                            <div class="stats-unified-card">
+                                <!-- 第一部分：查询组件（上方） -->
+                                <div class="query-section">
+                                    <div class="query-controls">
+                                        <div class="date-range-group">
+                                            <label for="teachingStartDate"></label>
+                                            <input type="date" id="teachingStartDate">
+                                            <span>至</span>
+                                            <input type="date" id="teachingEndDate">
+                                        </div>
 
-                        </div>
-                    </div>
+                                        <div class="action-group">
+                                            <button class="search-btn primary-btn" id="teachingQueryBtn" title="查询该日期范围内的统计数据">
+                                                <span class="material-icons-round">search</span>
+                                                <span class="btn-text">查询</span>
+                                                <span class="btn-loading" style="display: none;">加载中...</span>
+                                            </button>
 
-                    <div class="stats-unified-card">
-                        <!-- Teaching Type Stats Cards Area -->
-                        <div class="stats-component-card"
-                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <div id="teachingTypeStats" class="stats-grid">
-                                <!-- Dynamic Stats -->
-                            </div>
-                        </div>
+                                            <div class="preset-buttons" data-target="teaching">
+                                                <button type="button" class="preset-btn" data-preset="yesterday">昨天</button>
+                                                <button type="button" class="preset-btn" data-preset="last-week">上周</button>
+                                                <button type="button" class="preset-btn" data-preset="last-month">上月</button>
+                                                <button type="button" class="preset-btn" data-preset="last-quarter">上季度</button>
+                                                <button type="button" class="preset-btn" data-preset="last-year">上年</button>
+                                                <button type="button" class="preset-btn" data-preset="today">今天</button>
+                                                <button type="button" class="preset-btn" data-preset="week">本周</button>
+                                                <button type="button" class="preset-btn" data-preset="month">本月</button>
+                                                <button type="button" class="preset-btn" data-preset="quarter">本季度</button>
+                                                <button type="button" class="preset-btn" data-preset="year">本年</button>
+                                            </div>
 
-                        <!-- Daily Statistics Bar Chart Area -->
-                        <div class="stats-component-card"
-                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日授课统计
-                            </h3>
-                            <div style="height: 300px;">
-                                <canvas id="dailyTeachingChart"></canvas>
-                            </div>
-                        </div>
+                                            <button id="teachingExportBtn" class="export-data-btn" title="导出统计数据">
+                                                <span class="material-icons-round">file_download</span>
+                                                <span>导出数据</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
 
-                        <!-- Detailed Teaching Information Table Area -->
-                        <div class="stats-component-card"
-                            style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
-                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体授课信息
-                            </h3>
-                            <div class="table-container"
-                                style="margin-top:0; border:none; box-shadow:none; background:transparent;">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>日期</th>
-                                            <th>时间段</th>
-                                            <th>课程类型</th>
-                                            <th>学生姓名</th>
-                                            <th>上课地点</th>
-                                            <th>状态</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="teachingDetailsBody"></tbody>
-                                </table>
+                                <!-- Teaching Type Stats Cards Area -->
+                                <div class="stats-component-card"
+                                    style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <div id="teachingTypeStats" class="stats-grid">
+                                        <!-- Dynamic Stats -->
+                                    </div>
+                                </div>
+
+                                <!-- Daily Statistics Bar Chart Area -->
+                                <div class="stats-component-card"
+                                    style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日授课统计
+                                    </h3>
+                                    <div style="height: 300px;">
+                                        <canvas id="dailyTeachingChart"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- Detailed Teaching Information Table Area -->
+                                <div class="stats-component-card"
+                                    style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
+                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体授课信息
+                                    </h3>
+                                    <div class="table-container"
+                                        style="margin-top:0; border:none; box-shadow:none; background:transparent;">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>日期</th>
+                                                    <th>时间段</th>
+                                                    <th>课程类型</th>
+                                                    <th>学生姓名</th>
+                                                    <th>上课地点</th>
+                                                    <th>状态</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="teachingDetailsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1046,26 +974,27 @@
 
                 <!-- 班主任学生课程安排 -->
                 <section id="student-schedules" class="dashboard-section">
-                    <div class="schedule-controls">
-                        <div class="week-navigation">
-                            <button id="ssPrevWeek" class="search-btn">
-                                <span class="material-icons-round">chevron_left</span>
+                    <div class="header-toolbar schedule-controls">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
+                            <div class="week-navigation">
+                                <button id="ssPrevWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_left</span>
+                                </button>
+                                <span id="ssWeekRange">加载中...</span>
+                                <button id="ssNextWeek" class="nav-btn">
+                                    <span class="material-icons-round">chevron_right</span>
+                                </button>
+                            </div>
+                            <button id="toggleTeacherStudentFeeBtn" class="primary-btn" style="margin-left:8px;">
+                                <span style="font-style: normal; font-size: 14px; font-weight: 500;">¥</span>&nbsp;<span
+                                    id="teacherStudentFeeBtnText">显示费用</span>
                             </button>
-                            <span id="ssWeekRange">加载中...</span>
-                            <button id="ssNextWeek" class="search-btn">
-                                <span class="material-icons-round">chevron_right</span>
+                            <button id="exportTeacherStudentsBtn" class="primary-btn"
+                                style="margin-left: 8px;" onclick="window.exportTeacherStudents && window.exportTeacherStudents()">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                                导出数据
                             </button>
                         </div>
-                        <button id="toggleTeacherStudentFeeBtn" class="export-data-btn" style="margin-left:8px;"
-                            onclick="window.toggleTeacherStudentFeeVisibility()">
-                            <span style="font-style: normal; font-size: 15px; font-weight: 600;">¥</span>&nbsp;<span
-                                id="teacherStudentFeeBtnText">显示费用</span>
-                        </button>
-                        <button id="exportTeacherStudentsBtn" class="export-data-btn"
-                            style="margin-left: 8px; background-color: #10b981; color: white;">
-                            <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
-                            导出数据
-                        </button>
                     </div>
                     <div id="ssScheduleFeedback" class="feedback" style="display:none;"></div>
 
@@ -1177,6 +1106,7 @@
     <script src="/js/components/toast.js"></script>
     <script src="/js/components/export-manager.js?v=1"></script>
     <script src="/js/components/export-dialog.js"></script>
+    <script src="/js/modules/admin/ui-helper.js"></script>
     <script type="module" src="/js/modules/teacher/entry.js"></script>
 
 

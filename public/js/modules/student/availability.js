@@ -53,13 +53,25 @@ function bindEvents() {
     }
 }
 
-export async function loadAvailability(baseDate) {
+export async function loadAvailability(baseDate, showLoading = true) {
     const weekStart = getWeekStart(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
 
     updateRangeLabel(weekDates);
-    showLoadingState();
+
+    // 获取表格容器
+    const tableContainer = document.querySelector('#availability .schedule-unified-card');
+
+    // 1. 先渲染表头，以便加载动画能正确探测高度
+    if (!isMobileView()) {
+        renderHeader(weekDates);
+    }
+
+    // 2. 显示加载动画（与教师端保持一致）
+    if (showLoading && tableContainer && window.showTableLoading) {
+        window.showTableLoading(tableContainer, '正在加载时间安排数据...', '#weeklyHeaderAvail');
+    }
 
     try {
         const startDate = toISODate(weekDates[0]);
@@ -90,33 +102,33 @@ export async function loadAvailability(baseDate) {
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
         showInlineFeedback(elements.feedback(), '暂时无法获取最新的时间安排，已显示默认空白表格，请稍后重试', 'error');
+    } finally {
+        // 3. 加载完成后隐藏动画
+        if (showLoading && tableContainer && window.hideTableLoading) {
+            window.hideTableLoading(tableContainer);
+        }
     }
 }
 
 function buildStateFromResponse(weekDates, rows) {
     const map = new Map();
-    // Student API returns array of { date, time_slot } objects usually
-    // We need to convert this to { morning: bool, afternoon: bool, evening: bool }
+    // Student API returns array of { date, morning_available, afternoon_available, evening_available }
 
-    // Create a map of date -> Set of slots
-    const slotsByDate = new Map();
+    const dataByDate = new Map();
     const normalizedRows = Array.isArray(rows) ? rows : [];
 
     normalizedRows.forEach(row => {
         const key = normalizeDateKey(row.date);
-        if (!slotsByDate.has(key)) {
-            slotsByDate.set(key, new Set());
-        }
-        slotsByDate.get(key).add(row.time_slot);
+        dataByDate.set(key, row);
     });
 
     weekDates.forEach(date => {
         const key = normalizeDateKey(date);
-        const slots = slotsByDate.get(key) || new Set();
+        const rowData = dataByDate.get(key) || {};
         map.set(key, {
-            morning: slots.has('morning'),
-            afternoon: slots.has('afternoon'),
-            evening: slots.has('evening')
+            morning: !!rowData.morning_available,
+            afternoon: !!rowData.afternoon_available,
+            evening: !!rowData.evening_available
         });
     });
     return map;
@@ -365,16 +377,20 @@ async function saveAvailability() {
     const availabilityList = [];
     changedDates.forEach(date => {
         const slots = availabilityState.get(date);
+        const originalSlots = originalState.get(date) || { morning: false, afternoon: false, evening: false };
+        
         TIME_SLOT_CONFIG.forEach(slot => {
-            // We need to send the status of ALL slots for changed dates, 
-            // or at least the ones that changed.
-            // The backend updates based on the list.
-            // Let's send the current state of the slot.
-            availabilityList.push({
-                date: date,
-                timeSlot: slot.id,
-                isAvailable: !!slots[slot.id]
-            });
+            // Only send if the status has changed compared to originalState
+            const currentVal = !!slots[slot.id];
+            const originalVal = !!originalSlots[slot.id];
+            
+            if (currentVal !== originalVal) {
+                availabilityList.push({
+                    date: date,
+                    timeSlot: slot.id,
+                    isAvailable: currentVal
+                });
+            }
         });
     });
 
@@ -400,8 +416,11 @@ async function saveAvailability() {
         originalState = cloneState(availabilityState);
         showTimedFeedback('时间安排已保存', 'success');
     } catch (error) {
-        
-        showInlineFeedback(elements.feedback(), '保存失败，请稍后重试', 'error');
+        let errorMsg = '保存失败，请稍后重试';
+        if (error.message) {
+            errorMsg = `保存失败: ${error.message}`;
+        }
+        showTimedFeedback(errorMsg, 'error');
         throw error;
     } finally {
         if (actionButton) {

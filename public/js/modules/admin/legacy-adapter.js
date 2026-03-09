@@ -717,27 +717,49 @@ function initializeStatisticsControls() {
         { prefix: 'student', start: 'studentStartDate', end: 'studentEndDate' }
     ];
 
-    function syncDateInputs(sourcePrefix) {
-        const startId = sourcePrefix === 'stats' ? 'statsStartDate' : `${sourcePrefix}StartDate`;
-        const endId = sourcePrefix === 'stats' ? 'statsEndDate' : `${sourcePrefix}EndDate`;
+    let isGlobalSyncing = false;
+    function syncDateInputs(sourcePrefix, triggerQuery = true) {
+        if (isGlobalSyncing) return;
+        isGlobalSyncing = true;
 
-        const sVal = document.getElementById(startId).value;
-        const eVal = document.getElementById(endId).value;
+        try {
+            const startId = sourcePrefix === 'stats' ? 'statsStartDate' : `${sourcePrefix}StartDate`;
+            const endId = sourcePrefix === 'stats' ? 'statsEndDate' : `${sourcePrefix}EndDate`;
 
-        dateGroups.forEach(group => {
-            if (group.prefix !== sourcePrefix) {
-                const sEl = document.getElementById(group.start);
-                const eEl = document.getElementById(group.end);
-                if (sEl) sEl.value = sVal;
-                if (eEl) eEl.value = eVal;
-            }
-            // 同步当前组的高亮状态
-            const containerSelector = group.prefix === 'stats' ? '.inline-tabs' : `.preset-buttons[data-target="${group.prefix}"]`;
-            const container = document.querySelector(containerSelector);
-            if (container && window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
-                window.DateRangeUtils.syncPresetButtons(sVal, eVal, container);
-            }
-        });
+            const sVal = document.getElementById(startId).value;
+            const eVal = document.getElementById(endId).value;
+
+            dateGroups.forEach(group => {
+                if (group.prefix !== sourcePrefix) {
+                    const sEl = document.getElementById(group.start);
+                    const eEl = document.getElementById(group.end);
+                    if (sEl) sEl.value = sVal;
+                    if (eEl) eEl.value = eVal;
+                }
+
+                // 同步当前组的高亮状态
+                const containerSelector = `.preset-buttons[data-target="${group.prefix}"]`;
+                const container = document.querySelector(containerSelector);
+                if (container && window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
+                    window.DateRangeUtils.syncPresetButtons(sVal, eVal, container);
+                }
+
+                // 如果需要触发查询且不是源端，则点击对应的查询按钮
+                if (triggerQuery && group.prefix !== sourcePrefix) {
+                    let searchBtnId = '';
+                    if (group.prefix === 'stats') searchBtnId = 'statisticsSearchBtn';
+                    else if (group.prefix === 'teacher') searchBtnId = 'teacherStatsSearchBtn';
+                    else if (group.prefix === 'student') searchBtnId = 'studentStatsSearchBtn';
+
+                    const btn = document.getElementById(searchBtnId);
+                    if (btn && typeof btn.click === 'function') {
+                        btn.click();
+                    }
+                }
+            });
+        } finally {
+            isGlobalSyncing = false;
+        }
     }
 
     dateGroups.forEach(group => {
@@ -759,67 +781,29 @@ function initializeStatisticsControls() {
                     if (!range) return;
 
                     // 1. Determine Context (Target)
-                    const container = btn.closest('.preset-buttons') || btn.closest('.inline-tabs');
-                    const target = container ? (container.getAttribute('data-target') || 'main') : 'main';
+                    const container = btn.closest('.preset-buttons');
+                    const target = container ? (container.getAttribute('data-target') || 'stats') : 'stats';
 
-                    // 2. Local Highlight is now handled by syncDateInputs
+                    // 2. 设置本地输入框值 (作为同步源)
+                    const startId = target === 'stats' ? 'statsStartDate' : `${target}StartDate`;
+                    const endId = target === 'stats' ? 'statsEndDate' : `${target}EndDate`;
+                    const sS = document.getElementById(startId);
+                    const eS = document.getElementById(endId);
+                    if (sS) sS.value = range.start;
+                    if (eS) eS.value = range.end;
 
-                    // 3. Logic based on Target
-                    if (target === 'teacher') {
-                        const tStart = document.getElementById('teacherStartDate');
-                        const tEnd = document.getElementById('teacherEndDate');
-                        if (tStart) tStart.value = range.start;
-                        if (tEnd) tEnd.value = range.end;
-                        // Trigger Search
-                        const tBtn = document.getElementById('teacherStatsSearchBtn');
-                        if (tBtn) tBtn.click();
-                        return;
-                    }
+                    // 3. 执行全局同步并触发其他区域查询
+                    syncDateInputs(target, true);
 
-                    if (target === 'student') {
-                        const sStart = document.getElementById('studentStartDate');
-                        const sEnd = document.getElementById('studentEndDate');
-                        if (sStart) sStart.value = range.start;
-                        if (sEnd) sEnd.value = range.end;
-                        // Trigger Search
-                        const sBtn = document.getElementById('studentStatsSearchBtn');
-                        if (sBtn) sBtn.click();
-                        return;
-                    }
-
-                    // === Main (Original Logic) ===
-                    const sEl = document.getElementById('statsStartDate');
-                    const eEl = document.getElementById('statsEndDate');
-                    if (sEl) sEl.value = range.start;
-                    if (eEl) eEl.value = range.end;
-
-                    // Sync to teacher/student pages if used as global filter
-                    const tStart = document.getElementById('teacherStartDate');
-                    const tEnd = document.getElementById('teacherEndDate');
-                    if (tStart) tStart.value = range.start;
-                    if (tEnd) tEnd.value = range.end;
-
-                    const sStart = document.getElementById('studentStartDate');
-                    const sEnd = document.getElementById('studentEndDate');
-                    if (sStart) sStart.value = range.start;
-                    if (sEnd) sEnd.value = range.end;
-
-                    // Sync export dialog
+                    // 4. 特殊处理：同步导出对话框和执行本地查询
                     if (window.ExportDialog && typeof window.ExportDialog.applyPreset === 'function') {
                         try { window.ExportDialog.applyPreset(preset); } catch (_) { }
-                    } else {
-                        const exS = document.getElementById('exportStartDate');
-                        const exE = document.getElementById('exportEndDate');
-                        if (exS) exS.value = range.start;
-                        if (exE) exE.value = range.end;
                     }
 
-                    // Trigger Main Stats Load
-                    if (typeof loadStatistics === 'function') {
-                        try {
-                            await loadStatistics();
-                        } catch (err) {
-
+                    // 如果是在概览 Tab 点击，则直接触发一次 loadStatistics
+                    if (target === 'stats') {
+                        if (typeof loadStatistics === 'function') {
+                            try { await loadStatistics(); } catch (err) { }
                         }
                     }
                 });
@@ -1147,33 +1131,25 @@ async function loadStatistics() {
             if (statsEndEl) statsEndEl.value = endDate;
         }
 
-        // 显示加载反馈
+        // 显示加载反馈 (Legacy)
         if (statsFeedback) {
             statsFeedback.textContent = '正在加载统计数据...';
             statsFeedback.className = 'feedback info';
             statsFeedback.style.display = 'block';
         }
 
-        const overviewContainer = document.getElementById('statsOverview');
-        if (overviewContainer) overviewContainer.classList.add('stats-loading');
-
         const activeView = getStatisticsActiveView();
+        const activeWrapper = document.getElementById('stats' + activeView.charAt(0).toUpperCase() + activeView.slice(1));
+        if (activeWrapper) activeWrapper.classList.add('stats-loading');
 
         // 概览视图：饼图 + 教师/学生堆叠横向柱
         if (activeView === 'overview') {
-            let loadingOverlay = null;
             try {
-                // Show Loading Overlay
-                if (overviewContainer) {
-                    const chartsSection = overviewContainer.querySelector('.charts-section');
+                // 使用统一的加载动画工具
+                if (activeWrapper && window.UIHelper) {
+                    const chartsSection = activeWrapper.querySelector('.charts-section');
                     if (chartsSection) {
-                        loadingOverlay = document.createElement('div');
-                        loadingOverlay.className = 'stats-loading-overlay';
-                        loadingOverlay.innerHTML = `
-                            <div class="loading-spinner"></div>
-                            <div class="loading-text">正在加载数据...</div>
-                        `;
-                        chartsSection.appendChild(loadingOverlay);
+                        window.UIHelper.showTableLoading(chartsSection, '正在加载统计数据...');
                     }
                 }
 
@@ -1325,10 +1301,15 @@ async function loadStatistics() {
                     }
                 }
 
-                // Hide feedback if present (legacy)
-                if (overviewContainer) overviewContainer.classList.remove('stats-loading');
+                // Hide feedback
+                if (activeWrapper) {
+                    activeWrapper.classList.remove('stats-loading');
+                    const chartsSection = activeWrapper.querySelector('.charts-section');
+                    if (chartsSection && window.UIHelper) {
+                        window.UIHelper.hideTableLoading(chartsSection);
+                    }
+                }
                 if (statsFeedback) statsFeedback.style.display = 'none';
-                if (loadingOverlay) loadingOverlay.remove();
                 return;
             } catch (overviewError) {
 
@@ -1341,19 +1322,14 @@ async function loadStatistics() {
         // 教师/学生统计视图：时间轴折线 + 每日类型堆叠柱
         // 优化：先显示加载动画，再加载数据
 
-        // 为教师统计创建加载覆盖层
-        let teacherOverlay = null;
         if (activeView === 'teacher') {
+            const chartGrid = document.getElementById('teacherChartsContainer');
+            if (chartGrid) chartGrid.innerHTML = ''; // 清理旧内容，重置高度
+            
             const teacherContainer = document.querySelector('.teacher-charts-container');
-            if (teacherContainer) {
-                teacherOverlay = document.createElement('div');
-                teacherOverlay.className = 'stats-loading-overlay';
-                teacherOverlay.innerHTML = `
-                    <div class="loading-spinner"></div>
-                    <div class="loading-text">正在加载教师数据...</div>
-                `;
-                teacherContainer.appendChild(teacherOverlay);
-
+            if (teacherContainer && window.UIHelper) {
+                window.UIHelper.showTableLoading(teacherContainer, '正在加载统计数据...');
+                
                 // Reset animations
                 const chartContainers = teacherContainer.querySelectorAll('.chart-container');
                 chartContainers.forEach(el => {
@@ -1363,19 +1339,14 @@ async function loadStatistics() {
             }
         }
 
-        // 为学生统计创建加载覆盖层
-        let studentOverlay = null;
         if (activeView === 'student') {
-            const studentContainer = document.querySelector('.student-charts-container');
-            if (studentContainer) {
-                studentOverlay = document.createElement('div');
-                studentOverlay.className = 'stats-loading-overlay';
-                studentOverlay.innerHTML = `
-                    <div class="loading-spinner"></div>
-                    <div class="loading-text">正在加载学生数据...</div>
-                `;
-                studentContainer.appendChild(studentOverlay);
+            const chartGrid = document.getElementById('studentChartsContainer');
+            if (chartGrid) chartGrid.innerHTML = ''; // 清理旧内容，重置高度
 
+            const studentContainer = document.querySelector('.student-charts-container');
+            if (studentContainer && window.UIHelper) {
+                window.UIHelper.showTableLoading(studentContainer, '正在加载统计数据...');
+                
                 // Reset animations
                 const chartContainers = studentContainer.querySelectorAll('.chart-container');
                 chartContainers.forEach(el => {
@@ -1444,14 +1415,17 @@ async function loadStatistics() {
 
                 }
             } finally {
-                if (teacherOverlay) teacherOverlay.remove();
+                const teacherContainer = document.querySelector('.teacher-charts-container');
+                if (teacherContainer && window.UIHelper) {
+                    window.UIHelper.hideTableLoading(teacherContainer);
+                }
+                if (activeWrapper) activeWrapper.classList.remove('stats-loading');
                 // 隐藏反馈
                 if (statsFeedback) {
                     statsFeedback.style.display = 'none';
                 }
 
                 // Trigger animation
-                const teacherContainer = document.querySelector('.teacher-charts-container');
                 if (teacherContainer) {
                     setTimeout(() => {
                         const chartContainers = teacherContainer.querySelectorAll('.chart-container');
@@ -1481,17 +1455,23 @@ async function loadStatistics() {
 
                 }
             } finally {
-                if (studentOverlay) studentOverlay.remove();
+                const studentContainerEl = document.querySelector('.student-charts-container');
+                if (studentContainerEl && window.UIHelper) {
+                    window.UIHelper.hideTableLoading(studentContainerEl);
+                }
+                
+                // 确保同步移除外层容器的加载类
+                if (activeWrapper) activeWrapper.classList.remove('stats-loading');
+                
                 // 隐藏反馈
                 if (statsFeedback) {
                     statsFeedback.style.display = 'none';
                 }
 
                 // Trigger animation
-                const studentContainer = document.querySelector('.student-charts-container');
-                if (studentContainer) {
+                if (studentContainerEl) {
                     setTimeout(() => {
-                        const chartContainers = studentContainer.querySelectorAll('.chart-container');
+                        const chartContainers = studentContainerEl.querySelectorAll('.chart-container');
                         chartContainers.forEach(el => {
                             el.classList.add('chart-anim-active');
                         });
@@ -1502,12 +1482,29 @@ async function loadStatistics() {
         }
 
 
+
         // Fallback for unexpected activeView value
         if (statsFeedback) statsFeedback.style.display = 'none';
 
     } catch (error) {
-        const overviewContainer = document.getElementById('statsOverview');
-        if (overviewContainer) overviewContainer.classList.remove('stats-loading');
+        const activeView = getStatisticsActiveView();
+        const activeWrapper = document.getElementById('stats' + activeView.charAt(0).toUpperCase() + activeView.slice(1));
+        
+        if (activeWrapper) {
+            activeWrapper.classList.remove('stats-loading');
+            
+            // 全局兜底：隐藏所有可能的加载遮罩
+            if (window.UIHelper) {
+                const containers = [
+                    activeWrapper.querySelector('.charts-section'),
+                    activeWrapper.querySelector('.teacher-charts-container'),
+                    activeWrapper.querySelector('.student-charts-container')
+                ];
+                containers.forEach(c => {
+                    if (c) window.UIHelper.hideTableLoading(c);
+                });
+            }
+        }
 
 
         // 显示错误反馈

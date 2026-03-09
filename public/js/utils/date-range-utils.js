@@ -127,20 +127,8 @@
 
       if (isActive) {
         btn.classList.add('active');
-        // 兼容 Teacher/Student 端的硬编码样式样式
-        if (btn.style) {
-          btn.style.backgroundColor = '#dcfce7';
-          btn.style.color = '#15803d';
-          btn.style.borderColor = 'transparent';
-          btn.style.outline = 'none';
-        }
       } else {
         btn.classList.remove('active');
-        if (btn.style) {
-          btn.style.backgroundColor = 'white';
-          btn.style.color = '#333';
-          btn.style.borderColor = '#d1d5db';
-        }
       }
     });
   }

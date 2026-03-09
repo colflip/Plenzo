@@ -50,7 +50,7 @@ function bindPasswordModalActions() {
     // Close on modal background click only (not on content click)
     const modal = document.getElementById('passwordChangeModal');
     if (modal) {
-        modal.addEventListener('click', (e) => {
+        modal.addEventListener('mousedown', (e) => {
             // Only close if clicking the modal background, not the content
             if (e.target === modal) {
                 closePasswordModalFn();
@@ -61,7 +61,7 @@ function bindPasswordModalActions() {
     // Prevent modal from closing when clicking inside modal-content
     const modalContent = modal?.querySelector('.modal-content');
     if (modalContent) {
-        modalContent.addEventListener('click', (e) => {
+        modalContent.addEventListener('mousedown', (e) => {
             e.stopPropagation();
         });
     }

@@ -383,12 +383,13 @@
             justify-content: center;
             flex-wrap: wrap;
             gap: 16px;
+            width: 100%;
         }
 
         #teachingTypeStats .stat-card {
-            max-width: 40%;
+            max-width: none;
             min-width: 150px;
-            flex: 0 1 auto;
+            flex: 1;
         }
 
         .statistics-controls .date-range input[type="date"] {
@@ -921,98 +922,96 @@
 
                 <!-- Statistics Section -->
                 <section id="teaching-display" class="dashboard-section">
-                    <div class="statistics-controls">
-                        <div class="stats-date-group">
-                            <div class="date-range">
-                                <input type="date" id="teachingStartDate">
-                            </div>
-                            <div class="date-range">
-                                <label>至</label>
-                                <input type="date" id="teachingEndDate">
-                            </div>
-                        </div>
+                    <div class="statistics-container">
+                        <div id="statsTeaching" class="stats-view active">
+                            <div class="stats-unified-card">
+                                <!-- 第一部分：查询组件（上方） -->
+                                <div class="query-section">
+                                    <div class="query-controls">
+                                        <div class="date-range-group">
+                                            <label for="teachingStartDate"></label>
+                                            <input type="date" id="teachingStartDate">
+                                            <span>至</span>
+                                            <input type="date" id="teachingEndDate">
+                                        </div>
 
-                        <div class="stats-btn-group">
-                            <button id="teachingQueryBtn" class="search-btn">
-                                <span class="material-icons-round"
-                                    style="font-size:18px; margin-right:4px;">search</span>
-                                查询
-                            </button>
+                                        <div class="action-group">
+                                            <button class="search-btn primary-btn" id="teachingQueryBtn" title="查询该日期范围内的统计数据">
+                                                <span class="material-icons-round">search</span>
+                                                <span class="btn-text">查询</span>
+                                                <span class="btn-loading" style="display: none;">加载中...</span>
+                                            </button>
 
-                            <div class="preset-btn-group" style="display:flex; gap:8px;">
-                                <button class="preset-btn" data-range="yesterday"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">昨天</button>
-                                <button class="preset-btn" data-range="prev_week"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上周</button>
-                                <button class="preset-btn" data-range="prev_month"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上月</button>
-                                <button class="preset-btn" data-range="prev_quarter"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上季度</button>
-                                <button class="preset-btn" data-range="prev_year"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">上年</button>
-                                <button class="preset-btn" data-range="today"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">今天</button>
-                                <button class="preset-btn" data-range="this_week"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本周</button>
-                                <button class="preset-btn" data-range="this_month"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本月</button>
-                                <button class="preset-btn" data-range="this_quarter"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本季度</button>
-                                <button class="preset-btn" data-range="this_year"
-                                    style="padding:6px 12px; border:1px solid #e2e8f0; background:white; border-radius:6px; cursor:pointer;">本年</button>
-                            </div>
+                                            <div class="preset-buttons" data-target="teaching">
+                                                <button type="button" class="preset-btn" data-preset="yesterday">昨天</button>
+                                                <button type="button" class="preset-btn" data-preset="last-week">上周</button>
+                                                <button type="button" class="preset-btn" data-preset="last-month">上月</button>
+                                                <button type="button" class="preset-btn" data-preset="last-quarter">上季度</button>
+                                                <button type="button" class="preset-btn" data-preset="last-year">上年</button>
+                                                <button type="button" class="preset-btn" data-preset="today">今天</button>
+                                                <button type="button" class="preset-btn" data-preset="week">本周</button>
+                                                <button type="button" class="preset-btn" data-preset="month">本月</button>
+                                                <button type="button" class="preset-btn" data-preset="quarter">本季度</button>
+                                                <button type="button" class="preset-btn" data-preset="year">本年</button>
+                                            </div>
 
-                            <button id="teachingExportBtn" class="info-btn">
-                                <span class="material-icons-round"
-                                    style="font-size:18px; margin-right:4px;">download</span>
-                                导出
-                            </button>
-                        </div>
-                    </div>
+                                            <button id="teachingExportBtn" class="export-data-btn" title="导出统计数据">
+                                                <span class="material-icons-round">file_download</span>
+                                                <span>导出数据</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
 
-                    <div class="stats-unified-card">
-                        <!-- Teaching Type Stats Cards Area -->
-                        <div class="stats-component-card"
-                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <div id="teachingTypeStats" class="stats-grid">
-                                <!-- Dynamic Stats -->
-                            </div>
-                        </div>
+                                <!-- Teaching Type Stats Cards Area -->
+                                <div class="stats-component-card"
+                                    style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <div id="teachingTypeStats" class="stats-grid">
+                                        <!-- Dynamic Stats -->
+                                    </div>
+                                </div>
 
-                        <!-- Daily Statistics Bar Chart Area -->
-                        <div class="stats-component-card"
-                            style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日学习统计
-                            </h3>
-                            <div style="height: 300px;">
-                                <canvas id="dailyTeachingChart"></canvas>
-                            </div>
-                        </div>
+                                <!-- Daily Statistics Bar Chart Area -->
+                                <div class="stats-component-card"
+                                    style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日学习统计
+                                    </h3>
+                                    <div style="height: 300px;">
+                                        <canvas id="dailyTeachingChart"></canvas>
+                                    </div>
+                                </div>
 
-                        <!-- Detailed Teaching Information Table Area -->
-                        <div class="stats-component-card"
-                            style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
-                            <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体课程信息
-                            </h3>
-                            <div class="table-container"
-                                style="margin-top:0; border:none; box-shadow:none; background:transparent;">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>日期</th>
-                                            <th>时间段</th>
-                                            <th>课程类型</th>
-                                            <th>教师姓名</th>
-                                            <th>上课地点</th>
-                                            <th>状态</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="teachingDetailsBody"></tbody>
-                                </table>
+                                <!-- Detailed Teaching Information Table Area -->
+                                <div class="stats-component-card"
+                                    style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
+                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体课程信息
+                                    </h3>
+                                    <div class="table-container"
+                                        style="margin-top:0; border:none; box-shadow:none; background:transparent;">
+                                        <table id="teachingDetailsTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>日期</th>
+                                                    <th>时间段</th>
+                                                    <th>课程类型</th>
+                                                    <th>授课教师</th>
+                                                    <th>地点</th>
+                                                    <th>状态</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="teachingDetailsBody">
+                                                <tr>
+                                                    <td colspan="6" style="text-align:center; padding:20px; color:#888;">暂无学习记录</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </section>
+
             </div>
         </div>
     </div>
