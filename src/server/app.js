@@ -82,7 +82,9 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
-if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+// 启动服务器逻辑：除非在 Vercel Serverless 环境，否则一律启动监听
+if (process.env.VERCEL) {
+    // Vercel 自动处理导出
     module.exports = app;
 } else {
     app.listen(PORT, () => {
@@ -100,7 +102,6 @@ if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
             console.error('❌ 定时任务启动失败:', err);
         }
     });
-    module.exports = app;
 }
 
 module.exports = app;
