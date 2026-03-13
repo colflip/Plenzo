@@ -1,9 +1,18 @@
 {
   "version": 2,
+  "functions": {
+    "src/server/app.js": {
+      "runtime": "vercel-node@latest"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/src/server/app.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/public/$1"
     }
   ]
 }
