@@ -39,7 +39,8 @@ const securityHeaders = helmet({
                 "'self'",
                 'https://*.neon.tech',
                 'https://*.vercel.app',
-                'https://*.onrender.com'
+                'https://*.onrender.com',
+                'https://*.railway.app'
             ],
             frameAncestors: ["'none'"],
             formAction: ["'self'"],
@@ -91,24 +92,37 @@ const additionalSecurityHeaders = (req, res, next) => {
  */
 const corsOptions = {
     origin: (origin, callback) => {
+        // 解析环境变量中的额外允许域名
+        const envOrigins = process.env.ALLOWED_ORIGINS 
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+            : [];
+
         const allowedOrigins = [
             'https://schedule-widget.vercel.app',
             'https://schedule-widget.onrender.com',
             'http://localhost:3000',
             'http://localhost:3001',
             'http://localhost:5173',
-            'http://localhost:5174'
+            'http://localhost:5174',
+            ...envOrigins
         ];
 
+        // 开发环境或同源请求（如Postman）
         if (process.env.NODE_ENV === 'development' || !origin) {
             return callback(null, true);
         }
 
+        // 检查显式包含
         if (allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('不允许的CORS请求'));
+            return callback(null, true);
         }
+
+        // 检查 Railway 域名后缀 (支持 example.up.railway.app)
+        if (origin.endsWith('.railway.app')) {
+            return callback(null, true);
+        }
+
+        callback(new Error('不允许的CORS请求'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
