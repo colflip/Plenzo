@@ -960,45 +960,14 @@ function buildScheduleCard(group) {
 }
 
 // 模拟管理员端 html2canvas 截取排课表行图片
-// 辅助：生成文字版课表摘要
-function generateTextScheduleSummary(studentName, tr) {
-    const dates = Array.from(document.querySelectorAll('#ssWeeklyHeader .date-label')).map(el => el.textContent.trim().split('(')[0]);
-    const cells = Array.from(tr.querySelectorAll('td.schedule-cell'));
-    let summary = `【${studentName} 的周课表】\n`;
-    
-    cells.forEach((cell, idx) => {
-        const dateStr = dates[idx] || `第${idx + 1}天`;
-        const cards = cell.querySelectorAll('.schedule-card-group, .group-picker-item');
-        if (cards.length > 0) {
-            summary += `\n📅 ${dateStr}:\n`;
-            cards.forEach(card => {
-                const time = card.querySelector('.time-text')?.textContent || '';
-                const loc = card.querySelector('.location-text')?.textContent || '';
-                const rows = Array.from(card.querySelectorAll('.schedule-row')).map(r => {
-                    const tName = r.querySelector('.teacher-name')?.textContent || '';
-                    const type = r.querySelector('.course-type-text')?.textContent || '';
-                    return `${tName}${type}`;
-                }).join('; ');
-                summary += `  - ${time} [${loc}] ${rows}\n`;
-            });
-        }
-    });
-    return summary;
-}
-
 function scrollWidthWithBuffer(el) {
     return Math.max(el.scrollWidth, 1200) + 50;
 }
 
 async function handleTeacherStudentRowCapture(studentName, originalTr) {
     if (!window.html2canvas) {
-        // 增加兜底逻辑：如果 html2canvas 没加载，尝试复制文本版课表
-        try {
-            const textSummary = generateTextScheduleSummary(studentName, originalTr);
-            await navigator.clipboard.writeText(textSummary);
-            if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${studentName} 的文字版课表 (图片组件加载失败)`);
-        } catch (copyErr) {
-            if (window.apiUtils) window.apiUtils.showToast('组件未加载且文字复制失败 (html2canvas missing)', 'error');
+        if (window.apiUtils) {
+            window.apiUtils.showToast('截图组件 (html2canvas) 加载失败，请检查网络或联系管理员手动部署本地库。', 'error');
         }
         return;
     }
