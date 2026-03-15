@@ -445,163 +445,177 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
         // Merging happens in generateExcelFile
         Object.keys(timeSlots).sort().forEach(time => {
             const group = timeSlots[time];
+            const allItems = [...group.reviewItems, ...group.normalItems];
 
-            // 1. 评审组/咨询 (Review Group)
-            if (group.reviewItems.length > 0) {
-                // 按学生分组，确保不同学生的评审是分行的
-                const reviewsByStudent = {};
-                group.reviewItems.forEach(r => {
-                    const sName = r.student_name || r['学生名称'] || r.name || 'Unknown';
-                    if (!reviewsByStudent[sName]) reviewsByStudent[sName] = [];
-                    reviewsByStudent[sName].push(r);
+            const itemsByStudentAndLoc = {};
+            allItems.forEach(item => {
+                const sName = item.student_name || item['学生名称'] || item.name || 'Unknown';
+                const loc = item.location || item['地点'] || '';
+                const key = `${sName}|||${loc}`;
+                if (!itemsByStudentAndLoc[key]) itemsByStudentAndLoc[key] = [];
+                itemsByStudentAndLoc[key].push(item);
+            });
+
+            Object.keys(itemsByStudentAndLoc).forEach(key => {
+                const items = itemsByStudentAndLoc[key];
+                const [sName, loc] = key.split('|||');
+
+                let allCancelled = true;
+                const normalGroups = {};
+                const cancelledGroups = {};
+
+                items.forEach(r => {
+                    const status = r.status || r['状态'];
+                    const isCancelled = (status === 'cancelled' || status === '已取消');
+                    if (!isCancelled) allCancelled = false;
+
+                    let typeName = r._typeName;
+                    const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
+                    const mainType = isRecord ? typeName.replace('记录', '') : typeName;
+
+                    const tid = r.teacher_id || r.id || r['教师ID'] || 0;
+                    const tName = r.teacher_name || r.name || r['教师名称'] || '-';
+                    const keyId = tid ? tid : tName;
+
+                    const targetGroup = isCancelled ? cancelledGroups : normalGroups;
+                    if (!targetGroup[mainType]) {
+                        targetGroup[mainType] = { teachers: new Map(), recorders: new Map() };
+                    }
+                    if (isRecord) {
+                        targetGroup[mainType].recorders.set(keyId, { id: tid, name: tName });
+                    } else {
+                        targetGroup[mainType].teachers.set(keyId, { id: tid, name: tName });
+                    }
                 });
 
-                Object.keys(reviewsByStudent).forEach(sName => {
-                    const items = reviewsByStudent[sName];
+                const timeStr = time ? `(${time})` : '';
 
-                    const mainTypeSet = new Set();
-                    const teachers = [];  // 改为数组存储教师信息
-                    const recorders = [];  // 改为数组存储记录教师信息
-                    const teacherMap = new Map();  // 用于去重
-                    const recorderMap = new Map();  // 用于去重
+                // 构建分组字符串的辅助函数
+                const buildTypeStrings = (groupDict) => {
+                    const typeStrings = [];
+                    Object.keys(groupDict).forEach(mainType => {
+                        const g = groupDict[mainType];
+                        const sortedTeachers = Array.from(g.teachers.values()).sort((a, b) => Number(a.id) - Number(b.id));
+                        const sortedRecorders = Array.from(g.recorders.values()).sort((a, b) => Number(a.id) - Number(b.id));
 
-                    let allCancelled = true;
+                        const detailParts = [];
+                        const teachStr = sortedTeachers.map(t => t.name).join('，');
+                        if (teachStr) detailParts.push(teachStr);
+                        const recStr = sortedRecorders.map(t => `${t.name} (记录)`).join('，');
+                        if (recStr) detailParts.push(recStr);
 
-                    items.forEach(r => {
-                        const status = r.status || r['状态'];
-                        const isCancelled = (status === 'cancelled' || status === '已取消');
-                        if (!isCancelled) allCancelled = false;
-
-                        // 提取教师ID和名称
-                        const tid = r.teacher_id || r.id || r['教师ID'] || 0;
-                        const tName = r.teacher_name || r.name || r['教师名称'];
-
-                        if (!tName) return;
-
-                        if (r._typeName.includes('记录')) {
-                            // 记录教师去重并存储
-                            if (!recorderMap.has(tid)) {
-                                recorderMap.set(tid, { id: tid, name: tName });
-                                recorders.push({ id: tid, name: tName });
-                            }
+                        const detailContent = detailParts.join('，');
+                        if (detailContent) {
+                            typeStrings.push(`${mainType}${timeStr}：${detailContent}`);
                         } else {
-                            mainTypeSet.add(r._typeName);
-                            // 主教师去重并存储
-                            if (!teacherMap.has(tid)) {
-                                teacherMap.set(tid, { id: tid, name: tName });
-                                teachers.push({ id: tid, name: tName });
-                            }
+                            typeStrings.push(`${mainType}${timeStr}`);
                         }
                     });
+                    return typeStrings;
+                };
 
-                    const mainTypeStr = Array.from(mainTypeSet).join('/') || '评审';
+                const normalTypeStrings = buildTypeStrings(normalGroups);
+                const cancelledTypeStrings = buildTypeStrings(cancelledGroups);
 
-                    // 按教师ID排序
-                    teachers.sort((a, b) => Number(a.id) - Number(b.id));
-                    recorders.sort((a, b) => Number(a.id) - Number(b.id));
+                const shouldShowStudent = !isSingleStudent && sName !== 'Unknown';
+                const displayName = sName === 'all-std' ? '全体学生' : sName;
+                const prefix = shouldShowStudent ? `[${displayName}]` : '';
 
-                    // Detail: Teachers only (student name is in prefix)
-                    const detailParts = [];
-                    const teachStr = teachers.map(t => t.name).join(', ');
-                    if (teachStr) detailParts.push(teachStr);
-                    const recStr = recorders.map(r => `${r.name} (记录)`).join(', ');
-                    if (recStr) detailParts.push(recStr);
-
-                    const detailContent = detailParts.join(', ');
-
-                    // Prefix Logic
-                    const shouldShowStudent = !isSingleStudent && sName !== 'Unknown';
-                    const displayName = sName === 'all-std' ? '全体学生' : sName;
-                    const prefix = shouldShowStudent ? `[${displayName}]` : '';
-
-                    const timeStr = time ? `(${time})` : '';
-                    const planLine = `${prefix}${mainTypeStr}${timeStr}：${detailContent}`;
-
-                    // Actual Line Logic
-                    let actualLine = planLine;
-                    if (allCancelled) {
-                        // 合并所有教师并按ID排序
-                        const allTeachers = [...teachers, ...recorders];
-                        const uniqueMap = new Map();
-                        allTeachers.forEach(t => uniqueMap.set(t.id, t));
-                        const sortedAll = Array.from(uniqueMap.values()).sort((a, b) => Number(a.id) - Number(b.id));
-                        const allT = sortedAll.map(t => t.name).join(',');
-                        actualLine = `已取消[${allT}，${mainTypeStr}${timeStr}]`;
+                // 将所有计划安排整合显示（包含取消的）
+                const planGroups = {};
+                items.forEach(r => {
+                    let typeName = r._typeName;
+                    const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
+                    const mainType = isRecord ? typeName.replace('记录', '') : typeName;
+                    const tid = r.teacher_id || r.id || r['教师ID'] || 0;
+                    const tName = r.teacher_name || r.name || r['教师名称'] || '-';
+                    const keyId = tid ? tid : tName;
+                    
+                    if (!planGroups[mainType]) {
+                        planGroups[mainType] = { teachers: new Map(), recorders: new Map() };
                     }
-
-                    // Red Row Logic
-                    let isRedRow = false;
-                    if (actualLine.includes('评审') || actualLine.includes('咨询')) {
-                        isRedRow = true;
+                    if (isRecord) {
+                        planGroups[mainType].recorders.set(keyId, { id: tid, name: tName });
+                    } else {
+                        planGroups[mainType].teachers.set(keyId, { id: tid, name: tName });
                     }
+                });
+                const allPlanTypeStringsArray = buildTypeStrings(planGroups);
+                const planLine = `${prefix}${allPlanTypeStringsArray.join('；')}`;
+                
+                let isRedRow = false;
+                if (planLine.includes('评审') || planLine.includes('咨询')) {
+                    isRedRow = true;
+                }
 
-                    // Row Fee Logic
-                    let rowFeeSum = 0;
-                    items.forEach(r => { rowFeeSum += Number(r.transport_fee || r['交通费'] || r._transport_fee || 0); });
-                    const formatFeeHelper = (val) => {
-                        const num = Number(val) || 0;
-                        return num === 0 ? '' : String(Math.ceil(num * 100) / 100);
-                    };
-
+                // 分解行输出逻辑
+                if (normalTypeStrings.length > 0 && cancelledTypeStrings.length === 0) {
+                    // 全是正常课程，单独一行
                     const rowToPush = {
                         '日期': date,
                         '星期': weekStr,
                         '计划安排': planLine,
-                        '实际安排': actualLine,
+                        '实际安排': `${prefix}${normalTypeStrings.join('；')}`,
                         '费用': feeStr,
-                        '周汇总': weekSumStr, // 无论是否单选，都显示汇总内容
+                        '周汇总': weekSumStr,
                         '_isRedRow': isRedRow,
                         '_isSunday': isSunday,
                         '_weekNumber': weekNumber,
                         '_isSingleStudent': isSingleStudent
                     };
                     resultRows.push(rowToPush);
-                });
-            }
+                } else if (normalTypeStrings.length === 0 && cancelledTypeStrings.length > 0) {
+                    // 全是取消课程，单独一行，标记日期变动
+                    const rowToPush = {
+                        '日期': date,
+                        '星期': weekStr,
+                        '计划安排': planLine,
+                        '实际安排': `${prefix}已取消[${cancelledTypeStrings.join('；')}]`,
+                        '费用': feeStr,
+                        '周汇总': weekSumStr,
+                        '_isRedRow': isRedRow,
+                        '_isSunday': isSunday,
+                        '_weekNumber': weekNumber,
+                        '_isSingleStudent': isSingleStudent,
+                        '_isModifiedDate': true
+                    };
+                    resultRows.push(rowToPush);
+                } else if (normalTypeStrings.length > 0 && cancelledTypeStrings.length > 0) {
+                    // 既有正常也有取消课程，拆分为两行输出
+                    // 1. 正常课程行（计划安排只在此行显示，标记日期有变动）
+                    const normalRowPush = {
+                        '日期': date,
+                        '星期': weekStr,
+                        '计划安排': planLine,
+                        '实际安排': `${prefix}${normalTypeStrings.join('；')}`,
+                        '费用': feeStr,
+                        '周汇总': weekSumStr,
+                        '_isRedRow': isRedRow,
+                        '_isSunday': isSunday,
+                        '_weekNumber': weekNumber,
+                        '_isSingleStudent': isSingleStudent,
+                        '_isModifiedDate': true
+                    };
+                    resultRows.push(normalRowPush);
 
-            // 2. 普通组 (Normal Group) - Each item is a row
-            group.normalItems.forEach(item => {
-                const type = item._typeName;
-                const teacher = item.teacher_name || item.name || item['教师名称'] || '-';
-                const shouldShowStudent = !isSingleStudent;
-                const studentName = item.student_name || item.name || item['学生名称'] || '';
-                const prefix = (shouldShowStudent && studentName) ? `[${studentName}]` : '';
-
-                const timeStr = time ? `(${time})` : '';
-                const planLine = `${prefix}${type}${timeStr}：${teacher}`;
-                let actualLine = planLine;
-
-                const status = item.status || item['状态'];
-                const isCancelled = (status === 'cancelled' || status === '已取消');
-
-                if (isCancelled) {
-                    actualLine = `已取消[${teacher}，${type}${timeStr}]`;
+                    // 2. 取消课程行
+                    // 为了合并和显示，日期、星期保持不变，计划安排留空（让上面的一行去显示），也标记日期有变动
+                    const cancelledRowPush = {
+                        '日期': date,
+                        '星期': weekStr,
+                        '计划安排': '',
+                        '实际安排': `${prefix}已取消[${cancelledTypeStrings.join('；')}]`,
+                        '费用': '',
+                        '周汇总': '',
+                        '_isRedRow': isRedRow,
+                        '_isSunday': isSunday,
+                        '_weekNumber': weekNumber,
+                        '_isSingleStudent': isSingleStudent,
+                        '_isModifiedDate': true,
+                        '_isSubRowOfMixed': true // 给后面渲染留个记号，避免生成多余边框或跨行合并出错
+                    };
+                    resultRows.push(cancelledRowPush);
                 }
-
-                let isRedRow = false;
-                if (actualLine.includes('评审') || actualLine.includes('咨询') || type.includes('评审') || type.includes('咨询')) {
-                    isRedRow = true;
-                }
-
-                const formatFeeHelper = (val) => {
-                    const num = Number(val) || 0;
-                    return num === 0 ? '' : String(Math.ceil(num * 100) / 100);
-                };
-                const rowFeeSum = Number(item.transport_fee || item['交通费'] || item._transport_fee || 0);
-
-                const rowToPush = {
-                    '日期': date,
-                    '星期': weekStr,
-                    '计划安排': planLine,
-                    '实际安排': actualLine,
-                    '费用': feeStr,
-                    '周汇总': weekSumStr, // 无论是否单选，都显示汇总内容
-                    '_isRedRow': isRedRow,
-                    '_isSunday': isSunday,
-                    '_weekNumber': weekNumber,
-                    '_isSingleStudent': isSingleStudent
-                };
-                resultRows.push(rowToPush);
             });
         });
     });
@@ -1795,6 +1809,8 @@ async function generateExcelFile(exportData, filename, userType) {
                 delete newRow._student_id;
                 delete newRow._teacher_id;
                 delete newRow._isSummaryRow;
+                delete newRow._isModifiedDate;
+                delete newRow._isSubRowOfMixed;
                 return newRow;
             });
 
@@ -1952,6 +1968,17 @@ async function generateExcelFile(exportData, filename, userType) {
                         ws['!merges'].push({ s: { r: weekStartRow, c: weekSumColIdx }, e: { r: rawDataList.length, c: weekSumColIdx } });
                     }
                 }
+
+                // --- 计划安排列合并（对于因为包含取消课程而被拆分的行） ---
+                const planColIdx = headers.indexOf('计划安排');
+                if (planColIdx !== -1) {
+                    for (let i = 1; i < rawDataList.length; i++) {
+                        const curr = rawDataList[i];
+                        if (curr._isSubRowOfMixed) {
+                            ws['!merges'].push({ s: { r: i, c: planColIdx }, e: { r: i + 1, c: planColIdx } });
+                        }
+                    }
+                }
             }
 
             // --- 4. 应用样式 ---
@@ -2015,6 +2042,16 @@ async function generateExcelFile(exportData, filename, userType) {
                         
                         // 费用列不使用斜体，保持正常字体
                         if (cancelHeaderVal !== '费用') {
+                            cell.s.font.italic = true;
+                        }
+                    }
+
+                    // 如果该行有特殊的日期变动标记，且当前列为“日期”或“星期”，则设为斜体
+                    if (dataRow && dataRow._isModifiedDate) {
+                        const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
+                        const headerCell = ws[headerRef];
+                        const headerVal = headerCell ? String(headerCell.v) : '';
+                        if (headerVal === '日期' || headerVal === '星期') {
                             cell.s.font.italic = true;
                         }
                     }

@@ -238,34 +238,52 @@ function optimisticAdd(scheduleData) {
  * @returns {Object} 包含原始数据的backup对象
  */
 function optimisticUpdate(id, changes) {
-    const card = document.querySelector(`[data-schedule-id=\"${id}\"]`);
-    if (!card) {
+    const row = document.querySelector(`[data-schedule-id="${id}"]`);
+    if (!row) {
         
         return { backup: null };
     }
 
-    // 保存原始状态
+    // 添加loading样式
+    row.classList.add('optimistic-loading');
+
     const backup = {
-        card,
-        originalHTML: card.innerHTML,
-        originalClasses: card.className
+        row,
+        changes,
+        oldStatus: ''
     };
 
-    // 添加loading样式
-    card.classList.add('optimistic-loading');
-
-    // 更新状态badge
     if (changes.status) {
-        const statusBadge = card.querySelector('.schedule-status-badge');
-        if (statusBadge) {
-            statusBadge.className = `schedule-status-badge status-${changes.status}`;
-            const statusText = {
-                'confirmed': '已确认',
-                'pending': '待确认',
-                'completed': '已完成',
-                'cancelled': '已取消'
-            };
-            statusBadge.textContent = statusText[changes.status] || changes.status;
+        const select = row.querySelector('.status-select');
+        if (select) {
+            backup.oldStatus = select.dataset.lastStatus || select.value;
+            select.value = changes.status;
+            select.className = `status-select ${changes.status}`;
+            select.dataset.lastStatus = changes.status;
+        }
+
+        row.classList.toggle('status-cancelled', changes.status === 'cancelled');
+
+        if (changes.status === 'completed') {
+            if (!row.querySelector('.completed-checkmark-icon')) {
+                const checkmark = document.createElement('div');
+                checkmark.className = 'completed-checkmark-icon';
+                if (select) {
+                    row.insertBefore(checkmark, select);
+                } else {
+                    row.appendChild(checkmark);
+                }
+            }
+        } else {
+            const checkIcon = row.querySelector('.completed-checkmark-icon');
+            if (checkIcon) checkIcon.remove();
+        }
+
+        const group = row.closest('.schedule-card-group');
+        if (group) {
+            const allRows = Array.from(group.querySelectorAll('.schedule-row'));
+            const allCancelled = allRows.length > 0 && allRows.every(r => r.classList.contains('status-cancelled'));
+            group.classList.toggle('status-cancelled', allCancelled);
         }
     }
 
@@ -305,10 +323,11 @@ function rollbackOperation(backup, operation) {
                 break;
 
             case 'update':
-                // 恢复原始HTML和class
-                if (backup.card) {
-                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(backup.card, backup.originalHTML); } else { backup.card.innerHTML = backup.originalHTML; }
-                    backup.card.className = backup.originalClasses;
+                // 通过再次应用旧状态实现回滚，避免覆写innerHTML销毁事件监听器
+                if (backup.row && backup.changes && backup.changes.status !== undefined) {
+                    backup.row.classList.remove('optimistic-loading');
+                    optimisticUpdate(backup.row.dataset.scheduleId, { status: backup.oldStatus });
+                    backup.row.classList.remove('optimistic-loading');
                 }
                 break;
 
@@ -1151,26 +1170,13 @@ function buildAdminScheduleCard(group, student, dateKey) {
             e.stopPropagation(); // Prevent card click
         });
 
-        statusSelect.addEventListener('change', async (e) => {
+        statusSelect.addEventListener('change', (e) => {
             e.stopPropagation();
             const newStatus = e.target.value;
-            const oldStatus = statusSelect.dataset.lastStatus;
-
-            // Optimistic Update
-            statusSelect.className = `status-select ${newStatus}`;
             statusSelect.blur(); // Remove focus
-
-            try {
-                await updateScheduleStatus(rec.id, newStatus);
-                statusSelect.dataset.lastStatus = newStatus; // Confirm update
-                // No Success Toast
-            } catch (err) {
-                // Revert
-                
-                statusSelect.value = oldStatus;
-                statusSelect.className = `status-select ${oldStatus}`;
-                if (window.apiUtils) window.apiUtils.showToast('修改失败: ' + (err.message || '未知错误'), 'error');
-            }
+            
+            // 统一调用 updateScheduleStatus，由其内部处理 optimistic UI 和 API 同步
+            updateScheduleStatus(rec.id, newStatus);
         });
 
         // Checkmark for completed status
@@ -1284,8 +1290,8 @@ export async function updateScheduleStatus(id, newStatus) {
         }
 
         // 移除loading状态
-        if (backup.card) {
-            backup.card.classList.remove('optimistic-loading');
+        if (backup.row) {
+            backup.row.classList.remove('optimistic-loading');
         }
 
         window.apiUtils.showSuccessToast('状态已更新');
