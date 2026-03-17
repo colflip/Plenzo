@@ -101,11 +101,12 @@
 }
 
 .week-navigation #weekRange,
-.week-navigation #avWeekRange {
+.week-navigation #avWeekRange,
+.week-navigation #ssWeekRange {
     font-weight: 600;
     color: var(--sch-text-main);
     font-size: 15px;
-    white-space: nowrap;
+    white-space: nowrap !important;
     min-width: 180px;
     text-align: center;
 }

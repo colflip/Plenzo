@@ -6,7 +6,7 @@
 /**
  * 调整下拉框最小宽度以适应内容
  */
-export function adjustSelectMinWidth(selectEl) {
+function adjustSelectMinWidth(selectEl) {
     if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
     const style = getComputedStyle(selectEl);
     const probe = document.createElement('span');
@@ -39,7 +39,7 @@ export function adjustSelectMinWidth(selectEl) {
 /**
  * 设置侧边栏切换逻辑
  */
-export function setupSidebarToggle() {
+function setupSidebarToggle() {
     const sidebar = document.querySelector('.sidebar');
     const mainContent = document.querySelector('.main-content');
     const toggleBtns = document.querySelectorAll('.toggle-sidebar');
@@ -78,20 +78,35 @@ export function setupSidebarToggle() {
     function openMobileSidebar() {
         sidebar.classList.add('mobile-open');
         if (sidebarOverlay) sidebarOverlay.classList.add('active');
+        if (mobileMenuToggle) {
+            mobileMenuToggle.classList.add('active');
+            const icon = mobileMenuToggle.querySelector('.material-icons-round');
+            if (icon) icon.textContent = 'close';
+        }
         document.body.style.overflow = 'hidden';
     }
 
     function closeMobileSidebar() {
         sidebar.classList.remove('mobile-open');
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+        if (mobileMenuToggle) {
+            mobileMenuToggle.classList.remove('active');
+            const icon = mobileMenuToggle.querySelector('.material-icons-round');
+            if (icon) icon.textContent = 'menu';
+        }
         document.body.style.overflow = '';
     }
 
     if (mobileMenuToggle) {
         mobileMenuToggle.addEventListener('click', (e) => {
             e.preventDefault();
-            e.stopPropagation();
-            openMobileSidebar();
+            // 关键：不再阻断冒泡，但确保逻辑独立
+            const willOpen = !sidebar.classList.contains('mobile-open');
+            if (willOpen) {
+                openMobileSidebar();
+            } else {
+                closeMobileSidebar();
+            }
         });
     }
 
@@ -106,7 +121,8 @@ export function setupSidebarToggle() {
     navItems.forEach(navItem => {
         navItem.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
-                setTimeout(closeMobileSidebar, 200);
+                // 点击菜单项后立即响应关闭，增加用户体验流畅度
+                closeMobileSidebar();
             }
         });
     });
@@ -126,7 +142,7 @@ export function setupSidebarToggle() {
 /**
  * 设置头部标题
  */
-export function setHeaderTitle(title) {
+function setHeaderTitle(title) {
     const headerTitle = document.querySelector('.dashboard-header h2');
     if (headerTitle) headerTitle.textContent = title;
 }
@@ -136,7 +152,7 @@ export function setHeaderTitle(title) {
  * @param {string} sectionId - 部分ID
  * @param {Function} [afterSwitchCallback] - 切换后的回调（用于加载数据）
  */
-export function showSection(sectionId, afterSwitchCallback) {
+function showSection(sectionId, afterSwitchCallback) {
     const sections = document.querySelectorAll('.dashboard-section');
     sections.forEach(section => {
         section.classList.remove('active');
@@ -162,7 +178,7 @@ export function showSection(sectionId, afterSwitchCallback) {
  * @param {HTMLElement} container - 表格的父容器（.table-container 或 .stats-unified-card）
  * @param {string} [text] - 加载显示的文本
  */
-export function showTableLoading(container, text = '正在加载数据...', targetSelector = 'thead') {
+function showTableLoading(container, text = '正在加载数据...', targetSelector = 'thead') {
     if (!container) return;
 
     // 针对不同模块的容器结构进行适配
@@ -276,7 +292,7 @@ export function showTableLoading(container, text = '正在加载数据...', targ
  * 隐藏表格加载动画，采用平滑淡出
  * @param {HTMLElement} container - 表格的父容器
  */
-export function hideTableLoading(container) {
+function hideTableLoading(container) {
     if (!container) return;
     const overlay = container.querySelector('.stats-loading-overlay');
     if (overlay) {

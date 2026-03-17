@@ -294,11 +294,64 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
         // 逗号
         card.appendChild(document.createTextNode('，'));
 
-        // 状态chip
-        const statusChip = createElement('span', `chip status-${status}`, {
-            textContent: statusLabel
+        // 状态快速切换下拉框
+        const statusSelect = createElement('select', `status-select chip status-${status}`, {
+            style: 'margin-left: 2px; padding: 2px 4px; font-size: 13px; border: none; background-color: transparent; appearance: menulist;'
         });
-        card.appendChild(statusChip);
+        statusSelect.dataset.lastStatus = status;
+
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        Object.keys(statusMap).forEach(key => {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = statusMap[key];
+            if (key === status) opt.selected = true;
+            statusSelect.appendChild(opt);
+        });
+
+        statusSelect.addEventListener('click', (e) => e.stopPropagation());
+
+        statusSelect.addEventListener('change', async (e) => {
+            e.stopPropagation();
+            const newStatus = e.target.value;
+            const oldStatus = statusSelect.dataset.lastStatus;
+
+            // 乐观更新 UI
+            statusSelect.className = `status-select chip status-${newStatus}`;
+            statusSelect.blur();
+
+            try {
+                await updateScheduleStatus(schedule.id, newStatus);
+                statusSelect.dataset.lastStatus = newStatus;
+                
+                // 找到父级卡片（若需要更新背景色以匹配取消状态）
+                if (newStatus === 'cancelled') {
+                    card.classList.add('status-cancelled');
+                } else if (oldStatus === 'cancelled') {
+                    // 若从取消状态恢复，则移除（这里可能需检查组内是否还有其他取消的，简化处理为直接移除）
+                    card.classList.remove('status-cancelled');
+                }
+                
+                // 显示反馈
+                const fb = document.getElementById('scheduleFeedback');
+                if (fb && window.showInlineFeedback) {
+                    window.showInlineFeedback(fb, '状态跟新成功', 'success');
+                }
+            } catch (err) {
+                // 回滚
+                statusSelect.value = oldStatus;
+                statusSelect.className = `status-select chip status-${oldStatus}`;
+                if (oldStatus === 'cancelled') {
+                    card.classList.add('status-cancelled');
+                }
+                const fb = document.getElementById('scheduleFeedback');
+                if (fb && window.showInlineFeedback) {
+                    window.showInlineFeedback(fb, '修改失败，请重试', 'error');
+                }
+            }
+        });
+
+        card.appendChild(statusSelect);
 
         // 右括号
         card.appendChild(document.createTextNode('）'));

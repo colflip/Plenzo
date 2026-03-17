@@ -268,6 +268,20 @@ function renderTodaySchedules(schedules) {
     });
 
     container.appendChild(fragment);
+
+    // 检查溢出并添加跑马灯类
+    setTimeout(() => checkLocationOverflow(container), 0);
+}
+
+function checkLocationOverflow(container) {
+    const locations = container.querySelectorAll('.today-card-bottom .location');
+    locations.forEach(el => {
+        if (el.scrollWidth > el.offsetWidth) {
+            el.classList.add('animate-marquee');
+        } else {
+            el.classList.remove('animate-marquee');
+        }
+    });
 }
 
 /**
@@ -323,7 +337,10 @@ function buildTodayScheduleCard(schedule, items = []) {
     const card = createElement('div', `today-card-modern ${slotClass} ${typeClass} sc-status-${status}`);
     card.setAttribute('role', 'listitem');
 
-    // 1. Time Column
+    // 上部分容器：3.5:4.5:2 三栏布局
+    const topPart = createElement('div', 'today-card-top');
+
+    // 1. Time Column - 左侧时间段显示区
     const timeCol = createElement('div', 'today-card-time');
 
     const timeText = createElement('div', 'time-range', {
@@ -334,13 +351,13 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     timeCol.appendChild(timeText);
     timeCol.appendChild(slotLabelEl);
-    card.appendChild(timeCol);
+    topPart.appendChild(timeCol);
 
-    // 2. Info Column
+    // 2. Info Column - 中间课程信息显示区
     const infoCol = createElement('div', 'today-card-info');
 
-    // Header: Teacher Name + Type
-    const header = createElement('div', 'today-card-header');
+    // Teacher Name + Type
+    const titleDiv = createElement('div', 'today-card-title');
 
     // Teacher Name
     let teacherNameText = schedule.teacher_name || '未分配教师';
@@ -349,7 +366,6 @@ function buildTodayScheduleCard(schedule, items = []) {
         teacherNameText = tNames.join('、');
     }
 
-    const titleDiv = createElement('div', 'today-card-title');
     const nameSpan = createElement('span', 'sc-student-name', { textContent: teacherNameText });
     if (isMerged) nameSpan.title = items.map(i => i.teacher_name).join(', ');
     titleDiv.appendChild(nameSpan);
@@ -366,10 +382,38 @@ function buildTodayScheduleCard(schedule, items = []) {
         titleDiv.appendChild(mergedBadge);
     }
 
-    header.appendChild(titleDiv);
-    infoCol.appendChild(header);
+    infoCol.appendChild(titleDiv);
 
-    // Details: Location
+    // 2.2 Location Row (PC 专用显示区) - 新增
+    const isMobile = window.innerWidth <= 768;
+    if (!isMobile) {
+        const locationRow = createElement('div', 'today-card-detail-item location pc-location');
+        const pcLocIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
+        const pcLocText = createElement('span', 'location-text', {
+            textContent: schedule.location || '地点待定'
+        });
+        if (!schedule.location) {
+            pcLocText.style.fontStyle = 'italic';
+            pcLocText.style.color = '#94a3b8';
+        }
+        locationRow.appendChild(pcLocIcon);
+        locationRow.appendChild(pcLocText);
+        infoCol.appendChild(locationRow);
+    }
+
+    topPart.appendChild(infoCol);
+
+    // 3. Status Column - 右侧状态显示区
+    const statusCol = createElement('div', 'today-card-status');
+    const statusPill = createElement('span', `status-pill ${status}`, { textContent: displayStatus });
+    statusCol.appendChild(statusPill);
+    topPart.appendChild(statusCol);
+
+    card.appendChild(topPart);
+
+    // 下部分容器：上课地点靠右显示
+    const bottomPart = createElement('div', 'today-card-bottom');
+
     const details = createElement('div', 'today-card-details');
 
     const locationItem = createElement('div', 'today-card-detail-item location');
@@ -377,7 +421,7 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     locationItem.appendChild(locIcon);
 
-    const locSpan = createElement('span', '', {
+    const locSpan = createElement('span', 'location-text', {
         textContent: schedule.location || '地点待定'
     });
     if (!schedule.location) {
@@ -386,15 +430,8 @@ function buildTodayScheduleCard(schedule, items = []) {
     }
     locationItem.appendChild(locSpan);
     details.appendChild(locationItem);
-
-    infoCol.appendChild(details);
-    card.appendChild(infoCol);
-
-    // 3. Status Column
-    const statusCol = createElement('div', 'today-card-status');
-    const statusPill = createElement('span', `status-pill ${status}`, { textContent: displayStatus });
-    statusCol.appendChild(statusPill);
-    card.appendChild(statusCol);
+    bottomPart.appendChild(details);
+    card.appendChild(bottomPart);
 
     return card;
 }

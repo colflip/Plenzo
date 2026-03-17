@@ -105,8 +105,9 @@ body {
 }
 
 .logo-icon {
-    font-size: 28px;
-    color: #2ECC71;
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
     margin-right: 12px;
     transition: all 0.3s ease;
 }
@@ -266,55 +267,6 @@ body {
 
 .sidebar.collapsed .toggle-sidebar .material-icons-round {
     transform: rotate(180deg);
-}
-
-/* 左下角固定菜单在移动端全宽显示 & 悬浮抽屉样式 */
-@media (max-width: 768px) {
-    .sidebar {
-        position: fixed;
-        left: -250px;
-        /* 默认隐藏在左侧屏幕外 */
-        top: 0;
-        bottom: 0;
-        height: 100vh;
-        width: 250px;
-        z-index: 1001;
-        /* 高于 overlay */
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
-        transition: transform 0.3s ease;
-    }
-
-    .sidebar.mobile-open {
-        transform: translateX(250px);
-    }
-
-    .sidebar-footer {
-        width: 100%;
-        border-top: 1px solid #E9ECEF;
-    }
-
-    .sidebar.collapsed .sidebar-footer {
-        width: 100%;
-    }
-
-    /* 遮罩层样式 */
-    .sidebar-overlay {
-        position: fixed;
-        inset: 0;
-        background-color: rgba(0, 0, 0, 0.5); /* 统一改为了0.5以保证三端一致 */
-        z-index: 1000;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-        backdrop-filter: blur(2px);
-        user-select: none;
-        -webkit-user-select: none;
-    }
-
-    .sidebar-overlay.active {
-        opacity: 1;
-        pointer-events: auto; /* 打开时防止点击穿透 */
-    }
 }
 
 /* 主要内容区 */
@@ -1878,46 +1830,217 @@ tr:last-child td {
 }
 
 
-/* 移动端适配 */
+/* 移动端适配 - 悬浮菜单栏模式 */
 @media screen and (max-width: 768px) {
     .dashboard-container {
         position: relative;
     }
 
-    .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        height: 100vh;
-        z-index: 1000;
-        transform: translateX(0);
-        transform: translateX(0);
-        transition: transform 0.3s ease, width 0.3s ease;
-        background-color: #fff;
-        /* Ensure background is opaque */
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
-    }
-
     .mobile-menu-toggle {
-        display: block;
-        /* Show on mobile */
-        background: none;
-        border: none;
-        padding: 8px;
-        cursor: pointer;
-        color: #333;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: #FFFFFF !important;
+        border: 1px solid #E9ECEF !important;
+        padding: 0 !important;
+        cursor: pointer !important;
+        color: #2C3E50 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: fixed !important;
+        top: 16px !important;
+        left: 16px !important;
+        z-index: 99999 !important; /* 锁定为顶级，绝不妥协 */
+        width: 52px !important;
+        height: 52px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: #FFFFFF !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+        border: 1px solid rgba(0, 0, 0, 0.05) !important;
     }
 
     .mobile-menu-toggle .material-icons-round {
-        font-size: 24px;
+        font-size: 26px !important;
+        color: #2C3E50 !important;
+        transition: transform 0.3s ease !important;
     }
 
-    .sidebar.collapsed {
-        transform: translateX(-100%);
+    /* 激活态：旋转并加深背景 */
+    .mobile-menu-toggle.active {
+        background-color: #F0F2F5 !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
     }
 
-    .sidebar:not(.collapsed) {
-        width: 250px;
+    .mobile-menu-toggle.active .material-icons-round {
+        transform: rotate(90deg) !important;
+        color: #2ECC71 !important;
+    }
+
+    .mobile-menu-toggle:active {
+        background-color: #F8F9FA;
+        transform: scale(0.92);
+    }
+
+    /* 悬浮菜单栏容器 - 增强动效与定位 */
+    .sidebar {
+        position: fixed !important;
+        left: 16px !important;
+        top: 140px !important;
+        height: auto !important;
+        max-height: calc(100vh - 180px) !important;
+        z-index: 2000 !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        width: 215px !important; /* 缩减至少20%，满足用户“减少宽度”需求 */
+        pointer-events: none !important;
+        transition: opacity 0.5s ease, transform 0.5s ease !important;
+        overflow: visible !important;
+        perspective: 1000px !important;
+    }
+
+    .sidebar.mobile-open {
+        pointer-events: auto !important; /* 关键修复：确保菜单打开时子项可点击 */
+        opacity: 1 !important;
+        transform: none !important;
+    }
+
+    .sidebar .logo {
+        display: none;
+    }
+
+    .nav-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 0;
+        background: transparent;
+    }
+
+    .sidebar .nav-item {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        padding: 14px 18px !important; /* 略微压缩内边距以适配更窄的宽度 */
+        margin: 0 0 10px 0 !important;
+        gap: 12px !important; /* 缩小间距 */
+        background-color: #FFFFFF !important;
+        color: #2C3E50 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+        border: none !important;
+        text-decoration: none !important;
+        width: 100% !important;
+        text-align: left !important;
+    }
+
+    /* 选中项绿色背景 - 核心需求 */
+    .sidebar .nav-item.active {
+        background-color: #2ECC71 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 8px 25px rgba(46, 204, 113, 0.3) !important;
+    }
+
+    .sidebar .nav-item.active .material-icons-round,
+    .sidebar .nav-item.active .nav-text {
+        color: #FFFFFF !important;
+    }
+
+    .sidebar .nav-item {
+        /* 初始状态：翻转 + 缩小 + 位移 */
+        transform: rotateX(-30deg) scale(0.8) translateY(-20px);
+        opacity: 0;
+        transform-origin: top center;
+        transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), 
+                    opacity 0.6s ease, 
+                    background-color 0.2s ease;
+    }
+
+    .sidebar.mobile-open .nav-item {
+        transform: rotateX(0) scale(1) translateY(0);
+        opacity: 1;
+    }
+
+    /* 逐个弹出的阶梯延迟 - 间隔拉长使过程更明显 */
+    .sidebar.mobile-open .nav-item:nth-child(1) { transition-delay: 0.1s; }
+    .sidebar.mobile-open .nav-item:nth-child(2) { transition-delay: 0.18s; }
+    .sidebar.mobile-open .nav-item:nth-child(3) { transition-delay: 0.26s; }
+    .sidebar.mobile-open .nav-item:nth-child(4) { transition-delay: 0.34s; }
+    .sidebar.mobile-open .nav-item:nth-child(5) { transition-delay: 0.42s; }
+    .sidebar.mobile-open .nav-item:nth-child(6) { transition-delay: 0.5s; }
+    .sidebar.mobile-open .nav-item:nth-child(7) { transition-delay: 0.58s; }
+
+    /* 菜单收起时的反向延迟 */
+    .sidebar:not(.mobile-open) .nav-item:nth-child(1) { transition-delay: 0.3s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(2) { transition-delay: 0.25s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(3) { transition-delay: 0.2s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(4) { transition-delay: 0.15s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(5) { transition-delay: 0.1s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(6) { transition-delay: 0.05s; }
+    .sidebar:not(.mobile-open) .nav-item:nth-child(7) { transition-delay: 0ms; }
+
+    .sidebar .nav-item .material-icons-round {
+        font-size: 22px !important; /* 略微放大图标 */
+        color: #6C757D;
+        transition: color 0.2s ease;
+        margin-right: 0; /* 使用 gap 控制间距 */
+    }
+
+    .sidebar .nav-text {
+        font-size: 16px !important; /* 提升字号 */
+        font-weight: 600 !important; /* 维持字重 */
+        color: #1F2937 !important;
+        white-space: nowrap !important;
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    .sidebar .nav-item:hover {
+        background-color: rgba(46, 204, 113, 0.08);
+    }
+
+    .sidebar .nav-item:hover .material-icons-round {
+        color: #2ECC71;
+    }
+
+    .sidebar .nav-item.active {
+        background-color: #2ECC71;
+        color: #FFFFFF;
+        border-color: #2ECC71;
+    }
+
+    .sidebar .nav-item.active .material-icons-round {
+        color: #FFFFFF;
+    }
+
+    .sidebar-footer {
+        display: none;
+    }
+
+    /* 遮罩层样式 - 极致沉浸版 */
+    .sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.85); /* 增加不透明度 */
+        z-index: 1000; /* 仅次于按钮和菜单 */
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    .sidebar-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .main-content {
@@ -1941,58 +2064,21 @@ tr:last-child td {
     .table-container,
     .users-table-container {
         position: relative;
-        /* 确保overflow裁剪生效 */
         overflow-x: auto !important;
         overflow-y: hidden !important;
-        /* 防止内容在垂直和水平方向泄露 */
         -webkit-overflow-scrolling: touch;
     }
 
-    /* 强制容器内的内容不超出边界 */
     #users .table-container {
         clip-path: inset(0);
-        /* 确保任何溢出内容都被裁剪 */
     }
 
     #usersTable {
         min-width: 900px;
-        /* 确保表格有最小宽度,触发横向滚动 */
         border-collapse: separate !important;
-        /* sticky需要separate而非collapse */
         border-spacing: 0;
-        /* 保持紧凑外观 */
     }
 
-    /* 教师表姓名列固定在左侧 */
-    #usersTable th.col-name,
-    #usersTable td.col-name {
-        position: sticky;
-        left: 0;
-        /* 使用0而非负值，配合margin处理 */
-        margin-left: -2px;
-        /* 向左扩展以覆盖边缘 */
-        padding-left: calc(24px + 2px);
-        /* 补偿margin的影响 */
-        background-color: white;
-        z-index: 10;
-        /* 提高z-index确保在其他列之上 */
-        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-        clip-path: inset(0 -10px 0 0);
-        /* 向右扩展阴影区域 */
-    }
-
-    /* 表头的姓名列需要更高的 z-index 以保持在数据行之上 */
-    #usersTable thead th.col-name {
-        z-index: 11;
-        background-color: #F9FAFB;
-    }
-
-    /* 鼠标悬停时保持背景色一致 */
-    #usersTable tbody tr:hover td.col-name {
-        background-color: #F9FAFB;
-    }
-
-    /* 修复border-collapse: separate后的边框问题 */
     #usersTable th,
     #usersTable td {
         border-right: 1px solid var(--admin-border);
@@ -5197,93 +5283,10 @@ svg {
         z-index: 10;
     }
 
-    /* 侧边栏移动端样式 - 悬浮透明风格 */
-    .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        height: 100vh;
-        width: 280px;
-        /* 移动端稍宽一些 */
-        transform: translateX(-100%);
-        z-index: 1000;
-        transition: transform 0.3s ease;
-
-        /* 悬浮透明设置 */
-        background-color: transparent !important;
-        box-shadow: none !important;
-        border-right: none !important;
-        padding: 16px;
-        /* 边缘间距 */
-        display: flex;
-        flex-direction: column;
-    }
-
-    .sidebar.mobile-open {
-        transform: translateX(0);
-    }
-
-    /* Logo 卡片化 */
-    .sidebar .logo {
-        background-color: white;
-        border-radius: 16px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-        /* 柔和阴影 */
-        margin-bottom: 16px;
-        /* 卡片间距 */
-        border-bottom: none !important;
-
-        /* 内容左对齐 - 增加5px内边距 */
-        justify-content: flex-start !important;
-        padding-left: 29px !important;
-    }
-
-    /* 菜单列表 卡片化 */
-    .nav-menu {
-        background-color: white;
-        border-radius: 16px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-        padding: 17px 0;
-        /* 增加5px垂直内边距 */
-        margin-bottom: 16px;
-
-        /* 避免过长时被截断，允许内部滚动，或者让 sidebar 滚动 */
-        /* 由于 sidebar 是 flex column, nav-menu flex-grow: 1 */
-    }
-
-    /* 底部按钮 卡片化 */
-    .sidebar-footer {
-        background-color: white;
-        border-radius: 16px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-        border-top: none !important;
-        margin-top: 0;
-        /* 由 nav-menu margin-bottom 控制间距 */
-    }
-
-    /* 菜单项左对齐 */
-    .sidebar .nav-item {
-        justify-content: flex-start !important;
-        padding-left: 29px !important;
-        /* 增加5px左侧内边距 */
-        margin: 4px 12px;
-    }
-
-    /* 移动端不显示桌面端的折叠功能 */
-    .sidebar.collapsed {
-        width: 280px;
-    }
-
-    .sidebar.collapsed .logo-text,
-    .sidebar.collapsed .nav-text {
-        opacity: 1;
-        width: auto;
-    }
-
-    .sidebar.collapsed .logo-icon,
-    .sidebar.collapsed .nav-item .material-icons-round {
-        margin-right: 12px;
-    }
+    /* --- 已接管 ---
+       侧边栏移动端样式已移动至文件的悬浮菜单模块定义 (Line 1839+)。
+       此处清理冗余定义以彻底移除白色背景板冲突。
+       --- */
 
     /* 隐藏桌面端的折叠按钮 */
     .toggle-sidebar {
@@ -7467,246 +7470,513 @@ svg {
 }
 
 /* =================================
-   7. Modern Today's Schedule Card
+   7. Today's Schedule Card (全新视觉设计 - PC端)
    ================================= */
+/* 卡片容器 - 全新视觉设计 */
 .today-card-modern {
     display: flex;
     flex-direction: row;
     background: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    margin-bottom: 0;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    margin: 0 auto 12px auto;
     overflow: hidden;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
-    min-height: 80px;
-    padding-left: 6px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
     cursor: pointer;
+    width: 95%; /* 桌面端稍微加宽，增加利用率 */
+    min-height: 65px;
+}
 
-    .today-card-modern {
-        display: flex;
-        flex-direction: row;
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        margin-bottom: 0;
-        overflow: hidden;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        min-height: 80px;
-        padding-left: 6px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        cursor: pointer;
-        width: 100%;
-        min-width: 0;
-        flex-shrink: 0;
-        box-sizing: border-box;
-    }
+/* 悬停效果 - 提升质感 */
+.today-card-modern:hover {
+    transform: translateY(-2px);
+    border-color: #D1D5DB;
+    box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.1), 0 3px 6px -2px rgba(0, 0, 0, 0.05);
+}
 
-    .today-card-modern:hover {
-        transform: translateX(4px);
-        border-color: #CBD5E1;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    }
+/* 左侧时间指示条 - 课程类型颜色区分 */
+.today-card-modern::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    background: linear-gradient(180deg, #94A3B8 0%, #64748B 100%);
+    z-index: 2;
+}
 
-    .today-card-modern::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 6px;
-        background-color: #CBD5E1;
-    }
+/* 上午课程 - 蓝色系 */
+.today-card-modern.slot-morning::before {
+    background: linear-gradient(180deg, #60A5FA 0%, #3B82F6 100%);
+}
 
-    .today-card-modern.slot-morning::before {
-        background: linear-gradient(to bottom, #60a5fa, #3b82f6);
-    }
+/* 下午课程 - 橙色系 */
+.today-card-modern.slot-afternoon::before {
+    background: linear-gradient(180deg, #FBBF24 0%, #F59E0B 100%);
+}
 
-    .today-card-modern.slot-afternoon::before {
-        background: linear-gradient(to bottom, #fbbf24, #f59e0b);
-    }
+/* 晚上课程 - 紫色系 */
+.today-card-modern.slot-evening::before {
+    background: linear-gradient(180deg, #A78BFA 0%, #8B5CF6 100%);
+}
 
-    .today-card-modern.slot-evening::before {
-        background: linear-gradient(to bottom, #a78bfa, #8b5cf6);
-    }
+/* 卡片内容容器 - 白色背景 */
+.today-card-modern .today-card-top {
+    display: flex;
+    flex-direction: row;
+    padding: 0;
+    width: 100%;
+    align-items: stretch;
+    flex: 1;
+    background: #FFFFFF !important;
+}
 
-    .today-card-time {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        padding: 16px 20px;
-        background-color: #F8FAFC;
-        border-right: 1px solid #F1F5F9;
-        min-width: 110px;
-        flex-shrink: 0;
-    }
+/* ================================================
+   1. 左侧时间显示区 - 3.5 比例
+   两行布局：第一行时间段，第二行时段标识，居中对齐
+   ================================================ */
+.today-card-modern .today-card-time {
+    flex: 3.5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 6px 8px !important;
+    background: #FFFFFF !important;
+    border-right: 1px solid #E5E7EB !important; /* 新增分割线：时间栏右侧 */
+    box-sizing: border-box;
+    position: relative;
+    min-height: 65px;
+}
 
-    .today-card-time .time-range {
-        font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 16px;
-        font-weight: 700;
-        color: #1E293B;
-        margin-bottom: 4px;
-        white-space: nowrap;
-        letter-spacing: -0.02em;
-    }
+/* 第一行：时间段显示（开始时间-结束时间） */
+.today-card-modern .today-card-time .time-range {
+    font-family: 'SF Pro Display', 'Roboto Mono', ui-monospace, system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #1F2937;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
 
-    .today-card-time .time-slot-label {
-        font-size: 12px;
-        color: #64748B;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+/* 第二行：时段标识 */
+.today-card-modern .today-card-time .time-slot-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #4B5563;
+    font-weight: 600;
+    background: #E5E7EB;
+    padding: 2px 10px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
 
-    .today-card-info {
-        flex: 1;
-        padding: 16px 20px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 10px;
-        min-width: 0;
-    }
+/* ================================================
+   2. 中间姓名区域 - 4 比例，居中对齐
+   两行布局：第一行姓名 + 课程类型，第二行地点
+   ================================================ */
+.today-card-modern .today-card-info {
+    flex: 5 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important; /* PC 端内容水平居中 */
+    padding: 6px 12px !important;
+    min-width: 0;
+    background: #FFFFFF !important;
+}
 
-    .today-card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 16px;
-    }
+/* PC 端显示的地点信息样式 */
+.today-card-modern .pc-location {
+    display: flex;
+    margin-top: 4px;
+    width: 100%;
+    justify-content: center; /* 地点信息居中 */
+}
 
-    .today-card-title {
-        font-size: 16px;
-        font-weight: 700;
-        color: #0F172A;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
-
-    .today-card-details {
-        display: flex;
-        align-items: center;
-        gap: 24px;
-        color: #64748B;
-        font-size: 13px;
-        flex-wrap: wrap;
-    }
-
-    .today-card-detail-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .today-card-detail-item .material-icons-round {
-        font-size: 18px;
-        color: #94A3B8;
-    }
-
-    .today-card-status {
-        padding: 16px 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-left: 1px solid #F1F5F9;
-        min-width: 110px;
-    }
-
-    /* Responsive (Locked to Mobile only) */
-    @media (max-width: 768px) {
-        .today-card-modern {
-            flex-direction: column;
-            min-height: auto;
-        }
-
-        .today-card-time {
-            flex-direction: row;
-            padding: 8px 16px;
-            min-width: auto;
-            border-right: none;
-            border-bottom: 1px solid #F1F5F9;
-            height: auto;
-            gap: 8px;
-        }
-
-        .today-card-time .time-range {
-            font-size: 14px;
-            margin-bottom: 0;
-        }
-
-        .today-card-info {
-            padding: 12px 16px;
-            align-items: center;
-            text-align: center;
-        }
-
-        .today-card-header {
-            justify-content: center;
-        }
-
-        .today-card-details {
-            justify-content: center;
-            gap: 12px;
-        }
-
-        .today-card-status {
-            padding: 12px;
-            border-left: none;
-            border-top: 1px solid #F1F5F9;
-            min-width: auto;
-        }
-    }
-
-    /* Status Badges within Card */
-    .status-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 10px;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 1;
-        letter-spacing: 0.02em;
-    }
-
-    .status-pill.pending {
-        background: #fff7ed;
-        color: #ea580c;
-        border: 1px solid rgba(253, 186, 116, 0.3);
-    }
-
-    .status-pill.confirmed {
-        background: #f0fdf4;
-        color: #16a34a;
-        border: 1px solid rgba(134, 239, 172, 0.3);
-    }
-
-    .status-pill.completed {
-        background: #f8fafc;
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-    }
-
-    .status-pill.cancelled {
-        background: #fef2f2;
-        color: #dc2626;
-        border: 1px solid rgba(252, 165, 165, 0.3);
+@media (max-width: 768px) {
+    .today-card-modern .pc-location {
+        display: none !important; /* 移动端隐藏中间区域的地点信息 */
     }
 }
 
-/* Secondary Mobile Cleanup */
+/* 第一行：姓名 + 课程类型 */
+.today-card-modern .today-card-header {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.today-card-modern .today-card-title {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center; /* 姓名和类型标签居中 */
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.today-card-modern .today-card-title .sc-student-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    letter-spacing: -0.01em;
+    text-align: left;
+}
+
+/* 课程类型标签 - 纯文化显示 */
+.today-card-modern .today-card-type {
+    font-size: 9px !important;
+    font-weight: 600 !important;
+    color: #111827 !important;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+}
+
+/* 合并课程标识 */
+.today-card-modern .merged-tag {
+    color: #0284C7 !important;
+}
+
+/* 课程类型颜色区分 */
+.today-card-modern.type-visit .today-card-type {
+    background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+    color: #047857;
+    border-color: #6EE7B7;
+}
+
+.today-card-modern.type-trial .today-card-type {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #B45309;
+    border-color: #FCD34D;
+}
+
+.today-card-modern.type-review .today-card-type {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #B45309;
+    border-color: #FCD34D;
+}
+
+/* 第二行：地点信息 */
+.today-card-modern .today-card-location {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    color: #6B7280;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.today-card-modern .today-card-location .material-icons-round {
+    font-size: 14px;
+    color: #9CA3AF;
+}
+
+/* 详情信息（教师和地点） */
+.today-card-modern .today-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    align-items: flex-start;
+}
+
+.today-card-modern .today-card-detail-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #6B7280;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.today-card-modern .today-card-detail-item .material-icons-round {
+    font-size: 14px;
+    color: #9CA3AF;
+}
+
+.today-card-modern .today-card-detail-item.location {
+    color: #6B7280;
+    max-width: 100%;
+}
+
+.today-card-modern .today-card-detail-item.location .location-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    max-width: calc(100% - 20px); /* 减去图标宽度 */
+    vertical-align: middle;
+}
+
+/* ================================================
+   3. 右侧状态区域 - 2.5 比例，居中对齐
+   清晰显示课程状态
+   ================================================ */
+.today-card-modern .today-card-status {
+    flex: 2.5 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 6px 12px !important;
+    background: #FFFFFF !important;
+    border-left: none !important; /* 移除原来的分割线：状态栏左侧 */
+    box-sizing: border-box;
+    min-height: 65px;
+    min-width: 100px; /* 确保状态栏不会被挤压缩窄 */
+    flex-shrink: 0; /* 禁止缩放 */
+}
+
+/* 状态徽章 - 精致设计 */
+.today-card-modern .status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+}
+
+/* 状态颜色 - 语义化设计 */
+.today-card-modern .status-pill.pending {
+    background: #FFFBEB;
+    color: #B45309;
+    border: 1px solid #FCD34D;
+}
+
+.today-card-modern .status-pill.confirmed {
+    background: #ECFDF5;
+    color: #047857;
+    border: 1px solid #6EE7B7;
+}
+/* 桌面端隐藏原有的底部地点栏 */
+@media (min-width: 769px) {
+    .today-card-modern .today-card-bottom {
+        display: none !important;
+    }
+}
+
+.today-card-modern .status-pill.completed {
+    background: #F8FAFC;
+    color: #475569;
+    border: 1px solid #E2E8F0;
+}
+
+.today-card-modern .status-pill.cancelled {
+    background: #FEF2F2;
+    color: #DC2626;
+    border: 1px solid #FCA5A5;
+}
+
+/* 移动端响应式适配 */
 @media (max-width: 768px) {
-    .overview-today-section {
+    .today-card-modern {
+        flex-direction: column;
+        min-height: auto;
+        border-radius: 12px;
+    }
+
+    .today-card-modern::before {
+        width: 100%;
+        height: 5px;
+        top: 0;
+        bottom: auto;
+        background: linear-gradient(90deg, #94A3B8 0%, #64748B 100%);
+    }
+
+    .today-card-modern.slot-morning::before {
+        background: linear-gradient(90deg, #60A5FA 0%, #3B82F6 100%);
+    }
+
+    .today-card-modern.slot-afternoon::before {
+        background: linear-gradient(90deg, #FBBF24 0%, #F59E0B 100%);
+    }
+
+    .today-card-modern.slot-evening::before {
+        background: linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%);
+    }
+
+    .today-card-modern .today-card-top {
+        flex-direction: column;
+    }
+
+    .today-card-modern .today-card-time {
+        flex: none;
+        width: 100%;
+        padding: 12px 16px;
+        border-right: none;
+        border-bottom: 1px solid #E5E7EB;
+        flex-direction: row;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .today-card-modern .today-card-time .time-display {
+        flex-direction: row;
+        gap: 8px;
+    }
+
+    .today-card-modern .today-card-time .time-start,
+    .today-card-modern .today-card-time .time-end {
+        font-size: 16px;
+    }
+
+    .today-card-modern .today-card-info {
         padding: 16px;
+    }
+
+    .today-card-modern .today-card-title {
+        gap: 6px;
+    }
+
+    .today-card-modern .today-card-title .sc-student-name {
+        font-size: 16px;
+    }
+
+    .today-card-modern .today-card-location {
+        margin-top: 8px;
+    }
+
+    .today-card-modern .today-card-status {
+        flex: none;
+        width: 100%;
+        padding: 12px 16px;
+        border-left: none;
+        border-top: 1px solid #E5E7EB;
+    }
+
+    /* ================================================
+       学生课程安排卡片 V2 - 匹配教师端“今日课程”风格
+       ================================================ */
+    .mobile-schedule-card-v2 {
+        border-radius: 16px !important;
+        padding: 16px !important;
+        margin-bottom: 12px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+        position: relative !important;
+        text-align: left !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    /* 分时段配色规则 (对齐 PC 端) */
+    .mobile-schedule-card-v2.slot-morning {
+        background-color: #DBEAFE !important;
+        border: 1px solid #93C5FD !important;
+    }
+    .mobile-schedule-card-v2.slot-afternoon {
+        background-color: #FEF3C7 !important;
+        border: 1px solid #FCD34D !important;
+    }
+    .mobile-schedule-card-v2.slot-evening {
+        background-color: #F3E8FF !important;
+        border: 1px solid #D8B4FE !important;
+    }
+
+    .mobile-schedule-card-v2 .card-header-row {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        flex-wrap: wrap !important;
+        margin-bottom: 2px !important;
+    }
+
+    .mobile-schedule-card-v2 .student-name {
+        font-size: 17px !important;
+        font-weight: 700 !important;
+        color: #1E293B !important;
+    }
+
+    .mobile-schedule-card-v2 .meta-info {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        font-size: 14px !important;
+        color: #475569 !important;
+    }
+
+    .mobile-schedule-card-v2 .type-tag {
+        background-color: #F1F5F9 !important;
+        color: #475569 !important;
+        padding: 2px 8px !important;
+        border-radius: 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+    }
+
+    .mobile-schedule-card-v2 .status-tag {
+        background-color: #FFFFFF !important;
+        color: #64748B !important;
+        padding: 2px 8px !important;
+        border-radius: 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        border: 1px solid #E2E8F0 !important;
+    }
+
+    .mobile-schedule-card-v2 .info-line {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        color: #475569 !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+
+    .mobile-schedule-card-v2 .info-line .material-icons-round {
+        font-size: 16px !important;
+        color: #94A3B8 !important;
+    }
+
+    .mobile-schedule-card-v2 .action-row {
+        margin-top: 4px !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+    }
+
+    .mobile-schedule-card-v2 .btn-add-fee {
+        background-color: #2ECC71 !important;
+        color: #FFFFFF !important;
+        padding: 8px 16px !important;
+        border-radius: 12px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        border: none !important;
+        box-shadow: 0 4px 12px rgba(46, 204, 113, 0.2) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        cursor: pointer !important;
+    }
+
+    .mobile-schedule-card-v2 .btn-add-fee:active {
+        transform: scale(0.95) !important;
+        box-shadow: 0 2px 6px rgba(46, 204, 113, 0.2) !important;
     }
 }
 

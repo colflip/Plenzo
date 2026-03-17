@@ -38,7 +38,7 @@
     justify-content: center !important;
     /* 核心：通过 padding-top 避开表头，剩下的空间自动垂直居中 */
     padding-top: var(--loading-top-offset, 0px) !important;
-    z-index: 1000;
+    z-index: 50;
     transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
     pointer-events: none;

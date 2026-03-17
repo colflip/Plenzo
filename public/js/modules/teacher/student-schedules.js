@@ -668,131 +668,92 @@ function buildCompactMobileScheduleCard(group) {
     if (!group || group.length === 0) return document.createElement('div');
     const first = group[0];
 
-    const card = createElement('div', `group-picker-item slot-unspecified`);
-    card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
+    // 计算时段类名 (对齐 PC 端逻辑)
+    let slotId = 'morning';
+    const hour = parseInt((first.start_time || '00:00').substring(0, 2), 10);
+    if (hour >= 12) slotId = 'afternoon';
+    if (hour >= 18) slotId = 'evening';
 
-    // 教师与学生与课程信息
+    const card = createElement('div', `mobile-schedule-card-v2 slot-${slotId}`);
+    
+    // 1. 标题行：姓名 (类型, 状态)
+    const headerRow = createElement('div', 'card-header-row');
+    
     group.forEach((schedule, index) => {
         const typeLabel = schedule.schedule_type_cn || schedule.schedule_type || '课程';
         const st = (schedule.status || 'pending').toLowerCase();
-        const status = st;
-        const teacherName = schedule.teacher_name || '未指定教师';
+        const teacherName = schedule.teacher_name || '老师';
+        
+        const nameSpan = createElement('span', 'student-name', { textContent: teacherName });
+        headerRow.appendChild(nameSpan);
 
-        if (st === 'cancelled') {
-            card.classList.add('status-cancelled');
-        }
-
-        let typeClass = 'type-default';
-        if (typeLabel.includes('入户')) typeClass = 'type-visit';
-        else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-        else if (typeLabel.includes('评审')) typeClass = 'type-review';
-
-        const nameSpan = createElement('span', '', { textContent: teacherName, style: 'font-weight: 600; font-size: 15px; color: #1e293b;' });
-        card.appendChild(nameSpan);
-        card.appendChild(document.createTextNode(' ('));
-
-        const typeChip = createElement('span', `chip ${typeClass}`, { textContent: typeLabel });
-        card.appendChild(typeChip);
-        card.appendChild(document.createTextNode(', '));
-
-        const statusSelect = createElement('select', `status-select ${status}`);
-        statusSelect.dataset.lastStatus = status;
-
+        const metaSpan = createElement('span', 'meta-info');
+        metaSpan.textContent = ' (';
+        
+        const typeTag = createElement('span', 'type-tag', { textContent: typeLabel });
+        metaSpan.appendChild(typeTag);
+        
+        metaSpan.appendChild(document.createTextNode(', '));
+        
         const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
-        Object.keys(statusMap).forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = statusMap[key];
-            if (key === status) opt.selected = true;
-            statusSelect.appendChild(opt);
-        });
-
-        statusSelect.addEventListener('click', (e) => e.stopPropagation());
-        statusSelect.addEventListener('change', async (e) => {
-            e.stopPropagation();
-            const newStatus = e.target.value;
-            const oldStatus = statusSelect.dataset.lastStatus;
-
-            statusSelect.className = `status-select ${newStatus}`;
-            statusSelect.blur();
-
-            try {
-                await updateScheduleStatus(schedule.id, newStatus);
-                statusSelect.dataset.lastStatus = newStatus;
-                const feedback = document.getElementById('ssScheduleFeedback');
-                if (feedback) {
-                    showInlineFeedback(feedback, '状态更新成功', 'success');
-                } else if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast('状态更新成功', 'success');
-                }
-            } catch (err) {
-                statusSelect.value = oldStatus;
-                statusSelect.className = `status-select ${oldStatus}`;
-                const feedback = document.getElementById('ssScheduleFeedback');
-                if (feedback) {
-                    showInlineFeedback(feedback, '更新失败', 'error');
-                } else if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast(err.message || '更新失败', 'error');
-                }
-            }
-        });
-
-        card.appendChild(statusSelect);
-        card.appendChild(document.createTextNode(')'));
-
-        if (index < group.length - 1) card.appendChild(document.createTextNode(', '));
+        const statusTag = createElement('span', 'status-tag', { textContent: statusMap[st] || '待处理' });
+        // 如果是已取消，增加特殊色
+        if (st === 'cancelled') statusTag.style.color = '#ef4444';
+        else if (st === 'completed') statusTag.style.color = '#10b981';
+        
+        metaSpan.appendChild(statusTag);
+        metaSpan.appendChild(document.createTextNode(')'));
+        headerRow.appendChild(metaSpan);
+        
+        if (index < group.length - 1) headerRow.appendChild(document.createTextNode(', '));
     });
+    card.appendChild(headerRow);
 
-    // 时间显示
-    const timeText = formatTimeRange(first.start_time, first.end_time);
-    const timeInfo = createElement('div', '', { style: 'margin-top: 4px; font-size: 14px; color: #475569; display: flex; align-items: center; gap: 4px;' });
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(timeInfo, `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`); } else { timeInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">schedule</span> <span>${timeText}</span>`; }
-    card.appendChild(timeInfo);
-
-    // 地点显示
-    const loc = first.location || '';
-    const locInfo = createElement('div', '', { style: 'margin-top: 2px; font-size: 14px; color: #64748b; display: flex; align-items: center; gap: 4px;' });
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locInfo, `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`); } else { locInfo.innerHTML = `<span class="material-icons-round" style="font-size: 14px;">place</span> <span>${loc ? loc : '地点待定'}</span>`; }
-    card.appendChild(locInfo);
-
-    // 费用显示逻辑
-    let mTotalTransport = 0;
-    let mTotalOther = 0;
-    group.forEach(s => {
-        mTotalTransport += parseFloat(s.transport_fee) || 0;
-        mTotalOther += parseFloat(s.other_fee) || 0;
-    });
-    const mHasFee = mTotalTransport > 0 || mTotalOther > 0;
-
-    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; display: flex; align-items: center; gap: 6px;' });
-    feeWrapper.style.display = window.teacherStudentFeeShow ? 'flex' : 'none';
-
-    if (mHasFee) {
-        const feeInfo = createElement('span', '', {
-            style: 'font-size: 12px; color: #d97706; background: #fef3c7; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: 500;'
-        });
-        feeInfo.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(group);
-        });
-        let parts = [];
-        if (mTotalTransport > 0) parts.push(`交通¥${mTotalTransport}`);
-        if (mTotalOther > 0) parts.push(`其他¥${mTotalOther}`);
-        feeInfo.textContent = parts.join(' ');
-        feeWrapper.appendChild(feeInfo);
-    } else {
-        const feeBtn = createElement('button', 'add-fee-btn', {
-            textContent: '添加费用',
-            style: 'padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px dashed #d1d5db; background: transparent; color: #6b7280; cursor: pointer;'
-        });
-        feeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(group);
-        });
-        feeWrapper.appendChild(feeBtn);
+    // 2. 时间行
+    const timeRange = formatTimeRange(first.start_time, first.end_time);
+    const timeLine = createElement('div', 'info-line');
+    if (window.SecurityUtils) { 
+        window.SecurityUtils.safeSetHTML(timeLine, `<span class="material-icons-round">schedule</span><span>${timeRange}</span>`); 
+    } else { 
+        timeLine.innerHTML = `<span class="material-icons-round">schedule</span><span>${timeRange}</span>`; 
     }
+    card.appendChild(timeLine);
 
-    card.appendChild(feeWrapper);
+    // 3. 地点行
+    const loc = first.location || '地点待定';
+    const locLine = createElement('div', 'info-line');
+    if (window.SecurityUtils) { 
+        window.SecurityUtils.safeSetHTML(locLine, `<span class="material-icons-round">place</span><span>${loc}</span>`); 
+    } else { 
+        locLine.innerHTML = `<span class="material-icons-round">place</span><span>${loc}</span>`; 
+    }
+    card.appendChild(locLine);
+
+    // 4. 费用操作行
+    const actionRow = createElement('div', 'action-row');
+    actionRow.style.display = window.teacherStudentFeeShow ? 'flex' : 'none';
+    
+    let totalT = 0, totalO = 0;
+    group.forEach(s => {
+        totalT += parseFloat(s.transport_fee) || 0;
+        totalO += parseFloat(s.other_fee) || 0;
+    });
+    
+    const btn = createElement('button', 'btn-add-fee');
+    if (totalT > 0 || totalO > 0) {
+        btn.textContent = `费用: ¥${(totalT + totalO).toFixed(0)}`;
+        btn.style.backgroundColor = '#6366f1'; // 有费用时用紫色区分
+    } else {
+        btn.textContent = '添加费用';
+    }
+    
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openFeeModal(group);
+    });
+    
+    actionRow.appendChild(btn);
+    card.appendChild(actionRow);
 
     return card;
 }

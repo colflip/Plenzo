@@ -162,7 +162,7 @@ function renderProfile(profile) {
     const statusText = STATUS_TEXT_MAP[String(status)] ?? getStatusLabel(status);
     setText(elements.statusSummary(), statusText);
     setText(elements.summaryRole(), '教师账号');
-    setText(elements.teacherRoleHeader(), '(老师)');
+    setText(elements.teacherRoleHeader(), '老师');
 
     const formattedLastLogin = formatDateTimeDisplay(last_login_iso || last_login);
     setText(elements.lastLoginSummary(), formattedLastLogin);

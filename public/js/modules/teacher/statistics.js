@@ -248,9 +248,12 @@ export async function loadTeachingCount() {
     const startDate = document.getElementById('teachingStartDate')?.value;
     const endDate = document.getElementById('teachingEndDate')?.value;
 
-    if (!startDate || !endDate) {
+    if (!startDate || !endDate) return;
 
-        return;
+    // 显示列表加载动画
+    const tableCard = document.getElementById('teachingDetailsCard');
+    if (tableCard && window.showTableLoading) {
+        window.showTableLoading(tableCard, '正在读取明细数据...', 'thead');
     }
 
     try {
@@ -295,9 +298,12 @@ export async function loadTeachingCount() {
         }
 
         updateDisplay(currentTeachingData, startDate, endDate);
-    } catch (error) {
-
-        updateDisplay({ schedules: [], typeStats: {} }, startDate, endDate);
+    } finally {
+        // 隐藏列表加载动画
+        const tableCard = document.getElementById('teachingDetailsCard');
+        if (tableCard && window.hideTableLoading) {
+            window.hideTableLoading(tableCard);
+        }
     }
 }
 
@@ -317,12 +323,11 @@ export async function loadTeachingSummary(showLoading = true) {
 
     // 2. 显示加载动画
     if (showLoading && statsContainer && window.showTableLoading) {
-        const cardContainers = statsContainer.querySelectorAll('.stats-component-card');
-        cardContainers.forEach((card, index) => {
-            if (index === 0 && card.querySelector('#teachingTypeStats')) {
-                window.showTableLoading(card, '正在加载统计数据...', null);
-            }
-        });
+        const typeStatsCard = statsContainer.querySelector('#teachingTypeStats')?.closest('.stats-component-card');
+        const chartCard = document.getElementById('dailyTeachingChartCard');
+        
+        if (typeStatsCard) window.showTableLoading(typeStatsCard, '正在加载统计数据...', null);
+        if (chartCard) window.showTableLoading(chartCard, '正在生成分析图表...', 'h3');
     }
 
     try {
@@ -364,12 +369,11 @@ export async function loadTeachingSummary(showLoading = true) {
     } finally {
         // 3. 加载完成后隐藏动画
         if (showLoading && statsContainer && window.hideTableLoading) {
-            const cardContainers = statsContainer.querySelectorAll('.stats-component-card');
-            cardContainers.forEach((card, index) => {
-                if (index === 0 && card.querySelector('#teachingTypeStats')) {
-                    window.hideTableLoading(card);
-                }
-            });
+            const typeStatsCard = statsContainer.querySelector('#teachingTypeStats')?.closest('.stats-component-card');
+            const chartCard = document.getElementById('dailyTeachingChartCard');
+            
+            if (typeStatsCard) window.hideTableLoading(typeStatsCard);
+            if (chartCard) window.hideTableLoading(chartCard);
         }
     }
 }
