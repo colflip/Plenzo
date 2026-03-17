@@ -7473,6 +7473,16 @@ svg {
    7. Today's Schedule Card (全新视觉设计 - PC端)
    ================================= */
 /* 卡片容器 - 全新视觉设计 */
+/* 学生分组笼罩容器 */
+.student-group-container {
+    background-color: #F8FAFC; /* 淡淡的蓝灰色背景 */
+    border-radius: 12px;
+    padding: 12px 12px 2px 12px; /* 底部间距通过卡片的 margin 补偿 */
+    margin-bottom: 20px;
+    border: 1px solid #F1F5F9;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
 .today-card-modern {
     display: flex;
     flex-direction: row;
@@ -7638,13 +7648,13 @@ svg {
 
 /* 课程类型标签 - 纯文化显示 */
 .today-card-modern .today-card-type {
-    font-size: 9px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     color: #111827 !important;
     background: none !important;
     border: none !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
 }
 
 /* 合并课程标识 */
@@ -7693,7 +7703,7 @@ svg {
     flex-direction: column;
     gap: 2px;
     width: 100%;
-    align-items: flex-start;
+    align-items: center;
 }
 
 .today-card-modern .today-card-detail-item {
