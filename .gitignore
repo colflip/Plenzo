@@ -1,26 +1,41 @@
-# Node modules
+# ============================================
+# Dependencies
+# ============================================
 node_modules/
 
-# Environment variables
+# ============================================
+# Environment Variables
+# ============================================
 .env
 .env.local
 .env.*.local
 
-# IDE files
+# ============================================
+# IDE & Editor
+# ============================================
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
+# ============================================
+# Build & Distribution
+# ============================================
+dist/
+build/
+
+# ============================================
 # Logs
+# ============================================
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build files
-dist/
-build/
-
-# OS generated files
+# ============================================
+# OS Generated Files
+# ============================================
 .DS_Store
 .DS_Store?
 ._*
@@ -29,46 +44,47 @@ build/
 ehthumbs.db
 Thumbs.db
 
-# Test coverage
+# ============================================
+# Testing & Coverage
+# ============================================
 coverage/
 .nyc_output/
-
-# Backstop test results
-backstop_data/bitmaps_test/
-backstop_data/html_report/
-backstop_data/engine_scripts/
-
-# Temporary files
-*.tmp
-*.temp
-.cache/
-
-.github/
-.trae/
 backstop_data/
-backups/
-db/
-netlify.toml
-
-# Archive
-_archive/
-prompt.md
-# Scripts & Maintenance
-scripts/
-src/server/scripts/
-
-# Testing
 jest.config.js
 **/__tests__/
 *.test.js
 
-# Local database (SQLite)
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+.cache/
+
+# ============================================
+# Project Specific
+# ============================================
+.github/
+.trae/
+backups/
+db/
+netlify.toml
+_archive/
+scripts/
+
+# ============================================
+# Database
+# ============================================
 src/server/db/*.db
 
+# ============================================
 # Documentation
-docs/
+# ============================================
 prompt.md
 README.md
 LICENSE
 
+# ============================================
+# Development Tools
+# ============================================
 test-rich.js

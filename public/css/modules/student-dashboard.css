@@ -572,34 +572,61 @@
     color: #c62828;
 }
 
-/* 周导航样式 */
+/* 周导航样式 - 统一管理员端与移动端显示 */
 .week-navigation {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 20px;
+    background: #F9FAFB;
+    padding: 6px 12px;
+    border-radius: 12px;
+    border: 1px solid #E5E7EB;
+    gap: 12px;
+}
+
+#weekRangeAvail,
+#weekRange,
+#ssWeekRange,
+#avStudentWeekRange {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 15px; /* 对齐管理端 15px */
+    white-space: nowrap; /* 核心修复：防止折行 */
+    min-width: 180px; /* 对齐管理端 180px */
+    text-align: center;
 }
 
 .nav-btn {
-    background: none;
+    background: transparent;
     border: none;
-    font-size: 24px;
+    color: #4B5563;
+    font-size: 16px;
     cursor: pointer;
-    padding: 8px 12px;
-    border-radius: 4px;
-    transition: background-color 0.2s;
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .nav-btn:hover {
     background-color: #f0f0f0;
 }
 
-#weekRangeAvail {
-    margin: 0 16px;
-    font-size: 16px;
-    font-weight: 500;
-    min-width: 200px;
+#weekRangeAvail,
+#weekRange {
+    font-weight: 600;
+    color: #1F2937;
+    font-size: 15px;
+    white-space: nowrap;
+    min-width: 180px;
     text-align: center;
+    margin: 0 12px;
 }
 
 :root {
@@ -1060,20 +1087,23 @@
     border-left: 4px solid #F87171;
 }
 
-/* 课程卡片时间段背景色 */
-.course-card.slot-morning {
-    background: #e8f3ff;
-    border-color: #bcd6ff;
+/* 课程卡片时间段背景色 (统一对齐 PC 端色彩) */
+.course-card.slot-morning,
+.today-card-modern.slot-morning {
+    background: #DBEAFE !important;
+    border-color: #93C5FD !important;
 }
 
-.course-card.slot-afternoon {
-    background: #fff2e2;
-    border-color: #ffd8c2;
+.course-card.slot-afternoon,
+.today-card-modern.slot-afternoon {
+    background: #FEF3C7 !important;
+    border-color: #FCD34D !important;
 }
 
-.course-card.slot-evening {
-    background: #e9e0ff;
-    border-color: #cdb7ff;
+.course-card.slot-evening,
+.today-card-modern.slot-evening {
+    background: #F3E8FF !important;
+    border-color: #D8B4FE !important;
 }
 
 .today-empty-state {

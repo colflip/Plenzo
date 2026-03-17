@@ -1983,6 +1983,12 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
                 }
             };
 
+            // User Request: if mobile and more than 7 days, auto scroll to keep bars thick
+            if (window.innerWidth < 768 && formattedLabels.length > 7) {
+                const dynamicWidth = formattedLabels.length * 45;
+                ctx.canvas.style.width = dynamicWidth + 'px';
+            }
+
             new Chart(ctx, {
                 type: 'bar',
                 plugins: [customTitlePlugin],
@@ -2000,6 +2006,10 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
                         mode: 'index',
                         intersect: false,
                     },
+                    // User Request: increase bar width by 3x on mobile (approx 24px)
+                    // The CSS handles the horizontal scroll via min-width: 1000px
+                    barThickness: (window.innerWidth < 768) ? 24 : undefined,
+                    maxBarThickness: (window.innerWidth < 768) ? 30 : undefined,
                     plugins: {
                         legend: {
                             display: true,

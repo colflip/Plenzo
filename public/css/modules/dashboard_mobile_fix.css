@@ -1,39 +1,686 @@
 /* ============================================
-   移动端用户管理表格优化
-   - 复刻排课管理的冻结列效果
-   - 修复左侧数据泄漏问题
+   移动端全局适配与优化
+   兼容范围：iOS 12.0+, Android 8.0+
    ============================================ */
-@media (max-width: 768px) {
 
-    /* 姓名列(col-name)固定在左侧 */
+/* 1. 基础容器与间距优化 */
+@media (max-width: 768px) {
+    :root {
+        --mobile-padding: 12px;
+    }
+
+    /* 移动端侧边栏Logo优化：缩小35%并居中显示 */
+    .sidebar .logo {
+        justify-content: center !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .sidebar .logo-icon {
+        width: calc(32px * 0.65) !important;
+        height: calc(32px * 0.65) !important;
+        margin-right: 0 !important;
+    }
+
+    .sidebar .logo-text {
+        font-size: 14px !important;
+        text-align: center;
+        white-space: normal !important;
+        word-break: break-word;
+    }
+
+    .main-content {
+        padding: var(--mobile-padding) !important;
+        width: 100% !important;
+        margin-left: 0 !important;
+        overflow-x: hidden !important; /* 核心：防止全局产生横向滚动条 */
+    }
+
+    .dashboard-header {
+        padding: 10px 12px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .dashboard-header h2 {
+        font-size: 1.1rem !important;
+        margin: 0;
+    }
+
+    /* 侧边栏按钮适配：移除干扰项，统一由 dashboard.css 处理位置 */
+    .mobile-menu-toggle {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999 !important;
+    }
+
+    /* 移除可能导致底部白线的旧 footer 定义 */
+    .sidebar-footer {
+        display: none !important;
+        border: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* 顶部用户信息靠右侧显示 */
+    .user-info {
+        width: 100%;
+        justify-content: flex-end !important; /* 调整为靠右显示 */
+        gap: 10px !important;
+        border-top: 1px solid #eee;
+        padding-top: 8px;
+        margin-top: 5px;
+    }
+
+    .user-name {
+        max-width: 100px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-left: auto; /* 辅助靠右 */
+    }
+
+    /* 总览卡片：一行两个 */
+    .overview-stats-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important; /* 强制两列 */
+        gap: 8px !important;
+    }
+
+    .stat-card {
+        width: 100% !important;
+        margin: 0 !important;
+        min-height: 80px; /* 稍微压缩高度适应两列 */
+        padding: 12px !important;
+    }
+    
+    .gradient-bg-icon span {
+        font-size: 24px !important;
+    }
+
+    .gradient-content h3 {
+        font-size: 13px !important;
+    }
+
+    .gradient-value {
+        font-size: 18px !important;
+    }
+
+    /* 其他模块卡片堆叠优化 */
+    .overview-stats-container,
+    .profile-layout,
+    .charts-section {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+
+    /* 今日排课卡片 - 上下 2:1 布局，大圆角 */
+    .today-card-modern {
+        display: flex !important;
+        flex-direction: column !important;
+        border-radius: 20px !important;
+        overflow: hidden !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        min-height: 108px !important;
+        background: #FFFFFF !important;
+    }
+
+    /* 上部分：高度占比 2/3 (约 66.67%)，白色背景 */
+    .today-card-modern .today-card-top {
+        display: flex !important;
+        flex-direction: row !important;
+        flex: 2 !important;
+        background: #FFFFFF !important;
+    }
+
+    /* 左侧时间区域：3.5 比例，两行垂直排布，居中对齐 */
+    .today-card-modern .today-card-time {
+        flex: 3.5 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 6px 8px !important;
+    }
+
+    .today-card-modern .today-card-time .time-range {
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        color: #1F2937 !important;
+        margin-bottom: 3px !important;
+        text-align: center !important;
+        line-height: 1.2 !important;
+    }
+
+    .today-card-modern .today-card-time .time-slot-label {
+        font-size: 9px !important;
+        color: #6B7280 !important;
+        font-weight: 500 !important;
+        margin-top: 2px !important;
+    }
+
+    /* 中间姓名区域：4 比例，两行垂直排布 */
+    .today-card-modern .today-card-info {
+        flex: 4 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 6px 8px !important;
+        text-align: center !important;
+    }
+
+    .today-card-modern .today-card-title {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 4px !important;
+        width: 100% !important;
+    }
+
+    .today-card-modern .today-card-title .sc-student-name {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #111827 !important;
+        text-align: center !important;
+        line-height: 1.2 !important;
+    }
+
+    .today-card-modern .today-card-type {
+        font-size: 9px !important;
+        font-weight: 600 !important;
+        color: #111827 !important;
+        align-self: center !important; /* 居中显示 */
+        margin-top: 4px !important;
+    }
+
+    .today-card-modern .today-card-type.merged-tag {
+        color: #0284C7 !important;
+    }
+
+    /* 右侧状态区域：2.5 比例，居中显示 */
+    .today-card-modern .today-card-status {
+        flex: 2.5 !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 6px 12px !important;
+    }
+
+    .today-card-modern .status-pill {
+        font-size: 10px !important;
+        padding: 5px 10px !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        text-align: center !important;
+        line-height: 1.2 !important;
+        border: 1px solid currentColor !important;
+    }
+
+    .today-card-modern .status-pill.confirmed {
+        background: #ECFDF5 !important;
+        color: #059669 !important;
+        border-color: #6EE7B7 !important;
+    }
+
+    .today-card-modern .status-pill.pending {
+        background: #FFFBEB !important;
+        color: #D97706 !important;
+        border-color: #FCD34D !important;
+    }
+
+    .today-card-modern .status-pill.completed {
+        background: #F3F4F6 !important;
+        color: #6B7280 !important;
+        border-color: #D1D5DB !important;
+    }
+
+    .today-card-modern .status-pill.cancelled {
+        background: #FEF2F2 !important;
+        color: #DC2626 !important;
+        border-color: #FCA5A5 !important;
+    }
+
+    /* 下部分：地点信息，高度基准 H (36px)，垂直居中靠右显示 */
+    .today-card-modern .today-card-bottom {
+        display: flex !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        height: 36px !important;
+        flex: 1 !important;
+        padding: 8px 16px !important;
+        background: #F9FAFB !important;
+    }
+
+    .today-card-modern .today-card-details {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        font-size: 13px !important;
+        color: #6B7280 !important;
+        justify-content: flex-end !important;
+    }
+
+    .today-card-modern .today-card-detail-item.location {
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+    }
+
+    .today-card-modern .today-card-detail-item .material-icons-round {
+        font-size: 15px !important;
+        vertical-align: middle !important;
+        color: #9CA3AF !important;
+    }
+
+    /* 跑马灯效果：图标与文本一体化 */
+    .today-card-modern .today-card-bottom .location {
+        white-space: nowrap !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important; /* 默认靠右 */
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .animate-marquee {
+        justify-content: flex-start !important;
+        animation: marquee 8s linear infinite;
+        padding-left: 100%; /* 从右侧进入 */
+    }
+
+    @keyframes marquee {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-100%); }
+    }
+
+    /* 限制容器宽度以触发溢出 */
+    .today-card-modern .today-card-details {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        display: block !important; /* 允许内部元素撑开 */
+    }
+}
+
+/* 2. 表格移动端响应式处理 (核心) */
+@media (max-width: 768px) {
+    .table-container {
+        width: 100%;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch; /* iOS 惯性滚动 */
+        border-radius: 8px;
+        margin-bottom: 15px;
+        background: #fff;
+    }
+
+    /* 强制产生横向滚动，避免挤压 */
+    .schedule-table, 
+    .schedule-records-table table,
+    .weekly-schedule-table {
+        min-width: 700px !important; 
+    }
+
+    /* 优化单元格高度，方便触摸 */
+    .schedule-table td, 
+    .schedule-table th {
+        padding: 12px 10px !important;
+        font-size: 13px;
+    }
+}
+
+/* 3. 个人信息页面与其他模块紧凑化 (0~480px) */
+@media (max-width: 480px) {
+    /* 个人信息紧凑化显示 - 修改为两行横向排列 */
+    .stats-unified-card {
+        padding: 12px !important;
+        gap: 8px !important;
+    }
+    .profile-avatar {
+        width: 60px !important;
+        height: 60px !important;
+        font-size: 28px !important;
+    }
+    .profile-meta {
+        margin-top: 10px !important;
+        padding-top: 10px !important;
+    }
+    .meta-item {
+        margin-bottom: 8px !important;
+        flex-direction: row !important; /* 改为横向 */
+        justify-content: space-between !important; /* 两端对齐 */
+        align-items: center !important;
+        width: 100% !important;
+        gap: 10px !important;
+        border-bottom: 1px dashed #f0f0f0; /* 添加细分界线更清晰 */
+        padding-bottom: 6px;
+    }
+    .meta-item:last-child {
+        border-bottom: none;
+    }
+    .meta-item .label {
+        font-size: 13px !important;
+        color: var(--text-secondary);
+    }
+    .meta-item .value {
+        font-weight: 500;
+        text-align: right;
+    }
+
+    /* 按钮增大点击区域 */
+    .btn, .primary-btn, .secondary-btn, .info-btn, .logout-btn {
+        min-height: 44px !important;
+        padding: 0 16px !important;
+        justify-content: center;
+        font-size: 14px !important;
+    }
+
+    /* 强制主要操作按钮占满宽度 - 弹窗内 */
+    .modal-footer .btn {
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-bottom: 8px;
+    }
+
+    /* 2026-03-16 调整：导航栏重排 (图2) - 增加容器高度自适应 */
+    .schedule-controls,
+    .sch-controls-left {
+        display: flex !important;
+        flex-direction: column !important; /* 强制换行 */
+        align-items: flex-start !important; /* 整体靠左 */
+        width: 100% !important;
+        gap: 12px !important;
+        height: auto !important; /* 确保高度自适应 */
+        padding-bottom: 8px !important;
+    }
+
+    /* 修复背景卡片可能存在的溢出或高度不足 */
+    .header-toolbar.schedule-controls {
+        margin-bottom: 20px !important;
+        min-height: 100px !important; /* 为两行内容预留足够高度 */
+    }
+
+    /* 日期选择器居中一行 */
+    .week-navigation {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: center !important; /* 居中显示 */
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+        width: 100% !important;
+        background: #f8fafc;
+        padding: 6px;
+        border-radius: 20px;
+    }
+    
+    .nav-btn {
+        padding: 4px 10px !important;
+        min-height: 38px !important;
+        display: flex;
+        align-items: center;
+    }
+
+    #weekRangeAvail, 
+    #weekRange, 
+    #ssWeekRange, 
+    #avWeekRange, 
+    #avStudentWeekRange {
+        min-width: unset !important;
+        font-size: 15px !important; /* 强制统一为 15px */
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        margin: 0 !important;
+    }
+
+    /* 保存/添加按钮：如果空间足够则并排显示，否则换行 */
+    .schedule-controls .primary-btn, 
+    .sch-controls-left .primary-btn,
+    .schedule-controls .export-btn {
+        width: auto !important; 
+        min-width: 100px;
+        flex: 0 1 auto; /* 允许根据内容缩放 */
+    }
+
+    .sch-controls-left {
+        flex-direction: row !important; /* 改为横向 */
+        flex-wrap: wrap !important; /* 允许换行 */
+        justify-content: flex-start !important;
+    }
+
+    /* 课程卡片中的费用按钮靠右显示 (图4) */
+    .schedule-footer, 
+    div[style*="justify-content: flex-end"] {
+        justify-content: flex-end !important;
+        width: 100% !important;
+    }
+
+    /* 2026-03-16 终极适配：数据统计页 (再次修正) */
+    .statistics-controls {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+        padding: 8px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        overflow-x: auto !important; /* 允许内部超宽组件横向滚动 */
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 1. 强制查询组件(日期)在一行显示，查询按钮独立一行 */
+    .statistics-controls .date-range,
+    .query-section .date-range,
+    .date-range-group {
+        display: flex !important;
+        flex-direction: row !important; /* 强制横向 */
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+        gap: 6px !important;
+        background: #f1f5f9;
+        padding: 8px !important;
+        border-radius: 8px;
+    }
+
+    .query-section .query-controls {
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+
+    /* 将查询按钮设为独立一行，并精简宽度 */
+    .statistics-controls .search-btn,
+    .query-section .search-btn {
+        width: auto !important;
+        min-width: 120px !important;
+        max-width: 200px !important;
+        align-self: center !important;
+        margin: 4px auto !important;
+    }
+    
+    .query-section .action-group {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        gap: 12px !important;
+    }
+
+    .statistics-controls .date-range input,
+    .query-section .date-range input,
+    .date-range-group input {
+        flex: 1 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: 140px !important;
+        height: 36px !important;
+        font-size: 13px !important;
+        padding: 4px 8px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 6px !important;
+    }
+
+    .date-separator {
+        padding: 0 2px !important;
+        font-size: 11px !important;
+    }
+
+    /* 2. 课程数量卡片：优化为一行三个，更加紧凑且居中 */
+    #teachingTypeStats {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        padding: 8px !important;
+        justify-content: center !important; /* 核心：水平居中 */
+    }
+
+    #teachingTypeStats .stat-card {
+        flex: 0 0 calc(33.33% - 8px) !important; /* 强制一行三个 */
+        min-width: 90px !important;
+        margin: 0 !important;
+        min-height: 85px !important; /* 增加高度，保持视觉丰满 */
+        padding: 10px 4px !important;
+        border-radius: 10px !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    #teachingTypeStats .stat-card h3 {
+        font-size: 10px !important;
+        margin-bottom: 2px !important;
+        white-space: nowrap;
+    }
+    #teachingTypeStats .stat-card .value {
+        font-size: 18px !important;
+    }
+
+    /* 2.5 核心背景卡片适配 */
+    .stats-unified-card,
+    .statistics-card {
+        width: 100% !important;
+        max-width: calc(100vw - (var(--mobile-padding) * 2)) !important; /* 确保卡片在屏幕宽度内 */
+        margin: 0 !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important; /* 卡片本身不横向滚动 */
+    }
+
+    /* 保证查询区域和操作按钮组在空间不足时可以内部滚动 */
+    .query-section {
+        max-width: 100% !important;
+        overflow-x: hidden !important; /* 禁止整体横向滚动 */
+    }
+
+    .preset-buttons {
+        display: flex !important;
+        flex-wrap: wrap !important; /* 允许换行 */
+        gap: 6px !important;
+        justify-content: center !important;
+        width: 100% !important;
+        overflow-x: visible !important; /* 取消滚动 */
+        padding: 4px 0 !important;
+    }
+
+    .preset-btn {
+        flex: 0 1 auto !important;
+        min-width: 60px !important;
+        font-size: 12px !important;
+        padding: 6px 8px !important;
+        border-radius: 6px !important;
+    }
+
+    /* 导出数据按钮宽度精简 */
+    .export-data-btn,
+    #teachingExportBtn {
+        width: auto !important;
+        min-width: 140px !important;
+        max-width: 220px !important;
+        align-self: center !important;
+        margin: 4px auto !important;
+    }
+
+    /* 3. 子组件滑动窗口设置 */
+    /* 每日授课统计柱状图：支持横向滚动以展示更宽的柱体 */
+    .charts-section {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 20px !important;
+        overflow-x: hidden !important;
+    }
+
+    .chart-container {
+        width: 100% !important;
+        overflow-x: auto !important; /* 开启横向滚动 */
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 12px !important;
+        background: #fff !important;
+        border: 1px solid #f1f5f9 !important;
+        border-radius: 12px !important;
+    }
+
+    /* 针对柱状图 canvas，取消固定 1000px，由 JS 动态计算宽度 */
+    #dailyStatsChart,
+    .chart-container canvas {
+        min-width: 100% !important; 
+        height: 300px !important;
+    }
+    
+    /* 饼图/环形图不需要横向滚动 */
+    #scheduleTypeChart {
+        min-width: unset !important;
+        width: 100% !important;
+    }
+
+    /* 具体授课信息列表滑动窗 */
+    #teachingRecordsSection,
+    .schedule-records-table {
+        max-height: 300px !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid #f0f0f0;
+        border-radius: 8px;
+    }
+
+    /* 整体容器背景控制 */
+    .statistics-card {
+        padding: 10px !important;
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+}
+
+/* 4. 用户管理表格冻结优化 (适配) */
+@media (max-width: 768px) {
     #usersTable .col-name {
         position: sticky;
         left: 0;
         z-index: 10;
         border-right: 2px solid #E5E7EB;
-        /* 与排课管理一致的分隔线 */
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
-        /* 添加轻微阴影增加层次感 */
-        /* 关键：设置背景色遮挡左侧滑过的列（如用户名） */
-        clip-path: inset(0 -10px 0 0);
-        /* 允许右侧阴影显示，防止左侧溢出 */
-    }
-
-    /* 表头背景色 */
-    #usersTable thead .col-name {
-        background-color: #FAFAFA;
-        z-index: 20;
-        /* 确保表头在表体之上 */
-        border-bottom: 2px solid #E5E7EB;
-    }
-
-    /* 表格内容背景色 */
-    #usersTable tbody .col-name {
         background-color: #FFFFFF;
     }
 
-    /* 修复 Hover 状态下的背景色，避免白色方块遮挡 Hover 灰色 */
-    #usersTable tbody tr:hover .col-name {
-        background-color: #F8F9FA;
+    #usersTable thead .col-name {
+        background-color: #FAFAFA;
+        z-index: 20;
+    }
+}
+
+/* 5. 交互反馈优化 */
+@media (hover: none) {
+    /* 移动端移除 hover 状态，改用 active 反馈 */
+    .btn:active, .nav-item:active, .stat-card:active {
+        background-color: rgba(0, 0, 0, 0.05) !important;
+        transform: scale(0.98);
+        transition: transform 0.1s ease;
     }
 }
