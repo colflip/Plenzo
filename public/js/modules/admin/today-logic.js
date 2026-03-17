@@ -37,9 +37,6 @@ function renderTodaySchedules(schedules) {
 
     if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
 
-    // Ensure container styling matches teacher's if not already handled by CSS
-    // Teacher uses flex-col gap-12px. Admin CSS has gap-16px. Close enough.
-
     if (schedules.length === 0) {
         container.innerHTML = `
             <div class="today-empty-state">
@@ -51,42 +48,64 @@ function renderTodaySchedules(schedules) {
         return;
     }
 
-    // 1. Grouping Logic
-    const groups = {};
-    schedules.forEach(schedule => {
-        const key = `${schedule.start_time}-${schedule.end_time}-${schedule.location || 'unknown'}`;
-        if (!groups[key]) {
-            groups[key] = {
-                base: schedule,
-                items: []
+    // --- 1. First Group by Students ---
+    const studentGroups = {};
+    schedules.forEach(s => {
+        const sid = s.student_id || 0;
+        if (!studentGroups[sid]) {
+            studentGroups[sid] = {
+                id: sid,
+                name: s.student_name || '未知学生',
+                schedules: []
             };
         }
-        groups[key].items.push(schedule);
+        studentGroups[sid].schedules.push(s);
     });
 
-    // 2. Sort by Start Time
-    const groupedSchedules = Object.values(groups).sort((a, b) => {
-        return (a.base.start_time || '').localeCompare(b.base.start_time || '');
-    });
+    // Convert to array and sort by student name or ID (optional)
+    const sortedStudentGroups = Object.values(studentGroups).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 
-    // 3. Render Cards using separate builder function to match Teacher structure
-    groupedSchedules.forEach(group => {
-        // Sort items: Normal first (by teacher_id), then Special types (评审/咨询) (by teacher_id)
-        group.items.sort((a, b) => {
-            const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-            const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
-
-            const typeA = getTypeName(a);
-            const typeB = getTypeName(b);
-            const specialA = isSpecial(typeA);
-            const specialB = isSpecial(typeB);
-
-            if (specialA && !specialB) return 1;
-            if (!specialA && specialB) return -1;
-            return (a.teacher_id || 0) - (b.teacher_id || 0);
+    sortedStudentGroups.forEach(group => {
+        // Create a container for this student
+        const groupContainer = document.createElement('div');
+        groupContainer.className = 'student-group-container';
+        
+        // --- 2. Inside Student Group: Apply Time+Location Merging Logic ---
+        const subGroups = {};
+        group.schedules.forEach(schedule => {
+            const key = `${schedule.start_time}-${schedule.end_time}-${schedule.location || 'unknown'}`;
+            if (!subGroups[key]) {
+                subGroups[key] = {
+                    base: schedule,
+                    items: []
+                };
+            }
+            subGroups[key].items.push(schedule);
         });
 
-        container.appendChild(buildTodayScheduleCard(group.base, group.items));
+        // Sort by Start Time
+        const groupedSchedules = Object.values(subGroups).sort((a, b) => {
+            return (a.base.start_time || '').localeCompare(b.base.start_time || '');
+        });
+
+        groupedSchedules.forEach(subGroup => {
+            // Sort items: Normal first, then Special (matching previous logic)
+            subGroup.items.sort((a, b) => {
+                const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
+                const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+                const typeA = getTypeName(a);
+                const typeB = getTypeName(b);
+                const specialA = isSpecial(typeA);
+                const specialB = isSpecial(typeB);
+                if (specialA && !specialB) return 1;
+                if (!specialA && specialB) return -1;
+                return (a.teacher_id || 0) - (b.teacher_id || 0);
+            });
+
+            groupContainer.appendChild(buildTodayScheduleCard(subGroup.base, subGroup.items));
+        });
+
+        container.appendChild(groupContainer);
     });
 }
 
