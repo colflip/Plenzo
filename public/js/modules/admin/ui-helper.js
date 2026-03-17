@@ -6,7 +6,7 @@
 /**
  * 调整下拉框最小宽度以适应内容
  */
-function adjustSelectMinWidth(selectEl) {
+export function adjustSelectMinWidth(selectEl) {
     if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
     const style = getComputedStyle(selectEl);
     const probe = document.createElement('span');
@@ -39,7 +39,7 @@ function adjustSelectMinWidth(selectEl) {
 /**
  * 设置侧边栏切换逻辑
  */
-function setupSidebarToggle() {
+export function setupSidebarToggle() {
     const sidebar = document.querySelector('.sidebar');
     const mainContent = document.querySelector('.main-content');
     const toggleBtns = document.querySelectorAll('.toggle-sidebar');
@@ -142,7 +142,7 @@ function setupSidebarToggle() {
 /**
  * 设置头部标题
  */
-function setHeaderTitle(title) {
+export function setHeaderTitle(title) {
     const headerTitle = document.querySelector('.dashboard-header h2');
     if (headerTitle) headerTitle.textContent = title;
 }
@@ -152,7 +152,7 @@ function setHeaderTitle(title) {
  * @param {string} sectionId - 部分ID
  * @param {Function} [afterSwitchCallback] - 切换后的回调（用于加载数据）
  */
-function showSection(sectionId, afterSwitchCallback) {
+export function showSection(sectionId, afterSwitchCallback) {
     const sections = document.querySelectorAll('.dashboard-section');
     sections.forEach(section => {
         section.classList.remove('active');
@@ -178,7 +178,7 @@ function showSection(sectionId, afterSwitchCallback) {
  * @param {HTMLElement} container - 表格的父容器（.table-container 或 .stats-unified-card）
  * @param {string} [text] - 加载显示的文本
  */
-function showTableLoading(container, text = '正在加载数据...', targetSelector = 'thead') {
+export function showTableLoading(container, text = '正在加载数据...', targetSelector = 'thead') {
     if (!container) return;
 
     // 针对不同模块的容器结构进行适配
@@ -292,7 +292,7 @@ function showTableLoading(container, text = '正在加载数据...', targetSelec
  * 隐藏表格加载动画，采用平滑淡出
  * @param {HTMLElement} container - 表格的父容器
  */
-function hideTableLoading(container) {
+export function hideTableLoading(container) {
     if (!container) return;
     const overlay = container.querySelector('.stats-loading-overlay');
     if (overlay) {
