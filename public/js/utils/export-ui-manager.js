@@ -86,7 +86,7 @@ window.ExportUIManager = (function() {
                 border-radius: 8px;
                 box-shadow: 0 4px 20px rgba(0,0,0,0.15);
                 padding: 24px;
-                z-index: 10000;
+                z-index: 100001;
                 min-width: 300px;
                 text-align: center;
             `;
