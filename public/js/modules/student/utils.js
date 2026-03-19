@@ -97,7 +97,7 @@ export function showToast(message, type = 'info') {
         color: white;
         border-radius: 4px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        z-index: 10000;
+        z-index: 100002;
         animation: slideIn 0.3s ease-out;
     `;
     document.body.appendChild(toast);

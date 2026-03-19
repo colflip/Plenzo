@@ -152,7 +152,7 @@ export function showToast(message, type = 'info') {
     toast.style.padding = '12px 20px';
     toast.style.borderRadius = '4px';
     toast.style.color = '#fff';
-    toast.style.zIndex = '9999';
+    toast.style.zIndex = '100002';
     toast.style.opacity = '0.9';
     toast.style.transition = 'opacity 0.3s';
 

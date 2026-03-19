@@ -190,7 +190,7 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease, transform 0.3s ease;
-    z-index: 1000;
+    z-index: 100002;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -206,7 +206,7 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease, transform 0.3s ease;
-    z-index: 1000;
+    z-index: 100002;
 }
 
 .stat-card[data-tooltip]:hover::after,
@@ -232,7 +232,7 @@
     display: none;
     justify-content: center;
     align-items: center;
-    z-index: 10000;
+    z-index: 100001;
     opacity: 0;
     transition: opacity 0.3s ease;
 }
