@@ -320,6 +320,24 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
 
     // 创建卡片容器，保持时间槽颜色
     const card = createElement('div', `group-picker-item ${slotClass}`);
+
+    const hasTemp = scheduleGroup.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = createElement('span', '');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute', 'bottom: -10px', 'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
+    }
     // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
     // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
     card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
@@ -564,6 +582,24 @@ function buildScheduleCard(group) {
     card.style.borderWidth = '1px';
     card.style.borderStyle = 'solid';
 
+    const hasTemp = group.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = createElement('span', '');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute', 'bottom: -10px', 'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
+    }
+
     // 内容容器
     const content = createElement('div', 'card-content');
 
@@ -606,6 +642,13 @@ function buildScheduleCard(group) {
             textContent: `(${typeStr})`
         });
         marqueeContent.appendChild(typeSpan);
+
+        if (rec.is_temp) {
+            const tempBadge = createElement('span', 'badge-temp', {
+                textContent: '临'
+            });
+            marqueeContent.appendChild(tempBadge);
+        }
 
         marqueeWrapper.appendChild(marqueeContent);
         left.appendChild(nameSpan);

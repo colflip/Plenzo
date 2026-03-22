@@ -528,6 +528,7 @@ const teacherController = {
                     ca.start_time, ca.end_time, ca.status,
                     ca.teacher_id, ca.location,
                     ca.transport_fee, ca.other_fee,
+                    ca.is_temp,
                     st.name as student_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -818,6 +819,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
+                    ca.is_temp,
                     s.name as student_name,
                     sty.name as schedule_type
                 FROM course_arrangement ca
@@ -1151,6 +1153,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location, ca.transport_fee, ca.other_fee,
+                    ca.is_temp,
                     t.name as teacher_name, t.id as teacher_id,
                     st.name as student_name, st.id as student_id,
                     sty.name as schedule_type, sty.description as schedule_type_cn
@@ -1439,7 +1442,8 @@ const teacherController = {
                     ca.family_participants,
                     ca.teacher_rating,
                     ca.student_rating,
-                    ca.student_comment
+                    ca.student_comment,
+                    ca.is_temp
                 FROM course_arrangement ca
                 LEFT JOIN teachers t ON ca.teacher_id = t.id
                 LEFT JOIN students s ON ca.student_id = s.id
@@ -1491,7 +1495,8 @@ const teacherController = {
                 teacher_rating: row.teacher_rating,
                 teacher_comment: row.notes || '',
                 student_rating: row.student_rating,
-                student_comment: row.student_comment || ''
+                student_comment: row.student_comment || '',
+                is_temp: row.is_temp
             }));
 
             // 5. 生成文件名：[学生姓名]记录明细及统计[开始日期_结束日期]_时间戳

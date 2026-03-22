@@ -180,7 +180,7 @@ class ScheduleService {
      * 创建课程安排 (支持多学生批量)
      */
     async createSchedule(data, userId) {
-        const { teacherId, studentIds, date, timeSlot, startTime, endTime, scheduleTypes, location } = data;
+        const { teacherId, studentIds, date, timeSlot, startTime, endTime, scheduleTypes, location, isTemp } = data;
 
         // 参数归一化
         const courseId = Array.isArray(scheduleTypes) ? scheduleTypes[0] : scheduleTypes;
@@ -202,13 +202,13 @@ class ScheduleService {
 
                 const insertQuery = `
                     INSERT INTO course_arrangement 
-                    (teacher_id, student_id, course_id, arr_date, start_time, end_time, location, status, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
+                    (teacher_id, student_id, course_id, arr_date, start_time, end_time, location, status, created_by, is_temp)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
                     RETURNING id
                 `;
 
                 const res = await client.query(insertQuery, [
-                    teacherId, studentId, courseId, date, startTime, endTime, location || null, userId
+                    teacherId, studentId, courseId, date, startTime, endTime, location || null, userId, isTemp ? 1 : null
                 ]);
                 createdIds.push(res.rows[0].id);
             }

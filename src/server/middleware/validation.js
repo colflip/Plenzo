@@ -72,9 +72,8 @@ const scheduleValidation = {
                 'string.pattern.base': '结束时间格式不正确，应为HH:MM',
                 'any.required': '结束时间是必填项'
             }),
-        location: Joi.string().min(1).max(100).allow('', null)
+        location: Joi.string().max(100).allow('', null)
             .messages({
-                'string.min': '地点不能为空',
                 'string.max': '地点长度不能超过100个字符'
             }),
         scheduleTypes: Joi.array().items(Joi.number().integer().positive()).min(1).required()
@@ -92,7 +91,8 @@ const scheduleValidation = {
                 'string.max': '备注长度不能超过500个字符'
             }),
         // 允许前端传递冲突解决策略（merge/override），以免被stripUnknown过滤掉
-        resolve_strategy: Joi.string().valid('merge', 'override').optional()
+        resolve_strategy: Joi.string().valid('merge', 'override').optional(),
+        is_temp: Joi.any().optional()
     })
         // 支持 snake_case 输入并重命名为 camelCase
         .rename('teacher_id', 'teacherId', { override: true, ignoreUndefined: true })
@@ -126,7 +126,7 @@ const scheduleValidation = {
             .messages({
                 'string.pattern.base': '结束时间格式不正确，应为HH:MM'
             }),
-        location: Joi.string().min(1).max(100)
+        location: Joi.string().max(100).allow('', null)
             .messages({
                 'string.min': '地点不能为空',
                 'string.max': '地点长度不能超过100个字符'
@@ -143,7 +143,8 @@ const scheduleValidation = {
         status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed')
             .messages({
                 'any.only': '状态只能是pending、confirmed、cancelled或completed'
-            })
+            }),
+        is_temp: Joi.any().optional()
     }),
 
     query: Joi.object({

@@ -329,6 +329,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
+                    ca.is_temp,
                     ca.teacher_id, t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn,
@@ -412,6 +413,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
+                    ca.is_temp,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -514,6 +516,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
+                    ca.is_temp,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -561,6 +564,7 @@ const studentController = {
                     t.name as teacher_name,
                     sty.name as type_name,
                     sty.description as type_desc,
+                    ca.is_temp,
                     ca.course_id,
                     ca.teacher_id,
                     ca.student_id,
