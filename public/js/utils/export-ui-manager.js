@@ -179,8 +179,17 @@ window.ExportUIManager = (function() {
 
             // 设置列宽
             const colWidths = [];
-            const firstRow = excelData.data[0] || {};
-            Object.keys(firstRow).forEach(key => {
+            
+            // 获取所有存在的列名，以便应对各行非对称 keys 结构
+            const allKeys = new Set();
+            excelData.data.forEach(row => {
+                if (row) {
+                    Object.keys(row).forEach(k => allKeys.add(k));
+                }
+            });
+            const keysArr = Array.from(allKeys);
+
+            keysArr.forEach(key => {
                 const maxLength = Math.max(
                     key.length,
                     ...excelData.data.map(row => String(row[key] || '').length)
