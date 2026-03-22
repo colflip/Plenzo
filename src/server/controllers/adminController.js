@@ -615,7 +615,8 @@ const adminController = {
                     COALESCE(stt.description, stt.name) AS schedule_type_cn, 
                     ca.location,
                     ca.transport_fee,
-                    ca.other_fee
+                    ca.other_fee,
+                    ca.is_temp
                 FROM course_arrangement ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN students s ON ca.student_id = s.id
@@ -676,6 +677,7 @@ const adminController = {
                         ca.end_time,
                         ca.location,
                         ca.family_participants,
+                        ca.is_temp,
                         ca.${dateCol} AS date
                  FROM course_arrangement ca
                  WHERE ca.id = $1`,
@@ -744,7 +746,8 @@ const adminController = {
                     ca.location,
                     ca.status,
                     ca.transport_fee,
-                    ca.other_fee
+                    ca.other_fee,
+                    ca.is_temp
                 FROM course_arrangement ca
                 JOIN students s ON ca.student_id = s.id
                 JOIN teachers t ON ca.teacher_id = t.id
@@ -1052,7 +1055,8 @@ const adminController = {
                 scheduleTypes,
                 location,
                 status,
-                resolve_strategy
+                resolve_strategy,
+                is_temp
             } = req.body;
 
             // 离线开发模式：直接返回模拟ID，避免数据库操作
@@ -1130,12 +1134,12 @@ const adminController = {
                 // Family participants
                 const familyParticipants = req.body.family_participants !== undefined ? Number(req.body.family_participants) : 4;
 
-                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, status, location, created_by, family_participants)
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, status, location, created_by, family_participants, is_temp)
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                                RETURNING id`;
                 const insertResult = await q(
                     insertSql,
-                    [teacherId, firstStudentId, firstTypeId, date, startTime, endTime, nextStatus, location || null, req.user.id, familyParticipants]
+                    [teacherId, firstStudentId, firstTypeId, date, startTime, endTime, nextStatus, location || null, req.user.id, familyParticipants, (is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null]
                 );
 
                 // 返回响应（在事务内部返回，在 runInTransaction 结束时会自动 COMMIT）
@@ -1183,7 +1187,8 @@ const adminController = {
                 type_ids,
                 status,
                 location,
-                family_participants
+                family_participants,
+                is_temp
             } = req.body;
 
             // 将更新逻辑放入事务中，确保读取-验证-更新在同一连接上执行
@@ -1264,6 +1269,7 @@ const adminController = {
                 if (nextTypeId != null) { sets.push(`course_id = $${vi++}`); values.push(nextTypeId); }
                 if (location !== undefined) { sets.push(`location = $${vi++}`); values.push(location || null); }
                 if (family_participants !== undefined) { sets.push(`family_participants = $${vi++}`); values.push((family_participants === null) ? 4 : Number(family_participants)); }
+                if (is_temp !== undefined) { sets.push(`is_temp = $${vi++}`); values.push((is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null); }
 
                 if (sets.length === 0) throw Object.assign(new Error('无更新字段'), { statusCode: 400 });
 

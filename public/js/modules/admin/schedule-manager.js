@@ -140,6 +140,7 @@ function normalizeScheduleRows(rows) {
             transportFee: r.transportFee,
             other_fee: r.other_fee,
             otherFee: r.otherFee,
+            is_temp: r.is_temp,
             startMin: start ? (Number(start.split(':')[0]) * 60 + Number(start.split(':')[1])) : NaN,
             endMin: end ? (Number(end.split(':')[0]) * 60 + Number(end.split(':')[1])) : NaN
         };
@@ -167,7 +168,7 @@ function saveFormMemory(formData) {
         };
         localStorage.setItem(FORM_MEMORY_KEY, JSON.stringify(memory));
     } catch (err) {
-        
+
     }
 }
 
@@ -188,7 +189,7 @@ function loadFormMemory() {
 
         return data;
     } catch (err) {
-        
+
         return null;
     }
 }
@@ -213,7 +214,7 @@ function applyFormMemory() {
 
         return true;
     } catch (err) {
-        
+
         return false;
     }
 }
@@ -240,7 +241,7 @@ function optimisticAdd(scheduleData) {
 function optimisticUpdate(id, changes) {
     const row = document.querySelector(`[data-schedule-id="${id}"]`);
     if (!row) {
-        
+
         return { backup: null };
     }
 
@@ -306,7 +307,7 @@ function optimisticDelete(id) {
  */
 function rollbackOperation(backup, operation) {
     if (!backup) {
-        
+
         return;
     }
 
@@ -347,7 +348,7 @@ function rollbackOperation(backup, operation) {
                 break;
         }
     } catch (err) {
-        
+
     }
 }
 
@@ -378,7 +379,7 @@ export const WeeklyDataStore = {
         try {
             const item = { data, ts: Date.now() };
             localStorage.setItem(this._CACHE_KEY_prefix + key, JSON.stringify(item));
-        } catch (e) {  }
+        } catch (e) { }
     },
 
     async getAllSchedules(force = false) {
@@ -418,7 +419,7 @@ export const WeeklyDataStore = {
                     // trigger re-load but without force false to pick up memory
                     // slightly complex, maybe just leave for next interaction for V1
                 }
-            } catch (e) {  }
+            } catch (e) { }
         }
     },
 
@@ -449,7 +450,7 @@ export const WeeklyDataStore = {
             const rows = await window.apiUtils.get('/admin/schedules/grid', params);
             return normalizeScheduleRows(Array.isArray(rows) ? rows : []);
         } catch (err) {
-            
+
             throw err;
         }
     },
@@ -570,7 +571,7 @@ export async function refreshCell(studentId, dateKey) {
     // 定位目标单元格
     const td = tbody.querySelector(`tr[data-student-id="${studentId}"] td[data-date="${dateKey}"]`);
     if (!td) {
-        
+
         return;
     }
 
@@ -596,7 +597,7 @@ export async function refreshCell(studentId, dateKey) {
             renderGroupedMergedSlots(td, cellItems, student || { id: studentId, name: '未知学生' }, dateKey);
         }
     } catch (e) {
-        
+
     }
 }
 
@@ -682,7 +683,7 @@ export async function loadSchedules(force = false, showLoading = true) {
         renderWeeklyBody(students, schedules, weekDates);
 
     } catch (err) {
-        
+
         renderWeeklyError(err.message);
     } finally {
         // 隐藏加载动画
@@ -1043,7 +1044,7 @@ async function handleStudentRowCapture(student, originalTr) {
         if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${student.name} 的课表图片`);
 
     } catch (err) {
-        
+
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
         if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
@@ -1103,10 +1104,34 @@ function buildAdminScheduleCard(group, student, dateKey) {
     const card = document.createElement('div');
     card.classList.add('schedule-card-group', `slot-${slot}`);
 
-    // 如果该组内所有记录都是已取消，则给整卡添加 status-cancelled
     const allCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
     if (allCancelled) {
         card.classList.add('status-cancelled');
+    }
+
+    const hasTemp = group.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        // 直接注入水印 DOM 元素，避免 CSS ::after 堆叠上下文限制
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = document.createElement('span');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute',
+            'bottom: -10px',
+            'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng", "Kaiti SC", "STXingkai", "KaiTi", cursive, serif',
+            'color: rgba(0, 102, 204, 0.1)',
+            'pointer-events: none',
+            'z-index: 0',
+            'transform: rotate(-15deg)',
+            'line-height: 1',
+            'user-select: none',
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
     }
 
     // Content Container
@@ -1137,7 +1162,6 @@ function buildAdminScheduleCard(group, student, dateKey) {
         const left = document.createElement('div');
         left.className = 'row-left';
 
-        // Type Text (e.g. "(入户)") - Gray, Small
         const typeStr = (rec.schedule_type_cn || rec.schedule_types || '').toString();
         let typeLabel = `(${typeStr})`;
 
@@ -1174,7 +1198,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
             e.stopPropagation();
             const newStatus = e.target.value;
             statusSelect.blur(); // Remove focus
-            
+
             // 统一调用 updateScheduleStatus，由其内部处理 optimistic UI 和 API 同步
             updateScheduleStatus(rec.id, newStatus);
         });
@@ -1347,7 +1371,7 @@ export async function deleteSchedule(id) {
         // 操作成功后的闭环处理：关闭表单容器及背景遮罩(阴影区域)
         const formContainer = document.getElementById('scheduleFormContainer');
         const overlay = document.getElementById('modalOverlay');
-        
+
         if (formContainer) formContainer.style.display = 'none';
         if (overlay) overlay.style.display = 'none';
 
@@ -1417,6 +1441,7 @@ function openCellEditor(student, dateISO) {
         form.querySelector('#scheduleTypeSelect').value = '';
         form.querySelector('#scheduleTeacher').value = '';
         if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = 'confirmed';
+        if (document.getElementById('scheduleIsTemp')) document.getElementById('scheduleIsTemp').checked = false;
 
         // 首次加载后触发一次冲突检测
         updateTeacherStatusHints();
@@ -1496,6 +1521,7 @@ export async function editSchedule(id) {
         form.querySelector('#scheduleLocation').value = data.location || '';
         form.querySelector('#scheduleTypeSelect').value = data.course_id || '';
         if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = data.status || 'confirmed';
+        if (document.getElementById('scheduleIsTemp')) document.getElementById('scheduleIsTemp').checked = (data.is_temp === 1 || data.is_temp === true || data.is_temp === '1');
 
         // 如果某些字段为空，可以应用表单记忆
         const memory = loadFormMemory();
@@ -1515,7 +1541,7 @@ export async function editSchedule(id) {
         updateTeacherStatusHints();
 
     } catch (err) {
-        
+
         window.apiUtils.showToast('加载详情失败', 'error');
     }
 }
@@ -1621,7 +1647,7 @@ async function updateTeacherStatusHints() {
             }
             opt.textContent = baseName + hint;
         });
-    } catch (e) {  }
+    } catch (e) { }
 }
 
 export async function setupScheduleEventListeners() {
@@ -1631,24 +1657,24 @@ export async function setupScheduleEventListeners() {
         if (container) container.style.display = 'none';
         if (overlay) overlay.style.display = 'none';
     };
-    
+
     document.getElementById('closeScheduleFormBtn')?.addEventListener('click', closeForm);
     document.getElementById('cancelScheduleFormBtn')?.addEventListener('click', closeForm);
-    
+
     const overlay = document.getElementById('modalOverlay');
     if (overlay) {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) closeForm();
         });
     }
-    
+
     document.getElementById('toggleAdminFeeBtn')?.addEventListener('click', (e) => {
         e.preventDefault();
         if (typeof window.toggleAdminFeeVisibility === 'function') {
             window.toggleAdminFeeVisibility();
         }
     });
-    
+
     document.getElementById('addScheduleBtn')?.addEventListener('click', (e) => {
         e.preventDefault();
         if (typeof window.showAddScheduleModal === 'function') {
@@ -1678,7 +1704,8 @@ export async function setupScheduleEventListeners() {
                 location: form.querySelector('#scheduleLocation').value,
                 type_ids: courseId ? [Number(courseId)] : [], // 统一使用 type_ids 数组
                 status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed',
-                resolve_strategy: 'override' // 默认覆盖
+                resolve_strategy: 'override', // 默认覆盖
+                is_temp: document.getElementById('scheduleIsTemp') ? (document.getElementById('scheduleIsTemp').checked ? 1 : 0) : 0
             };
 
             if (!body.student_ids.length || !body.date || !body.start_time || !body.end_time) {
@@ -1718,30 +1745,30 @@ export async function setupScheduleEventListeners() {
                     // 移除成功提示 toast
                     // window.apiUtils.showSuccessToast('排课添加成功');
                 } else {
-//                     // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
-//                     currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
-//                     if (currentCard) {
-//                         originalCardHtml = currentCard.innerHTML; // 快照
-//                         currentCard.classList.add('optimistic-updating');
-// 
-//                         // 从表单内爬取修改的字段并投射到卡片上
-//                         const teacherSelect = form.querySelector('#scheduleTeacher');
-//                         const typeSelect = form.querySelector('#scheduleTypeSelect');
-//                         const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
-//                         const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
-// 
-//                         const timeSpan = currentCard.querySelector('.schedule-time');
-//                         if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
-// 
-//                         const tDiv = currentCard.querySelector('.teacher-name');
-//                         if (tDiv && tName) tDiv.textContent = tName;
-// 
-//                         const cDiv = currentCard.querySelector('.course-type');
-//                         if (cDiv && cName) cDiv.textContent = cName;
-// 
-//                         const locP = currentCard.querySelector('.location-text');
-//                         if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
-//                     }
+                    //                     // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
+                    //                     currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
+                    //                     if (currentCard) {
+                    //                         originalCardHtml = currentCard.innerHTML; // 快照
+                    //                         currentCard.classList.add('optimistic-updating');
+                    // 
+                    //                         // 从表单内爬取修改的字段并投射到卡片上
+                    //                         const teacherSelect = form.querySelector('#scheduleTeacher');
+                    //                         const typeSelect = form.querySelector('#scheduleTypeSelect');
+                    //                         const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
+                    //                         const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
+                    // 
+                    //                         const timeSpan = currentCard.querySelector('.schedule-time');
+                    //                         if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
+                    // 
+                    //                         const tDiv = currentCard.querySelector('.teacher-name');
+                    //                         if (tDiv && tName) tDiv.textContent = tName;
+                    // 
+                    //                         const cDiv = currentCard.querySelector('.course-type');
+                    //                         if (cDiv && cName) cDiv.textContent = cName;
+                    // 
+                    //                         const locP = currentCard.querySelector('.location-text');
+                    //                         if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
+                    //                     }
 
                     // 异步请求后端
                     await window.apiUtils.put(`/admin/schedules/${id}`, body);
@@ -1787,7 +1814,7 @@ export async function setupScheduleEventListeners() {
                     await loadSchedules(true, false);
                 }
             } catch (err) {
-                
+
 
                 // 万一报错了，回滚操作（反欺骗）
                 if (mode === 'add' && backup) {
@@ -1883,7 +1910,7 @@ async function initScheduleFilters() {
                 tf.appendChild(o);
             });
             if (current) tf.value = current;
-        } catch (e) {  }
+        } catch (e) { }
     }
 }
 

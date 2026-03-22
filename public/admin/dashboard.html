@@ -295,6 +295,50 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* 统一的系统优美自定义复选框样式 */
+        .theme-checkbox-label {
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            color: #475569;
+            cursor: pointer;
+            margin: 0;
+            user-select: none;
+            font-weight: 500;
+        }
+        .theme-checkbox {
+            display: none;
+        }
+        .theme-checkbox-custom {
+            position: relative;
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            background-color: #fff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 4px;
+            margin-right: 6px;
+            transition: all 0.2s ease;
+        }
+        .theme-checkbox:checked + .theme-checkbox-custom {
+            background-color: #2ECC71;
+            border-color: #2ECC71;
+        }
+        .theme-checkbox:checked + .theme-checkbox-custom::after {
+            content: '';
+            position: absolute;
+            left: 5.5px;
+            top: 2.5px;
+            width: 4px;
+            height: 8px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .theme-checkbox-label:hover .theme-checkbox-custom {
+            border-color: #2ECC71;
+        }
     </style>
 </head>
 
@@ -769,8 +813,15 @@
 
                     <!-- 排课表单 -->
                     <div id="scheduleFormContainer" class="form-container" style="display: none;">
-                        <div class="form-header">
-                            <h3 id="scheduleFormTitle">添加排课</h3>
+                        <div class="form-header" style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <h3 id="scheduleFormTitle" style="margin: 0;">添加排课</h3>
+                                <label class="theme-checkbox-label">
+                                    <input type="checkbox" id="scheduleIsTemp" class="theme-checkbox">
+                                    <span class="theme-checkbox-custom"></span>
+                                    临时加课
+                                </label>
+                            </div>
                             <button class="close-btn" id="closeScheduleFormBtn"></button>
                         </div>
                         <form id="scheduleForm" data-mode="add" data-id="">
@@ -812,8 +863,7 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="scheduleLocation">入户地点 <span
-                                        style="font-size: 0.8em; color: #94a3b8; font-weight: normal;">(选填)</span></label>
+                                <label for="scheduleLocation">入户地点</label>
                                 <textarea id="scheduleLocation" placeholder="默认使用学生探访地点" rows="1"></textarea>
                             </div>
                             <div class="form-group">

@@ -676,6 +676,24 @@ function buildCompactMobileScheduleCard(group) {
 
     const card = createElement('div', `mobile-schedule-card-v2 slot-${slotId}`);
     
+    const hasTemp = group.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = createElement('span', '');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute', 'bottom: -10px', 'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
+    }
+    
     // 1. 标题行：姓名 (类型, 状态)
     const headerRow = createElement('div', 'card-header-row');
     
@@ -692,7 +710,7 @@ function buildCompactMobileScheduleCard(group) {
         
         const typeTag = createElement('span', 'type-tag', { textContent: typeLabel });
         metaSpan.appendChild(typeTag);
-        
+
         metaSpan.appendChild(document.createTextNode(', '));
         
         const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
@@ -783,6 +801,24 @@ function buildScheduleCard(group) {
         card.classList.add('status-cancelled');
     }
 
+    const hasTemp = group.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = createElement('span', '');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute', 'bottom: -10px', 'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
+    }
+
     const content = createElement('div', 'card-content');
     const listDiv = createElement('div', 'schedule-list');
 
@@ -807,6 +843,8 @@ function buildScheduleCard(group) {
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
         if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(marqueeContent, `<span class="course-type-text">(${typeStr})</span>`); } else { marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`; }
+        
+        
 
         marqueeWrapper.appendChild(marqueeContent);
         left.appendChild(nameSpan);

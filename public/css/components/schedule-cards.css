@@ -383,3 +383,49 @@
     position: relative;
     /* Ensure checkmark is positioned relative to the row */
 }
+
+/* 临时排课卡片的特殊差异化样式 */
+.is-temp-card {
+    background-image: repeating-linear-gradient(-45deg,
+            rgba(255, 255, 255, 0),
+            rgba(255, 255, 255, 0) 8px,
+            rgba(2, 132, 199, 0.04) 8px,
+            rgba(2, 132, 199, 0.04) 16px) !important;
+    border-style: dashed !important;
+    border-width: 1.5px !important;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 临时排课水印 (书法水墨风格) */
+.is-temp-card::after {
+    content: '临';
+    position: absolute;
+    bottom: -10px;
+    right: 5px;
+    font-size: 99px;
+    font-family: 'Ma Shan Zheng', "Kaiti SC", "STXingkai", "KaiTi", cursive, serif;
+    color: rgba(0, 102, 204, 0.1);
+    /* 10% 透明度的水墨蓝 */
+    pointer-events: none;
+    z-index: 0;
+    transform: rotate(-15deg);
+    line-height: 1;
+    user-select: none;
+}
+
+/* 临时加课 Badge */
+.badge-temp {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e0f2fe;
+    color: #0284c7;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 4px;
+    vertical-align: middle;
+    line-height: 1.4;
+    border: 1px solid #bae6fd;
+    box-shadow: 0 1px 2px rgba(2, 132, 199, 0.1);
+}

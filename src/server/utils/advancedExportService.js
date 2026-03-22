@@ -363,7 +363,8 @@ ca.id as schedule_id,
         ca.last_auto_update,
         ca.created_by,
         ca.transport_fee,
-        ca.other_fee
+        ca.other_fee,
+        ca.is_temp
             FROM course_arrangement ca
             LEFT JOIN teachers t ON ca.teacher_id = t.id
             LEFT JOIN students s ON ca.student_id = s.id
@@ -415,7 +416,8 @@ ca.id as schedule_id,
         ca.last_auto_update,
         ca.created_by,
         ca.transport_fee,
-        ca.other_fee
+        ca.other_fee,
+        ca.is_temp
             FROM course_arrangement ca
             LEFT JOIN students s ON ca.student_id = s.id
             LEFT JOIN teachers t ON ca.teacher_id = t.id
@@ -551,7 +553,8 @@ ca.id as schedule_id,
             last_auto_update: row.last_auto_update,
             created_by: row.created_by,
             transport_fee: row.transport_fee,
-            other_fee: row.other_fee
+            other_fee: row.other_fee,
+            is_temp: row.is_temp
         }));
     }
 
@@ -577,7 +580,8 @@ ca.id as schedule_id,
             last_auto_update: row.last_auto_update,
             created_by: row.created_by,
             transport_fee: row.transport_fee,
-            other_fee: row.other_fee
+            other_fee: row.other_fee,
+            is_temp: row.is_temp
         }));
     }
 

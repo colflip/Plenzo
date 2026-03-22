@@ -585,6 +585,24 @@ function buildScheduleCard(group) {
     const isAllCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
 
     const card = createElement('div', `schedule-card-group slot-${slot}${isAllCancelled ? ' status-cancelled' : ''}`);
+
+    const hasTemp = group.some(rec => rec.is_temp == 1);
+    if (hasTemp) {
+        card.classList.add('is-temp-card');
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        const watermark = createElement('span', '');
+        watermark.setAttribute('aria-hidden', 'true');
+        watermark.style.cssText = [
+            'position: absolute', 'bottom: -10px', 'right: 5px',
+            'font-size: 99px',
+            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+        ].join(';');
+        watermark.textContent = '临';
+        card.appendChild(watermark);
+    }
     card.style.backgroundColor = theme.bg;
     card.style.borderColor = theme.border;
     card.style.borderWidth = '1px';
