@@ -161,12 +161,16 @@ export async function editSchedule(scheduleId) {
         if (endTimeInput) endTimeInput.value = normEnd;
         if (locationInput) locationInput.value = data.location || '';
         if (statusSel) {
-            const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed']);
+            const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
             const s = String(data.status || 'pending').trim();
             if (allowedStatuses.has(s)) {
                 statusSel.value = s;
             } else {
                 statusSel.value = 'pending';
+            }
+            // 确保如果值是 modified_away，下拉框确实选中了对应的选项
+            if (s === 'modified_away') {
+                statusSel.value = 'modified_away';
             }
         }
 
@@ -903,7 +907,10 @@ export function getStatusText(status) {
         'pending': '待确认',
         'confirmed': '已确认',
         'completed': '已完成',
-        'cancelled': '已取消'
+        'cancelled': '已取消',
+        'modified_away': '已调整',
+        'attended': '已到课',
+        'absent': '未到课'
     };
     return statusMap[status] || status;
 }
@@ -975,7 +982,8 @@ export function showScheduleSelector(items) {
             'pending': '待确认',
             'confirmed': '已确认',
             'completed': '已完成',
-            'cancelled': '已取消'
+            'cancelled': '已取消',
+            'modified_away': '已调整'
         };
         const statusText = statusMap[item.status] || item.status;
 

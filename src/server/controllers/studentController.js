@@ -329,7 +329,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     ca.teacher_id, t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn,
@@ -352,6 +352,9 @@ const studentController = {
                 query += ` AND ca.status = $4`;
                 values.push(status);
             }
+
+            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
+            query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
 
             query += ` ORDER BY date, ca.start_time`;
 
@@ -388,6 +391,7 @@ const studentController = {
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
                   AND ca.status NOT IN ('cancelled', '0')
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]);
@@ -401,7 +405,8 @@ const studentController = {
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
                   AND ca.status NOT IN ('cancelled', '0')
-                GROUP BY month
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                GROUP BY TO_CHAR(${dateExpr}, 'YYYY-MM')
                 ORDER BY month
             `, [req.user.id, startDate, endDate]);
 
@@ -413,7 +418,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -423,6 +428,7 @@ const studentController = {
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
                   AND ca.status NOT IN ('cancelled', '0')
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 ORDER BY date DESC, ca.start_time ASC
             `, [req.user.id, startDate, endDate]);
 
@@ -500,8 +506,8 @@ const studentController = {
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
                     SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
                 FROM course_arrangement ca
-                -- Filter by student_status if needed, removed for simplicity unless required
                 WHERE ca.student_id = $1
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
             `, [
                 req.user.id,
                 weekStartStr, weekEndStr,
@@ -516,7 +522,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -525,6 +531,7 @@ const studentController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} = $2
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 ORDER BY ca.start_time
             `, [req.user.id, todayStr]);
 
@@ -564,7 +571,7 @@ const studentController = {
                     t.name as teacher_name,
                     sty.name as type_name,
                     sty.description as type_desc,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     ca.course_id,
                     ca.teacher_id,
                     ca.student_id,
@@ -580,6 +587,7 @@ const studentController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 ORDER BY date, ca.start_time
             `, [req.user.id, startDate, endDate]);
 

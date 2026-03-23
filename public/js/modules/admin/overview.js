@@ -86,6 +86,10 @@ export async function loadOverviewStats() {
             endOfWeek.setHours(23, 59, 59, 999);
 
             schedules.forEach(schedule => {
+                // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
+                if (schedule.status === 'modified_away' && (schedule.adjustment_type === 0 || schedule.adjustment_type === '0')) {
+                    return;
+                }
                 const scheduleDate = new Date(schedule.date || schedule.start_time);
                 const status = (schedule.status || '').toLowerCase();
 

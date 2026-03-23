@@ -447,9 +447,15 @@ ca.id as schedule_id,
             const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
             const week = days[dateObj.getDay()];
 
+            const isCancelled = (row.status === 'cancelled' || row.status === 2 || row.status === 0);
+            
+            let namePrefix = '';
+            if (row.adjustment_type == 1 && !isCancelled) namePrefix = '⁺';
+            else if (row.adjustment_type == 2) namePrefix = '~';
+
             // 基础字段
             const item = {
-                'student_name': row.student_name,
+                'student_name': namePrefix ? `${namePrefix}[${row.student_name}]` : row.student_name,
                 'type': row.type_name || '未知',
                 'date': row.date instanceof Date ? row.date.toISOString().slice(0, 10) : row.date,
                 'week': week,
@@ -491,6 +497,10 @@ ca.id as schedule_id,
         };
 
         rawData.forEach(row => {
+            // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
+            if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+                return;
+            }
             const name = row[groupKey] || '未知';
             if (!stats[name]) {
                 stats[name] = {
@@ -523,7 +533,8 @@ ca.id as schedule_id,
             'pending': '待确认',
             'confirmed': '已确认',
             'completed': '已完成',
-            'cancelled': '已取消'
+            'cancelled': '已取消',
+            'modified_away': '已调整'
         };
         return map[status] || status;
     }

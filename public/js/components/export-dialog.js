@@ -612,6 +612,10 @@ window.ExportDialog = (function () {
             return;
         }
         state.isExporting = true;
+        
+        // 显式显示加载遮罩层
+        const overlay = document.getElementById('exportLoadingOverlay');
+        if (overlay) overlay.style.display = 'flex';
 
         const typeConfig = EXPORT_TYPE_CONFIG[state.selectedType];
         const format = state.selectedFormat;
@@ -842,12 +846,21 @@ window.ExportDialog = (function () {
             if (Array.isArray(exportResult)) {
                 rawData = exportResult;
             } else if (exportResult && exportResult.data) {
-                // 如果是数组或者是对象（多 Sheet），都作为 rawData 处理词词词
+                // 如果是数组或者是对象（多 Sheet），都作为 rawData 处理
                 if (Array.isArray(exportResult.data) || (typeof exportResult.data === 'object' && exportResult.data !== null)) {
                     rawData = exportResult.data;
                 } else if (Array.isArray(exportResult.data.data)) {
                     rawData = exportResult.data.data;
                 }
+            }
+
+            // 检查数据是否为空
+            const isEmpty = !rawData || 
+                          (Array.isArray(rawData) && rawData.length === 0) || 
+                          (typeof rawData === 'object' && rawData !== null && Object.keys(rawData).length === 0);
+            
+            if (isEmpty) {
+                throw new Error('没有可导出的数据');
             }
 
 
@@ -893,26 +906,29 @@ window.ExportDialog = (function () {
 
 
 
-            // 计算记录数用于显示
-            const recordCount = rawData.length || 0;
+            updateProgress(100, `导出完成！共 ${Array.isArray(rawData) ? rawData.length : '多 Sheet'} 条记录`);
 
-            updateProgress(100, `导出完成！共 ${recordCount} 条记录`);
-
-            // 重置导出状态（放在前面确保后续点击能正常触发）
+            // 重置导出状态
             state.isExporting = false;
 
             // 导出成功，自动关闭对话框
             const msg = `导出成功！文件名：${filename}`;
             showToast(msg, 'success');
-            setTimeout(() => close(true), 400);
+            setTimeout(() => {
+                const overlay = document.getElementById('exportLoadingOverlay');
+                if (overlay) overlay.style.display = 'none';
+                close(true);
+            }, 800);
         } catch (error) {
+            console.error('Export error:', error);
             updateProgress(0, '导出失败');
 
             // 显示错误提示并提供重试按钮
             const progressMsg = document.getElementById('exportProgressMsg');
             if (progressMsg) {
-                    progressMsg.innerHTML = `
-                    <span style="color: #ef4444;">导出失败: ${error.message || '未知错误'}</span>
+                const errorMsg = error.message === '没有可导出的数据' ? '所选范围内无数据' : (error.message || '未知错误');
+                progressMsg.innerHTML = `
+                    <span style="color: #ef4444;">导出失败: ${errorMsg}</span>
                     <button onclick="window.ExportDialog.retryExport()" style="
                         margin-left: 12px;
                         padding: 4px 12px;
@@ -925,14 +941,19 @@ window.ExportDialog = (function () {
                     ">重试</button>
                 `;
             }
-            showToast(`导出失败: ${error.message} `, 'error');
+            showToast(`导出失败: ${error.message}`, 'error');
+            
             state.isExporting = false;
-
             // 恢复按钮状态
             const exportBtn = document.getElementById('exportBtn');
             if (exportBtn) {
                 exportBtn.disabled = false;
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, '<span class="material-icons-round">download</span> 导出 Excel'); } else { exportBtn.innerHTML = '<span class="material-icons-round">download</span> 导出 Excel'; }
+                const btnHtml = '<span class="material-icons-round">download</span> 导出 Excel';
+                if (window.SecurityUtils) { 
+                    window.SecurityUtils.safeSetHTML(exportBtn, btnHtml); 
+                } else { 
+                    exportBtn.innerHTML = btnHtml; 
+                }
             }
         }
     }

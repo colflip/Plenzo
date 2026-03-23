@@ -586,21 +586,43 @@ function buildScheduleCard(group) {
 
     const card = createElement('div', `schedule-card-group slot-${slot}${isAllCancelled ? ' status-cancelled' : ''}`);
 
-    const hasTemp = group.some(rec => rec.is_temp == 1);
-    if (hasTemp) {
+    const hasTemp = group.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
+    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
+    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
+
+    // 构建水印文本：调=加 > 原
+    const watermarkParts = [];
+    if (hasAdjusted) watermarkParts.push('调');
+    if (hasTemp) watermarkParts.push('加');
+
+    let watermarkText = '';
+    if (watermarkParts.length > 0) {
+        watermarkText = watermarkParts.join('/');
+    } else if (hasOriginal) {
+        // 仅当组内所有记录都是原课程时才显示「原」水印
+        const allOriginal = group.every(rec => {
+            const st = (rec.status || '').toLowerCase();
+            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
+        });
+        if (allOriginal) watermarkText = '原';
+    }
+
+    if (watermarkText) {
         card.classList.add('is-temp-card');
         card.style.position = 'relative';
         card.style.overflow = 'hidden';
         const watermark = createElement('span', '');
         watermark.setAttribute('aria-hidden', 'true');
+        const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
         watermark.style.cssText = [
             'position: absolute', 'bottom: -10px', 'right: 5px',
-            'font-size: 99px',
+            `font-size: ${wmFontSize}`,
             'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
             'color: rgba(0,102,204,0.1)', 'pointer-events: none',
             'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
         ].join(';');
-        watermark.textContent = '临';
+        
+        watermark.textContent = watermarkText;
         card.appendChild(watermark);
     }
     card.style.backgroundColor = theme.bg;
@@ -610,6 +632,22 @@ function buildScheduleCard(group) {
 
     // 内容容器
     const content = createElement('div', 'card-content');
+
+    // 排序逻辑改进：
+    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
+    group.sort((a, b) => {
+        const getStatus = (item) => (item.status || 'pending').toLowerCase();
+        const statusA = getStatus(a);
+        const statusB = getStatus(b);
+        
+        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+        const inactiveA = isInactive(statusA);
+        const inactiveB = isInactive(statusB);
+
+        if (inactiveA && !inactiveB) return 1;
+        if (!inactiveA && inactiveB) return -1;
+        return 0;
+    });
 
     // 2. 排课记录列表 (支持多条合并)
     const listDiv = createElement('div', 'schedule-list');

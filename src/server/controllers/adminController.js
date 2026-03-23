@@ -636,6 +636,11 @@ const adminController = {
                 sql += ` AND ca.course_id = $${values.length}`;
             }
 
+            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
+            if (req.query.show_plan !== 'true') {
+                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            }
+
             sql += ` ORDER BY ${dateExpr} ASC, ca.start_time ASC`;
 
             const result = await db.query(sql, values);
@@ -764,6 +769,12 @@ const adminController = {
                 sql += ` AND ca.course_id = $${params.length + 1}`;
                 params.push(effectiveTypeId);
             }
+
+            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
+            if (req.query.show_plan !== 'true') {
+                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            }
+
             // 过滤删除状态：允许正常与暂停，但不显示删除
             if (teacherHasStatus) sql += ` AND t.status <> -1`;
             if (studentHasStatus) sql += ` AND s.status <> -1`;
@@ -791,11 +802,14 @@ const adminController = {
             res.json(safeRows);
         } catch (error) {
             console.error('获取网格排课错误:', error);
-            const code = error?.sourceError?.code;
+            const code = error?.sourceError?.code || error?.code;
             const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT');
-            if (isNeonTimeout) return res.json([]);
-            res.status(500).json({ message: '服务器错误' });
+            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT') || msg.includes('timeout');
+            
+            if (isNeonTimeout) {
+                return res.json([]);
+            }
+            res.status(500).json(standardResponse(false, [], '服务器获取网格数据失败'));
         }
     },
 
@@ -1128,13 +1142,13 @@ const adminController = {
                 // 学生重叠允许：不阻断创建，满足同一时间段同一学生可存在多条记录的需求
                 // 地点冲突移除：允许地点同一时间段存在多条排课
 
-                // 按传入状态写入，默认 pending，且限制为四种合法状态
-                const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed']);
+                // 按传入状态写入，默认 pending，且限制为几种合法状态
+                const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
                 const nextStatus = allowedStatuses.has(String(status || '').trim()) ? String(status).trim() : 'pending';
                 // Family participants
                 const familyParticipants = req.body.family_participants !== undefined ? Number(req.body.family_participants) : 4;
 
-                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, status, location, created_by, family_participants, is_temp)
+                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, status, location, created_by, family_participants, adjustment_type)
                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                                RETURNING id`;
                 const insertResult = await q(
@@ -1177,6 +1191,7 @@ const adminController = {
     async updateSchedule(req, res) {
         try {
             const { id } = req.params;
+            let resData = null;
             // 使用 snake_case 字段以匹配验证规则
             const {
                 teacher_id,
@@ -1205,7 +1220,7 @@ const adminController = {
 
                 // 读取当前记录，便于缺省字段沿用现值并做冲突校验
                 const currentRes = await q(`
-                  SELECT id, teacher_id, student_id, course_id, ${dateCol} AS date, start_time, end_time, location
+                  SELECT id, teacher_id, student_id, course_id, ${dateCol} AS date, start_time, end_time, location, family_participants, created_by, adjustment_type
                   FROM course_arrangement WHERE id = $1
                 `, [id]);
                 if (currentRes.rows.length === 0) {
@@ -1256,10 +1271,10 @@ const adminController = {
                 if (isNaN(sMin) || isNaN(eMin)) throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
                 if (eMin <= sMin) throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
 
-                // [重要] 如果状态被设为 'modified_away'，执行“逻辑作废+增补”逻辑
-                if (status === 'modified_away') {
+                // [重要] 如果状态被设为 'modified_away'，且原状态不是 'modified_away' 且原纪录是非增补课程 (adjustment_type != 2)，执行“逻辑作废+增补”逻辑
+                if (status === 'modified_away' && current.status !== 'modified_away' && Number(current.adjustment_type || 0) !== 2) {
                      // 1. 将现记录置为 modified_away （仅更新状态）
-                     await q(`UPDATE course_arrangement SET status = 'modified_away' WHERE id = $1`, [id]);
+                     await q(`UPDATE course_arrangement SET status = 'modified_away', adjustment_type = 0 WHERE id = $1`, [id]);
                      
                      // 2. 插入新的一笔作为调整后的实际课程，类型标记为 2 (临时改动)
                      const insertSql = `
@@ -1269,12 +1284,17 @@ const adminController = {
                         RETURNING id
                      `;
                      const creatorId = req.user ? req.user.id : current.created_by;
+                     const effFamilyParticipants = (family_participants !== undefined) ? 
+                        (family_participants === null ? 4 : Number(family_participants)) : 
+                        (current.family_participants === null ? 4 : Number(current.family_participants));
+
                      const newRes = await q(insertSql, [
                         effTeacherId, effStudentId, effTypeId, effDate, effStart, effEnd, effLocation, 
-                        (family_participants === null) ? 4 : Number(family_participants), creatorId
+                        isNaN(effFamilyParticipants) ? 4 : effFamilyParticipants, creatorId
                      ]);
                      
-                     return res.json({ message: '排课已成功调整，原记录已归档', newId: newRes.rows[0].id });
+                     resData = standardResponse(true, { newId: newRes.rows[0].id }, '排课已成功调整，原记录已归档');
+                     return;
                 }
 
                 // 正常更新流程
@@ -1285,7 +1305,12 @@ const adminController = {
                 if (date != null) { sets.push(`${dateCol} = $${vi++}`); values.push(date); }
                 if (start_time != null) { sets.push(`start_time = $${vi++}`); values.push(start_time); }
                 if (end_time != null) { sets.push(`end_time = $${vi++}`); values.push(end_time); }
-                if (status != null) { sets.push(`status = $${vi++}`); values.push(status); }
+                if (status != null) { 
+                    const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
+                    const finalStatus = allowedStatuses.has(String(status).trim()) ? String(status).trim() : current.status;
+                    sets.push(`status = $${vi++}`); 
+                    values.push(finalStatus); 
+                }
                 if (nextStudentId != null) { sets.push(`student_id = $${vi++}`); values.push(nextStudentId); }
                 if (nextTypeId != null) { sets.push(`course_id = $${vi++}`); values.push(nextTypeId); }
                 if (location !== undefined) { sets.push(`location = $${vi++}`); values.push(location || null); }
@@ -1304,12 +1329,24 @@ const adminController = {
                 values.push(id);
                 await q(sql, values);
 
-                res.json({ message: '排课更新成功' });
+                resData = standardResponse(true, null, '排课更新成功');
             });
+
+            if (!resData) {
+                return res.status(400).json(standardResponse(false, null, '未检测到任何字段修改'));
+            }
+            res.json(resData);
         } catch (error) {
             console.error('更新排课错误:', error);
+            // 如果已经发送了响应，不要尝试再次发送（这会导致 Headers already sent）
+            if (res.headersSent) return;
+
             // 友好错误映射
             let mapped = { message: '服务器错误', code: error.code || 'UNKNOWN_ERROR', errors: [] };
+            if (error.statusCode === 404) {
+                 return res.status(404).json(standardResponse(false, null, error.message));
+            }
+            
             if (error.code === '23505') { // unique_violation
                 mapped.message = '数据唯一性约束冲突';
                 mapped.errors = [{ field: 'unique', message: '相同教师/学生/时间段的排课已存在' }];
@@ -1322,7 +1359,7 @@ const adminController = {
             } else if (error.message) {
                 mapped.errors = [{ field: 'db', message: error.message }];
             }
-            res.status(500).json(mapped);
+            res.status(error.statusCode || 500).json(standardResponse(false, null, mapped.message, mapped.errors));
         }
     },
 
@@ -1411,9 +1448,13 @@ const adminController = {
                     (SELECT COUNT(*) FROM teachers) as teacher_count,
                     (SELECT COUNT(*) FROM students) as student_count,
                     (SELECT COUNT(*) FROM course_arrangement 
-                       WHERE ${caDateExpr} >= DATE_TRUNC('month', CURRENT_DATE)) as monthly_schedules,
-                    (SELECT COUNT(*) FROM course_arrangement WHERE status = 'pending') as pending_count,
-                    (SELECT COUNT(*) FROM course_arrangement) as total_schedules
+                       WHERE ${caDateExpr} >= DATE_TRUNC('month', CURRENT_DATE)
+                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as monthly_schedules,
+                    (SELECT COUNT(*) FROM course_arrangement 
+                       WHERE status = 'pending' 
+                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as pending_count,
+                    (SELECT COUNT(*) FROM course_arrangement 
+                       WHERE NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as total_schedules
             `);
 
             // 兼容不同驱动返回值形态（对象含 rows 或直接数组）

@@ -528,7 +528,7 @@ const teacherController = {
                     ca.start_time, ca.end_time, ca.status,
                     ca.teacher_id, ca.location,
                     ca.transport_fee, ca.other_fee,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     st.name as student_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
@@ -550,6 +550,9 @@ const teacherController = {
                 query += ` AND ca.status = $4`;
                 values.push(status);
             }
+
+            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
+            query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
 
             query += ` ORDER BY date, ca.start_time`;
 
@@ -819,7 +822,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     s.name as student_name,
                     sty.name as schedule_type
                 FROM course_arrangement ca
@@ -1153,7 +1156,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location, ca.transport_fee, ca.other_fee,
-                    ca.is_temp,
+                    ca.adjustment_type AS is_temp,
                     t.name as teacher_name, t.id as teacher_id,
                     st.name as student_name, st.id as student_id,
                     sty.name as schedule_type, sty.description as schedule_type_cn
@@ -1443,7 +1446,7 @@ const teacherController = {
                     ca.teacher_rating,
                     ca.student_rating,
                     ca.student_comment,
-                    ca.is_temp
+                    ca.adjustment_type AS is_temp
                 FROM course_arrangement ca
                 LEFT JOIN teachers t ON ca.teacher_id = t.id
                 LEFT JOIN students s ON ca.student_id = s.id

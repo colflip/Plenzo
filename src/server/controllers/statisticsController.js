@@ -43,11 +43,12 @@ const statisticsController = {
                 SELECT
                     (SELECT COUNT(*) FROM teachers) as total_teachers,
                     (SELECT COUNT(*) FROM students) as total_students,
-                    (SELECT COUNT(*) FROM course_arrangement WHERE status = 'completed') as total_completed_schedules,
-                    (SELECT COUNT(*) FROM course_arrangement WHERE status = 'pending') as total_pending_schedules,
+                    (SELECT COUNT(*) FROM course_arrangement WHERE status = 'completed' AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as total_completed_schedules,
+                    (SELECT COUNT(*) FROM course_arrangement WHERE status = 'pending' AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as total_pending_schedules,
                     (SELECT COUNT(*) FROM course_arrangement 
                      WHERE ${dateExprNoAlias} >= DATE_TRUNC('month', CURRENT_DATE)
                        AND ${dateExprNoAlias} < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+                       AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
                     ) as current_month_schedules
             `);
 
@@ -89,6 +90,7 @@ const statisticsController = {
                 FROM course_arrangement ca
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ${dateExprCa} BETWEEN $1 AND $2
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [startDate, endDate]);
@@ -102,6 +104,7 @@ const statisticsController = {
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
                 FROM course_arrangement
                 WHERE ${dateExprNoAlias2} BETWEEN $1 AND $2
+                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
                 GROUP BY month
                 ORDER BY month
             `, [startDate, endDate]);
@@ -113,6 +116,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM course_arrangement
                 WHERE ${dateExprNoAlias2} BETWEEN $1 AND $2
+                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
                 GROUP BY status
             `, [startDate, endDate]);
 
@@ -147,7 +151,9 @@ const statisticsController = {
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END) as completed_schedules,
                     COUNT(DISTINCT ca.student_id) as student_count
                 FROM teachers t
-                LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
+                AND ${dateExprCa2} BETWEEN $1 AND $2
+                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY t.id, t.name
                 ORDER BY t.id ASC
             `, [startDate, endDate]);
@@ -159,6 +165,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM teachers t
                 LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 JOIN schedule_types st ON ca.course_id = st.id
                 GROUP BY t.id, st.name
                 ORDER BY t.id ASC, count DESC
@@ -187,7 +194,9 @@ const statisticsController = {
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END) as completed_schedules,
                     COUNT(DISTINCT ca.teacher_id) as teacher_count
                 FROM students st
-                LEFT JOIN course_arrangement ca ON st.id = ca.student_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                LEFT JOIN course_arrangement ca ON st.id = ca.student_id 
+                AND ${dateExprCa2} BETWEEN $1 AND $2
+                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY st.id, st.name
                 ORDER BY st.id ASC
             `, [startDate, endDate]);
@@ -199,6 +208,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM students st
                 LEFT JOIN course_arrangement ca ON st.id = ca.student_id AND ${dateExprCa2} BETWEEN $1 AND $2
+                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 JOIN schedule_types srt ON ca.course_id = srt.id
                 GROUP BY st.id, srt.name
                 ORDER BY st.id ASC, count DESC
@@ -256,6 +266,7 @@ const statisticsController = {
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExprCa3} BETWEEN $2 AND $3
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [id, startDate, endDate]);
@@ -270,6 +281,7 @@ const statisticsController = {
                 FROM course_arrangement
                 WHERE teacher_id = $1
                   AND ${dateExprNoAlias3} BETWEEN $2 AND $3
+                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
                 GROUP BY month
                 ORDER BY month
             `, [id, startDate, endDate]);
@@ -326,6 +338,7 @@ const statisticsController = {
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ca.student_id = $1
                   AND ${dateExprCa4} BETWEEN $2 AND $3
+                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [id, startDate, endDate]);
@@ -340,6 +353,7 @@ const statisticsController = {
                 FROM course_arrangement
                 WHERE student_id = $1
                   AND ${dateExprNoAlias4} BETWEEN $2 AND $3
+                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
                 GROUP BY month
                 ORDER BY month
             `, [id, startDate, endDate]);

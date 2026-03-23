@@ -9,6 +9,7 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
 // --- Global State ---
 window.adminFeeShow = false;
+window.adminShowPlan = false;
 
 window.toggleAdminFeeVisibility = function () {
     window.adminFeeShow = !window.adminFeeShow;
@@ -41,6 +42,36 @@ window.toggleAdminFeeVisibility = function () {
     }
 };
 
+window.toggleAdminShowPlan = async function () {
+    window.adminShowPlan = !window.adminShowPlan;
+    const btnText = document.getElementById('showPlanBtnText');
+    const toggleBtn = document.getElementById('toggleShowPlanBtn');
+
+    if (btnText) {
+        btnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
+    }
+
+    if (toggleBtn) {
+        if (window.adminShowPlan) {
+            toggleBtn.classList.add('fee-active');
+        } else {
+            toggleBtn.classList.remove('fee-active');
+        }
+    }
+
+    // 重新从后端拉取全量数据，因为过滤是在后端执行的
+    if (window.ScheduleManager) {
+        try {
+            showTableLoading();
+            await window.ScheduleManager.loadSchedules(true); // force reload from API
+        } catch (err) {
+            console.error('切换全部安排显示失败:', err);
+        } finally {
+            hideTableLoading();
+        }
+    }
+},
+
 // 挂载顶层全局显隐费用按钮的初始绘制UI
 // This part needs to be called when the page initializes or data is loaded.
 // For now, placing it here as a global setup.
@@ -54,6 +85,19 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleBtn.style.color = 'white';
         toggleBtn.style.borderColor = '#2ECC71';
     }
+
+    const showPlanBtn = document.getElementById('toggleShowPlanBtn');
+    const showPlanBtnText = document.getElementById('showPlanBtnText');
+    if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
+    if (showPlanBtn) {
+        showPlanBtn.style.backgroundColor = '#2ECC71';
+        showPlanBtn.style.color = 'white';
+        showPlanBtn.style.borderColor = '#2ECC71';
+    }
+
+    // 绑定事件
+    if (toggleBtn) toggleBtn.onclick = window.toggleAdminFeeVisibility;
+    if (showPlanBtn) showPlanBtn.onclick = window.toggleAdminShowPlan;
 
     // 初始化全局样式以便接管
     if (!document.getElementById('admin-fee-visibility-style')) {
@@ -446,6 +490,10 @@ export const WeeklyDataStore = {
                 start_date: toISODate(start),
                 end_date: toISODate(end)
             };
+
+            if (window.adminShowPlan) {
+                params.show_plan = 'true';
+            }
 
             const rows = await window.apiUtils.get('/admin/schedules/grid', params);
             return normalizeScheduleRows(Array.isArray(rows) ? rows : []);
@@ -1077,8 +1125,21 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // Sort by teacher_id, but put Special types (评审/咨询) at the end
+    // 排序逻辑改进：
+    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
+    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
     group.sort((a, b) => {
+        const getStatus = (item) => (item.status || 'pending').toLowerCase();
+        const statusA = getStatus(a);
+        const statusB = getStatus(b);
+        
+        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+        const inactiveA = isInactive(statusA);
+        const inactiveB = isInactive(statusB);
+
+        if (inactiveA && !inactiveB) return 1;
+        if (!inactiveA && inactiveB) return -1;
+
         const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
         const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
 
@@ -1111,18 +1172,34 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
     const hasTemp = group.some(rec => rec.adjustment_type == 1);
     const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
+    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && rec.adjustment_type == 0);
 
-    if (hasTemp || hasAdjusted) {
+    // 构建水印文本：调=加 > 原
+    const watermarkParts = [];
+    if (hasAdjusted) watermarkParts.push('调');
+    if (hasTemp) watermarkParts.push('加');
+
+    let watermarkText = '';
+    if (watermarkParts.length > 0) {
+        watermarkText = watermarkParts.join('/');
+    } else if (hasOriginal) {
+        // 仅当组内所有记录都是原课程时才显示「原」水印
+        const allOriginal = group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && rec.adjustment_type == 0);
+        if (allOriginal) watermarkText = '原';
+    }
+
+    if (watermarkText) {
         card.classList.add('is-temp-card');
         card.style.position = 'relative';
         card.style.overflow = 'hidden';
         const watermark = document.createElement('span');
         watermark.setAttribute('aria-hidden', 'true');
+        const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
         watermark.style.cssText = [
             'position: absolute',
             'bottom: -10px',
             'right: 5px',
-            'font-size: 99px',
+            `font-size: ${wmFontSize}`,
             'font-family: "Ma Shan Zheng", "Kaiti SC", "STXingkai", "KaiTi", cursive, serif',
             'color: rgba(0, 102, 204, 0.1)',
             'pointer-events: none',
@@ -1131,7 +1208,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
             'line-height: 1',
             'user-select: none',
         ].join(';');
-        watermark.textContent = hasAdjusted ? '调' : '临';
+        
+        watermark.textContent = watermarkText;
         card.appendChild(watermark);
     }
 
@@ -1149,6 +1227,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
         row.className = 'schedule-row';
         if (st === 'cancelled') {
             row.classList.add('status-cancelled');
+        } else if (st === 'modified_away') {
+            row.classList.add('status-modified_away');
         }
         row.dataset.scheduleId = rec.id; // Critical for optimisticDelete
         row.title = '点击修改';
@@ -1181,7 +1261,13 @@ function buildAdminScheduleCard(group, student, dateKey) {
         statusSelect.className = `status-select ${st}`;
         statusSelect.dataset.lastStatus = st; // Store for revert
 
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        const statusMap = { 
+            'pending': '待确认', 
+            'confirmed': '已确认', 
+            'completed': '已完成', 
+            'cancelled': '已取消',
+            'modified_away': '已调整'
+        };
 
         Object.keys(statusMap).forEach(key => {
             const opt = document.createElement('option');
