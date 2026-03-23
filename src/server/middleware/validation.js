@@ -82,9 +82,9 @@ const scheduleValidation = {
                 'array.min': '至少需要选择一个课程类型',
                 'any.required': '课程类型ID列表是必填项'
             }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed').optional()
+        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away').optional()
             .messages({
-                'any.only': '状态只能是pending、confirmed、cancelled或completed'
+                'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
         notes: Joi.string().max(500).allow('', null)
             .messages({
@@ -92,6 +92,7 @@ const scheduleValidation = {
             }),
         // 允许前端传递冲突解决策略（merge/override），以免被stripUnknown过滤掉
         resolve_strategy: Joi.string().valid('merge', 'override').optional(),
+        adjustment_type: Joi.number().integer().valid(0, 1, 2).optional(),
         is_temp: Joi.any().optional()
     })
         // 支持 snake_case 输入并重命名为 camelCase
@@ -140,10 +141,11 @@ const scheduleValidation = {
             .messages({
                 'string.max': '备注长度不能超过500个字符'
             }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed')
+        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away')
             .messages({
-                'any.only': '状态只能是pending、confirmed、cancelled或completed'
+                'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
+        adjustment_type: Joi.number().integer().valid(0, 1, 2).optional(),
         is_temp: Joi.any().optional()
     }),
 
@@ -178,9 +180,9 @@ const scheduleValidation = {
                 'number.base': '学生ID必须是数字',
                 'number.positive': '学生ID必须是正数'
             }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed')
+        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away')
             .messages({
-                'any.only': '状态只能是pending、confirmed、cancelled或completed'
+                'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
         type_id: Joi.number().integer().positive()
             .messages({

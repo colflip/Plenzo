@@ -437,7 +437,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
             const key = item._parsedTimeRange;
             if (!timeSlots[key]) timeSlots[key] = { reviewItems: [], normalItems: [] };
             if (item._groupType === 'review_group') timeSlots[key].reviewItems.push(item);
-            else timeSlots[key].normalItems.push(item);
+            else if (item.status !== 'modified_away') timeSlots[key].normalItems.push(item);
         });
 
         // Flatten Logic: Each event becomes a separate row
@@ -470,8 +470,10 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
                     if (!isCancelled) allCancelled = false;
 
                     let typeName = r._typeName;
-                    if (r.is_temp == 1 || String(r.is_temp).toLowerCase() === 'true') {
+                    if (r.adjustment_type == 1) {
                         typeName = '⁺' + typeName;
+                    } else if (r.adjustment_type == 2) {
+                        typeName = '~' + typeName;
                     }
                     const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
                     const mainType = isRecord ? typeName.replace('记录', '') : typeName;
@@ -539,8 +541,9 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
                 // 将所有计划安排整合显示（包含取消的，但排除临时加课）
                 const planGroups = {};
                 items.forEach(r => {
-                    // 临时加课不应该输出在计划安排列中，因为它是后来实际发生时追加的
-                    if (r.is_temp == 1 || String(r.is_temp).toLowerCase() === 'true') {
+                    // 临时加课和临时改动后的课程不应该输出在计划安排列中
+                    // 因为计划列应该展示改动前的“真·原始计划”（即那些被标记为 modified_away 的记录）
+                    if (r.adjustment_type == 1 || r.adjustment_type == 2) {
                         return;
                     }
 
@@ -579,7 +582,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
                         '日期': date,
                         '星期': weekStr,
                         '计划安排': planLine,
-                        '实际安排': `${prefix}${normalTypeStrings.join('；')}`,
+                        '实际安排': (normalTypeStrings.length > 0) ? `${prefix}${normalTypeStrings.join('；')}` : (planLine !== '/' ? '' : '/'),
                         '费用': feeStr,
                         '周汇总': weekSumStr,
                         '_isRedRow': isRedRow,
@@ -1877,7 +1880,7 @@ async function generateExcelFile(exportData, filename, userType) {
                         if (key === '计划安排' || key === '实际安排') {
                             wch *= 0.9;
                         } else if (key === '费用') {
-                            wch *= 0.55;
+                            wch *= 0.65;
                         }
                     } else if (key === '  ') {
                         // 祝福语列：使用 Apple Chancery 艺术字体，笔锋较长，需要极宽间距以确保单行完整

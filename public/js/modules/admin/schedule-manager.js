@@ -140,7 +140,7 @@ function normalizeScheduleRows(rows) {
             transportFee: r.transportFee,
             other_fee: r.other_fee,
             otherFee: r.otherFee,
-            is_temp: r.is_temp,
+            adjustment_type: r.adjustment_type,
             startMin: start ? (Number(start.split(':')[0]) * 60 + Number(start.split(':')[1])) : NaN,
             endMin: end ? (Number(end.split(':')[0]) * 60 + Number(end.split(':')[1])) : NaN
         };
@@ -1109,10 +1109,11 @@ function buildAdminScheduleCard(group, student, dateKey) {
         card.classList.add('status-cancelled');
     }
 
-    const hasTemp = group.some(rec => rec.is_temp == 1);
-    if (hasTemp) {
+    const hasTemp = group.some(rec => rec.adjustment_type == 1);
+    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
+
+    if (hasTemp || hasAdjusted) {
         card.classList.add('is-temp-card');
-        // 直接注入水印 DOM 元素，避免 CSS ::after 堆叠上下文限制
         card.style.position = 'relative';
         card.style.overflow = 'hidden';
         const watermark = document.createElement('span');
@@ -1130,7 +1131,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
             'line-height: 1',
             'user-select: none',
         ].join(';');
-        watermark.textContent = '临';
+        watermark.textContent = hasAdjusted ? '调' : '临';
         card.appendChild(watermark);
     }
 
@@ -1521,7 +1522,9 @@ export async function editSchedule(id) {
         form.querySelector('#scheduleLocation').value = data.location || '';
         form.querySelector('#scheduleTypeSelect').value = data.course_id || '';
         if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = data.status || 'confirmed';
-        if (document.getElementById('scheduleIsTemp')) document.getElementById('scheduleIsTemp').checked = (data.is_temp === 1 || data.is_temp === true || data.is_temp === '1');
+        if (document.getElementById('scheduleIsTemp')) {
+            document.getElementById('scheduleIsTemp').checked = (data.adjustment_type === 1);
+        }
 
         // 如果某些字段为空，可以应用表单记忆
         const memory = loadFormMemory();
@@ -1705,7 +1708,7 @@ export async function setupScheduleEventListeners() {
                 type_ids: courseId ? [Number(courseId)] : [], // 统一使用 type_ids 数组
                 status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed',
                 resolve_strategy: 'override', // 默认覆盖
-                is_temp: document.getElementById('scheduleIsTemp') ? (document.getElementById('scheduleIsTemp').checked ? 1 : 0) : 0
+                adjustment_type: document.getElementById('scheduleIsTemp') ? (document.getElementById('scheduleIsTemp').checked ? 1 : 0) : 0
             };
 
             if (!body.student_ids.length || !body.date || !body.start_time || !body.end_time) {

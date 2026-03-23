@@ -616,7 +616,7 @@ const adminController = {
                     ca.location,
                     ca.transport_fee,
                     ca.other_fee,
-                    ca.is_temp
+                    ca.adjustment_type
                 FROM course_arrangement ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN students s ON ca.student_id = s.id
@@ -677,7 +677,7 @@ const adminController = {
                         ca.end_time,
                         ca.location,
                         ca.family_participants,
-                        ca.is_temp,
+                        ca.adjustment_type,
                         ca.${dateCol} AS date
                  FROM course_arrangement ca
                  WHERE ca.id = $1`,
@@ -747,7 +747,7 @@ const adminController = {
                     ca.status,
                     ca.transport_fee,
                     ca.other_fee,
-                    ca.is_temp
+                    ca.adjustment_type
                 FROM course_arrangement ca
                 JOIN students s ON ca.student_id = s.id
                 JOIN teachers t ON ca.teacher_id = t.id
@@ -1256,7 +1256,28 @@ const adminController = {
                 if (isNaN(sMin) || isNaN(eMin)) throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
                 if (eMin <= sMin) throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
 
-                // 构建动态 UPDATE 语句
+                // [重要] 如果状态被设为 'modified_away'，执行“逻辑作废+增补”逻辑
+                if (status === 'modified_away') {
+                     // 1. 将现记录置为 modified_away （仅更新状态）
+                     await q(`UPDATE course_arrangement SET status = 'modified_away' WHERE id = $1`, [id]);
+                     
+                     // 2. 插入新的一笔作为调整后的实际课程，类型标记为 2 (临时改动)
+                     const insertSql = `
+                        INSERT INTO course_arrangement 
+                        (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, location, family_participants, status, created_by, adjustment_type)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', $9, 2)
+                        RETURNING id
+                     `;
+                     const creatorId = req.user ? req.user.id : current.created_by;
+                     const newRes = await q(insertSql, [
+                        effTeacherId, effStudentId, effTypeId, effDate, effStart, effEnd, effLocation, 
+                        (family_participants === null) ? 4 : Number(family_participants), creatorId
+                     ]);
+                     
+                     return res.json({ message: '排课已成功调整，原记录已归档', newId: newRes.rows[0].id });
+                }
+
+                // 正常更新流程
                 const sets = [];
                 const values = [];
                 let vi = 1;
@@ -1269,7 +1290,13 @@ const adminController = {
                 if (nextTypeId != null) { sets.push(`course_id = $${vi++}`); values.push(nextTypeId); }
                 if (location !== undefined) { sets.push(`location = $${vi++}`); values.push(location || null); }
                 if (family_participants !== undefined) { sets.push(`family_participants = $${vi++}`); values.push((family_participants === null) ? 4 : Number(family_participants)); }
-                if (is_temp !== undefined) { sets.push(`is_temp = $${vi++}`); values.push((is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null); }
+                
+                // 适配 adjustment_type
+                const adjType = req.body.adjustment_type !== undefined ? req.body.adjustment_type : (req.body.is_temp ? 1 : undefined);
+                if (adjType !== undefined) {
+                    sets.push(`adjustment_type = $${vi++}`);
+                    values.push(adjType);
+                }
 
                 if (sets.length === 0) throw Object.assign(new Error('无更新字段'), { statusCode: 400 });
 

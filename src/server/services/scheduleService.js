@@ -73,7 +73,7 @@ class ScheduleService {
                 WHERE ca.teacher_id = t.id
                 AND COALESCE(ca.arr_date, ca.class_date, ca.date) = $1
                 AND (ca.start_time, ca.end_time) OVERLAPS ($2::time, $3::time)
-                AND ca.status != 'cancelled'
+                AND ca.status NOT IN ('cancelled', 'modified_away')
             )
         `;
 
@@ -110,7 +110,7 @@ class ScheduleService {
                 WHERE ca.student_id = s.id
                 AND COALESCE(ca.arr_date, ca.class_date, ca.date) = $1
                 AND (ca.start_time, ca.end_time) OVERLAPS ($2::time, $3::time)
-                AND ca.status != 'cancelled'
+                AND ca.status NOT IN ('cancelled', 'modified_away')
             )
         `;
 
@@ -135,7 +135,7 @@ class ScheduleService {
             `SELECT id, teacher_id, student_id, course_id, ${caDateExpr} as date, start_time, end_time, status, location
              FROM course_arrangement
              WHERE teacher_id = $1 AND student_id = $2 AND ${caDateExpr} = $3
-               AND start_time = $4 AND end_time = $5 AND status != 'cancelled'
+               AND start_time = $4 AND end_time = $5 AND status NOT IN ('cancelled', 'modified_away')
              LIMIT 1`,
             [teacherId, studentId, date, qStart, qEnd]
         );
@@ -150,7 +150,7 @@ class ScheduleService {
              WHERE teacher_id = $1 
                AND ${caDateExpr} = $2 
                AND (start_time, end_time) OVERLAPS ($3::time, $4::time) 
-               AND status != 'cancelled'
+               AND status NOT IN ('cancelled', 'modified_away')
              LIMIT 1`,
             [teacherId, date, qStart, qEnd]
         );
@@ -165,7 +165,7 @@ class ScheduleService {
              WHERE student_id = $1 
                AND ${caDateExpr} = $2 
                AND (start_time, end_time) OVERLAPS ($3::time, $4::time) 
-               AND status != 'cancelled'
+               AND status NOT IN ('cancelled', 'modified_away')
              LIMIT 1`,
             [studentId, date, qStart, qEnd]
         );
@@ -180,7 +180,7 @@ class ScheduleService {
      * 创建课程安排 (支持多学生批量)
      */
     async createSchedule(data, userId) {
-        const { teacherId, studentIds, date, timeSlot, startTime, endTime, scheduleTypes, location, isTemp } = data;
+        const { teacherId, studentIds, date, timeSlot, startTime, endTime, scheduleTypes, location, adjustment_type, is_temp, isTemp } = data;
 
         // 参数归一化
         const courseId = Array.isArray(scheduleTypes) ? scheduleTypes[0] : scheduleTypes;
@@ -202,13 +202,14 @@ class ScheduleService {
 
                 const insertQuery = `
                     INSERT INTO course_arrangement 
-                    (teacher_id, student_id, course_id, arr_date, start_time, end_time, location, status, created_by, is_temp)
+                    (teacher_id, student_id, course_id, arr_date, start_time, end_time, location, status, created_by, adjustment_type)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
                     RETURNING id
                 `;
 
                 const res = await client.query(insertQuery, [
-                    teacherId, studentId, courseId, date, startTime, endTime, location || null, userId, isTemp ? 1 : null
+                    teacherId, studentId, courseId, date, startTime, endTime, location || null, userId, 
+                    adjustment_type !== undefined ? adjustment_type : (isTemp || is_temp ? 1 : 0)
                 ]);
                 createdIds.push(res.rows[0].id);
             }
