@@ -15,7 +15,8 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
 
     <!-- Styles -->
-    <link rel="icon" type="image/png" href="/assets/logo.png">
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+    <link rel="icon" type="image/png" href="/assets/logo.png?v=9">
     <link rel="stylesheet" href="/css/core/global.css">
 
     <style>
@@ -45,9 +46,10 @@
         }
 
         .brand-icon {
-            font-size: 3rem;
-            color: var(--color-primary-600);
+            width: 64px;
+            height: 64px;
             margin-bottom: 1rem;
+            object-fit: contain;
         }
 
         .login-form {
@@ -101,7 +103,7 @@
     <div id="app" class="animate-fade-in">
         <div class="card login-card">
             <div class="brand-header">
-                <span class="material-icons-round brand-icon">schedule</span>
+                <img src="/assets/logo.svg" alt="Logo" class="brand-icon">
                 <h1>欢迎回来</h1>
                 <p>请登录您的账户以继续</p>
             </div>

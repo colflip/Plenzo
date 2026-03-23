@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 创建遮罩，用于在蓝色方块上切出一个透明间隙 -->
+    <mask id="gap-mask">
+      <rect width="512" height="512" fill="white" />
+      <rect x="162" y="162" width="280" height="280" rx="60" stroke="black" stroke-width="20" fill="black" />
+    </mask>
+  </defs>
+  <!-- 蓝色底层色块，应用遮罩产生物理间隙 -->
+  <rect x="70" y="70" width="280" height="280" rx="60" fill="#3b82f6" mask="url(#gap-mask)" />
+  <!-- 绿色顶层色块 -->
+  <rect x="162" y="162" width="280" height="280" rx="60" fill="#10b981" />
+</svg>

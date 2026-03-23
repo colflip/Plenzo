@@ -690,7 +690,7 @@ function buildCompactMobileScheduleCard(group) {
             'color: rgba(0,102,204,0.1)', 'pointer-events: none',
             'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
         ].join(';');
-        watermark.textContent = '临';
+        watermark.textContent = '加';
         card.appendChild(watermark);
     }
     
@@ -815,7 +815,7 @@ function buildScheduleCard(group) {
             'color: rgba(0,102,204,0.1)', 'pointer-events: none',
             'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
         ].join(';');
-        watermark.textContent = '临';
+        watermark.textContent = '加';
         card.appendChild(watermark);
     }
 

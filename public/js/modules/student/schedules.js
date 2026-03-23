@@ -25,6 +25,15 @@ let cachedSchedules = [];
  * 2. 其他教师按ID由小到大排序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
+    // 1. 状态优先级：优先展示非“已调整”和非“已取消”的记录
+    const getStatus = (item) => (item.status || 'pending').toLowerCase();
+    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+    const inactiveA = isInactive(getStatus(scheduleA));
+    const inactiveB = isInactive(getStatus(scheduleB));
+
+    if (inactiveA && !inactiveB) return 1;
+    if (!inactiveA && inactiveB) return -1;
+
     const getTypeName = (item) => (
         item.schedule_type_name ||
         item.type_name ||
@@ -321,21 +330,42 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     // 创建卡片容器，保持时间槽颜色
     const card = createElement('div', `group-picker-item ${slotClass}`);
 
-    const hasTemp = scheduleGroup.some(rec => rec.is_temp == 1);
-    if (hasTemp) {
+    const hasTemp = scheduleGroup.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
+    const hasOriginal = scheduleGroup.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
+    const hasAdjusted = scheduleGroup.some(rec => rec.adjustment_type == 2);
+
+    // 构建水印文本：调=加 > 原
+    const mobileWmParts = [];
+    if (hasAdjusted) mobileWmParts.push('调');
+    if (hasTemp) mobileWmParts.push('加');
+
+    let mobileWmText = '';
+    if (mobileWmParts.length > 0) {
+        mobileWmText = mobileWmParts.join('/');
+    } else if (hasOriginal) {
+        const allOriginal = scheduleGroup.every(rec => {
+            const st = (rec.status || '').toLowerCase();
+            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
+        });
+        if (allOriginal) mobileWmText = '原';
+    }
+
+    if (mobileWmText) {
         card.classList.add('is-temp-card');
         card.style.position = 'relative';
         card.style.overflow = 'hidden';
         const watermark = createElement('span', '');
         watermark.setAttribute('aria-hidden', 'true');
+        const wmFontSize = mobileWmText.length > 1 ? '66px' : '99px';
         watermark.style.cssText = [
             'position: absolute', 'bottom: -10px', 'right: 5px',
-            'font-size: 99px',
+            `font-size: ${wmFontSize}`,
             'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
             'color: rgba(0,102,204,0.1)', 'pointer-events: none',
             'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
         ].join(';');
-        watermark.textContent = '临';
+        
+        watermark.textContent = mobileWmText;
         card.appendChild(watermark);
     }
     // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
@@ -582,21 +612,42 @@ function buildScheduleCard(group) {
     card.style.borderWidth = '1px';
     card.style.borderStyle = 'solid';
 
-    const hasTemp = group.some(rec => rec.is_temp == 1);
-    if (hasTemp) {
+    const hasTemp = group.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
+    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
+    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
+
+    // 构建水印文本：调=加 > 原
+    const watermarkParts = [];
+    if (hasAdjusted) watermarkParts.push('调');
+    if (hasTemp) watermarkParts.push('加');
+
+    let watermarkText = '';
+    if (watermarkParts.length > 0) {
+        watermarkText = watermarkParts.join('/');
+    } else if (hasOriginal) {
+        const allOriginal = group.every(rec => {
+            const st = (rec.status || '').toLowerCase();
+            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
+        });
+        if (allOriginal) watermarkText = '原';
+    }
+
+    if (watermarkText) {
         card.classList.add('is-temp-card');
         card.style.position = 'relative';
         card.style.overflow = 'hidden';
         const watermark = createElement('span', '');
         watermark.setAttribute('aria-hidden', 'true');
+        const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
         watermark.style.cssText = [
             'position: absolute', 'bottom: -10px', 'right: 5px',
-            'font-size: 99px',
+            `font-size: ${wmFontSize}`,
             'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
             'color: rgba(0,102,204,0.1)', 'pointer-events: none',
             'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
         ].join(';');
-        watermark.textContent = '临';
+        
+        watermark.textContent = watermarkText;
         card.appendChild(watermark);
     }
 
@@ -645,7 +696,7 @@ function buildScheduleCard(group) {
 
         if (rec.is_temp) {
             const tempBadge = createElement('span', 'badge-temp', {
-                textContent: '临'
+                textContent: '加'
             });
             marqueeContent.appendChild(tempBadge);
         }

@@ -238,6 +238,10 @@ export function buildTeacherTypeStack(schedules) {
     const teacherIdMap = new Map(); // Track teacher ID for status filtering
 
     schedules.forEach(row => {
+        // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
+        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+            return;
+        }
         const teacher = row.teacher_name || '未分配';
         const teacherId = row.teacher_id;
 
@@ -311,6 +315,10 @@ export function buildStudentTypeStack(schedules, students = []) {
     const map = new Map(); // studentId -> Map(typeLabel -> count)
 
     schedules.forEach(row => {
+        // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
+        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+            return;
+        }
         // 支持 student_ids 字段（逗号分隔）与单个 student_id 回退
         const idsRaw = (row.student_ids || row.student_id || '').toString();
         const ids = idsRaw.split(',').map(x => x.trim()).filter(Boolean);

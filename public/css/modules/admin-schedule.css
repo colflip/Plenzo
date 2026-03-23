@@ -360,6 +360,22 @@
     /* 字体倾斜 */
 }
 
+.status-modified_away {
+    opacity: 0.6;
+    filter: grayscale(0.6);
+    background-color: #F8FAFC !important;
+}
+
+.schedule-row.status-modified_away .teacher-name {
+    color: #94A3B8;
+    text-decoration: line-through;
+}
+
+.status-select.modified_away {
+    background-color: #94A3B8 !important;
+    color: white !important;
+}
+
 /* --- 6. Mobile Responsiveness --- */
 
 
