@@ -436,6 +436,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
         };
 
         // --- 新列分离与按时间排序逻辑 (Requirement 2 & Requirement 1) ---
+        // --- 新列分离与匹配对齐逻辑 (Requirement 2 & Requirement 1 强化版) ---
         const buildCellsFromItems = (items, isPlanList) => {
             const cellsMap = {};
 
@@ -455,145 +456,135 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
 
                 const isIsolatable = mainType.includes('评审') || mainType.includes('咨询');
                 
-                // Grouping Key
+                // 对齐用的特征 Key (不含取消状态，以便计划与实际匹配)
                 const cellGroupType = isIsolatable ? mainType : 'OTHER';
-                const key = `${sName}|||${loc}|||${timeStr}|||${cellGroupType}|||${isPlanList ? false : isCancelled}`;
+                const matchKey = `${sName}|||${timeStr}|||${cellGroupType}`;
 
-                if (!cellsMap[key]) {
-                    cellsMap[key] = {
-                        sName, loc, timeStr, sTime, isCancelled,
+                if (!cellsMap[matchKey]) {
+                    cellsMap[matchKey] = {
+                        matchKey, sName, loc, timeStr, sTime, isCancelled,
                         mainType,
                         items: []
                     };
                 }
-                cellsMap[key].items.push(r);
+                cellsMap[matchKey].items.push(r);
             });
 
-            const cells = [];
-
-            Object.values(cellsMap).forEach(cell => {
-                const shouldShowStudent = !isSingleStudent && cell.sName !== 'Unknown';
-                const displayName = cell.sName === 'all-std' ? '全体学生' : cell.sName;
-
-                let namePrefix = '';
-                const hasTemp = cell.items.some(r => r.adjustment_type == 1);
-                const hasAdj = cell.items.some(r => r.adjustment_type == 2 || r.status === 'modified_away');
-                if (hasTemp && hasAdj) namePrefix = '⁺~';
-                else if (hasTemp) namePrefix = '⁺';
-                else if (hasAdj) namePrefix = '~';
-
-                const pfxClean = shouldShowStudent ? `[${displayName}]` : '';
-                const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
-                const pfxNormal = shouldShowStudent ? `${namePrefix}[${displayName}]` : (namePrefix || '');
-
-                const typeGroups = {};
-                cell.items.forEach(r => {
-                    let typeName = r._typeName || '';
-                    const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
-                    const mType = isRecord ? typeName.replace('记录', '') : typeName;
-                    
-                    if (!typeGroups[mType]) typeGroups[mType] = [];
-                    typeGroups[mType].push(r);
-                });
-
-                const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
-                
-                const typeTexts = [];
-                Object.keys(typeGroups)
-                    .sort((a, b) => {
-                        const cleanA = a.replace('⁺', '').replace('~', '');
-                        const cleanB = b.replace('⁺', '').replace('~', '');
-                        return (TYPE_PRIORITY[cleanA] || 99) - (TYPE_PRIORITY[cleanB] || 99);
-                    })
-                    .forEach(mType => {
-                        const typeItems = typeGroups[mType];
-                        typeItems.sort((a, b) => {
-                            const isRecA = a._typeName && a._typeName.includes('记录');
-                            const isRecB = b._typeName && b._typeName.includes('记录');
-                            
-                            if (isRecA && !isRecB) return 1;
-                            if (!isRecA && isRecB) return -1;
-                            
-                            const idA = Number(a.teacher_id || a.id || a['教师ID'] || 0);
-                            const idB = Number(b.teacher_id || b.id || b['教师ID'] || 0);
-                            return idA - idB;
-                        });
-
-                        const teacherContents = typeItems.map(item => {
-                            const tName = item.teacher_name || item.name || '-';
-                            const isRecord = item._typeName && item._typeName.includes('记录');
-                            return isRecord ? `${tName}（记录）` : tName;
-                        });
-
-                        const uniqueTeacherContents = [...new Set(teacherContents)];
-                        typeTexts.push(`${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
-                    });
-
-                let finalPrefix = '';
-                let finalSuffix = '';
-                if (isPlanList) {
-                    finalPrefix = pfxClean;
-                } else {
-                    if (cell.isCancelled) {
-                        finalPrefix = pfxCancel;
-                        finalSuffix = `]`;
-                    } else {
-                        finalPrefix = pfxNormal;
-                    }
-                }
-
-                cells.push({
-                    text: `${finalPrefix}${typeTexts.join('；')}${finalSuffix}`,
-                    isRed: cell.items.some(r => r._isReviewOrConsultation),
-                    sTime: cell.sTime,
-                    isModified: cell.isCancelled && !isPlanList,
-                    isCancelled: cell.isCancelled && !isPlanList
-                });
-            });
-
-            // 按时间排序，确保整体从早到晚显示
-            cells.sort((a, b) => {
-                const timeDiff = a.sTime.localeCompare(b.sTime);
-                if (timeDiff !== 0) return timeDiff;
-                return a.text.localeCompare(b.text);
-            });
-
-            return cells;
+            return cellsMap;
         };
 
-        const planItems = dayRows.filter(r => r.adjustment_type != 1 && r.adjustment_type != 2);
+        const generateCellText = (cell, isPlanList) => {
+            if (!cell) return null;
+
+            const shouldShowStudent = !isSingleStudent && cell.sName !== 'Unknown';
+            const displayName = cell.sName === 'all-std' ? '全体学生' : cell.sName;
+
+            let namePrefix = '';
+            const hasTemp = cell.items.some(r => r.adjustment_type == 1);
+            const hasAdj = cell.items.some(r => r.adjustment_type == 2 || r.status === 'modified_away');
+            if (hasTemp && hasAdj) namePrefix = '⁺~';
+            else if (hasTemp) namePrefix = '⁺';
+            else if (hasAdj) namePrefix = '~';
+
+            const pfxClean = shouldShowStudent ? `[${displayName}]` : '';
+            // 计划列如果已取消，也显示“已取消”前缀以符合用户新需求
+            const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
+            const pfxNormal = shouldShowStudent ? `${namePrefix}[${displayName}]` : (namePrefix || '');
+
+            const typeGroups = {};
+            cell.items.forEach(r => {
+                let typeName = r._typeName || '';
+                const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
+                const mType = isRecord ? typeName.replace('记录', '') : typeName;
+                
+                if (!typeGroups[mType]) typeGroups[mType] = [];
+                typeGroups[mType].push(r);
+            });
+
+            const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
+            
+            const typeTexts = [];
+            Object.keys(typeGroups)
+                .sort((a, b) => {
+                    const cleanA = a.replace('⁺', '').replace('~', '');
+                    const cleanB = b.replace('⁺', '').replace('~', '');
+                    return (TYPE_PRIORITY[cleanA] || 99) - (TYPE_PRIORITY[cleanB] || 99);
+                })
+                .forEach(mType => {
+                    const typeItems = typeGroups[mType];
+                    typeItems.sort((a, b) => {
+                        const isRecA = a._typeName && a._typeName.includes('记录');
+                        const isRecB = b._typeName && b._typeName.includes('记录');
+                        if (isRecA && !isRecB) return 1;
+                        if (!isRecA && isRecB) return -1;
+                        const idA = Number(a.teacher_id || a.id || a['教师ID'] || 0);
+                        const idB = Number(b.teacher_id || b.id || b['教师ID'] || 0);
+                        return idA - idB;
+                    });
+
+                    const teacherContents = typeItems.map(item => {
+                        const tName = item.teacher_name || item.name || '-';
+                        const isRecord = item._typeName && item._typeName.includes('记录');
+                        return isRecord ? `${tName}（记录）` : tName;
+                    });
+
+                    const uniqueTeacherContents = [...new Set(teacherContents)];
+                    typeTexts.push(`${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
+                });
+
+            let finalPrefix = '';
+            let finalSuffix = '';
+            if (cell.isCancelled) {
+                finalPrefix = pfxCancel;
+                finalSuffix = `]`;
+            } else {
+                finalPrefix = isPlanList ? pfxClean : pfxNormal;
+            }
+
+            return {
+                text: `${finalPrefix}${typeTexts.join('；')}${finalSuffix}`,
+                isRed: cell.items.some(r => r._isReviewOrConsultation),
+                sTime: cell.sTime,
+                isModified: cell.isCancelled && !isPlanList,
+                isCancelled: cell.isCancelled
+            };
+        };
+
+        // 核心过滤逻辑：计划列包含原始(0)和调整(2)以及取消；实际列排除调走(modified_away)
+        const planItems = dayRows.filter(r => r.adjustment_type == 0 || r.adjustment_type == 2 || (String(r.status).includes('取消')));
         const actualItems = dayRows.filter(r => r.status !== 'modified_away');
 
-        const allPlanObjects = buildCellsFromItems(planItems, true);
-        const allActualObjects = buildCellsFromItems(actualItems, false);
+        const planCellsMap = buildCellsFromItems(planItems, true);
+        const actualCellsMap = buildCellsFromItems(actualItems, false);
 
-        // 取最大行数，拉平输出 (Requirement 2)
-        const maxRows = Math.max(1, allPlanObjects.length, allActualObjects.length);
-        for (let i = 0; i < maxRows; i++) {
-            const pObj = allPlanObjects[i];
-            const aObj = allActualObjects[i];
+        // 统一所有在这个日期出现的特征 Key
+        const allMatchKeys = [...new Set([...Object.keys(planCellsMap), ...Object.keys(actualCellsMap)])];
+        // 按时间排序键
+        allMatchKeys.sort((a, b) => {
+            const timeA = (planCellsMap[a] || actualCellsMap[a]).sTime;
+            const timeB = (planCellsMap[b] || actualCellsMap[b]).sTime;
+            return timeA.localeCompare(timeB);
+        });
 
-            let planText = pObj ? pObj.text : '';
-            let actualText = aObj ? aObj.text : '';
+        allMatchKeys.forEach(mKey => {
+            const pCell = planCellsMap[mKey];
+            const aCell = actualCellsMap[mKey];
 
-            // 如果这一天有课但某列为空
-            // 如果某一列有数据，另一列没有数据，则写入 '/'
-            if (!planText && actualText) {
-                planText = '/';
-            }
-            if (!actualText && planText) {
-                actualText = '/';
-            }
+            const pObj = generateCellText(pCell, true);
+            const aObj = generateCellText(aCell, false);
+
+            let planText = pObj ? pObj.text : '/';
+            let actualText = aObj ? aObj.text : '/';
 
             const rowIsRed = (pObj && pObj.isRed) || (aObj && aObj.isRed) || false;
 
-            const rowPush = {
+            resultRows.push({
                 '日期': date,
                 '星期': weekStr,
                 '计划安排': planText,
                 '实际安排': actualText,
-                '费用': i === 0 ? feeStr : '',
-                '周汇总': i === 0 ? weekSumStr : '',
+                '费用': resultRows.filter(r => r['日期'] === date).length === 0 ? feeStr : '',
+                '周汇总': resultRows.filter(r => r['日期'] === date).length === 0 ? weekSumStr : '',
                 '_isRedRow': rowIsRed,
                 '_planIsRed': pObj ? pObj.isRed : false,
                 '_actualIsRed': aObj ? aObj.isRed : false,
@@ -602,9 +593,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId) {
                 '_isSingleStudent': isSingleStudent,
                 '_isModifiedDate': (aObj && aObj.isModified) || false,
                 '_isSubRowOfMixed': (aObj && aObj.isCancelled) || false
-            };
-            resultRows.push(rowPush);
-        }
+            });
+        });
     });
 
     return resultRows;
@@ -2006,6 +1996,8 @@ async function generateExcelFile(exportData, filename, userType) {
                 let isCancelledRow = false;
                 if (dataRow) {
                     if (dataRow['实际安排'] && String(dataRow['实际安排']).includes('已取消')) {
+                        isCancelledRow = true;
+                    } else if (dataRow['计划安排'] && String(dataRow['计划安排']).includes('已取消')) {
                         isCancelledRow = true;
                     } else if (dataRow['状态'] && (String(dataRow['状态']).includes('已取消') || String(dataRow['状态']).toLowerCase() === 'cancelled')) {
                         isCancelledRow = true;
