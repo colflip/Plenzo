@@ -364,7 +364,7 @@ ca.id as schedule_id,
         ca.created_by,
         ca.transport_fee,
         ca.other_fee,
-        ca.is_temp
+        ca.adjustment_type
             FROM course_arrangement ca
             LEFT JOIN teachers t ON ca.teacher_id = t.id
             LEFT JOIN students s ON ca.student_id = s.id
@@ -417,7 +417,7 @@ ca.id as schedule_id,
         ca.created_by,
         ca.transport_fee,
         ca.other_fee,
-        ca.is_temp
+        ca.adjustment_type
             FROM course_arrangement ca
             LEFT JOIN students s ON ca.student_id = s.id
             LEFT JOIN teachers t ON ca.teacher_id = t.id
@@ -554,7 +554,7 @@ ca.id as schedule_id,
             created_by: row.created_by,
             transport_fee: row.transport_fee,
             other_fee: row.other_fee,
-            is_temp: row.is_temp
+            adjustment_type: row.adjustment_type
         }));
     }
 
@@ -581,7 +581,7 @@ ca.id as schedule_id,
             created_by: row.created_by,
             transport_fee: row.transport_fee,
             other_fee: row.other_fee,
-            is_temp: row.is_temp
+            adjustment_type: row.adjustment_type
         }));
     }
 
