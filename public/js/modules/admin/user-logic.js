@@ -47,7 +47,7 @@ export function appendUserRow(type, user) {
         const td = document.createElement('td');
         td.classList.add(`col-${field}`);
         let value = user[field];
-        if (field === 'last_login' || field === 'created_at') {
+        if (field === 'created_at') {
             if (user[field]) {
                 const date = new Date(user[field]);
                 const formatter = new Intl.DateTimeFormat('en-CA', {

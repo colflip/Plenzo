@@ -250,9 +250,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 // 用户列表字段映射（用于动态渲染表头与数据列，隐藏 ID）
 const USER_FIELDS = {
-    admin: ['username', 'name', 'email', 'permission_level', 'last_login', 'created_at'],
-    teacher: ['username', 'name', 'profession', 'contact', 'work_location', 'home_address', 'restriction', 'status', 'last_login', 'created_at'],
-    student: ['username', 'name', 'profession', 'contact', 'visit_location', 'home_address', 'status', 'last_login', 'created_at']
+    admin: ['username', 'name', 'email', 'permission_level', 'created_at'],
+    teacher: ['username', 'name', 'profession', 'contact', 'work_location', 'home_address', 'restriction', 'status', 'created_at'],
+    student: ['username', 'name', 'profession', 'contact', 'visit_location', 'home_address', 'status', 'created_at']
 };
 
 const FIELD_LABELS = {
@@ -260,8 +260,7 @@ const FIELD_LABELS = {
     name: '姓名',
     email: '邮箱',
     permission_level: '权限级别',
-    last_login: '最近登录',
-    created_at: '创建时间',
+    created_at: '注册时间',
     profession: '职业类型',
     contact: '联系方式',
     work_location: '工作地点',

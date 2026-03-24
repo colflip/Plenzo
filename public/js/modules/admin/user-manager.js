@@ -429,7 +429,7 @@ function renderFromCache(state, tbody) {
             if (wa !== wb) return (wa - wb) * dir;
             return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
         }
-        if (key === 'last_login' || key === 'created_at') {
+        if (key === 'created_at') {
             av = av ? new Date(av).getTime() : 0;
             bv = bv ? new Date(bv).getTime() : 0;
         }
@@ -539,7 +539,7 @@ export function appendUserRow(type, user) {
         td.classList.add(`col-${field}`);
         let value = user[field];
 
-        if (field === 'last_login' || field === 'created_at') {
+        if (field === 'created_at') {
             if (value) {
                 const date = new Date(value);
                 const formatter = new Intl.DateTimeFormat('en-CA', {

@@ -7,9 +7,9 @@ export const TIME_ZONE = 'Asia/Shanghai';
 
 // 用户列表字段映射
 export const USER_FIELDS = {
-    admin: ['username', 'name', 'email', 'permission_level', 'last_login', 'created_at'],
-    teacher: ['username', 'name', 'profession', 'contact', 'work_location', 'home_address', 'restriction', 'student_ids', 'status', 'last_login', 'created_at'],
-    student: ['username', 'name', 'profession', 'contact', 'visit_location', 'home_address', 'status', 'last_login', 'created_at']
+    admin: ['username', 'name', 'email', 'permission_level', 'created_at'],
+    teacher: ['username', 'name', 'profession', 'contact', 'work_location', 'home_address', 'restriction', 'student_ids', 'status', 'created_at'],
+    student: ['username', 'name', 'profession', 'contact', 'visit_location', 'home_address', 'status', 'created_at']
 };
 
 export const FIELD_LABELS = {
@@ -17,7 +17,6 @@ export const FIELD_LABELS = {
     name: '姓名',
     email: '邮箱',
     permission_level: '权限级别',
-    last_login: '最近登录',
     created_at: '创建时间',
     profession: '职业类型',
     contact: '联系方式',
