@@ -115,8 +115,8 @@ function setupEventListeners() {
         queryBtn.addEventListener('click', async () => {
             // Show loading state
             queryBtn.disabled = true;
-            const originalText = queryBtn.textContent;
-            queryBtn.textContent = '加载中...';
+            const originalHTML = queryBtn.innerHTML;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(queryBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>加载中...</span>'); } else { queryBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>加载中...</span>'; }
 
             try {
                 // Load summary immediately to update top cards & chart
@@ -126,7 +126,7 @@ function setupEventListeners() {
                 loadTeachingCount();
             } finally {
                 queryBtn.disabled = false;
-                queryBtn.textContent = originalText;
+                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(queryBtn, originalHTML); } else { queryBtn.innerHTML = originalHTML; }
             }
         });
     }
