@@ -1757,12 +1757,7 @@ export async function setupScheduleEventListeners() {
         });
     }
 
-    document.getElementById('toggleAdminFeeBtn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (typeof window.toggleAdminFeeVisibility === 'function') {
-            window.toggleAdminFeeVisibility();
-        }
-    });
+
 
     document.getElementById('addScheduleBtn')?.addEventListener('click', (e) => {
         e.preventDefault();
