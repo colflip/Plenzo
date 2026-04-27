@@ -783,6 +783,9 @@ function transformExportData(originalData, studentId, studentName = '全部学�
     if (userType === 'admin' || userType === 'teacher' || userType === 'student') {
         const isTeacher = userType === 'teacher';
         const isStudent = userType === 'student';
+        const isHeadTeacherScheduleExport = isTeacher &&
+            state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE &&
+            state.exportContext === 'head_teacher_students';
         const studentStats = aggregateStudentStats(originalData, state);
         const teacherStats = aggregateTeacherStats(originalData, studentName, state);
         const studentStatsForStudent = isStudent ? aggregateStudentStatsForStudent(originalData, state) : [];
@@ -815,7 +818,21 @@ function transformExportData(originalData, studentId, studentName = '全部学�
             }));
             appendSummaryRow(sheet2Data, ['备注', '核对']);
         } else if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
-            if (isTeacher) {
+            if (isHeadTeacherScheduleExport) {
+                // 班主任导出：按管理员视角，以教师姓名为行生成授课数据
+                sheet2Data = teacherStats.map(stat => ({
+                    '教师姓名': stat['姓名'],
+                    '试教': fz(stat['试教']),
+                    '入户': fz(stat['入户']),
+                    '评审': fz(stat['评审']),
+                    '集体活动': fz(stat['集体活动']),
+                    '咨询': fz(stat['咨询']),
+                    '汇总': fz(stat['汇总']),
+                    '核对': '未核对',
+                    '备注': stat['备注']
+                }));
+                appendSummaryRow(sheet2Data);
+            } else if (isTeacher) {
                 // 教师端：按学生分行输出此教师的授课数据，增加汇总行
                 sheet2Data = studentStats.map(stat => ({
                     '学生姓名': stat['姓名'],
@@ -899,7 +916,8 @@ function transformExportData(originalData, studentId, studentName = '全部学�
 
         let sheet3Data = originalData.filter(row => {
             // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-            if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+            const adjustmentType = row.adjustment_type ?? row.is_temp;
+            if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) {
                 return false;
             }
             return true;
@@ -1051,14 +1069,20 @@ function transformExportData(originalData, studentId, studentName = '全部学�
         originalData.forEach(row => {
             const statusVal = row.status || '';
             if (String(statusVal).toLowerCase() === '已取消' || statusVal === 'cancelled' || statusVal === '0') return;
+            const adjustmentType = row.adjustment_type ?? row.is_temp;
+            if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) return;
 
             let name = '';
             let personId = 999999;
             if (isStudent) {
                 name = row.teacher_name || row['教师名称'] || '';
                 personId = row.teacher_id || row['教师ID'] || 999999;
+            } else if (isHeadTeacherScheduleExport) {
+                // 班主任导出：按管理员视角，以教师维度统计授课数据
+                name = row.teacher_name || row['教师名称'] || '';
+                personId = row.teacher_id || row.id || row['教师ID'] || 999999;
             } else if (isTeacher && state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
-                // 教师端授课记录：按学生维度统计此教师的授课数据
+                // 教师本人统计导出：按学生维度统计授课数据
                 name = row.student_name || row['学生名称'] || '';
                 personId = row.student_id || row.id || row['学生ID'] || 999999;
             } else if (state.selectedType !== EXPORT_TYPES.TEACHER_SCHEDULE) {
@@ -1097,6 +1121,8 @@ function transformExportData(originalData, studentId, studentName = '全部学�
         const sheet4Data = sortedEntries.map(entry => {
             const row = {};
             if (isStudent) {
+                row['教师姓名'] = entry.姓名;
+            } else if (isHeadTeacherScheduleExport) {
                 row['教师姓名'] = entry.姓名;
             } else if (isTeacher && state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
                 row['学生姓名'] = entry.姓名;
@@ -1216,7 +1242,8 @@ function aggregateStudentStats(rawData, state = {}) {
         const studentId = row.student_id || row.id || row['学生ID'] || 999999;  // 收集学生ID,默认值为大数字
 
         // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+        const adjustmentType = row.adjustment_type ?? row.is_temp;
+        if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) {
             return;
         }
 
@@ -1365,7 +1392,8 @@ function aggregateTeacherStats(rawData, studentName = '全部学生', state = {}
         const teacherId = row.teacher_id || row.id || row['教师ID'] || 999999;  // 收集教师ID,默认值为大数字
 
         // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+        const adjustmentType = row.adjustment_type ?? row.is_temp;
+        if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) {
             return;
         }
 
@@ -1517,7 +1545,8 @@ function aggregateTeacherStatsForTeacher(rawData, teacherName = '全部学生', 
         const studentId = row.student_id || row['学生ID'] || 999999;
 
         // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+        const adjustmentType = row.adjustment_type ?? row.is_temp;
+        if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) {
             return;
         }
 
@@ -1642,7 +1671,8 @@ function aggregateStudentStatsForStudent(rawData, state = {}) {
         const teacherId = row.teacher_id || row['教师ID'] || 999999;
 
         // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
+        const adjustmentType = row.adjustment_type ?? row.is_temp;
+        if (row.status === 'modified_away' && (adjustmentType === 0 || adjustmentType === '0')) {
             return;
         }
 
