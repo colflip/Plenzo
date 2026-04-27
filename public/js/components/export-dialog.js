@@ -83,6 +83,7 @@ window.ExportDialog = (function () {
         selectedFormat: EXPORT_FORMATS.EXCEL,
         startDate: null,
         endDate: null,
+        exportContext: null,
         isExporting: false
     };
 
@@ -1008,6 +1009,7 @@ window.ExportDialog = (function () {
         // 使用传入的日期或默认为空
         state.startDate = options.startDate || null;
         state.endDate = options.endDate || null;
+        state.exportContext = options.exportContext || null;
 
         // 如果 DOM 已存在，立即更新日期输入框
         const startInput = document.getElementById('exportStartDate');
@@ -1548,4 +1550,3 @@ window.ExportDialog = (function () {
     };
 
 })(); // End IIFE
-

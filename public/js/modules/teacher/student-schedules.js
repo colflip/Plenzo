@@ -1156,7 +1156,8 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
 async function exportTeacherStudents() {
     if (window.ExportDialog) {
         window.ExportDialog.open({
-            type: 'teacher_schedule'
+            type: 'teacher_schedule',
+            exportContext: 'head_teacher_students'
         });
     } else {
 
