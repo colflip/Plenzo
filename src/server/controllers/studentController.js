@@ -390,8 +390,7 @@ const studentController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0')
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]);
@@ -404,8 +403,7 @@ const studentController = {
                 FROM course_arrangement ca
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0')
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY TO_CHAR(${dateExpr}, 'YYYY-MM')
                 ORDER BY month
             `, [req.user.id, startDate, endDate]);
@@ -427,8 +425,7 @@ const studentController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0')
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 ORDER BY date DESC, ca.start_time ASC
             `, [req.user.id, startDate, endDate]);
 

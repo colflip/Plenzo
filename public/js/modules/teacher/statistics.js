@@ -277,12 +277,6 @@ export async function loadTeachingCount() {
         // data is an array of schedule objects
         let schedules = Array.isArray(data) ? data : [];
 
-        // Filter out cancelled courses - they should not be included in statistics
-        schedules = schedules.filter(schedule => {
-            const status = (schedule.status || '').toLowerCase();
-            return status !== 'cancelled';
-        });
-
         // Preserve typeStats and dailyStats from the summary fetch if available
         currentTeachingData = currentTeachingData || {};
         currentTeachingData.schedules = schedules;
@@ -291,6 +285,8 @@ export async function loadTeachingCount() {
         if (!currentTeachingData.typeStats || Object.keys(currentTeachingData.typeStats).length === 0) {
             const typeStats = {};
             schedules.forEach(schedule => {
+                const status = (schedule.status || '').toLowerCase();
+                if (status === 'cancelled' || status === 'modified_away') return;
                 const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '其他';
                 typeStats[type] = (typeStats[type] || 0) + 1;
             });
@@ -491,12 +487,7 @@ async function fetchDetailedSchedulesBackground(replaceImmediately = false) {
 
         const rows = await res.json();
 
-        // Filter out cancelled courses - they should not be included in statistics
         let schedules = Array.isArray(rows) ? rows : [];
-        schedules = schedules.filter(schedule => {
-            const status = (schedule.status || '').toLowerCase();
-            return status !== 'cancelled';
-        });
 
         currentTeachingData = currentTeachingData || {};
         currentTeachingData.schedules = schedules;
@@ -686,6 +677,8 @@ function renderDailyTeachingChart(schedules, dailyStats = null) {
         });
     } else if (schedules && schedules.length > 0) {
         schedules.forEach(schedule => {
+            const status = (schedule.status || '').toLowerCase();
+            if (status === 'cancelled' || status === 'modified_away') return;
             // Normalize date to YYYY-MM-DD
             let dateKey = schedule.date || schedule.lesson_date;
             if (dateKey) {
@@ -952,7 +945,8 @@ function getStatusLabel(status) {
         'confirmed': '已确认',
         'pending': '待确认',
         'completed': '已完成',
-        'cancelled': '已取消'
+        'cancelled': '已取消',
+        'modified_away': '已调整'
     };
     return statusMap[status] || status || '未知';
 }

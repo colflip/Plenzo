@@ -497,10 +497,7 @@ ca.id as schedule_id,
         };
 
         rawData.forEach(row => {
-            // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-            if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
-                return;
-            }
+            if (['cancelled', '0', 'modified_away'].includes(String(row.status || '').toLowerCase())) return;
             const name = row[groupKey] || '未知';
             if (!stats[name]) {
                 stats[name] = {
