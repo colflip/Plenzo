@@ -528,6 +528,7 @@ const teacherController = {
                     ca.start_time, ca.end_time, ca.status,
                     ca.teacher_id, ca.location,
                     ca.transport_fee, ca.other_fee,
+                    ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
                     st.name as student_name,
                     sty.name as schedule_type,
@@ -551,8 +552,10 @@ const teacherController = {
                 values.push(status);
             }
 
-            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            // 默认隐藏调走的原课程；“显示全部安排”时与管理员端一致展示
+            if (req.query.show_plan !== 'true') {
+                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            }
 
             query += ` ORDER BY date, ca.start_time`;
 
@@ -1160,6 +1163,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location, ca.transport_fee, ca.other_fee,
+                    ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
                     t.name as teacher_name, t.id as teacher_id,
                     st.name as student_name, st.id as student_id,
@@ -1170,8 +1174,13 @@ const teacherController = {
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.student_id = ANY($1::int[])
                   AND ${dateExpr} BETWEEN $2 AND $3
-                ORDER BY date, ca.start_time
             `;
+
+            if (req.query.show_plan !== 'true') {
+                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            }
+
+            query += ` ORDER BY date, ca.start_time`;
 
             const result = await db.query(query, [studentIds, startDate, endDate]);
             res.json({ students, schedules: result.rows });
