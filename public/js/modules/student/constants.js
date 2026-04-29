@@ -28,21 +28,24 @@ export const SCHEDULE_STATUS = {
     PENDING: 'pending',
     CONFIRMED: 'confirmed',
     COMPLETED: 'completed',
-    CANCELLED: 'cancelled'
+    CANCELLED: 'cancelled',
+    MODIFIED_AWAY: 'modified_away'
 };
 
 export const STATUS_LABELS = {
     [SCHEDULE_STATUS.PENDING]: '待确认',
     [SCHEDULE_STATUS.CONFIRMED]: '已确认',
     [SCHEDULE_STATUS.COMPLETED]: '已完成',
-    [SCHEDULE_STATUS.CANCELLED]: '已取消'
+    [SCHEDULE_STATUS.CANCELLED]: '已取消',
+    [SCHEDULE_STATUS.MODIFIED_AWAY]: '已调整'
 };
 
 export const STATUS_COLORS = {
     [SCHEDULE_STATUS.PENDING]: '#FFA726',
     [SCHEDULE_STATUS.CONFIRMED]: '#66BB6A',
     [SCHEDULE_STATUS.COMPLETED]: '#42A5F5',
-    [SCHEDULE_STATUS.CANCELLED]: '#EF5350'
+    [SCHEDULE_STATUS.CANCELLED]: '#EF5350',
+    [SCHEDULE_STATUS.MODIFIED_AWAY]: '#94A3B8'
 };
 
 export const TIME_SLOT_CONFIG = Object.freeze([

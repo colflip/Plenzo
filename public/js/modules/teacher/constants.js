@@ -8,7 +8,8 @@ export const SCHEDULE_STATUS_LABELS = Object.freeze({
     pending: '待确认',
     confirmed: '已确认',
     completed: '已完成',
-    cancelled: '已取消'
+    cancelled: '已取消',
+    modified_away: '已调整'
 });
 
 export const SCHEDULE_STATUS_OPTIONS = Object.freeze([
@@ -76,4 +77,3 @@ export const EMPTY_STATES = Object.freeze({
 });
 
 export const DEFAULT_LOCATION_PLACEHOLDER = '未指定地点';
-

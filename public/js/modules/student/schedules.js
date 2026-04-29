@@ -17,6 +17,9 @@ import { escapeHtml, safeSetHTML } from '../../core/security.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];
+let scheduleLoadSeq = 0;
+
+window.studentShowPlan = false;
 
 /**
  * 统一的教师排序函数
@@ -69,28 +72,86 @@ const elements = {
 export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
+    syncShowPlanButton();
     await loadSchedules(currentWeekStart);
+}
+
+window.toggleStudentShowPlan = async function () {
+    window.studentShowPlan = !window.studentShowPlan;
+    syncShowPlanButton();
+    await loadSchedules(currentWeekStart || startOfWeek(new Date()), true);
+};
+
+function syncShowPlanButton() {
+    const btn = document.getElementById('toggleStudentShowPlanBtn');
+    const text = document.getElementById('studentShowPlanBtnText');
+    if (text) text.textContent = window.studentShowPlan ? '隐藏全部安排' : '显示全部安排';
+    if (btn) {
+        btn.classList.toggle('fee-active', window.studentShowPlan);
+        btn.style.backgroundColor = '#2ECC71';
+        btn.style.color = 'white';
+    }
+}
+
+function getAdjustmentType(rec) {
+    const raw = rec?.adjustment_type ?? rec?.is_temp;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : 0;
+}
+
+function getScheduleWatermarkText(group) {
+    const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
+    const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
+    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
+    const parts = [];
+    if (hasAdjusted) parts.push('调');
+    if (hasTemp) parts.push('加');
+    if (parts.length > 0) return parts.join('/');
+    if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
+    return '';
+}
+
+function appendScheduleWatermark(card, watermarkText) {
+    if (!watermarkText) return;
+    card.classList.add('is-temp-card');
+    card.style.position = 'relative';
+    card.style.overflow = 'hidden';
+    const watermark = createElement('span', '');
+    watermark.setAttribute('aria-hidden', 'true');
+    const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
+    watermark.style.cssText = [
+        'position: absolute', 'bottom: -10px', 'right: 5px',
+        `font-size: ${wmFontSize}`,
+        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+        'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+        'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+    ].join(';');
+    watermark.textContent = watermarkText;
+    card.appendChild(watermark);
 }
 
 function bindNavigation() {
     const prevBtn = elements.prevWeekBtn();
     const nextBtn = elements.nextWeekBtn();
 
-    if (prevBtn) {
+    if (prevBtn && !prevBtn.__scheduleNavBound) {
         prevBtn.addEventListener('click', () => {
             currentWeekStart.setDate(currentWeekStart.getDate() - 7);
             loadSchedules(currentWeekStart);
         });
+        prevBtn.__scheduleNavBound = true;
     }
-    if (nextBtn) {
+    if (nextBtn && !nextBtn.__scheduleNavBound) {
         nextBtn.addEventListener('click', () => {
             currentWeekStart.setDate(currentWeekStart.getDate() + 7);
             loadSchedules(currentWeekStart);
         });
+        nextBtn.__scheduleNavBound = true;
     }
 }
 
 export async function loadSchedules(baseDate, showLoading = true) {
+    const requestId = ++scheduleLoadSeq;
     const weekStart = startOfWeek(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -149,7 +210,7 @@ export async function loadSchedules(baseDate, showLoading = true) {
         const endDate = toISODate(weekDates[weekDates.length - 1]);
 
         const response = await fetch(
-            `${API_ENDPOINTS.SCHEDULES}?startDate=${startDate}&endDate=${endDate}`,
+            `${API_ENDPOINTS.SCHEDULES}?startDate=${startDate}&endDate=${endDate}${window.studentShowPlan ? '&show_plan=true' : ''}`,
             {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -163,15 +224,17 @@ export async function loadSchedules(baseDate, showLoading = true) {
 
         const schedules = await response.json();
         cachedSchedules = Array.isArray(schedules) ? schedules : [];
+        if (requestId !== scheduleLoadSeq) return;
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
+        if (requestId !== scheduleLoadSeq) return;
 
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (showLoading && tableContainer && window.hideTableLoading) {
+        if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
             window.hideTableLoading(tableContainer);
         }
     }
@@ -330,47 +393,10 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     // 创建卡片容器，保持时间槽颜色
     const card = createElement('div', `group-picker-item ${slotClass}`);
 
-    const hasTemp = scheduleGroup.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
-    const hasOriginal = scheduleGroup.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
-    const hasAdjusted = scheduleGroup.some(rec => rec.adjustment_type == 2);
-
-    // 构建水印文本：调=加 > 原
-    const mobileWmParts = [];
-    if (hasAdjusted) mobileWmParts.push('调');
-    if (hasTemp) mobileWmParts.push('加');
-
-    let mobileWmText = '';
-    if (mobileWmParts.length > 0) {
-        mobileWmText = mobileWmParts.join('/');
-    } else if (hasOriginal) {
-        const allOriginal = scheduleGroup.every(rec => {
-            const st = (rec.status || '').toLowerCase();
-            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
-        });
-        if (allOriginal) mobileWmText = '原';
-    }
-
-    if (mobileWmText) {
-        card.classList.add('is-temp-card');
-        card.style.position = 'relative';
-        card.style.overflow = 'hidden';
-        const watermark = createElement('span', '');
-        watermark.setAttribute('aria-hidden', 'true');
-        const wmFontSize = mobileWmText.length > 1 ? '66px' : '99px';
-        watermark.style.cssText = [
-            'position: absolute', 'bottom: -10px', 'right: 5px',
-            `font-size: ${wmFontSize}`,
-            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-        ].join(';');
-        
-        watermark.textContent = mobileWmText;
-        card.appendChild(watermark);
-    }
     // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
     // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
     card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
+    appendScheduleWatermark(card, getScheduleWatermarkText(scheduleGroup));
 
     // 为每位教师创建信息块：姓名（类型chip，状态chip）
     scheduleGroup.forEach((schedule, index) => {
@@ -612,44 +638,7 @@ function buildScheduleCard(group) {
     card.style.borderWidth = '1px';
     card.style.borderStyle = 'solid';
 
-    const hasTemp = group.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
-    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
-
-    // 构建水印文本：调=加 > 原
-    const watermarkParts = [];
-    if (hasAdjusted) watermarkParts.push('调');
-    if (hasTemp) watermarkParts.push('加');
-
-    let watermarkText = '';
-    if (watermarkParts.length > 0) {
-        watermarkText = watermarkParts.join('/');
-    } else if (hasOriginal) {
-        const allOriginal = group.every(rec => {
-            const st = (rec.status || '').toLowerCase();
-            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
-        });
-        if (allOriginal) watermarkText = '原';
-    }
-
-    if (watermarkText) {
-        card.classList.add('is-temp-card');
-        card.style.position = 'relative';
-        card.style.overflow = 'hidden';
-        const watermark = createElement('span', '');
-        watermark.setAttribute('aria-hidden', 'true');
-        const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
-        watermark.style.cssText = [
-            'position: absolute', 'bottom: -10px', 'right: 5px',
-            `font-size: ${wmFontSize}`,
-            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-        ].join(';');
-        
-        watermark.textContent = watermarkText;
-        card.appendChild(watermark);
-    }
+    appendScheduleWatermark(card, getScheduleWatermarkText(group));
 
     // 内容容器
     const content = createElement('div', 'card-content');
@@ -663,6 +652,8 @@ function buildScheduleCard(group) {
     group.forEach(rec => {
         const row = createElement('div', 'schedule-row');
         const st = (rec.status || 'pending').toLowerCase();
+        if (st === 'cancelled') row.classList.add('status-cancelled');
+        else if (st === 'modified_away') row.classList.add('status-modified_away');
 
         // 左侧：老师姓名 + 课程类型 (Marquee)
         const left = createElement('div', 'row-left marquee-wrapper');
@@ -694,7 +685,7 @@ function buildScheduleCard(group) {
         });
         marqueeContent.appendChild(typeSpan);
 
-        if (rec.is_temp) {
+        if (getAdjustmentType(rec) === 1) {
             const tempBadge = createElement('span', 'badge-temp', {
                 textContent: '加'
             });
@@ -707,7 +698,7 @@ function buildScheduleCard(group) {
         row.appendChild(left);
 
         // 右侧：状态显示 (Green tag for confirmed, Gray for completed)
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
         const statusLabel = statusMap[st] || st;
 
         // Use styled span to mimic the look of the admin select but readonly
@@ -819,7 +810,8 @@ function getDisplayStatus(schedule) {
         'pending': '待确认',
         'confirmed': '已确认',
         'completed': '已完成',
-        'cancelled': '已取消'
+        'cancelled': '已取消',
+        'modified_away': '已调整'
     };
     return statusMap[status] || status;
 }

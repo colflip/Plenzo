@@ -20,6 +20,9 @@ import { getTimeSlotFromStartTime } from './utils/time-slots.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];
+let scheduleLoadSeq = 0;
+
+window.teacherShowPlan = false;
 
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
@@ -33,22 +36,86 @@ const elements = {
 export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
+    syncShowPlanButton();
     initFeeModal();
     await loadSchedules(currentWeekStart);
 }
 
+window.toggleTeacherShowPlan = async function () {
+    window.teacherShowPlan = !window.teacherShowPlan;
+    syncShowPlanButton();
+    await loadSchedules(currentWeekStart || startOfWeek(new Date()), true);
+};
+
+function syncShowPlanButton() {
+    const btn = document.getElementById('toggleTeacherShowPlanBtn');
+    const text = document.getElementById('teacherShowPlanBtnText');
+    if (text) text.textContent = window.teacherShowPlan ? '隐藏全部安排' : '显示全部安排';
+    if (btn) {
+        btn.classList.toggle('fee-active', window.teacherShowPlan);
+        btn.style.backgroundColor = '#2ECC71';
+        btn.style.color = 'white';
+    }
+}
+
 function bindNavigation() {
-    elements.prevWeekBtn()?.addEventListener('click', () => {
-        currentWeekStart.setDate(currentWeekStart.getDate() - 7);
-        loadSchedules(currentWeekStart);
-    });
-    elements.nextWeekBtn()?.addEventListener('click', () => {
-        currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-        loadSchedules(currentWeekStart);
-    });
+    const prevBtn = elements.prevWeekBtn();
+    const nextBtn = elements.nextWeekBtn();
+    if (prevBtn && !prevBtn.__scheduleNavBound) {
+        prevBtn.addEventListener('click', () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+            loadSchedules(currentWeekStart);
+        });
+        prevBtn.__scheduleNavBound = true;
+    }
+    if (nextBtn && !nextBtn.__scheduleNavBound) {
+        nextBtn.addEventListener('click', () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+            loadSchedules(currentWeekStart);
+        });
+        nextBtn.__scheduleNavBound = true;
+    }
+}
+
+function getAdjustmentType(rec) {
+    const raw = rec?.adjustment_type ?? rec?.is_temp;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : 0;
+}
+
+function getScheduleWatermarkText(group) {
+    const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
+    const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
+    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
+    const parts = [];
+    if (hasAdjusted) parts.push('调');
+    if (hasTemp) parts.push('加');
+    if (parts.length > 0) return parts.join('/');
+    if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
+    return '';
+}
+
+function appendScheduleWatermark(card, watermarkText) {
+    if (!watermarkText) return;
+    card.classList.add('is-temp-card');
+    card.style.position = 'relative';
+    card.style.overflow = 'hidden';
+    const watermark = createElement('span', '');
+    watermark.setAttribute('aria-hidden', 'true');
+    const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
+    watermark.style.cssText = [
+        'position: absolute', 'bottom: -10px', 'right: 5px',
+        `font-size: ${wmFontSize}`,
+        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+        'color: rgba(0,102,204,0.1)', 'pointer-events: none',
+        'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
+    ].join(';');
+    watermark.textContent = watermarkText;
+    card.appendChild(watermark);
 }
 
 export async function loadSchedules(baseDate, showLoading = true) {
+    const requestId = ++scheduleLoadSeq;
     const weekStart = startOfWeek(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -108,19 +175,22 @@ export async function loadSchedules(baseDate, showLoading = true) {
 
         const schedules = await window.apiUtils.get('/teacher/schedules', {
             startDate,
-            endDate
+            endDate,
+            ...(window.teacherShowPlan ? { show_plan: 'true' } : {})
         });
 
         cachedSchedules = Array.isArray(schedules) ? schedules : [];
+        if (requestId !== scheduleLoadSeq) return;
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
+        if (requestId !== scheduleLoadSeq) return;
         
         renderEmptyState(EMPTY_STATES.schedules);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (showLoading && tableContainer && window.hideTableLoading) {
+        if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
             window.hideTableLoading(tableContainer);
         }
     }
@@ -259,6 +329,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
     // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
     card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
+    appendScheduleWatermark(card, getScheduleWatermarkText(scheduleGroup));
 
     // 为每个学生创建信息块：姓名（类型chip，状态chip）
     scheduleGroup.forEach((schedule, index) => {
@@ -300,7 +371,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
         });
         statusSelect.dataset.lastStatus = status;
 
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
         Object.keys(statusMap).forEach(key => {
             const opt = document.createElement('option');
             opt.value = key;
@@ -586,45 +657,7 @@ function buildScheduleCard(group) {
 
     const card = createElement('div', `schedule-card-group slot-${slot}${isAllCancelled ? ' status-cancelled' : ''}`);
 
-    const hasTemp = group.some(rec => rec.is_temp == 1 || rec.adjustment_type == 1);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0);
-    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
-
-    // 构建水印文本：调=加 > 原
-    const watermarkParts = [];
-    if (hasAdjusted) watermarkParts.push('调');
-    if (hasTemp) watermarkParts.push('加');
-
-    let watermarkText = '';
-    if (watermarkParts.length > 0) {
-        watermarkText = watermarkParts.join('/');
-    } else if (hasOriginal) {
-        // 仅当组内所有记录都是原课程时才显示「原」水印
-        const allOriginal = group.every(rec => {
-            const st = (rec.status || '').toLowerCase();
-            return st === 'modified_away' || rec.is_original == 1 || rec.adjustment_type == 0;
-        });
-        if (allOriginal) watermarkText = '原';
-    }
-
-    if (watermarkText) {
-        card.classList.add('is-temp-card');
-        card.style.position = 'relative';
-        card.style.overflow = 'hidden';
-        const watermark = createElement('span', '');
-        watermark.setAttribute('aria-hidden', 'true');
-        const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
-        watermark.style.cssText = [
-            'position: absolute', 'bottom: -10px', 'right: 5px',
-            `font-size: ${wmFontSize}`,
-            'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-            'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-            'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-        ].join(';');
-        
-        watermark.textContent = watermarkText;
-        card.appendChild(watermark);
-    }
+    appendScheduleWatermark(card, getScheduleWatermarkText(group));
     card.style.backgroundColor = theme.bg;
     card.style.borderColor = theme.border;
     card.style.borderWidth = '1px';
@@ -653,8 +686,10 @@ function buildScheduleCard(group) {
     const listDiv = createElement('div', 'schedule-list');
 
     group.forEach(rec => {
-        const isCancelled = (rec.status || '').toLowerCase() === 'cancelled';
-        const row = createElement('div', `schedule-row${isCancelled ? ' status-cancelled' : ''}`);
+        const st = (rec.status || 'pending').toLowerCase();
+        const row = createElement('div', 'schedule-row');
+        if (st === 'cancelled') row.classList.add('status-cancelled');
+        else if (st === 'modified_away') row.classList.add('status-modified_away');
         row.title = '点击修改详情';
         row.style.cursor = 'pointer';
 
@@ -689,11 +724,10 @@ function buildScheduleCard(group) {
         row.appendChild(left);
 
         // 右侧：状态快速切换 (教师端可见)
-        const st = (rec.status || 'pending').toLowerCase();
         const statusSelect = createElement('select', `status-select ${st}`);
         statusSelect.dataset.lastStatus = st;
 
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
         Object.keys(statusMap).forEach(key => {
             const opt = document.createElement('option');

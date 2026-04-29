@@ -329,6 +329,7 @@ const studentController = {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
+                    ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
                     ca.teacher_id, t.name as teacher_name,
                     sty.name as schedule_type,
@@ -353,8 +354,10 @@ const studentController = {
                 values.push(status);
             }
 
-            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            // 默认隐藏调走的原课程；“显示全部安排”时与管理员端一致展示
+            if (req.query.show_plan !== 'true') {
+                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+            }
 
             query += ` ORDER BY date, ca.start_time`;
 
