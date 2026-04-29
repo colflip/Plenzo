@@ -109,7 +109,7 @@ class StudentExportService {
     generateDetailSheet(rows, startDate, endDate) {
         const stats = {};
 
-        rows.forEach(row => {
+        rows.filter(row => !['cancelled', '0', 'modified_away'].includes(String(row.status || '').toLowerCase())).forEach(row => {
             const teacherName = row.teacher_name || '未知';
             if (!stats[teacherName]) {
                 stats[teacherName] = {
@@ -258,7 +258,8 @@ class StudentExportService {
             'pending': '待确认',
             'confirmed': '已确认',
             'completed': '已完成',
-            'cancelled': '已取消'
+            'cancelled': '已取消',
+            'modified_away': '已调整'
         };
         return map[status] || status;
     }

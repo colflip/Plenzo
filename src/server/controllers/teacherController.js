@@ -702,6 +702,7 @@ const teacherController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]);
@@ -716,6 +717,7 @@ const teacherController = {
                 JOIN schedule_types sty ON ca.course_id = sty.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY DATE_TRUNC('day', ${dateExpr}), COALESCE(sty.description, sty.name)
                 ORDER BY date, count DESC
             `, [req.user.id, startDate, endDate]);
@@ -729,6 +731,7 @@ const teacherController = {
                 FROM course_arrangement ca
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY DATE_TRUNC('month', ${dateExpr})
                 ORDER BY month
             `, [req.user.id, startDate, endDate]);
@@ -871,6 +874,7 @@ const teacherController = {
                 FROM course_arrangement
                 WHERE teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
+                  AND status NOT IN ('cancelled', '0', 'modified_away')
             `, [req.user.id, startDate, endDate]);
 
             const count = parseInt(result.rows[0].count, 10);

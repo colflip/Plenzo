@@ -90,7 +90,7 @@ const statisticsController = {
                 FROM course_arrangement ca
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ${dateExprCa} BETWEEN $1 AND $2
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [startDate, endDate]);
@@ -104,7 +104,7 @@ const statisticsController = {
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
                 FROM course_arrangement
                 WHERE ${dateExprNoAlias2} BETWEEN $1 AND $2
-                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
+                  AND status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY month
                 ORDER BY month
             `, [startDate, endDate]);
@@ -116,7 +116,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM course_arrangement
                 WHERE ${dateExprNoAlias2} BETWEEN $1 AND $2
-                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
+                  AND status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY status
             `, [startDate, endDate]);
 
@@ -153,7 +153,7 @@ const statisticsController = {
                 FROM teachers t
                 LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
                 AND ${dateExprCa2} BETWEEN $1 AND $2
-                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY t.id, t.name
                 ORDER BY t.id ASC
             `, [startDate, endDate]);
@@ -165,7 +165,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM teachers t
                 LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id AND ${dateExprCa2} BETWEEN $1 AND $2
-                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 JOIN schedule_types st ON ca.course_id = st.id
                 GROUP BY t.id, st.name
                 ORDER BY t.id ASC, count DESC
@@ -196,7 +196,7 @@ const statisticsController = {
                 FROM students st
                 LEFT JOIN course_arrangement ca ON st.id = ca.student_id 
                 AND ${dateExprCa2} BETWEEN $1 AND $2
-                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY st.id, st.name
                 ORDER BY st.id ASC
             `, [startDate, endDate]);
@@ -208,7 +208,7 @@ const statisticsController = {
                     COUNT(*) as count
                 FROM students st
                 LEFT JOIN course_arrangement ca ON st.id = ca.student_id AND ${dateExprCa2} BETWEEN $1 AND $2
-                AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 JOIN schedule_types srt ON ca.course_id = srt.id
                 GROUP BY st.id, srt.name
                 ORDER BY st.id ASC, count DESC
@@ -266,7 +266,7 @@ const statisticsController = {
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExprCa3} BETWEEN $2 AND $3
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [id, startDate, endDate]);
@@ -281,7 +281,7 @@ const statisticsController = {
                 FROM course_arrangement
                 WHERE teacher_id = $1
                   AND ${dateExprNoAlias3} BETWEEN $2 AND $3
-                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
+                  AND status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY month
                 ORDER BY month
             `, [id, startDate, endDate]);
@@ -295,6 +295,7 @@ const statisticsController = {
                 JOIN students st ON ca.student_id = st.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExprCa3} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY st.id, st.name
                 ORDER BY schedule_count DESC
                 LIMIT 10
@@ -338,7 +339,7 @@ const statisticsController = {
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ca.student_id = $1
                   AND ${dateExprCa4} BETWEEN $2 AND $3
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY st.name
                 ORDER BY count DESC
             `, [id, startDate, endDate]);
@@ -353,7 +354,7 @@ const statisticsController = {
                 FROM course_arrangement
                 WHERE student_id = $1
                   AND ${dateExprNoAlias4} BETWEEN $2 AND $3
-                  AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)
+                  AND status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY month
                 ORDER BY month
             `, [id, startDate, endDate]);
@@ -367,6 +368,7 @@ const statisticsController = {
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.student_id = $1
                   AND ${dateExprCa4} BETWEEN $2 AND $3
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY t.id, t.name
                 ORDER BY schedule_count DESC
                 LIMIT 10

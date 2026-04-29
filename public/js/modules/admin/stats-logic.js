@@ -2,6 +2,11 @@
 // This file contains functions for rendering various statistics charts using Chart.js.
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
+function isCountableSchedule(row) {
+    const status = String(row?.status ?? row?.['状态'] ?? '').toLowerCase();
+    return !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);
+}
+
 
 /**
  * 将 getUserStats API 返回的数据转换为 Chart.js 堆叠柱状图格式
@@ -238,10 +243,7 @@ export function buildTeacherTypeStack(schedules) {
     const teacherIdMap = new Map(); // Track teacher ID for status filtering
 
     schedules.forEach(row => {
-        // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
-            return;
-        }
+        if (!isCountableSchedule(row)) return;
         const teacher = row.teacher_name || '未分配';
         const teacherId = row.teacher_id;
 
@@ -315,10 +317,7 @@ export function buildStudentTypeStack(schedules, students = []) {
     const map = new Map(); // studentId -> Map(typeLabel -> count)
 
     schedules.forEach(row => {
-        // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-        if (row.status === 'modified_away' && (row.adjustment_type === 0 || row.adjustment_type === '0')) {
-            return;
-        }
+        if (!isCountableSchedule(row)) return;
         // 支持 student_ids 字段（逗号分隔）与单个 student_id 回退
         const idsRaw = (row.student_ids || row.student_id || '').toString();
         const ids = idsRaw.split(',').map(x => x.trim()).filter(Boolean);
@@ -838,6 +837,7 @@ export function renderAllTeachersScheduleBarChart(rows, dayLabels) {
 export function aggregateCountsByDate(rows, dayLabels, dateField = 'date') {
     const map = new Map(dayLabels.map(d => [d, 0]));
     rows.forEach(r => {
+        if (!isCountableSchedule(r)) return;
         // 兼容多种日期字段名：优先使用指定的dateField，然后尝试常见字段名
         const d = String(r[dateField] || r.date || r.class_date || '').slice(0, 10);
         if (!d) return;
@@ -862,6 +862,8 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
 
 
     // 检查数据格式
+    rows = (rows || []).filter(isCountableSchedule);
+
     if (rows.length === 0) {
         if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="padding: 20px; text-align: center; color: #64748b;">暂无排课数据</div>'); } else { container.innerHTML = '<div style="padding: 20px; text-align: center; color: #64748b;">暂无排课数据</div>'; }
         return;
@@ -897,6 +899,7 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
         });
 
         teacherRows.forEach(r => {
+            if (!isCountableSchedule(r)) return;
             const dateStr = String(r.date || '').slice(0, 10);
             if (!dateStr || !dateTypeMap.has(dateStr)) return;
 
@@ -1490,6 +1493,7 @@ export function setupStatsTooltip(scheduleRows, titleId, tooltipId) {
     let totalCount = 0;
 
     scheduleRows.forEach(r => {
+        if (!isCountableSchedule(r)) return;
         const typesStr = String(r.schedule_types || '').trim();
         const types = typesStr ? typesStr.split(',') : ['未分类'];
         types.forEach(t => {
@@ -1680,6 +1684,7 @@ export function setupStudentSummaryChartTitleTooltip(scheduleRows) {
     let totalCount = 0;
 
     scheduleRows.forEach(r => {
+        if (!isCountableSchedule(r)) return;
         const typesStr = String(r.schedule_types || '').trim();
         const types = typesStr ? typesStr.split(',') : ['未分类'];
         types.forEach(t => {
@@ -1725,6 +1730,8 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         return;
     }
 
+    rows = (rows || []).filter(isCountableSchedule);
+
     // 检查数据格式
     if (rows.length === 0) {
         // 移除暂无数据提示 (User Request)
@@ -1762,6 +1769,7 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         });
 
         studentRows.forEach(r => {
+            if (!isCountableSchedule(r)) return;
             const dateStr = String(r.date || '').slice(0, 10);
             if (!dateStr || !dateTypeMap.has(dateStr)) return;
 

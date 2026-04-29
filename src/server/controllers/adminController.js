@@ -1533,6 +1533,7 @@ const adminController = {
                 FROM course_arrangement ca
                 JOIN schedule_types st ON ca.course_id = st.id
                 WHERE ${dateExpr} BETWEEN $1 AND $2
+                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY COALESCE(st.description, st.name)
                 ORDER BY count DESC
             `;
@@ -1593,6 +1594,7 @@ const adminController = {
                 FROM teachers t
                 LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id
                     AND ${dateExpr2} BETWEEN $1 AND $2
+                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 LEFT JOIN schedule_types st ON ca.course_id = st.id
                 WHERE t.status != -1
                 GROUP BY t.id, t.name, COALESCE(st.description, st.name, '未分类')
@@ -1609,6 +1611,7 @@ const adminController = {
                 FROM students s
                 LEFT JOIN course_arrangement ca ON s.id = ca.student_id
                     AND ${dateExpr2} BETWEEN $1 AND $2
+                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 LEFT JOIN schedule_types st ON ca.course_id = st.id
                 WHERE s.status != -1
                 GROUP BY s.id, s.name, COALESCE(st.description, st.name, '未分类')
@@ -1672,6 +1675,7 @@ const adminController = {
                     FROM teachers t
                     LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
                         AND ${dateExpr} BETWEEN $1 AND $2
+                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                     GROUP BY t.id
                 `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
 
@@ -1698,6 +1702,7 @@ const adminController = {
                     FROM teachers t
                     LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
                         AND ${dateExpr} BETWEEN $1 AND $2
+                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                     GROUP BY t.id, t.username, t.name, t.profession, t.contact, t.work_location, t.home_address, t.last_login, t.created_at
                     ORDER BY t.created_at DESC
                 `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
@@ -1755,6 +1760,7 @@ const adminController = {
                     FROM students s
                     LEFT JOIN course_arrangement ca ON s.id = ca.student_id 
                         AND ${dateExpr} BETWEEN $1 AND $2
+                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                     GROUP BY s.id
                 `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
 
@@ -1781,6 +1787,7 @@ const adminController = {
                     FROM students s
                     LEFT JOIN course_arrangement ca ON s.id = ca.student_id 
                         AND ${dateExpr} BETWEEN $1 AND $2
+                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                     GROUP BY s.id, s.username, s.name, s.profession, s.contact, s.visit_location, s.home_address, s.last_login, s.created_at
                     ORDER BY s.created_at DESC
                 `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
