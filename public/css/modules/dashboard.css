@@ -9193,3 +9193,44 @@ svg {
     font-weight: 700;
     line-height: 1;
 }
+
+.app-version-badge {
+    position: fixed;
+    right: 14px;
+    bottom: 10px;
+    z-index: 1200;
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 3px 8px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #64748b;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(8px);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.app-version-badge:hover {
+    color: #334155;
+    border-color: rgba(100, 116, 139, 0.38);
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.app-version-badge.is-hidden {
+    display: none;
+}
+
+@media (max-width: 640px) {
+    .app-version-badge {
+        right: 8px;
+        bottom: 8px;
+        max-width: calc(100vw - 16px);
+        font-size: 10px;
+    }
+}
