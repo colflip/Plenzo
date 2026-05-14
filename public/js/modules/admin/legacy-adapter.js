@@ -1836,8 +1836,9 @@ function formatDayLabel(date) {
     const weekday = dayNames[d.getDay()];
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
-    // 返回 HTML 字符串：两行显示
-    return `<div style="line-height:1.4;"><div style="font-size:14px;color:#334155;font-weight:600;">${m}月${dd}日</div><div style="font-size:12px;color:#64748b;">${weekday}</div></div>`;
+    const metaHtml = window.ScheduleDateLabels?.getHeaderMetaHtml(d) || '';
+    // 返回 HTML 字符串：日期、星期、农历/节假日分行显示
+    return `<div style="line-height:1.4;"><div style="font-size:14px;color:#334155;font-weight:600;">${m}月${dd}日</div><div style="font-size:12px;color:#64748b;">${weekday}</div>${metaHtml}</div>`;
 }
 
 function formatYMD(date) {

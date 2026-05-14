@@ -72,6 +72,7 @@ const elements = {
 export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
+    bindShowPlanButton();
     syncShowPlanButton();
     await loadSchedules(currentWeekStart);
 }
@@ -147,6 +148,16 @@ function bindNavigation() {
             loadSchedules(currentWeekStart);
         });
         nextBtn.__scheduleNavBound = true;
+    }
+}
+
+function bindShowPlanButton() {
+    const btn = document.getElementById('toggleStudentShowPlanBtn');
+    if (btn && !btn.__showPlanBound) {
+        btn.addEventListener('click', () => {
+            window.toggleStudentShowPlan();
+        });
+        btn.__showPlanBound = true;
     }
 }
 
@@ -324,17 +335,8 @@ function renderMobileScheduleTable(weekDates, grouped) {
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const weekday = weekdayNames[date.getDay()];
 
-        // 解析腊月/正月
-        let lunarParen = '';
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) {
-                lunarParen = `(${match[0]})`;
-            }
-        } catch (e) { }
-
-        const dateLabel = `${day}/${weekday}${lunarParen}`;
+        const metaText = window.ScheduleDateLabels?.getHeaderMetaText(date);
+        const dateLabel = `${day}/${weekday}${metaText ? ` ${metaText}` : ''}`;
         const dateCell = createElement('td', 'mobile-date-cell', { textContent: dateLabel });
         row.appendChild(dateCell);
 
@@ -499,22 +501,11 @@ function renderHeader(weekDates) {
         const dateLabel = createElement('div', 'date-label');
         dateLabel.textContent = `${month}月${day}日`;
 
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) {
-                const lunarSpan = createElement('span', '', {
-                    textContent: `(${match[0]})`,
-                    style: 'font-size: 11px; color: #64748B;'
-                });
-                dateLabel.appendChild(document.createElement('br'));
-                dateLabel.appendChild(lunarSpan);
-            }
-        } catch (e) { }
-
         const dayLabel = createElement('div', 'day-label', { textContent: weekday });
         th.appendChild(dateLabel);
         th.appendChild(dayLabel);
+        const metaEl = window.ScheduleDateLabels?.createHeaderMetaElement(date);
+        if (metaEl) th.appendChild(metaEl);
         row.appendChild(th);
     });
     thead.appendChild(row);
