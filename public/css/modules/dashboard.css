@@ -7164,6 +7164,26 @@ svg {
     font-weight: 400 !important;
 }
 
+.weekly-schedule-table th .schedule-date-meta,
+.th-content .schedule-date-meta {
+    display: block !important;
+    margin-top: 2px !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    font-weight: 500 !important;
+    white-space: normal !important;
+}
+
+.weekly-schedule-table th .schedule-date-meta .lunar-label,
+.th-content .schedule-date-meta .lunar-label {
+    color: #64748B !important;
+}
+
+.weekly-schedule-table th .schedule-date-meta .holiday-label,
+.th-content .schedule-date-meta .holiday-label {
+    color: #DC2626 !important;
+}
+
 .weekly-schedule-table td {
     padding: 12px !important;
     border-bottom: 1px solid #E5E7EB !important;

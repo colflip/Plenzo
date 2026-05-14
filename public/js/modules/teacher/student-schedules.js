@@ -622,21 +622,14 @@ function renderTableHeader(weekDates) {
         const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekday = weekdayNames[date.getDay()];
 
-        // 农历显示
-        let lunarLabel = '';
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
-            }
-        } catch (e) { }
+        const metaHtml = window.ScheduleDateLabels?.getHeaderMetaHtml(date) || '';
 
         const th = createElement('th', 'date-header');
         th.dataset.date = iso;
         th.innerHTML = `
-            <div class="date-label">${month}月${day}日${lunarLabel}</div>
+            <div class="date-label">${month}月${day}日</div>
             <div class="day-label">${weekday}</div>
+            ${metaHtml}
         `;
         headerRow.appendChild(th);
     });
@@ -687,14 +680,10 @@ function renderMobileScheduleTable(weekDates, schedules) {
         const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const weekday = weekdayNames[date.getDay()];
 
-        let lunarParen = '';
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) lunarParen = `(${match[0]})`;
-        } catch (e) { }
-
-        const dateCell = createElement('td', 'mobile-date-cell', { textContent: `${month}/${day} ${weekday}${lunarParen}` });
+        const metaText = window.ScheduleDateLabels?.getHeaderMetaText(date);
+        const dateCell = createElement('td', 'mobile-date-cell', {
+            textContent: `${month}/${day} ${weekday}${metaText ? ` ${metaText}` : ''}`
+        });
         row.appendChild(dateCell);
 
         const detailsCell = createElement('td', 'mobile-details-cell');
