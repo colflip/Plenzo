@@ -807,22 +807,15 @@ function renderWeeklyHeader(weekDates) {
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const date = String(d.getDate()).padStart(2, '0');
 
-        let lunarLabel = '';
-        try {
-            const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(d);
-            const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
-            if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
-            }
-        } catch (e) { }
-
         const dateStr = `${month}月${date}日`;
+        const metaHtml = window.ScheduleDateLabels?.getHeaderMetaHtml(d) || '';
 
         // Match Teacher Availability Table Header Style
         th.innerHTML = `
             <div class="th-content">
-                <span class="th-date" style="line-height:1.2;">${dateStr}${lunarLabel}</span>
+                <span class="th-date" style="line-height:1.2;">${dateStr}</span>
                 <span class="th-day">${dayName}</span>
+                ${metaHtml}
             </div>`;
         th.dataset.date = iso;
         tr.appendChild(th);
