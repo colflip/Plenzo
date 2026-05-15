@@ -20,6 +20,24 @@
         ]
     };
 
+    const MAKEUP_WORKDAYS_BY_YEAR = {
+        2025: [
+            '2025-01-26',
+            '2025-02-08',
+            '2025-04-27',
+            '2025-09-28',
+            '2025-10-11'
+        ],
+        2026: [
+            '2026-01-04',
+            '2026-02-14',
+            '2026-02-28',
+            '2026-05-09',
+            '2026-09-20',
+            '2026-10-10'
+        ]
+    };
+
     function pad2(value) {
         return String(value).padStart(2, '0');
     }
@@ -68,6 +86,13 @@
             .map(item => item.label);
     }
 
+    function isMakeupWorkday(dateLike) {
+        const iso = toISODate(dateLike);
+        if (!iso) return false;
+        const year = Number(iso.slice(0, 4));
+        return (MAKEUP_WORKDAYS_BY_YEAR[year] || []).includes(iso);
+    }
+
     function getHeaderMetaParts(dateLike) {
         const parts = [];
         const lunarLabel = getLunarLabel(dateLike);
@@ -77,6 +102,9 @@
         getHolidayLabels(dateLike).forEach(label => {
             parts.push({ type: 'holiday', text: label });
         });
+        if (isMakeupWorkday(dateLike)) {
+            parts.push({ type: 'workday', text: '班' });
+        }
         return parts;
     }
 
@@ -90,7 +118,8 @@
         const html = parts
             .map((part, index) => {
                 const delimiter = index > 0 ? '<span class="date-meta-separator">，</span>' : '';
-                return `${delimiter}<span class="${part.type === 'holiday' ? 'holiday-label' : 'lunar-label'}">${escapeHtml(part.text)}</span>`;
+                const labelClass = part.type === 'lunar' ? 'lunar-label' : 'holiday-label';
+                return `${delimiter}<span class="${labelClass}">${escapeHtml(part.text)}</span>`;
             })
             .join('');
         return `<span class="schedule-date-meta">${html}</span>`;
@@ -112,7 +141,7 @@
             }
 
             const span = document.createElement('span');
-            span.className = part.type === 'holiday' ? 'holiday-label' : 'lunar-label';
+            span.className = part.type === 'lunar' ? 'lunar-label' : 'holiday-label';
             span.textContent = part.text;
             container.appendChild(span);
         });
@@ -122,6 +151,7 @@
 
     window.ScheduleDateLabels = {
         getHolidayLabels,
+        isMakeupWorkday,
         getHeaderMetaParts,
         getHeaderMetaText,
         getHeaderMetaHtml,
