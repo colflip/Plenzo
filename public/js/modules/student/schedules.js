@@ -22,11 +22,11 @@ let scheduleLoadSeq = 0;
 window.studentShowPlan = false;
 
 /**
- * 统一的教师排序函数
+ * 统一的教师排序函数（多人合并显示卡片内）
  * 规则:
- * 1. 优先展示活跃记录，将 modified_away / cancelled 放后
- * 2. 类型分桶：普通类型 → 评审 → 咨询（最后）
- * 3. 同档按 teacher_id 升序
+ * 1. 「评审记录 / 咨询记录」类型最后显示（最高优先级）
+ * 2. 活跃记录优先（modified_away / cancelled 沉底）
+ * 3. teacher_id 升序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
     // 优先使用全局统一比较器，保持四个视图行为一致
@@ -34,14 +34,6 @@ function sortTeachersByIdAndType(scheduleA, scheduleB) {
     if (cmp) return cmp(scheduleA, scheduleB);
 
     // Fallback：脚本未加载时的内联实现
-    const getStatus = (item) => (item.status || 'pending').toLowerCase();
-    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-    const inactiveA = isInactive(getStatus(scheduleA));
-    const inactiveB = isInactive(getStatus(scheduleB));
-
-    if (inactiveA && !inactiveB) return 1;
-    if (!inactiveA && inactiveB) return -1;
-
     const getTypeName = (item) => (
         item.schedule_type_name ||
         item.type_name ||
@@ -50,11 +42,18 @@ function sortTeachersByIdAndType(scheduleA, scheduleB) {
         item.schedule_type || ''
     ).toString();
 
-    const rank = (n) => n.includes('咨询') ? 2 : n.includes('评审') ? 1 : 0;
+    const isRec = (n) => n.includes('评审记录') || n.includes('咨询记录') ||
+        /(review|consultation|advisory)[\s_-]?record/i.test(n);
 
-    const ra = rank(getTypeName(scheduleA));
-    const rb = rank(getTypeName(scheduleB));
-    if (ra !== rb) return ra - rb;
+    const rA = isRec(getTypeName(scheduleA)) ? 1 : 0;
+    const rB = isRec(getTypeName(scheduleB)) ? 1 : 0;
+    if (rA !== rB) return rA - rB;
+
+    const getStatus = (item) => (item.status || 'pending').toLowerCase();
+    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+    const inactiveA = isInactive(getStatus(scheduleA));
+    const inactiveB = isInactive(getStatus(scheduleB));
+    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
 
     return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
 }

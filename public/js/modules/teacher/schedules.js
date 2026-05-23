@@ -934,40 +934,31 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 排序排课记录：评审 → 咨询（最后），其他按 student_id 升序
+// 排序排课记录（教师视图，合并组内）：
+//   1. 「评审记录 / 咨询记录」类型最后（最高优先级）
+//   2. 活跃记录优先
+//   3. student_id 升序
 function sortStudentsByIdAndType(a, b) {
-    // 1. 状态优先级：活跃记录优先
+    const cmp = window.ScheduleGroupSort?.compareGroupRecordByStudent;
+    if (cmp) return cmp(a, b);
+
+    // Fallback
+    const readType = (item) => String(
+        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
+        item.schedule_type || item.course_type || ''
+    );
+    const isRec = (n) => n.includes('评审记录') || n.includes('咨询记录') ||
+        /(review|consultation|advisory)[\s_-]?record/i.test(n);
+    const rA = isRec(readType(a)) ? 1 : 0;
+    const rB = isRec(readType(b)) ? 1 : 0;
+    if (rA !== rB) return rA - rB;
+
     const getStatus = (item) => (item.status || 'pending').toLowerCase();
     const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
     const inactiveA = isInactive(getStatus(a));
     const inactiveB = isInactive(getStatus(b));
-    if (inactiveA && !inactiveB) return 1;
-    if (!inactiveA && inactiveB) return -1;
+    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
 
-    // 2. 类型分桶（兼容中文 / 英文 code）：普通(0) → 评审(1) → 咨询(2，最后)
-    const cmp = window.ScheduleGroupSort;
-    let rA = 0, rB = 0;
-    if (cmp) {
-        rA = cmp.typeRank(a);
-        rB = cmp.typeRank(b);
-    } else {
-        const REVIEW_CODES = ['review', 'review-online', 'review_online'];
-        const CONSULT_CODES = ['advisory', 'advisory-online', 'advisory_online', 'consult', 'consultation'];
-        const readType = (item) => String(item.schedule_type || item.schedule_type_cn || item.type_name || item.course_type || '');
-        const tA = readType(a);
-        const tB = readType(b);
-        const rank = (t) => {
-            const low = t.toLowerCase();
-            if (t.includes('咨询') || CONSULT_CODES.includes(low)) return 2;
-            if (t.includes('评审') || REVIEW_CODES.includes(low)) return 1;
-            return 0;
-        };
-        rA = rank(tA);
-        rB = rank(tB);
-    }
-    if (rA !== rB) return rA - rB;
-
-    // 3. 按学生ID升序
     return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
 }
 

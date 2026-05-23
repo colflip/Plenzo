@@ -592,18 +592,18 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 多人合并显示排序：普通类型→评审→咨询（最后），同档按教师ID升序
+                    // 合并组内排序：「评审记录/咨询记录」放最后 → 活跃优先 → teacher_id 升序
                     const cmp = window.ScheduleGroupSort?.compareGroupRecord;
                     if (cmp) {
                         group.sort(cmp);
                     } else {
                         group.sort((a, b) => {
-                            const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                            const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                            const rank = (t) => t.includes('咨询') ? 2 : t.includes('评审') ? 1 : 0;
-                            const ra = rank(typeA);
-                            const rb = rank(typeB);
-                            if (ra !== rb) return ra - rb;
+                            const typeA = (a.schedule_type_cn || a.schedule_type || a.type_name || '').toString();
+                            const typeB = (b.schedule_type_cn || b.schedule_type || b.type_name || '').toString();
+                            const isRec = (t) => t.includes('评审记录') || t.includes('咨询记录') || /(review|consultation|advisory)[\s_-]?record/i.test(t);
+                            const rA = isRec(typeA) ? 1 : 0;
+                            const rB = isRec(typeB) ? 1 : 0;
+                            if (rA !== rB) return rA - rB;
                             return (a.teacher_id || 0) - (b.teacher_id || 0);
                         });
                     }
@@ -716,12 +716,12 @@ function renderMobileScheduleTable(weekDates, schedules) {
                     group.sort(cmp);
                 } else {
                     group.sort((a, b) => {
-                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                        const rank = (t) => t.includes('咨询') ? 2 : t.includes('评审') ? 1 : 0;
-                        const ra = rank(typeA);
-                        const rb = rank(typeB);
-                        if (ra !== rb) return ra - rb;
+                        const typeA = (a.schedule_type_cn || a.schedule_type || a.type_name || '').toString();
+                        const typeB = (b.schedule_type_cn || b.schedule_type || b.type_name || '').toString();
+                        const isRec = (t) => t.includes('评审记录') || t.includes('咨询记录') || /(review|consultation|advisory)[\s_-]?record/i.test(t);
+                        const rA = isRec(typeA) ? 1 : 0;
+                        const rB = isRec(typeB) ? 1 : 0;
+                        if (rA !== rB) return rA - rB;
                         return (a.teacher_id || 0) - (b.teacher_id || 0);
                     });
                 }
