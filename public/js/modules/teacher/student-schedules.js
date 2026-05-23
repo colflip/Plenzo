@@ -1117,7 +1117,8 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
         }
     });
     // html2canvas 无法正确渲染 <select> 内选中项的垂直对齐 —— 文本始终下移。
-    // 改为用 <span class="status-badge-sm"> 替换，复用 .status-badge-sm.<status> 颜色规则。
+    // 改为用 <span> 替换，保留 .status-select 类以继承原有 pill 视觉
+    // （尺寸 70x20、圆角 20px、font-size 11px、font-weight 600、颜色等）。
     // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
     const origSelects = originalTr.querySelectorAll('select.status-select');
     const cloneSelects = rowClone.querySelectorAll('select.status-select');
@@ -1127,9 +1128,13 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
         const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
         const text = opt ? opt.text : origSel.value || '';
         const span = document.createElement('span');
-        const statusClass = (origSel.className.match(/\b(pending|confirmed|completed|cancelled)\b/) || [])[0] || '';
-        span.className = 'status-badge-sm' + (statusClass ? ' ' + statusClass : '');
+        span.className = origSel.className; // 保留 status-select + 状态颜色类
         span.textContent = text;
+        // 强制 flex 居中以抵消 .status-select 的 line-height:15px 基线偏移
+        span.style.display = 'inline-flex';
+        span.style.alignItems = 'center';
+        span.style.justifyContent = 'center';
+        span.style.lineHeight = '1';
         cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 
