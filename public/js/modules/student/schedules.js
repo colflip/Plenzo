@@ -24,11 +24,16 @@ window.studentShowPlan = false;
 /**
  * 统一的教师排序函数
  * 规则:
- * 1. 特殊课程类型(评审、咨询)的教师排在最后
- * 2. 其他教师按ID由小到大排序
+ * 1. 优先展示活跃记录，将 modified_away / cancelled 放后
+ * 2. 类型分桶：普通类型 → 评审 → 咨询（最后）
+ * 3. 同档按 teacher_id 升序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
-    // 1. 状态优先级：优先展示非“已调整”和非“已取消”的记录
+    // 优先使用全局统一比较器，保持四个视图行为一致
+    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
+    if (cmp) return cmp(scheduleA, scheduleB);
+
+    // Fallback：脚本未加载时的内联实现
     const getStatus = (item) => (item.status || 'pending').toLowerCase();
     const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
     const inactiveA = isInactive(getStatus(scheduleA));
@@ -45,18 +50,12 @@ function sortTeachersByIdAndType(scheduleA, scheduleB) {
         item.schedule_type || ''
     ).toString();
 
-    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+    const rank = (n) => n.includes('咨询') ? 2 : n.includes('评审') ? 1 : 0;
 
-    const typeA = getTypeName(scheduleA);
-    const typeB = getTypeName(scheduleB);
-    const specialA = isSpecial(typeA);
-    const specialB = isSpecial(typeB);
+    const ra = rank(getTypeName(scheduleA));
+    const rb = rank(getTypeName(scheduleB));
+    if (ra !== rb) return ra - rb;
 
-    // 特殊课程类型排在最后
-    if (specialA && !specialB) return 1;
-    if (!specialA && specialB) return -1;
-
-    // 其他按教师ID由小到大排序
     return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
 }
 

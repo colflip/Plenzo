@@ -538,11 +538,18 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     }
 
     // 排序：有排课的学生在前（按学号升序），无排课的学生在后（按学号升序）
+    // 注意：必须基于本周实际落入网格的排课判断，而不是 schedulesByStudent 键是否存在
+    // —— 该键可能在日期无法归一化或超出当前周时仍被创建，导致误判。
+    const hasWeekSchedule = (studentId) => {
+        const bucket = schedulesByStudent[studentId];
+        if (!bucket) return false;
+        return Object.values(bucket.schedulesByDate).some(list => list && list.length > 0);
+    };
     uniqueStudents.sort((a, b) => {
-        const aHas = !!schedulesByStudent[a.student_id];
-        const bHas = !!schedulesByStudent[b.student_id];
+        const aHas = hasWeekSchedule(a.student_id);
+        const bHas = hasWeekSchedule(b.student_id);
         if (aHas !== bHas) return aHas ? -1 : 1;
-        return (a.student_id || 0) - (b.student_id || 0);
+        return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
     });
 
     if (uniqueStudents.length === 0) {
@@ -585,16 +592,21 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 特殊课程(如评审)放后面
-                    group.sort((a, b) => {
-                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                        const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
-                        const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
-                        if (isSpecA && !isSpecB) return 1;
-                        if (!isSpecA && isSpecB) return -1;
-                        return (a.teacher_id || 0) - (b.teacher_id || 0);
-                    });
+                    // 多人合并显示排序：普通类型→评审→咨询（最后），同档按教师ID升序
+                    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
+                    if (cmp) {
+                        group.sort(cmp);
+                    } else {
+                        group.sort((a, b) => {
+                            const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                            const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                            const rank = (t) => t.includes('咨询') ? 2 : t.includes('评审') ? 1 : 0;
+                            const ra = rank(typeA);
+                            const rb = rank(typeB);
+                            if (ra !== rb) return ra - rb;
+                            return (a.teacher_id || 0) - (b.teacher_id || 0);
+                        });
+                    }
                     cell.appendChild(buildScheduleCard(group));
                 });
             } else {
@@ -699,15 +711,20 @@ function renderMobileScheduleTable(weekDates, schedules) {
         } else {
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach((group, index) => {
-                group.sort((a, b) => {
-                    const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                    const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                    const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
-                    const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
-                    if (isSpecA && !isSpecB) return 1;
-                    if (!isSpecA && isSpecB) return -1;
-                    return (a.teacher_id || 0) - (b.teacher_id || 0);
-                });
+                const cmp = window.ScheduleGroupSort?.compareGroupRecord;
+                if (cmp) {
+                    group.sort(cmp);
+                } else {
+                    group.sort((a, b) => {
+                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                        const rank = (t) => t.includes('咨询') ? 2 : t.includes('评审') ? 1 : 0;
+                        const ra = rank(typeA);
+                        const rb = rank(typeB);
+                        if (ra !== rb) return ra - rb;
+                        return (a.teacher_id || 0) - (b.teacher_id || 0);
+                    });
+                }
 
                 detailsCell.appendChild(buildCompactMobileScheduleCard(group));
 

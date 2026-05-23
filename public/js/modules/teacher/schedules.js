@@ -648,19 +648,8 @@ function buildScheduleCard(group) {
 
     // 排序逻辑改进：
     // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    group.sort((a, b) => {
-        const getStatus = (item) => (item.status || 'pending').toLowerCase();
-        const statusA = getStatus(a);
-        const statusB = getStatus(b);
-        
-        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(statusA);
-        const inactiveB = isInactive(statusB);
-
-        if (inactiveA && !inactiveB) return 1;
-        if (!inactiveA && inactiveB) return -1;
-        return 0;
-    });
+    // 2. 类型分桶：普通→评审→咨询（最后），同档按 student_id 升序
+    group.sort(sortStudentsByIdAndType);
 
     // 2. 排课记录列表 (支持多条合并)
     const listDiv = createElement('div', 'schedule-list');
@@ -945,22 +934,41 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 排序排课记录：特殊类型排最后，其他按学生ID排序
+// 排序排课记录：评审 → 咨询（最后），其他按 student_id 升序
 function sortStudentsByIdAndType(a, b) {
-    // 1. 特殊类型排最后 (评审, 咨询)
-    // 教师端数据可能用 course_type 或 schedule_type
-    const typeA = String(a.schedule_type || a.course_type || '');
-    const typeB = String(b.schedule_type || b.course_type || '');
+    // 1. 状态优先级：活跃记录优先
+    const getStatus = (item) => (item.status || 'pending').toLowerCase();
+    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+    const inactiveA = isInactive(getStatus(a));
+    const inactiveB = isInactive(getStatus(b));
+    if (inactiveA && !inactiveB) return 1;
+    if (!inactiveA && inactiveB) return -1;
 
-    const specialTypes = ['review', 'advisory', 'review-online', 'advisory-online'];
-    const aIsSpecial = specialTypes.includes(typeA);
-    const bIsSpecial = specialTypes.includes(typeB);
+    // 2. 类型分桶（兼容中文 / 英文 code）：普通(0) → 评审(1) → 咨询(2，最后)
+    const cmp = window.ScheduleGroupSort;
+    let rA = 0, rB = 0;
+    if (cmp) {
+        rA = cmp.typeRank(a);
+        rB = cmp.typeRank(b);
+    } else {
+        const REVIEW_CODES = ['review', 'review-online', 'review_online'];
+        const CONSULT_CODES = ['advisory', 'advisory-online', 'advisory_online', 'consult', 'consultation'];
+        const readType = (item) => String(item.schedule_type || item.schedule_type_cn || item.type_name || item.course_type || '');
+        const tA = readType(a);
+        const tB = readType(b);
+        const rank = (t) => {
+            const low = t.toLowerCase();
+            if (t.includes('咨询') || CONSULT_CODES.includes(low)) return 2;
+            if (t.includes('评审') || REVIEW_CODES.includes(low)) return 1;
+            return 0;
+        };
+        rA = rank(tA);
+        rB = rank(tB);
+    }
+    if (rA !== rB) return rA - rB;
 
-    if (aIsSpecial && !bIsSpecial) return 1;
-    if (!aIsSpecial && bIsSpecial) return -1;
-
-    // 2. 按学生ID排序
-    return (a.student_id || 0) - (b.student_id || 0);
+    // 3. 按学生ID升序
+    return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
 }
 
 export function refreshSchedules() {
