@@ -2210,12 +2210,17 @@ function buildAdminScheduleCard(group, student, dateKey) {
                     ev.stopPropagation();
                     menu.remove();
                     if (opt.key !== status) {
-                        // 乐观更新：立即更新 UI 样式
-                        statusBadge.className = 'status-badge-sm ' + opt.key;
-                        statusBadge.textContent = opt.label;
-
-                        // 调用后端更新
-                        await updateScheduleStatus(rec.id, opt.key);
+                        const prevClass = statusBadge.className;
+                        const prevText = statusBadge.textContent;
+                        try {
+                            // 远程优先：先同步数据库，成功后再更新本地UI
+                            await updateScheduleStatus(rec.id, opt.key);
+                            statusBadge.className = 'status-badge-sm ' + opt.key;
+                            statusBadge.textContent = opt.label;
+                        } catch (err) {
+                            statusBadge.className = prevClass;
+                            statusBadge.textContent = prevText;
+                        }
                     }
                 });
                 menu.appendChild(item);

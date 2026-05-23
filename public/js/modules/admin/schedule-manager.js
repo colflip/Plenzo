@@ -828,18 +828,18 @@ function renderWeeklyBody(students, schedules, weekDates) {
     if (!tbody) return;
     if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
 
-    // Sort students by ID ascending (User Request)
-    students.sort((a, b) => (a.id || 0) - (b.id || 0));
-
     // Performance: Use Fragment
     const fragment = document.createDocumentFragment();
     const dateKeys = weekDates.map(toISODate);
+    const dateKeySet = new Set(dateKeys);
 
     const cellIndex = new Map();
+    const scheduledStudentIds = new Set();
     const push = (sid, iso, row) => {
         const k = `${sid}|${iso}`;
         if (!cellIndex.has(k)) cellIndex.set(k, []);
         cellIndex.get(k).push(row);
+        if (dateKeySet.has(iso)) scheduledStudentIds.add(String(sid));
     };
 
     schedules.forEach(s => {
@@ -848,6 +848,14 @@ function renderWeeklyBody(students, schedules, weekDates) {
         else if (s.student_ids) {
             String(s.student_ids).split(',').map(x => x.trim()).filter(Boolean).forEach(id => push(id, iso, s));
         }
+    });
+
+    // Sort: students with schedules first (by ID asc), then students without (by ID asc)
+    students.sort((a, b) => {
+        const aHas = scheduledStudentIds.has(String(a.id));
+        const bHas = scheduledStudentIds.has(String(b.id));
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        return (a.id || 0) - (b.id || 0);
     });
 
     students.forEach(student => {
@@ -1378,30 +1386,26 @@ function buildAdminScheduleCard(group, student, dateKey) {
 export async function updateScheduleStatus(id, newStatus) {
     if (!window.apiUtils) return;
 
-    // 乐观更新：立即更新UI
-    const backup = optimisticUpdate(id, { status: newStatus });
+    const row = document.querySelector(`[data-schedule-id="${id}"]`);
+    if (row) row.classList.add('optimistic-loading');
 
     try {
-        // 后台保存到服务器
+        // 远程优先：先同步到数据库
         await window.apiUtils.put(`/admin/schedules/${id}`, { status: newStatus });
 
-        // 更新内存缓存
+        // 远程成功后再更新本地缓存与UI
         for (const entry of WeeklyDataStore.schedules.values()) {
             if (entry.rows) {
                 const t = entry.rows.find(r => String(r.id) == String(id));
                 if (t) t.status = newStatus;
             }
         }
-
-        // 移除loading状态
-        if (backup.row) {
-            backup.row.classList.remove('optimistic-loading');
-        }
+        optimisticUpdate(id, { status: newStatus });
+        if (row) row.classList.remove('optimistic-loading');
 
         window.apiUtils.showSuccessToast('状态已更新');
     } catch (err) {
-        // 回滚UI
-        rollbackOperation(backup, 'update');
+        if (row) row.classList.remove('optimistic-loading');
         window.apiUtils.showToast('更新状态失败', 'error');
     }
 }

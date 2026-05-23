@@ -304,7 +304,7 @@
             }
         }
 
-        // --- 乐观更新前奏：备份原始数据 ---
+        // --- 备份原始数据，便于失败时回滚 ---
         const backups = [];
         updates.forEach(upd => {
             const rec = state.schedules.find(r => String(r.id) === String(upd.id));
@@ -314,41 +314,41 @@
                     transport_fee: rec.transport_fee,
                     other_fee: rec.other_fee
                 });
-
-                // --- 立即将新值应用到本地数据 ---
-                rec.transport_fee = upd.transport_fee;
-                rec.other_fee = upd.other_fee;
-            }
-
-            // 同步更新跨组件共享的全局每周排课大缓存 (保证其它地方重新读取缓存时能读到最新费用)
-            if (window.ScheduleManager && window.ScheduleManager.WeeklyDataStore && typeof window.ScheduleManager.WeeklyDataStore.updateLocalRecord === 'function') {
-                window.ScheduleManager.WeeklyDataStore.updateLocalRecord({
-                    id: upd.id,
-                    transport_fee: upd.transport_fee,
-                    other_fee: upd.other_fee
-                });
             }
         });
 
-        // 乐观地在网络响应前刷新费用明细表和周表统览
-        renderTable(state.schedules);
-        if (window.ScheduleManager && typeof window.ScheduleManager.loadSchedules === 'function') {
-            // 先尝试内存渲染实现秒开反馈
-            if (typeof window.ScheduleManager.renderCache === 'function') {
-                window.ScheduleManager.renderCache();
-            } else {
-                window.ScheduleManager.loadSchedules(false);
-            }
-        }
-
         try {
-            // Admin端同样可以复用原有的对各别schedule 的 patch 机制，利用 Promise.all 齐发
+            // 远程优先：先同步后端
             await Promise.all(updates.map(upd =>
                 window.apiUtils.patch(`/admin/schedules/${upd.id}/fees`, {
                     transport_fee: upd.transport_fee,
                     other_fee: upd.other_fee,
                 })
             ));
+
+            // 远程成功后再写入本地缓存
+            updates.forEach(upd => {
+                const rec = state.schedules.find(r => String(r.id) === String(upd.id));
+                if (rec) {
+                    rec.transport_fee = upd.transport_fee;
+                    rec.other_fee = upd.other_fee;
+                }
+
+                if (window.ScheduleManager && window.ScheduleManager.WeeklyDataStore && typeof window.ScheduleManager.WeeklyDataStore.updateLocalRecord === 'function') {
+                    window.ScheduleManager.WeeklyDataStore.updateLocalRecord({
+                        id: upd.id,
+                        transport_fee: upd.transport_fee,
+                        other_fee: upd.other_fee
+                    });
+                }
+            });
+
+            renderTable(state.schedules);
+            if (window.ScheduleManager && typeof window.ScheduleManager.renderCache === 'function') {
+                window.ScheduleManager.renderCache();
+            } else if (window.ScheduleManager && typeof window.ScheduleManager.loadSchedules === 'function') {
+                window.ScheduleManager.loadSchedules(false);
+            }
 
             window.apiUtils.showToast('费用保存成功', 'success');
             closeModal();
@@ -369,24 +369,10 @@
                 }
             }
         } catch (err) {
-            
-            window.apiUtils.showToast('保存失败：' + (err.message || '未知错误'), 'error');
 
-            // --- 悲观回滚：网络故障导致未存储成功，逆向还原状态 ---
-            backups.forEach(backup => {
-                const b_rec = state.schedules.find(r => String(r.id) === String(backup.id));
-                if (b_rec) {
-                    b_rec.transport_fee = backup.transport_fee;
-                    b_rec.other_fee = backup.other_fee;
-                }
-            });
-            // 回滚更新视图
-            renderTable(state.schedules);
-            if (window.ScheduleManager && typeof window.ScheduleManager.renderCache === 'function') {
-                window.ScheduleManager.renderCache();
-            } else if (window.ScheduleManager && typeof window.ScheduleManager.loadSchedules === 'function') {
-                window.ScheduleManager.loadSchedules();
-            }
+            window.apiUtils.showToast('保存失败：' + (err.message || '未知错误'), 'error');
+            // 远程未成功，本地缓存未被修改，无需回滚 (backups 留作兼容旧路径)
+            void backups;
         } finally {
             if (saveBtn) {
                 saveBtn.textContent = '保存';
