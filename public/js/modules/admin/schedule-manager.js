@@ -1126,31 +1126,32 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // 排序逻辑改进：
-    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 多人合并显示中，按类型分桶：普通类型→评审→咨询（最后），同档按 teacher_id 升序
+    // 排序逻辑：
+    //   1. 「评审记录 / 咨询记录」类型的记录放最后（最高优先级）
+    //   2. 活跃记录优先（modified_away / cancelled 沉底）
+    //   3. teacher_id 升序
+    //   不同开始时间的记录已在外层 sortedGroups 中按开始时间分卡显示。
     const cmp = window.ScheduleGroupSort?.compareGroupRecord;
     if (cmp) {
         group.sort(cmp);
     } else {
         group.sort((a, b) => {
-            const getStatus = (item) => (item.status || 'pending').toLowerCase();
-            const statusA = getStatus(a);
-            const statusB = getStatus(b);
-
-            const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-            const inactiveA = isInactive(statusA);
-            const inactiveB = isInactive(statusB);
-
-            if (inactiveA && !inactiveB) return 1;
-            if (!inactiveA && inactiveB) return -1;
-
             const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-            const rank = (n) => n.includes('咨询') ? 2 : n.includes('评审') ? 1 : 0;
+            const isRecord = (item) => {
+                const n = getTypeName(item);
+                if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+                return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+            };
+            const rA = isRecord(a) ? 1 : 0;
+            const rB = isRecord(b) ? 1 : 0;
+            if (rA !== rB) return rA - rB;
 
-            const ra = rank(getTypeName(a));
-            const rb = rank(getTypeName(b));
-            if (ra !== rb) return ra - rb;
+            const getStatus = (item) => (item.status || 'pending').toLowerCase();
+            const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+            const inactiveA = isInactive(getStatus(a));
+            const inactiveB = isInactive(getStatus(b));
+            if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+
             return (a.teacher_id || 0) - (b.teacher_id || 0);
         });
     }
