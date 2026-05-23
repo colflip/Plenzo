@@ -537,8 +537,13 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
         });
     }
 
-    // 统一按学号 (student_id) 从小到大排列
-    uniqueStudents.sort((a, b) => a.student_id - b.student_id);
+    // 排序：有排课的学生在前（按学号升序），无排课的学生在后（按学号升序）
+    uniqueStudents.sort((a, b) => {
+        const aHas = !!schedulesByStudent[a.student_id];
+        const bHas = !!schedulesByStudent[b.student_id];
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        return (a.student_id || 0) - (b.student_id || 0);
+    });
 
     if (uniqueStudents.length === 0) {
         const emptyRow = document.createElement('tr');
@@ -896,11 +901,14 @@ function buildScheduleCard(group) {
             const newStatus = e.target.value;
             const oldStatus = statusSelect.dataset.lastStatus;
 
-            statusSelect.className = `status-select ${newStatus}`;
+            statusSelect.disabled = true;
             statusSelect.blur();
 
             try {
+                // 远程优先：先同步数据库
                 await updateScheduleStatus(rec.id, newStatus);
+                // 远程成功后再更新本地UI状态
+                statusSelect.className = `status-select ${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;
                 const feedback = document.getElementById('ssScheduleFeedback');
                 if (feedback) {
@@ -917,6 +925,8 @@ function buildScheduleCard(group) {
                 } else if (window.apiUtils && window.apiUtils.showToast) {
                     window.apiUtils.showToast(err.message || '更新失败', 'error');
                 }
+            } finally {
+                statusSelect.disabled = false;
             }
         });
 

@@ -378,29 +378,27 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
             const newStatus = e.target.value;
             const oldStatus = statusSelect.dataset.lastStatus;
 
-            // 乐观更新 UI
-            statusSelect.className = `status-select chip status-${newStatus}`;
+            statusSelect.disabled = true;
             statusSelect.blur();
 
             try {
+                // 远程优先：先同步数据库
                 await updateScheduleStatus(schedule.id, newStatus);
+                // 远程成功后再更新本地UI
+                statusSelect.className = `status-select chip status-${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;
-                
-                // 找到父级卡片（若需要更新背景色以匹配取消状态）
+
                 if (newStatus === 'cancelled') {
                     card.classList.add('status-cancelled');
                 } else if (oldStatus === 'cancelled') {
-                    // 若从取消状态恢复，则移除（这里可能需检查组内是否还有其他取消的，简化处理为直接移除）
                     card.classList.remove('status-cancelled');
                 }
-                
-                // 显示反馈
+
                 const fb = document.getElementById('scheduleFeedback');
                 if (fb && window.showInlineFeedback) {
                     window.showInlineFeedback(fb, '状态跟新成功', 'success');
                 }
             } catch (err) {
-                // 回滚
                 statusSelect.value = oldStatus;
                 statusSelect.className = `status-select chip status-${oldStatus}`;
                 if (oldStatus === 'cancelled') {
@@ -410,6 +408,8 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
                 if (fb && window.showInlineFeedback) {
                     window.showInlineFeedback(fb, '修改失败，请重试', 'error');
                 }
+            } finally {
+                statusSelect.disabled = false;
             }
         });
 
@@ -725,20 +725,21 @@ function buildScheduleCard(group) {
             const newStatus = e.target.value;
             const oldStatus = statusSelect.dataset.lastStatus;
 
-            // 乐观更新
-            statusSelect.className = `status-select ${newStatus}`;
+            statusSelect.disabled = true;
             statusSelect.blur();
 
             try {
-                // 调用现有的状态更新方法
+                // 远程优先：先同步数据库，成功后再更新本地UI
                 await updateScheduleStatus(rec.id, newStatus);
+                statusSelect.className = `status-select ${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;
                 showInlineFeedback(elements.feedback(), '状态更新成功', 'success');
             } catch (err) {
-                // 回滚
                 statusSelect.value = oldStatus;
                 statusSelect.className = `status-select ${oldStatus}`;
                 showInlineFeedback(elements.feedback(), '更新失败', 'error');
+            } finally {
+                statusSelect.disabled = false;
             }
         });
 
