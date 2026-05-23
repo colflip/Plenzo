@@ -1127,32 +1127,31 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // 排序逻辑改进：
-    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
+    // 排序逻辑：
+    // 1. 评审记录 / 咨询记录 类型的记录沉到最后（最高优先级，普通 评审/咨询 不受影响）
+    // 2. 活跃状态优先：modified_away / cancelled 排在后面
+    // 3. teacher_id 升序
     group.sort((a, b) => {
+        const getTypeName = (item) => (
+            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
+            item.schedule_types || item.schedule_type || item.course_type || ''
+        ).toString();
+        const isRecord = (item) => {
+            const n = getTypeName(item);
+            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+        };
+        const rA = isRecord(a) ? 1 : 0;
+        const rB = isRecord(b) ? 1 : 0;
+        if (rA !== rB) return rA - rB;
+
         const getStatus = (item) => (item.status || 'pending').toLowerCase();
-        const statusA = getStatus(a);
-        const statusB = getStatus(b);
-        
         const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(statusA);
-        const inactiveB = isInactive(statusB);
+        const inactiveA = isInactive(getStatus(a));
+        const inactiveB = isInactive(getStatus(b));
+        if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
 
-        if (inactiveA && !inactiveB) return 1;
-        if (!inactiveA && inactiveB) return -1;
-
-        const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-        const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
-
-        const typeA = getTypeName(a);
-        const typeB = getTypeName(b);
-        const specialA = isSpecial(typeA);
-        const specialB = isSpecial(typeB);
-
-        if (specialA && !specialB) return 1;
-        if (!specialA && specialB) return -1;
-        return (a.teacher_id || 0) - (b.teacher_id || 0);
+        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
     });
 
     const first = group[0];

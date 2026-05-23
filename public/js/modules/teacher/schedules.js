@@ -945,22 +945,29 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 排序排课记录：特殊类型排最后，其他按学生ID排序
+// 教师视图合并组内排序：评审记录 / 咨询记录 沉底，其它按 student_id 升序
 function sortStudentsByIdAndType(a, b) {
-    // 1. 特殊类型排最后 (评审, 咨询)
-    // 教师端数据可能用 course_type 或 schedule_type
-    const typeA = String(a.schedule_type || a.course_type || '');
-    const typeB = String(b.schedule_type || b.course_type || '');
+    const getTypeName = (item) => (
+        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
+        item.schedule_types || item.schedule_type || item.course_type || ''
+    ).toString();
 
-    const specialTypes = ['review', 'advisory', 'review-online', 'advisory-online'];
-    const aIsSpecial = specialTypes.includes(typeA);
-    const bIsSpecial = specialTypes.includes(typeB);
+    const isRecord = (item) => {
+        const n = getTypeName(item);
+        if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+        return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+    };
+    const rA = isRecord(a) ? 1 : 0;
+    const rB = isRecord(b) ? 1 : 0;
+    if (rA !== rB) return rA - rB;
 
-    if (aIsSpecial && !bIsSpecial) return 1;
-    if (!aIsSpecial && bIsSpecial) return -1;
+    const getStatus = (item) => (item.status || 'pending').toLowerCase();
+    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+    const inactiveA = isInactive(getStatus(a));
+    const inactiveB = isInactive(getStatus(b));
+    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
 
-    // 2. 按学生ID排序
-    return (a.student_id || 0) - (b.student_id || 0);
+    return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
 }
 
 export function refreshSchedules() {

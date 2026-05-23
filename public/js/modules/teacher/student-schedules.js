@@ -585,15 +585,21 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 特殊课程(如评审)放后面
+                    // 评审记录 / 咨询记录 类型的记录沉到最后，其它按 teacher_id 升序
                     group.sort((a, b) => {
-                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                        const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
-                        const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
-                        if (isSpecA && !isSpecB) return 1;
-                        if (!isSpecA && isSpecB) return -1;
-                        return (a.teacher_id || 0) - (b.teacher_id || 0);
+                        const getTypeName = (item) => (
+                            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
+                            item.schedule_types || item.schedule_type || item.course_type || ''
+                        ).toString();
+                        const isRecord = (item) => {
+                            const n = getTypeName(item);
+                            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+                            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+                        };
+                        const rA = isRecord(a) ? 1 : 0;
+                        const rB = isRecord(b) ? 1 : 0;
+                        if (rA !== rB) return rA - rB;
+                        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
                     });
                     cell.appendChild(buildScheduleCard(group));
                 });
@@ -700,13 +706,19 @@ function renderMobileScheduleTable(weekDates, schedules) {
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach((group, index) => {
                 group.sort((a, b) => {
-                    const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
-                    const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
-                    const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
-                    const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
-                    if (isSpecA && !isSpecB) return 1;
-                    if (!isSpecA && isSpecB) return -1;
-                    return (a.teacher_id || 0) - (b.teacher_id || 0);
+                    const getTypeName = (item) => (
+                        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
+                        item.schedule_types || item.schedule_type || item.course_type || ''
+                    ).toString();
+                    const isRecord = (item) => {
+                        const n = getTypeName(item);
+                        if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+                        return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+                    };
+                    const rA = isRecord(a) ? 1 : 0;
+                    const rB = isRecord(b) ? 1 : 0;
+                    if (rA !== rB) return rA - rB;
+                    return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
                 });
 
                 detailsCell.appendChild(buildCompactMobileScheduleCard(group));
