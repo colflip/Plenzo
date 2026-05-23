@@ -1031,25 +1031,21 @@ async function handleStudentRowCapture(student, originalTr) {
             feeWrap.style.borderBottomRightRadius = '11px';
         }
     });
+    // html2canvas 无法正确渲染 <select> 内选中项的垂直对齐 —— 文本始终下移。
+    // 改为用 <span class="status-badge-sm"> 替换，复用 .status-badge-sm.<status> 颜色规则。
+    // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
     const origSelects = originalTr.querySelectorAll('select.status-select');
     const cloneSelects = rowClone.querySelectorAll('select.status-select');
-
     origSelects.forEach((origSel, idx) => {
-        if (cloneSelects[idx]) {
-            // 同步真实选管状态
-            cloneSelects[idx].value = origSel.value;
-            cloneSelects[idx].selectedIndex = origSel.selectedIndex;
-            // 剥除控件自带箭头并维持高度
-            cloneSelects[idx].style.appearance = 'none';
-            cloneSelects[idx].style.background = 'none';
-            cloneSelects[idx].style.border = 'none';
-            // 手动锁定居中防止塌陷
-            cloneSelects[idx].style.height = 'auto';
-            cloneSelects[idx].style.lineHeight = '1';
-            cloneSelects[idx].style.textAlign = 'center';
-            cloneSelects[idx].style.padding = '2px 6px';
-            cloneSelects[idx].style.margin = '0';
-        }
+        const cloneSel = cloneSelects[idx];
+        if (!cloneSel) return;
+        const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
+        const text = opt ? opt.text : origSel.value || '';
+        const span = document.createElement('span');
+        const statusClass = (origSel.className.match(/\b(pending|confirmed|completed|cancelled)\b/) || [])[0] || '';
+        span.className = 'status-badge-sm' + (statusClass ? ' ' + statusClass : '');
+        span.textContent = text;
+        cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 
     tbody.appendChild(rowClone);
@@ -1126,35 +1122,33 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // 排序逻辑：
-    //   1. 「评审记录 / 咨询记录」类型的记录放最后（最高优先级）
-    //   2. 活跃记录优先（modified_away / cancelled 沉底）
-    //   3. teacher_id 升序
-    //   不同开始时间的记录已在外层 sortedGroups 中按开始时间分卡显示。
-    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
-    if (cmp) {
-        group.sort(cmp);
-    } else {
-        group.sort((a, b) => {
-            const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-            const isRecord = (item) => {
-                const n = getTypeName(item);
-                if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-                return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-            };
-            const rA = isRecord(a) ? 1 : 0;
-            const rB = isRecord(b) ? 1 : 0;
-            if (rA !== rB) return rA - rB;
+    // 排序逻辑改进：
+    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
+    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
+    group.sort((a, b) => {
+        const getStatus = (item) => (item.status || 'pending').toLowerCase();
+        const statusA = getStatus(a);
+        const statusB = getStatus(b);
+        
+        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+        const inactiveA = isInactive(statusA);
+        const inactiveB = isInactive(statusB);
 
-            const getStatus = (item) => (item.status || 'pending').toLowerCase();
-            const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-            const inactiveA = isInactive(getStatus(a));
-            const inactiveB = isInactive(getStatus(b));
-            if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+        if (inactiveA && !inactiveB) return 1;
+        if (!inactiveA && inactiveB) return -1;
 
-            return (a.teacher_id || 0) - (b.teacher_id || 0);
-        });
-    }
+        const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
+        const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+
+        const typeA = getTypeName(a);
+        const typeB = getTypeName(b);
+        const specialA = isSpecial(typeA);
+        const specialB = isSpecial(typeB);
+
+        if (specialA && !specialB) return 1;
+        if (!specialA && specialB) return -1;
+        return (a.teacher_id || 0) - (b.teacher_id || 0);
+    });
 
     const first = group[0];
 
