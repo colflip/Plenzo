@@ -2122,6 +2122,36 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group || group.length === 0) return document.createElement('div');
+
+    // 组内排序：
+    //   1.「评审记录 / 咨询记录」类型记录沉底（最高优先级）
+    //   2. 活跃状态优先（modified_away / cancelled 沉底）
+    //   3. teacher_id 升序
+    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
+    if (cmp) {
+        group.sort(cmp);
+    } else {
+        group.sort((a, b) => {
+            const getTypeName = (item) => (item.schedule_type_cn || item.schedule_type_name || item.type_name || item.schedule_types || item.schedule_type || item.course_type || '').toString();
+            const isRecord = (item) => {
+                const n = getTypeName(item);
+                if (n.includes('评审记录') || n.includes('咨询记录')) return true;
+                return /(review|consultation|advisory)[\s_-]?record/i.test(n);
+            };
+            const rA = isRecord(a) ? 1 : 0;
+            const rB = isRecord(b) ? 1 : 0;
+            if (rA !== rB) return rA - rB;
+
+            const getStatus = (item) => (item.status || 'pending').toLowerCase();
+            const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+            const inactiveA = isInactive(getStatus(a));
+            const inactiveB = isInactive(getStatus(b));
+            if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+
+            return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
+        });
+    }
+
     const first = group[0];
 
     // 确定卡片背景色：根据时间段决定
