@@ -22,18 +22,21 @@ let scheduleLoadSeq = 0;
 window.studentShowPlan = false;
 
 /**
- * 统一的教师排序函数（多人合并显示卡片内）
+ * 统一的教师排序函数
  * 规则:
- * 1. 「评审记录 / 咨询记录」类型最后显示（最高优先级）
- * 2. 活跃记录优先（modified_away / cancelled 沉底）
- * 3. teacher_id 升序
+ * 1. 特殊课程类型(评审、咨询)的教师排在最后
+ * 2. 其他教师按ID由小到大排序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
-    // 优先使用全局统一比较器，保持四个视图行为一致
-    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
-    if (cmp) return cmp(scheduleA, scheduleB);
+    // 1. 状态优先级：优先展示非“已调整”和非“已取消”的记录
+    const getStatus = (item) => (item.status || 'pending').toLowerCase();
+    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+    const inactiveA = isInactive(getStatus(scheduleA));
+    const inactiveB = isInactive(getStatus(scheduleB));
 
-    // Fallback：脚本未加载时的内联实现
+    if (inactiveA && !inactiveB) return 1;
+    if (!inactiveA && inactiveB) return -1;
+
     const getTypeName = (item) => (
         item.schedule_type_name ||
         item.type_name ||
@@ -42,19 +45,18 @@ function sortTeachersByIdAndType(scheduleA, scheduleB) {
         item.schedule_type || ''
     ).toString();
 
-    const isRec = (n) => n.includes('评审记录') || n.includes('咨询记录') ||
-        /(review|consultation|advisory)[\s_-]?record/i.test(n);
+    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
 
-    const rA = isRec(getTypeName(scheduleA)) ? 1 : 0;
-    const rB = isRec(getTypeName(scheduleB)) ? 1 : 0;
-    if (rA !== rB) return rA - rB;
+    const typeA = getTypeName(scheduleA);
+    const typeB = getTypeName(scheduleB);
+    const specialA = isSpecial(typeA);
+    const specialB = isSpecial(typeB);
 
-    const getStatus = (item) => (item.status || 'pending').toLowerCase();
-    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-    const inactiveA = isInactive(getStatus(scheduleA));
-    const inactiveB = isInactive(getStatus(scheduleB));
-    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+    // 特殊课程类型排在最后
+    if (specialA && !specialB) return 1;
+    if (!specialA && specialB) return -1;
 
+    // 其他按教师ID由小到大排序
     return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
 }
 

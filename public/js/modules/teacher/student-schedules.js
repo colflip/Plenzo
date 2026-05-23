@@ -538,18 +538,11 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     }
 
     // 排序：有排课的学生在前（按学号升序），无排课的学生在后（按学号升序）
-    // 注意：必须基于本周实际落入网格的排课判断，而不是 schedulesByStudent 键是否存在
-    // —— 该键可能在日期无法归一化或超出当前周时仍被创建，导致误判。
-    const hasWeekSchedule = (studentId) => {
-        const bucket = schedulesByStudent[studentId];
-        if (!bucket) return false;
-        return Object.values(bucket.schedulesByDate).some(list => list && list.length > 0);
-    };
     uniqueStudents.sort((a, b) => {
-        const aHas = hasWeekSchedule(a.student_id);
-        const bHas = hasWeekSchedule(b.student_id);
+        const aHas = !!schedulesByStudent[a.student_id];
+        const bHas = !!schedulesByStudent[b.student_id];
         if (aHas !== bHas) return aHas ? -1 : 1;
-        return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
+        return (a.student_id || 0) - (b.student_id || 0);
     });
 
     if (uniqueStudents.length === 0) {
@@ -592,21 +585,16 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 合并组内排序：「评审记录/咨询记录」放最后 → 活跃优先 → teacher_id 升序
-                    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
-                    if (cmp) {
-                        group.sort(cmp);
-                    } else {
-                        group.sort((a, b) => {
-                            const typeA = (a.schedule_type_cn || a.schedule_type || a.type_name || '').toString();
-                            const typeB = (b.schedule_type_cn || b.schedule_type || b.type_name || '').toString();
-                            const isRec = (t) => t.includes('评审记录') || t.includes('咨询记录') || /(review|consultation|advisory)[\s_-]?record/i.test(t);
-                            const rA = isRec(typeA) ? 1 : 0;
-                            const rB = isRec(typeB) ? 1 : 0;
-                            if (rA !== rB) return rA - rB;
-                            return (a.teacher_id || 0) - (b.teacher_id || 0);
-                        });
-                    }
+                    // 特殊课程(如评审)放后面
+                    group.sort((a, b) => {
+                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                        const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
+                        const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
+                        if (isSpecA && !isSpecB) return 1;
+                        if (!isSpecA && isSpecB) return -1;
+                        return (a.teacher_id || 0) - (b.teacher_id || 0);
+                    });
                     cell.appendChild(buildScheduleCard(group));
                 });
             } else {
@@ -711,20 +699,15 @@ function renderMobileScheduleTable(weekDates, schedules) {
         } else {
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach((group, index) => {
-                const cmp = window.ScheduleGroupSort?.compareGroupRecord;
-                if (cmp) {
-                    group.sort(cmp);
-                } else {
-                    group.sort((a, b) => {
-                        const typeA = (a.schedule_type_cn || a.schedule_type || a.type_name || '').toString();
-                        const typeB = (b.schedule_type_cn || b.schedule_type || b.type_name || '').toString();
-                        const isRec = (t) => t.includes('评审记录') || t.includes('咨询记录') || /(review|consultation|advisory)[\s_-]?record/i.test(t);
-                        const rA = isRec(typeA) ? 1 : 0;
-                        const rB = isRec(typeB) ? 1 : 0;
-                        if (rA !== rB) return rA - rB;
-                        return (a.teacher_id || 0) - (b.teacher_id || 0);
-                    });
-                }
+                group.sort((a, b) => {
+                    const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                    const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                    const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
+                    const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
+                    if (isSpecA && !isSpecB) return 1;
+                    if (!isSpecA && isSpecB) return -1;
+                    return (a.teacher_id || 0) - (b.teacher_id || 0);
+                });
 
                 detailsCell.appendChild(buildCompactMobileScheduleCard(group));
 
@@ -1133,24 +1116,21 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
             feeWrap.style.borderBottomRightRadius = '11px';
         }
     });
+    // html2canvas 无法正确渲染 <select> 内选中项的垂直对齐 —— 文本始终下移。
+    // 改为用 <span class="status-badge-sm"> 替换，复用 .status-badge-sm.<status> 颜色规则。
+    // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
     const origSelects = originalTr.querySelectorAll('select.status-select');
     const cloneSelects = rowClone.querySelectorAll('select.status-select');
-
     origSelects.forEach((origSel, idx) => {
-        if (cloneSelects[idx]) {
-            // 同步真实状态
-            cloneSelects[idx].value = origSel.value;
-            cloneSelects[idx].selectedIndex = origSel.selectedIndex;
-            // 剥除控件自带箭头并维持高度与居中，避免向下偏移
-            cloneSelects[idx].style.appearance = 'none';
-            cloneSelects[idx].style.background = 'none';
-            cloneSelects[idx].style.border = 'none';
-            cloneSelects[idx].style.height = 'auto';
-            cloneSelects[idx].style.lineHeight = '1';
-            cloneSelects[idx].style.textAlign = 'center';
-            cloneSelects[idx].style.padding = '2px 6px';
-            cloneSelects[idx].style.margin = '0';
-        }
+        const cloneSel = cloneSelects[idx];
+        if (!cloneSel) return;
+        const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
+        const text = opt ? opt.text : origSel.value || '';
+        const span = document.createElement('span');
+        const statusClass = (origSel.className.match(/\b(pending|confirmed|completed|cancelled)\b/) || [])[0] || '';
+        span.className = 'status-badge-sm' + (statusClass ? ' ' + statusClass : '');
+        span.textContent = text;
+        cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 
     tbody.appendChild(rowClone);

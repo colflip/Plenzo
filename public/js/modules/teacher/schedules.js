@@ -648,8 +648,19 @@ function buildScheduleCard(group) {
 
     // 排序逻辑改进：
     // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 类型分桶：普通→评审→咨询（最后），同档按 student_id 升序
-    group.sort(sortStudentsByIdAndType);
+    group.sort((a, b) => {
+        const getStatus = (item) => (item.status || 'pending').toLowerCase();
+        const statusA = getStatus(a);
+        const statusB = getStatus(b);
+        
+        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+        const inactiveA = isInactive(statusA);
+        const inactiveB = isInactive(statusB);
+
+        if (inactiveA && !inactiveB) return 1;
+        if (!inactiveA && inactiveB) return -1;
+        return 0;
+    });
 
     // 2. 排课记录列表 (支持多条合并)
     const listDiv = createElement('div', 'schedule-list');
@@ -934,32 +945,22 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 排序排课记录（教师视图，合并组内）：
-//   1. 「评审记录 / 咨询记录」类型最后（最高优先级）
-//   2. 活跃记录优先
-//   3. student_id 升序
+// 排序排课记录：特殊类型排最后，其他按学生ID排序
 function sortStudentsByIdAndType(a, b) {
-    const cmp = window.ScheduleGroupSort?.compareGroupRecordByStudent;
-    if (cmp) return cmp(a, b);
+    // 1. 特殊类型排最后 (评审, 咨询)
+    // 教师端数据可能用 course_type 或 schedule_type
+    const typeA = String(a.schedule_type || a.course_type || '');
+    const typeB = String(b.schedule_type || b.course_type || '');
 
-    // Fallback
-    const readType = (item) => String(
-        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-        item.schedule_type || item.course_type || ''
-    );
-    const isRec = (n) => n.includes('评审记录') || n.includes('咨询记录') ||
-        /(review|consultation|advisory)[\s_-]?record/i.test(n);
-    const rA = isRec(readType(a)) ? 1 : 0;
-    const rB = isRec(readType(b)) ? 1 : 0;
-    if (rA !== rB) return rA - rB;
+    const specialTypes = ['review', 'advisory', 'review-online', 'advisory-online'];
+    const aIsSpecial = specialTypes.includes(typeA);
+    const bIsSpecial = specialTypes.includes(typeB);
 
-    const getStatus = (item) => (item.status || 'pending').toLowerCase();
-    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-    const inactiveA = isInactive(getStatus(a));
-    const inactiveB = isInactive(getStatus(b));
-    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+    if (aIsSpecial && !bIsSpecial) return 1;
+    if (!aIsSpecial && bIsSpecial) return -1;
 
-    return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
+    // 2. 按学生ID排序
+    return (a.student_id || 0) - (b.student_id || 0);
 }
 
 export function refreshSchedules() {
