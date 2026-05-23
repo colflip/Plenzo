@@ -1128,31 +1128,32 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
     // 排序逻辑改进：
     // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
-    group.sort((a, b) => {
-        const getStatus = (item) => (item.status || 'pending').toLowerCase();
-        const statusA = getStatus(a);
-        const statusB = getStatus(b);
-        
-        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(statusA);
-        const inactiveB = isInactive(statusB);
+    // 2. 多人合并显示中，按类型分桶：普通类型→评审→咨询（最后），同档按 teacher_id 升序
+    const cmp = window.ScheduleGroupSort?.compareGroupRecord;
+    if (cmp) {
+        group.sort(cmp);
+    } else {
+        group.sort((a, b) => {
+            const getStatus = (item) => (item.status || 'pending').toLowerCase();
+            const statusA = getStatus(a);
+            const statusB = getStatus(b);
 
-        if (inactiveA && !inactiveB) return 1;
-        if (!inactiveA && inactiveB) return -1;
+            const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
+            const inactiveA = isInactive(statusA);
+            const inactiveB = isInactive(statusB);
 
-        const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-        const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+            if (inactiveA && !inactiveB) return 1;
+            if (!inactiveA && inactiveB) return -1;
 
-        const typeA = getTypeName(a);
-        const typeB = getTypeName(b);
-        const specialA = isSpecial(typeA);
-        const specialB = isSpecial(typeB);
+            const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
+            const rank = (n) => n.includes('咨询') ? 2 : n.includes('评审') ? 1 : 0;
 
-        if (specialA && !specialB) return 1;
-        if (!specialA && specialB) return -1;
-        return (a.teacher_id || 0) - (b.teacher_id || 0);
-    });
+            const ra = rank(getTypeName(a));
+            const rb = rank(getTypeName(b));
+            if (ra !== rb) return ra - rb;
+            return (a.teacher_id || 0) - (b.teacher_id || 0);
+        });
+    }
 
     const first = group[0];
 
