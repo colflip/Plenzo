@@ -19,27 +19,12 @@ window.toggleAdminFeeVisibility = function () {
     if (btnText) {
         btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
     }
-
     if (toggleBtn) {
-        // 维持与“添加排课”一致的主调色 (#2ECC71)
-        const primaryColor = '#2ECC71';
-        toggleBtn.style.backgroundColor = primaryColor;
-        toggleBtn.style.color = 'white';
-        toggleBtn.style.borderColor = primaryColor;
-
-        if (window.adminFeeShow) {
-            toggleBtn.classList.add('fee-active');
-        } else {
-            toggleBtn.classList.remove('fee-active');
-        }
+        toggleBtn.classList.toggle('is-on', window.adminFeeShow);
     }
 
     // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
-    if (!window.adminFeeShow) {
-        document.body.classList.add('global-hide-admin-fee');
-    } else {
-        document.body.classList.remove('global-hide-admin-fee');
-    }
+    document.body.classList.toggle('global-hide-admin-fee', !window.adminFeeShow);
 };
 
 window.toggleAdminShowPlan = async function () {
@@ -50,13 +35,8 @@ window.toggleAdminShowPlan = async function () {
     if (btnText) {
         btnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     }
-
     if (toggleBtn) {
-        if (window.adminShowPlan) {
-            toggleBtn.classList.add('fee-active');
-        } else {
-            toggleBtn.classList.remove('fee-active');
-        }
+        toggleBtn.classList.toggle('is-on', window.adminShowPlan);
     }
 
     // 重新从后端拉取全量数据，因为过滤是在后端执行的
@@ -73,27 +53,16 @@ window.toggleAdminShowPlan = async function () {
 },
 
 // 挂载顶层全局显隐费用按钮的初始绘制UI
-// This part needs to be called when the page initializes or data is loaded.
-// For now, placing it here as a global setup.
 document.addEventListener('DOMContentLoaded', () => {
     const btnText = document.getElementById('adminFeeBtnText');
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
     if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    if (toggleBtn) {
-        // 初始化时也确保使用统一的主题色
-        toggleBtn.style.backgroundColor = '#2ECC71';
-        toggleBtn.style.color = 'white';
-        toggleBtn.style.borderColor = '#2ECC71';
-    }
+    if (toggleBtn) toggleBtn.classList.toggle('is-on', window.adminFeeShow);
 
     const showPlanBtn = document.getElementById('toggleShowPlanBtn');
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (showPlanBtn) {
-        showPlanBtn.style.backgroundColor = '#2ECC71';
-        showPlanBtn.style.color = 'white';
-        showPlanBtn.style.borderColor = '#2ECC71';
-    }
+    if (showPlanBtn) showPlanBtn.classList.toggle('is-on', window.adminShowPlan);
 
     // 绑定事件
     if (toggleBtn) toggleBtn.onclick = window.toggleAdminFeeVisibility;
@@ -112,9 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 初始化一次状态
-    if (!window.adminFeeShow) {
-        document.body.classList.add('global-hide-admin-fee');
-    }
+    document.body.classList.toggle('global-hide-admin-fee', !window.adminFeeShow);
 });
 
 

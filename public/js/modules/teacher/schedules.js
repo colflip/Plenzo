@@ -60,17 +60,7 @@ function syncTeacherFeeButton() {
     const btn = document.getElementById('toggleTeacherFeeBtn');
     const text = document.getElementById('teacherFeeBtnText');
     if (text) text.textContent = window.teacherFeeShow ? '隐藏费用' : '显示费用';
-    if (btn) {
-        if (window.teacherFeeShow) {
-            btn.classList.add('fee-active');
-            btn.style.backgroundColor = '#2ECC71';
-            btn.style.color = 'white';
-        } else {
-            btn.classList.remove('fee-active');
-            btn.style.backgroundColor = 'white';
-            btn.style.color = '#2ECC71';
-        }
-    }
+    if (btn) btn.classList.toggle('is-on', !!window.teacherFeeShow);
 }
 
 function initFeeToggle() {
@@ -95,11 +85,7 @@ function syncShowPlanButton() {
     const btn = document.getElementById('toggleTeacherShowPlanBtn');
     const text = document.getElementById('teacherShowPlanBtnText');
     if (text) text.textContent = window.teacherShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (btn) {
-        btn.classList.toggle('fee-active', window.teacherShowPlan);
-        btn.style.backgroundColor = '#2ECC71';
-        btn.style.color = 'white';
-    }
+    if (btn) btn.classList.toggle('is-on', !!window.teacherShowPlan);
 }
 
 function bindNavigation() {
