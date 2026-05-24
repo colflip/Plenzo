@@ -31,15 +31,7 @@ window.toggleTeacherStudentFeeVisibility = function () {
         btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
     }
     if (toggleBtn) {
-        if (window.teacherStudentFeeShow) {
-            toggleBtn.classList.add('fee-active');
-            toggleBtn.style.backgroundColor = '#2ECC71';
-            toggleBtn.style.color = 'white';
-        } else {
-            toggleBtn.classList.remove('fee-active');
-            toggleBtn.style.backgroundColor = 'white';
-            toggleBtn.style.color = '#2ECC71';
-        }
+        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
     }
 
     // 重新渲染当前页的记录，使得费用新增按钮根据状态展示或隐藏
@@ -57,11 +49,7 @@ function syncShowPlanButton() {
     const btnText = document.getElementById('teacherStudentShowPlanBtnText');
     const toggleBtn = document.getElementById('toggleTeacherStudentShowPlanBtn');
     if (btnText) btnText.textContent = window.teacherStudentShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('fee-active', window.teacherStudentShowPlan);
-        toggleBtn.style.backgroundColor = '#2ECC71';
-        toggleBtn.style.color = 'white';
-    }
+    if (toggleBtn) toggleBtn.classList.toggle('is-on', !!window.teacherStudentShowPlan);
 }
 
 function getAdjustmentType(rec) {
@@ -114,15 +102,7 @@ export async function initStudentSchedulesSection() {
             toggleBtn.addEventListener('click', window.toggleTeacherStudentFeeVisibility);
             toggleBtn.__feeToggleBound = true;
         }
-        if (window.teacherStudentFeeShow) {
-            toggleBtn.classList.add('fee-active');
-            toggleBtn.style.backgroundColor = '#2ECC71';
-            toggleBtn.style.color = 'white';
-        } else {
-            toggleBtn.classList.remove('fee-active');
-            toggleBtn.style.backgroundColor = 'white';
-            toggleBtn.style.color = '#2ECC71';
-        }
+        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
     }
     syncShowPlanButton();
     bindNavigation();
@@ -131,8 +111,6 @@ export async function initStudentSchedulesSection() {
     // 绑定导出学生数据按钮
     const exportBtn = document.getElementById('exportTeacherStudentsBtn');
     if (exportBtn) {
-        exportBtn.style.backgroundColor = '#2ECC71';
-        exportBtn.style.color = 'white';
         if (!exportBtn.__exportBound) {
             exportBtn.addEventListener('click', exportTeacherStudents);
             exportBtn.__exportBound = true;
