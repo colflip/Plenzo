@@ -19,8 +19,8 @@ let cachedSchedules = [];
 let cachedStudents = [];
 let scheduleLoadSeq = 0;
 
-// 全局：班主任学生排课的显示费用开关，默认进入页面即由于要求显示费用
-window.teacherStudentFeeShow = true;
+// 全局：班主任学生排课的显示费用开关，默认隐藏
+window.teacherStudentFeeShow = false;
 window.teacherStudentShowPlan = false;
 
 window.toggleTeacherStudentFeeVisibility = function () {
@@ -118,6 +118,10 @@ export async function initStudentSchedulesSection() {
             toggleBtn.classList.add('fee-active');
             toggleBtn.style.backgroundColor = '#2ECC71';
             toggleBtn.style.color = 'white';
+        } else {
+            toggleBtn.classList.remove('fee-active');
+            toggleBtn.style.backgroundColor = 'white';
+            toggleBtn.style.color = '#2ECC71';
         }
     }
     syncShowPlanButton();
