@@ -1005,7 +1005,8 @@
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
                                 导出数据
                             </button>
-                            <button id="exportWeeklyViewBtn" class="primary-btn" style="margin-left: 8px;">
+                            <button id="exportWeeklyViewBtn" class="primary-btn"
+                                style="margin-left: 8px;" onclick="window.exportWeeklyScheduleView && window.exportWeeklyScheduleView()">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">image</span>
                                 导出本周视图
                             </button>
@@ -1123,7 +1124,7 @@
     <script src="/js/components/toast.js"></script>
     <script src="/js/components/export-manager.js?v=1"></script>
     <script src="/js/components/export-dialog.js"></script>
-    <script src="/js/modules/admin/ui-helper.js"></script>
+    <script type="module" src="/js/modules/admin/ui-helper.js"></script>
     <script type="module" src="/js/modules/teacher/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>
 

@@ -1390,8 +1390,8 @@ async function generateAndCopyWeeklyView(targetStudent) {
     const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成本周视图...', 'info', 0) : null;
 
     const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
-    const startDate = toISODate(weekDates[0]);
-    const endDate = toISODate(weekDates[weekDates.length - 1]);
+    const startDateObj = weekDates[0];
+    const endDateObj = weekDates[weekDates.length - 1];
 
     // 1. 过滤出本周 + 该学生的排课
     const adaptedRows = cachedSchedules
@@ -1418,9 +1418,10 @@ async function generateAndCopyWeeklyView(targetStudent) {
 
     // 2. 复用 ExportManager.transformExportData（参数对齐"导出数据"按钮：
     //    type=teacher_schedule + exportContext=head_teacher_students）
+    //    注意：startDate/endDate 必须是 Date 对象（统计表会调用 toLocaleDateString）
     const state = {
-        startDate,
-        endDate,
+        startDate: startDateObj,
+        endDate: endDateObj,
         selectedType: 'teacher_schedule',
         exportContext: 'head_teacher_students'
     };
