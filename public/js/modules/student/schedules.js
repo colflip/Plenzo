@@ -22,37 +22,42 @@ let scheduleLoadSeq = 0;
 window.studentShowPlan = false;
 
 /**
- * 合并组内教师排序：
- * 1. 评审记录 / 咨询记录 类型沉到最后（最高优先级；普通 评审/咨询 不受影响）
- * 2. 活跃记录优先（modified_away / cancelled 沉底）
- * 3. teacher_id 升序
+ * 统一的教师排序函数
+ * 规则:
+ * 1. 特殊课程类型(评审、咨询)的教师排在最后
+ * 2. 其他教师按ID由小到大排序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
-    const getTypeName = (item) => (
-        item.schedule_type_cn ||
-        item.schedule_type_name ||
-        item.type_name ||
-        item.schedule_types ||
-        item.schedule_type ||
-        item.course_type || ''
-    ).toString();
-
-    const isRecord = (item) => {
-        const n = getTypeName(item);
-        if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-        return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-    };
-    const rA = isRecord(scheduleA) ? 1 : 0;
-    const rB = isRecord(scheduleB) ? 1 : 0;
-    if (rA !== rB) return rA - rB;
-
+    // 1. 状态优先级：优先展示非“已调整”和非“已取消”的记录
     const getStatus = (item) => (item.status || 'pending').toLowerCase();
     const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
     const inactiveA = isInactive(getStatus(scheduleA));
     const inactiveB = isInactive(getStatus(scheduleB));
-    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
 
-    return (Number(scheduleA.teacher_id) || 0) - (Number(scheduleB.teacher_id) || 0);
+    if (inactiveA && !inactiveB) return 1;
+    if (!inactiveA && inactiveB) return -1;
+
+    const getTypeName = (item) => (
+        item.schedule_type_name ||
+        item.type_name ||
+        item.schedule_type_cn ||
+        item.schedule_types ||
+        item.schedule_type || ''
+    ).toString();
+
+    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+
+    const typeA = getTypeName(scheduleA);
+    const typeB = getTypeName(scheduleB);
+    const specialA = isSpecial(typeA);
+    const specialB = isSpecial(typeB);
+
+    // 特殊课程类型排在最后
+    if (specialA && !specialB) return 1;
+    if (!specialA && specialB) return -1;
+
+    // 其他按教师ID由小到大排序
+    return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
 }
 
 const elements = {
