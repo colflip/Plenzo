@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="/css/modules/dashboard.css">
     <link rel="stylesheet" href="/css/modules/dashboard_mobile_fix.css">
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
-    <link rel="stylesheet" href="/css/components/toolbar-toggle.css">
     <style>
         /* 全局样式 - Copied from Admin Dashboard */
         :root {
@@ -866,7 +865,7 @@
                 <!-- Schedules Section -->
                 <section id="schedules" class="dashboard-section">
                     <div class="header-toolbar schedule-controls">
-                        <div class="sch-controls-left" style="display:flex; gap:8px; align-items:center;">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
                                 <button id="prevWeek" class="nav-btn">
                                     <span class="material-icons-round">chevron_left</span>
@@ -876,13 +875,9 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="toggleTeacherFeeBtn" class="toolbar-toggle">
-                                <span class="btn-yuan">¥</span>
-                                <span class="btn-label" id="teacherFeeBtnText">显示费用</span>
-                            </button>
-                            <button id="toggleTeacherShowPlanBtn" class="toolbar-toggle" onclick="window.toggleTeacherShowPlan && window.toggleTeacherShowPlan()">
-                                <span class="material-icons-round btn-icon">visibility</span>
-                                <span class="btn-label" id="teacherShowPlanBtnText">显示全部安排</span>
+                            <button id="toggleTeacherShowPlanBtn" class="primary-btn" style="margin-left:8px;" onclick="window.toggleTeacherShowPlan && window.toggleTeacherShowPlan()">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
+                                <span id="teacherShowPlanBtnText">显示全部安排</span>
                             </button>
                         </div>
                     </div>
@@ -987,7 +982,7 @@
                 <!-- 班主任学生课程安排 -->
                 <section id="student-schedules" class="dashboard-section">
                     <div class="header-toolbar schedule-controls">
-                        <div class="sch-controls-left" style="display:flex; gap:8px; align-items:center;">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
                                 <button id="ssPrevWeek" class="nav-btn">
                                     <span class="material-icons-round">chevron_left</span>
@@ -997,17 +992,22 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="toggleTeacherStudentFeeBtn" class="toolbar-toggle">
-                                <span class="btn-yuan">¥</span>
-                                <span class="btn-label" id="teacherStudentFeeBtnText">显示费用</span>
+                            <button id="toggleTeacherStudentFeeBtn" class="primary-btn" style="margin-left:8px;">
+                                <span style="font-style: normal; font-size: 14px; font-weight: 500;">¥</span>&nbsp;<span
+                                    id="teacherStudentFeeBtnText">显示费用</span>
                             </button>
-                            <button id="toggleTeacherStudentShowPlanBtn" class="toolbar-toggle" onclick="window.toggleTeacherStudentShowPlan && window.toggleTeacherStudentShowPlan()">
-                                <span class="material-icons-round btn-icon">visibility</span>
-                                <span class="btn-label" id="teacherStudentShowPlanBtnText">显示全部安排</span>
+                            <button id="toggleTeacherStudentShowPlanBtn" class="primary-btn" style="margin-left:8px;" onclick="window.toggleTeacherStudentShowPlan && window.toggleTeacherStudentShowPlan()">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
+                                <span id="teacherStudentShowPlanBtnText">显示全部安排</span>
                             </button>
-                            <button id="exportTeacherStudentsBtn" class="primary-btn" onclick="window.exportTeacherStudents && window.exportTeacherStudents()">
-                                <span class="material-icons-round btn-icon">download</span>
-                                <span class="btn-label">导出数据</span>
+                            <button id="exportTeacherStudentsBtn" class="primary-btn"
+                                style="margin-left: 8px;" onclick="window.exportTeacherStudents && window.exportTeacherStudents()">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                                导出数据
+                            </button>
+                            <button id="exportWeeklyViewBtn" class="primary-btn" style="margin-left: 8px;">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">image</span>
+                                导出本周视图
                             </button>
                         </div>
                     </div>

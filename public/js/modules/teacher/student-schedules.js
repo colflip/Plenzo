@@ -19,8 +19,8 @@ let cachedSchedules = [];
 let cachedStudents = [];
 let scheduleLoadSeq = 0;
 
-// 全局：班主任学生排课的显示费用开关，默认隐藏
-window.teacherStudentFeeShow = false;
+// 全局：班主任学生排课的显示费用开关，默认进入页面即由于要求显示费用
+window.teacherStudentFeeShow = true;
 window.teacherStudentShowPlan = false;
 
 window.toggleTeacherStudentFeeVisibility = function () {
@@ -31,7 +31,15 @@ window.toggleTeacherStudentFeeVisibility = function () {
         btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
     }
     if (toggleBtn) {
-        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
+        if (window.teacherStudentFeeShow) {
+            toggleBtn.classList.add('fee-active');
+            toggleBtn.style.backgroundColor = '#2ECC71';
+            toggleBtn.style.color = 'white';
+        } else {
+            toggleBtn.classList.remove('fee-active');
+            toggleBtn.style.backgroundColor = 'white';
+            toggleBtn.style.color = '#2ECC71';
+        }
     }
 
     // 重新渲染当前页的记录，使得费用新增按钮根据状态展示或隐藏
@@ -49,7 +57,11 @@ function syncShowPlanButton() {
     const btnText = document.getElementById('teacherStudentShowPlanBtnText');
     const toggleBtn = document.getElementById('toggleTeacherStudentShowPlanBtn');
     if (btnText) btnText.textContent = window.teacherStudentShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (toggleBtn) toggleBtn.classList.toggle('is-on', !!window.teacherStudentShowPlan);
+    if (toggleBtn) {
+        toggleBtn.classList.toggle('fee-active', window.teacherStudentShowPlan);
+        toggleBtn.style.backgroundColor = '#2ECC71';
+        toggleBtn.style.color = 'white';
+    }
 }
 
 function getAdjustmentType(rec) {
@@ -102,15 +114,32 @@ export async function initStudentSchedulesSection() {
             toggleBtn.addEventListener('click', window.toggleTeacherStudentFeeVisibility);
             toggleBtn.__feeToggleBound = true;
         }
-        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
+        if (window.teacherStudentFeeShow) {
+            toggleBtn.classList.add('fee-active');
+            toggleBtn.style.backgroundColor = '#2ECC71';
+            toggleBtn.style.color = 'white';
+        }
     }
     syncShowPlanButton();
     bindNavigation();
     bindFeeModalEvents();
 
+    // 绑定导出本周视图按钮
+    const exportViewBtn = document.getElementById('exportWeeklyViewBtn');
+    if (exportViewBtn) {
+        exportViewBtn.style.backgroundColor = '#8B5CF6';
+        exportViewBtn.style.color = 'white';
+        if (!exportViewBtn.__exportViewBound) {
+            exportViewBtn.addEventListener('click', exportWeeklyScheduleView);
+            exportViewBtn.__exportViewBound = true;
+        }
+    }
+
     // 绑定导出学生数据按钮
     const exportBtn = document.getElementById('exportTeacherStudentsBtn');
     if (exportBtn) {
+        exportBtn.style.backgroundColor = '#2ECC71';
+        exportBtn.style.color = 'white';
         if (!exportBtn.__exportBound) {
             exportBtn.addEventListener('click', exportTeacherStudents);
             exportBtn.__exportBound = true;
@@ -567,21 +596,15 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 评审记录 / 咨询记录 类型的记录沉到最后，其它按 teacher_id 升序
+                    // 特殊课程(如评审)放后面
                     group.sort((a, b) => {
-                        const getTypeName = (item) => (
-                            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-                            item.schedule_types || item.schedule_type || item.course_type || ''
-                        ).toString();
-                        const isRecord = (item) => {
-                            const n = getTypeName(item);
-                            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-                            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-                        };
-                        const rA = isRecord(a) ? 1 : 0;
-                        const rB = isRecord(b) ? 1 : 0;
-                        if (rA !== rB) return rA - rB;
-                        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
+                        const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                        const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                        const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
+                        const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
+                        if (isSpecA && !isSpecB) return 1;
+                        if (!isSpecA && isSpecB) return -1;
+                        return (a.teacher_id || 0) - (b.teacher_id || 0);
                     });
                     cell.appendChild(buildScheduleCard(group));
                 });
@@ -688,19 +711,13 @@ function renderMobileScheduleTable(weekDates, schedules) {
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach((group, index) => {
                 group.sort((a, b) => {
-                    const getTypeName = (item) => (
-                        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-                        item.schedule_types || item.schedule_type || item.course_type || ''
-                    ).toString();
-                    const isRecord = (item) => {
-                        const n = getTypeName(item);
-                        if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-                        return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-                    };
-                    const rA = isRecord(a) ? 1 : 0;
-                    const rB = isRecord(b) ? 1 : 0;
-                    if (rA !== rB) return rA - rB;
-                    return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
+                    const typeA = (a.schedule_type_cn || a.schedule_type || '').toString();
+                    const typeB = (b.schedule_type_cn || b.schedule_type || '').toString();
+                    const isSpecA = typeA.includes('评审') || typeA.includes('咨询');
+                    const isSpecB = typeB.includes('评审') || typeB.includes('咨询');
+                    if (isSpecA && !isSpecB) return 1;
+                    if (!isSpecA && isSpecB) return -1;
+                    return (a.teacher_id || 0) - (b.teacher_id || 0);
                 });
 
                 detailsCell.appendChild(buildCompactMobileScheduleCard(group));
@@ -1200,3 +1217,197 @@ async function exportTeacherStudents() {
 
 // 暴露到全局，供按钮事件调用
 window.exportTeacherStudents = exportTeacherStudents;
+
+/**
+ * 导出本周课程安排视图为图片
+ */
+async function exportWeeklyScheduleView() {
+    if (!window.html2canvas) {
+        if (window.apiUtils) {
+            window.apiUtils.showToast('截图组件 (html2canvas) 加载失败，请检查网络或联系管理员。', 'error');
+        }
+        return;
+    }
+
+    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成本周视图...', 'info', 0) : null;
+
+    try {
+        // 1. 准备数据：按日期分组
+        const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
+        const schedulesByDate = {};
+
+        weekDates.forEach(date => {
+            const iso = toISODate(date);
+            schedulesByDate[iso] = {
+                date: date,
+                schedules: []
+            };
+        });
+
+        cachedSchedules.forEach(schedule => {
+            const dateKey = normalizeDateKey(schedule.date);
+            if (schedulesByDate[dateKey]) {
+                schedulesByDate[dateKey].schedules.push(schedule);
+            }
+        });
+
+        // 2. 创建表格HTML
+        const tableHtml = generateWeeklyViewTable(weekDates, schedulesByDate);
+
+        // 3. 创建临时容器
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = `
+            position: absolute;
+            top: -9999px;
+            left: 0;
+            z-index: -1;
+            background: #ffffff;
+            padding: 24px;
+            min-width: 1200px;
+        `;
+        wrapper.innerHTML = tableHtml;
+        document.body.appendChild(wrapper);
+
+        // 4. 使用html2canvas生成图片
+        const makeImagePromise = new Promise(async (resolve, reject) => {
+            try {
+                const canvas = await html2canvas(wrapper, {
+                    scale: 2,
+                    backgroundColor: '#ffffff',
+                    logging: false,
+                    useCORS: true,
+                    width: wrapper.offsetWidth,
+                    height: wrapper.offsetHeight
+                });
+
+                canvas.toBlob((blob) => {
+                    if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+                    if (!blob) {
+                        reject(new Error('生成图片失败'));
+                        return;
+                    }
+                    resolve(blob);
+                }, 'image/png');
+            } catch (err) {
+                reject(err);
+            } finally {
+                if (document.body.contains(wrapper)) {
+                    document.body.removeChild(wrapper);
+                }
+            }
+        });
+
+        // 5. 复制到剪贴板
+        const item = new ClipboardItem({ 'image/png': makeImagePromise });
+        await navigator.clipboard.write([item]);
+
+        if (window.apiUtils) {
+            window.apiUtils.showSuccessToast('已导出本周安排视图到剪贴板');
+        }
+
+    } catch (err) {
+        console.error('导出视图失败:', err);
+        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+        if (window.apiUtils) {
+            window.apiUtils.showToast('导出失败: ' + err.message, 'error');
+        }
+    }
+}
+
+/**
+ * 生成周视图表格HTML
+ */
+function generateWeeklyViewTable(weekDates, schedulesByDate) {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    let weekTotal = 0;
+
+    // 计算本周总费用
+    Object.values(schedulesByDate).forEach(dayData => {
+        dayData.schedules.forEach(s => {
+            weekTotal += (parseFloat(s.transport_fee) || 0) + (parseFloat(s.other_fee) || 0);
+        });
+    });
+
+    let html = `
+        <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 13px; background: white;">
+            <thead>
+                <tr style="background: #F8FAFC; border-bottom: 2px solid #E2E8F0;">
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: center; width: 110px;">日期</th>
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: center; width: 60px;">星期</th>
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: left; min-width: 300px;">计划安排</th>
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: left; min-width: 300px;">实际安排</th>
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: center; width: 80px;">费用</th>
+                    <th style="padding: 12px; border: 1px solid #E2E8F0; font-weight: 600; text-align: center; width: 80px;">周汇总</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    weekDates.forEach(date => {
+        const iso = toISODate(date);
+        const dayData = schedulesByDate[iso];
+        const weekday = days[date.getDay()];
+
+        // 按时间排序
+        const sortedSchedules = dayData.schedules.sort((a, b) =>
+            (a.start_time || '').localeCompare(b.start_time || '')
+        );
+
+        // 计算当天费用
+        let dayFee = 0;
+        sortedSchedules.forEach(s => {
+            dayFee += (parseFloat(s.transport_fee) || 0) + (parseFloat(s.other_fee) || 0);
+        });
+
+        // 生成计划安排和实际安排文本
+        const planText = formatScheduleText(sortedSchedules, 'plan');
+        const actualText = formatScheduleText(sortedSchedules, 'actual');
+
+        html += `
+            <tr style="border-bottom: 1px solid #E2E8F0;">
+                <td style="padding: 10px; border: 1px solid #E2E8F0; text-align: center; white-space: nowrap;">${iso}</td>
+                <td style="padding: 10px; border: 1px solid #E2E8F0; text-align: center;">${weekday}</td>
+                <td style="padding: 10px; border: 1px solid #E2E8F0;">${planText || ''}</td>
+                <td style="padding: 10px; border: 1px solid #E2E8F0;">${actualText || ''}</td>
+                <td style="padding: 10px; border: 1px solid #E2E8F0; text-align: center;">${dayFee > 0 ? Math.round(dayFee) : ''}</td>
+                <td style="padding: 10px; border: 1px solid #E2E8F0; text-align: center;">${Math.round(weekTotal)}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    return html;
+}
+
+/**
+ * 格式化课程安排文本
+ */
+function formatScheduleText(schedules, type) {
+    if (!schedules || schedules.length === 0) return '';
+
+    const items = [];
+    schedules.forEach(s => {
+        const status = (s.status || '').toLowerCase();
+        const typeName = s.schedule_type_cn || s.schedule_type || '课程';
+        const timeRange = formatTimeRange(s.start_time, s.end_time);
+        const studentName = s.student_name || '';
+        const teacherName = s.teacher_name || '';
+
+        // 根据状态判断是否显示
+        if (type === 'actual' && (status === 'cancelled' || status === 'modified_away')) {
+            return; // 实际安排不显示已取消或已调整的
+        }
+
+        const text = `${typeName}(${timeRange})：${teacherName}${studentName ? '，' + studentName : ''}`;
+        items.push(text);
+    });
+
+    return items.join('<br>');
+}
+
+// 暴露到全局
+window.exportWeeklyScheduleView = exportWeeklyScheduleView;

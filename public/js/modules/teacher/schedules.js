@@ -23,8 +23,6 @@ let cachedSchedules = [];
 let scheduleLoadSeq = 0;
 
 window.teacherShowPlan = false;
-// 教师本人课程：费用显示开关，默认隐藏
-window.teacherFeeShow = false;
 
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
@@ -39,7 +37,6 @@ export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
     syncShowPlanButton();
-    initFeeToggle();
     initFeeModal();
     await loadSchedules(currentWeekStart);
 }
@@ -50,42 +47,15 @@ window.toggleTeacherShowPlan = async function () {
     await loadSchedules(currentWeekStart || startOfWeek(new Date()), true);
 };
 
-window.toggleTeacherFeeVisibility = function () {
-    window.teacherFeeShow = !window.teacherFeeShow;
-    syncTeacherFeeButton();
-    document.body.classList.toggle('hide-teacher-fee', !window.teacherFeeShow);
-};
-
-function syncTeacherFeeButton() {
-    const btn = document.getElementById('toggleTeacherFeeBtn');
-    const text = document.getElementById('teacherFeeBtnText');
-    if (text) text.textContent = window.teacherFeeShow ? '隐藏费用' : '显示费用';
-    if (btn) btn.classList.toggle('is-on', !!window.teacherFeeShow);
-}
-
-function initFeeToggle() {
-    // 注入隐藏费用 CSS（仅注入一次）
-    if (!document.getElementById('teacher-fee-visibility-style')) {
-        const style = document.createElement('style');
-        style.id = 'teacher-fee-visibility-style';
-        style.innerHTML = 'body.hide-teacher-fee .teacher-fee-wrap { display: none !important; }';
-        document.head.appendChild(style);
-    }
-    document.body.classList.toggle('hide-teacher-fee', !window.teacherFeeShow);
-
-    const btn = document.getElementById('toggleTeacherFeeBtn');
-    if (btn && !btn.__feeToggleBound) {
-        btn.addEventListener('click', window.toggleTeacherFeeVisibility);
-        btn.__feeToggleBound = true;
-    }
-    syncTeacherFeeButton();
-}
-
 function syncShowPlanButton() {
     const btn = document.getElementById('toggleTeacherShowPlanBtn');
     const text = document.getElementById('teacherShowPlanBtnText');
     if (text) text.textContent = window.teacherShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (btn) btn.classList.toggle('is-on', !!window.teacherShowPlan);
+    if (btn) {
+        btn.classList.toggle('fee-active', window.teacherShowPlan);
+        btn.style.backgroundColor = '#2ECC71';
+        btn.style.color = 'white';
+    }
 }
 
 function bindNavigation() {
@@ -481,7 +451,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const mOFee = parseFloat(first.other_fee) || 0;
     const mHasFee = mTFee > 0 || mOFee > 0;
 
-    const feeWrapper = createElement('div', 'teacher-fee-wrap', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
+    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
 
     if (mHasFee) {
         const feeInfo = createElement('span', '', {
@@ -798,7 +768,7 @@ function buildScheduleCard(group) {
 
     // 费用显示行（已填写时显示，且作为可点击的触发器）
     if (hasFee) {
-        const feeInfo = createElement('span', 'teacher-fee-wrap', {
+        const feeInfo = createElement('span', '', {
             style: 'font-size: 11px; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; cursor: pointer;'
         });
         feeInfo.textContent = `交通¥${tFee} 其他¥${oFee}`;
@@ -809,7 +779,7 @@ function buildScheduleCard(group) {
         footer.appendChild(feeInfo);
     } else {
         // 无费用时，显示“添加费用”按钮
-        const feeBtn = createElement('button', 'info-btn teacher-fee-wrap', {
+        const feeBtn = createElement('button', 'info-btn', {
             textContent: '添加费用',
             style: 'padding: 2px 6px; font-size: 12px; min-width: auto; margin-left: 6px; height: 24px;'
         });
@@ -975,29 +945,22 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 教师视图合并组内排序：评审记录 / 咨询记录 沉底，其它按 student_id 升序
+// 排序排课记录：特殊类型排最后，其他按学生ID排序
 function sortStudentsByIdAndType(a, b) {
-    const getTypeName = (item) => (
-        item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-        item.schedule_types || item.schedule_type || item.course_type || ''
-    ).toString();
+    // 1. 特殊类型排最后 (评审, 咨询)
+    // 教师端数据可能用 course_type 或 schedule_type
+    const typeA = String(a.schedule_type || a.course_type || '');
+    const typeB = String(b.schedule_type || b.course_type || '');
 
-    const isRecord = (item) => {
-        const n = getTypeName(item);
-        if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-        return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-    };
-    const rA = isRecord(a) ? 1 : 0;
-    const rB = isRecord(b) ? 1 : 0;
-    if (rA !== rB) return rA - rB;
+    const specialTypes = ['review', 'advisory', 'review-online', 'advisory-online'];
+    const aIsSpecial = specialTypes.includes(typeA);
+    const bIsSpecial = specialTypes.includes(typeB);
 
-    const getStatus = (item) => (item.status || 'pending').toLowerCase();
-    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-    const inactiveA = isInactive(getStatus(a));
-    const inactiveB = isInactive(getStatus(b));
-    if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+    if (aIsSpecial && !bIsSpecial) return 1;
+    if (!aIsSpecial && bIsSpecial) return -1;
 
-    return (Number(a.student_id) || 0) - (Number(b.student_id) || 0);
+    // 2. 按学生ID排序
+    return (a.student_id || 0) - (b.student_id || 0);
 }
 
 export function refreshSchedules() {

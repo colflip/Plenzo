@@ -2122,25 +2122,6 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group || group.length === 0) return document.createElement('div');
-
-    // 合并组内排序：评审记录 / 咨询记录 类型的记录沉到最后，其它按 teacher_id 升序。
-    // 普通 评审 / 咨询（不带"记录"后缀）不受此规则影响。
-    group.sort((a, b) => {
-        const getTypeName = (item) => (
-            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-            item.schedule_types || item.schedule_type || item.course_type || ''
-        ).toString();
-        const isRecord = (item) => {
-            const n = getTypeName(item);
-            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-        };
-        const rA = isRecord(a) ? 1 : 0;
-        const rB = isRecord(b) ? 1 : 0;
-        if (rA !== rB) return rA - rB;
-        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
-    });
-
     const first = group[0];
 
     // 确定卡片背景色：根据时间段决定
