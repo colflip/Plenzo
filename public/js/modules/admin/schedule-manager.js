@@ -19,12 +19,27 @@ window.toggleAdminFeeVisibility = function () {
     if (btnText) {
         btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
     }
+
     if (toggleBtn) {
-        toggleBtn.classList.toggle('is-on', window.adminFeeShow);
+        // 维持与“添加排课”一致的主调色 (#2ECC71)
+        const primaryColor = '#2ECC71';
+        toggleBtn.style.backgroundColor = primaryColor;
+        toggleBtn.style.color = 'white';
+        toggleBtn.style.borderColor = primaryColor;
+
+        if (window.adminFeeShow) {
+            toggleBtn.classList.add('fee-active');
+        } else {
+            toggleBtn.classList.remove('fee-active');
+        }
     }
 
     // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
-    document.body.classList.toggle('global-hide-admin-fee', !window.adminFeeShow);
+    if (!window.adminFeeShow) {
+        document.body.classList.add('global-hide-admin-fee');
+    } else {
+        document.body.classList.remove('global-hide-admin-fee');
+    }
 };
 
 window.toggleAdminShowPlan = async function () {
@@ -35,8 +50,13 @@ window.toggleAdminShowPlan = async function () {
     if (btnText) {
         btnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     }
+
     if (toggleBtn) {
-        toggleBtn.classList.toggle('is-on', window.adminShowPlan);
+        if (window.adminShowPlan) {
+            toggleBtn.classList.add('fee-active');
+        } else {
+            toggleBtn.classList.remove('fee-active');
+        }
     }
 
     // 重新从后端拉取全量数据，因为过滤是在后端执行的
@@ -53,16 +73,27 @@ window.toggleAdminShowPlan = async function () {
 },
 
 // 挂载顶层全局显隐费用按钮的初始绘制UI
+// This part needs to be called when the page initializes or data is loaded.
+// For now, placing it here as a global setup.
 document.addEventListener('DOMContentLoaded', () => {
     const btnText = document.getElementById('adminFeeBtnText');
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
     if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    if (toggleBtn) toggleBtn.classList.toggle('is-on', window.adminFeeShow);
+    if (toggleBtn) {
+        // 初始化时也确保使用统一的主题色
+        toggleBtn.style.backgroundColor = '#2ECC71';
+        toggleBtn.style.color = 'white';
+        toggleBtn.style.borderColor = '#2ECC71';
+    }
 
     const showPlanBtn = document.getElementById('toggleShowPlanBtn');
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (showPlanBtn) showPlanBtn.classList.toggle('is-on', window.adminShowPlan);
+    if (showPlanBtn) {
+        showPlanBtn.style.backgroundColor = '#2ECC71';
+        showPlanBtn.style.color = 'white';
+        showPlanBtn.style.borderColor = '#2ECC71';
+    }
 
     // 绑定事件
     if (toggleBtn) toggleBtn.onclick = window.toggleAdminFeeVisibility;
@@ -81,7 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 初始化一次状态
-    document.body.classList.toggle('global-hide-admin-fee', !window.adminFeeShow);
+    if (!window.adminFeeShow) {
+        document.body.classList.add('global-hide-admin-fee');
+    }
 });
 
 
@@ -1094,31 +1127,32 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // 排序逻辑：
-    // 1. 评审记录 / 咨询记录 类型的记录沉到最后（最高优先级，普通 评审/咨询 不受影响）
-    // 2. 活跃状态优先：modified_away / cancelled 排在后面
-    // 3. teacher_id 升序
+    // 排序逻辑改进：
+    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
+    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
     group.sort((a, b) => {
-        const getTypeName = (item) => (
-            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-            item.schedule_types || item.schedule_type || item.course_type || ''
-        ).toString();
-        const isRecord = (item) => {
-            const n = getTypeName(item);
-            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-        };
-        const rA = isRecord(a) ? 1 : 0;
-        const rB = isRecord(b) ? 1 : 0;
-        if (rA !== rB) return rA - rB;
-
         const getStatus = (item) => (item.status || 'pending').toLowerCase();
+        const statusA = getStatus(a);
+        const statusB = getStatus(b);
+        
         const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(getStatus(a));
-        const inactiveB = isInactive(getStatus(b));
-        if (inactiveA !== inactiveB) return inactiveA ? 1 : -1;
+        const inactiveA = isInactive(statusA);
+        const inactiveB = isInactive(statusB);
 
-        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
+        if (inactiveA && !inactiveB) return 1;
+        if (!inactiveA && inactiveB) return -1;
+
+        const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
+        const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+
+        const typeA = getTypeName(a);
+        const typeB = getTypeName(b);
+        const specialA = isSpecial(typeA);
+        const specialB = isSpecial(typeB);
+
+        if (specialA && !specialB) return 1;
+        if (!specialA && specialB) return -1;
+        return (a.teacher_id || 0) - (b.teacher_id || 0);
     });
 
     const first = group[0];

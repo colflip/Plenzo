@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="/css/modules/dashboard.css">
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
     <link rel="stylesheet" href="/css/modules/admin-schedule.css">
-    <link rel="stylesheet" href="/css/components/toolbar-toggle.css">
     <link rel="stylesheet" href="/css/modules/admin-overview.css?v=2">
     <link rel="stylesheet" href="/css/modules/admin-desktop.css">
     <link rel="stylesheet" href="/css/modules/dashboard_mobile_fix.css">
@@ -723,7 +722,7 @@
                     <!-- 周视图标题：合并为一行显示筛选、周导航与新建按钮 -->
                     <div class="header-toolbar schedule-controls">
                         <!-- Left: Nav + Add Button -->
-                        <div class="sch-controls-left" style="display:flex; gap:8px; align-items:center;">
+                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
                                 <button id="prevWeek" class="nav-btn">
                                     <span class="material-icons-round">chevron_left</span>
@@ -733,18 +732,18 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="addScheduleBtn" class="primary-btn">
-                                <span class="material-icons-round btn-icon">add</span>
-                                <span class="btn-label">添加排课</span>
+                            <button id="addScheduleBtn" class="add-btn">
+                                <span class="material-icons-round">add</span> 添加排课
                             </button>
-                            <button id="toggleAdminFeeBtn" class="toolbar-toggle">
-                                <span class="btn-yuan">¥</span>
-                                <span class="btn-label" id="adminFeeBtnText">显示费用</span>
+                            <button id="toggleAdminFeeBtn" class="add-btn" style="margin-left:8px;">
+                                <span
+                                    style="font-style: normal; font-size: 14px; font-weight: bold; margin-right: 4px;">¥</span><span
+                                    id="adminFeeBtnText">显示费用</span>
                             </button>
-                            <button id="toggleShowPlanBtn" class="toolbar-toggle" onclick="window.toggleAdminShowPlan && window.toggleAdminShowPlan()">
-                                <span class="material-icons-round btn-icon">visibility</span>
-                                <span class="btn-label" id="showPlanBtnText">显示全部安排</span>
-                            </button>
+                            <button id="toggleShowPlanBtn" class="add-btn" onclick="window.toggleAdminShowPlan()" style="margin-left: 10px;">
+                        <span class="material-icons-round">visibility</span>
+                        <span id="showPlanBtnText">显示全部安排</span>
+                    </button>
                         </div>
 
                         <!-- Right: Filters -->
