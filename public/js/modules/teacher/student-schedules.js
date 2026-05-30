@@ -1222,10 +1222,10 @@ const WEEKLY_VIEW_STYLE = {
         '周汇总': 110
     },
     // 单元格内边距与行高
-    cellPaddingY: 8,
-    cellPaddingX: 10,
+    cellPaddingY: 12,
+    cellPaddingX: 12,
     lineHeight: 1.6,
-    minRowHeight: 44,   // 固定最小行高，统一视觉
+    minRowHeight: 60,   // 固定行高，加大以贴近目标视觉
     // 字体：改无衬线黑体，匹配目标外观（雅黑/PingFang），ASCII 仍用 Times 贴近 Excel 数字
     fontCJK: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "微软雅黑", sans-serif',
     fontASCII: '"Times New Roman", serif',
@@ -1769,11 +1769,11 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
     if (column === '日期' || column === '星期') {
         parts.push(`text-align: center`);
     } else if (isFinanceCol) {
-        // 财务列：右对齐 + 垂直居中（在合并块内居中，对齐目标），且强制非斜体
+        // 财务列：右对齐 + 底部对齐（严格对照 export-manager.js 第2193行 vertical:bottom），强制非斜体
         parts.push(`text-align: right`);
-        parts.push(`vertical-align: middle`);
+        parts.push(`vertical-align: bottom`);
         parts.push(`font-style: normal`);
-        // 单行非空时加缩进（对应 alignment.indent=1）
+        // 单行非空时加缩进（对应源码 alignment.indent=1）
         if (strValue && !strValue.includes('\n') && strValue !== '/') {
             parts.push(`padding-right: 16px`);
         }
