@@ -1212,24 +1212,25 @@ window.exportTeacherStudents = exportTeacherStudents;
  * ========================================================================== */
 
 const WEEKLY_VIEW_STYLE = {
-    // 列宽（参考 firstSheetColumnWidths，针对图片输出加宽以贴近目标样式）
+    // 列宽：安排列加宽到 480，确保"已取消[试教(19:00-22:30)：陈莹莹]"等最长内容单行不换行 → 行高统一
     columnPx: {
         '日期': 96,
         '星期': 60,
-        '计划安排': 420,
-        '实际安排': 420,
+        '计划安排': 480,
+        '实际安排': 480,
         '费用': 120,
         '周汇总': 110
     },
-    // 单元格内边距与行高（加大以提升可读性，对齐目标视觉）
+    // 单元格内边距与行高
     cellPaddingY: 8,
     cellPaddingX: 10,
     lineHeight: 1.6,
-    // 字体（对齐 cell.s.font）
-    fontCJK: '"宋体", SimSun, "Microsoft YaHei", serif',
+    minRowHeight: 44,   // 固定最小行高，统一视觉
+    // 字体：改无衬线黑体，匹配目标外观（雅黑/PingFang），ASCII 仍用 Times 贴近 Excel 数字
+    fontCJK: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "微软雅黑", sans-serif',
     fontASCII: '"Times New Roman", serif',
     fontPt: 11,         // 内容 11pt
-    headerFontPt: 12,   // 表头 12pt 加粗
+    headerFontPt: 11,   // 表头与内容同字号，仅加粗
     // 颜色（对齐源码的 rgb 值）
     border: '#D4D4D4',
     headerBg: '#F2F2F2',
@@ -1690,6 +1691,7 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
         `border: 1px solid ${S.border}`,
         `padding: ${S.cellPaddingY}px ${S.cellPaddingX}px`,
         `line-height: ${S.lineHeight}`,
+        `height: ${S.minRowHeight}px`,
         `vertical-align: middle`,
         `color: ${S.defaultText}`,
         `width: ${widthPx}px`,
@@ -1767,9 +1769,9 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
     if (column === '日期' || column === '星期') {
         parts.push(`text-align: center`);
     } else if (isFinanceCol) {
-        // 财务列：右对齐 + 底部对齐（对照源码 2191 行），且强制非斜体
+        // 财务列：右对齐 + 垂直居中（在合并块内居中，对齐目标），且强制非斜体
         parts.push(`text-align: right`);
-        parts.push(`vertical-align: bottom`);
+        parts.push(`vertical-align: middle`);
         parts.push(`font-style: normal`);
         // 单行非空时加缩进（对应 alignment.indent=1）
         if (strValue && !strValue.includes('\n') && strValue !== '/') {
