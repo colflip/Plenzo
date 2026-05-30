@@ -2,10 +2,30 @@
  * Main Application Entry Point (Login Page)
  */
 
+const LAST_USER_TYPE_KEY = 'lastUserType';
+
 document.addEventListener('DOMContentLoaded', () => {
     initCustomSelect();
     initLogin();
 });
+
+/**
+ * Apply a userType value to both the hidden select and the custom dropdown UI.
+ */
+function applyUserType(value) {
+    const hiddenSelect = document.getElementById('userType');
+    if (!hiddenSelect) return;
+
+    const option = document.querySelector(`.custom-option[data-value="${value}"]`);
+    if (!option) return;
+
+    hiddenSelect.value = value;
+    document.querySelectorAll('.custom-option').forEach(opt => opt.classList.remove('selected'));
+    option.classList.add('selected');
+
+    const triggerText = document.getElementById('customSelectText');
+    if (triggerText) triggerText.textContent = option.textContent;
+}
 
 /**
  * Initialize Custom Select Dropdown
@@ -18,6 +38,14 @@ function initCustomSelect() {
     const options = wrapper.querySelectorAll('.custom-option');
     const hiddenSelect = document.getElementById('userType');
     const triggerText = document.querySelector('#customSelectText');
+
+    // Restore last selected user type from localStorage
+    try {
+        const saved = localStorage.getItem(LAST_USER_TYPE_KEY);
+        if (saved && document.querySelector(`.custom-option[data-value="${saved}"]`)) {
+            applyUserType(saved);
+        }
+    } catch (e) { /* ignore storage errors */ }
 
     // Toggle dropdown
     trigger.addEventListener('click', (e) => {
@@ -127,6 +155,7 @@ function initLogin() {
             if (data.token) {
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('userType', userType); // Helper for some pages
+                localStorage.setItem(LAST_USER_TYPE_KEY, userType);
                 if (data.user) {
                     localStorage.setItem('userData', JSON.stringify(data.user));
                 }
