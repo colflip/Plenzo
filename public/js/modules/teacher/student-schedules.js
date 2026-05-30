@@ -1212,15 +1212,19 @@ window.exportTeacherStudents = exportTeacherStudents;
  * ========================================================================== */
 
 const WEEKLY_VIEW_STYLE = {
-    // 列宽（参考 firstSheetColumnWidths，1 wch ≈ 7px；针对图片输出微调）
+    // 列宽（参考 firstSheetColumnWidths，针对图片输出加宽以贴近目标样式）
     columnPx: {
-        '日期': 84,
-        '星期': 56,
-        '计划安排': 378,
-        '实际安排': 378,
-        '费用': 168,
-        '周汇总': 105
+        '日期': 96,
+        '星期': 60,
+        '计划安排': 420,
+        '实际安排': 420,
+        '费用': 120,
+        '周汇总': 110
     },
+    // 单元格内边距与行高（加大以提升可读性，对齐目标视觉）
+    cellPaddingY: 8,
+    cellPaddingX: 10,
+    lineHeight: 1.6,
     // 字体（对齐 cell.s.font）
     fontCJK: '"宋体", SimSun, "Microsoft YaHei", serif',
     fontASCII: '"Times New Roman", serif',
@@ -1301,66 +1305,108 @@ function collectStudentsFromCache() {
  */
 function pickStudentForWeeklyView(students) {
     return new Promise((resolve, reject) => {
+        const GREEN = '#2ECC71';
         const overlay = document.createElement('div');
         overlay.style.cssText = [
             'position: fixed', 'top: 0', 'left: 0', 'width: 100%', 'height: 100%',
-            'background: rgba(15,23,42,0.5)', 'backdrop-filter: blur(4px)',
+            'background: rgba(15,23,42,0.45)', 'backdrop-filter: blur(4px)',
             'z-index: 100002', 'display: flex',
-            'align-items: center', 'justify-content: center'
+            'align-items: center', 'justify-content: center',
+            'animation: wvFadeIn 0.18s ease'
         ].join(';');
+
+        // 注入一次性动画样式
+        if (!document.getElementById('wvDialogAnim')) {
+            const st = document.createElement('style');
+            st.id = 'wvDialogAnim';
+            st.textContent = '@keyframes wvFadeIn{from{opacity:0}to{opacity:1}}@keyframes wvScaleIn{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}';
+            document.head.appendChild(st);
+        }
 
         const box = document.createElement('div');
         box.style.cssText = [
-            'background: #ffffff', 'width: 360px', 'max-height: 80vh',
-            'border-radius: 12px', 'box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25)',
+            'background: #ffffff', 'width: 380px', 'max-height: 78vh',
+            'border-radius: 16px', 'box-shadow: 0 20px 48px -12px rgba(0,0,0,0.28)',
             'display: flex', 'flex-direction: column', 'overflow: hidden',
-            'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+            'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
+            'animation: wvScaleIn 0.22s cubic-bezier(0.16,1,0.3,1)'
         ].join(';');
 
         // 标题
         const header = document.createElement('div');
-        header.style.cssText = 'padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-weight: 600; font-size: 16px; color: #1e293b; display: flex; justify-content: space-between; align-items: center;';
-        header.innerHTML = '<span>选择要导出的学生</span>';
+        header.style.cssText = 'padding: 18px 22px; border-bottom: 1px solid #eef2f6; font-weight: 600; font-size: 16px; color: #1e293b; display: flex; justify-content: space-between; align-items: center;';
+        const title = document.createElement('span');
+        title.textContent = '选择要导出的学生';
+        header.appendChild(title);
         const closeBtn = document.createElement('span');
         closeBtn.className = 'material-icons-round';
-        closeBtn.style.cssText = 'cursor: pointer; color: #64748b; font-size: 20px;';
+        closeBtn.style.cssText = 'cursor: pointer; color: #94a3b8; font-size: 22px; line-height: 1; transition: color 0.15s;';
         closeBtn.textContent = 'close';
+        closeBtn.onmouseover = () => closeBtn.style.color = '#475569';
+        closeBtn.onmouseout = () => closeBtn.style.color = '#94a3b8';
         header.appendChild(closeBtn);
         box.appendChild(header);
 
         // 列表
         const list = document.createElement('div');
-        list.style.cssText = 'flex: 1; overflow-y: auto; padding: 8px 0;';
+        list.style.cssText = 'flex: 1; overflow-y: auto; padding: 12px;';
         let selectedId = students[0].id;
-        students.forEach((stu, idx) => {
-            const row = document.createElement('label');
-            row.style.cssText = 'display: flex; align-items: center; padding: 10px 20px; cursor: pointer; gap: 12px; transition: background 0.15s;';
-            row.onmouseover = () => row.style.background = '#f1f5f9';
-            row.onmouseout = () => row.style.background = '';
-            const radio = document.createElement('input');
-            radio.type = 'radio';
-            radio.name = '__weekly_view_student__';
-            radio.value = String(stu.id);
-            if (idx === 0) radio.checked = true;
-            radio.addEventListener('change', () => { selectedId = stu.id; });
+        const rowEls = [];
+
+        const paint = () => {
+            rowEls.forEach(({ el, indicator, id }) => {
+                const active = String(id) === String(selectedId);
+                el.style.background = active ? 'rgba(46,204,113,0.10)' : '#ffffff';
+                el.style.borderColor = active ? GREEN : '#e7ecf1';
+                indicator.style.borderColor = active ? GREEN : '#cbd5e1';
+                indicator.style.background = active ? GREEN : '#ffffff';
+                indicator.firstChild.style.opacity = active ? '1' : '0';
+            });
+        };
+
+        students.forEach(stu => {
+            const row = document.createElement('div');
+            row.style.cssText = [
+                'display: flex', 'align-items: center', 'gap: 12px',
+                'padding: 12px 14px', 'margin-bottom: 8px', 'cursor: pointer',
+                'border: 1.5px solid #e7ecf1', 'border-radius: 10px',
+                'transition: background 0.15s, border-color 0.15s'
+            ].join(';');
+
+            // 自定义单选指示器（小尺寸、垂直居中）
+            const indicator = document.createElement('span');
+            indicator.style.cssText = 'flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #cbd5e1; background: #fff; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;';
+            const dot = document.createElement('span');
+            dot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity 0.15s;';
+            indicator.appendChild(dot);
+
             const nameSpan = document.createElement('span');
             nameSpan.textContent = stu.name;
-            nameSpan.style.cssText = 'color: #1e293b; font-size: 14px;';
-            row.appendChild(radio);
+            // 关键：nowrap 防止"宋泽双"被竖排成多行
+            nameSpan.style.cssText = 'color: #1e293b; font-size: 14.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+
+            row.appendChild(indicator);
             row.appendChild(nameSpan);
+            row.addEventListener('click', () => { selectedId = stu.id; paint(); });
             list.appendChild(row);
+            rowEls.push({ el: row, indicator, id: stu.id });
         });
         box.appendChild(list);
+        paint();
 
         // 按钮区
         const footer = document.createElement('div');
-        footer.style.cssText = 'padding: 12px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 12px;';
+        footer.style.cssText = 'padding: 14px 22px; border-top: 1px solid #eef2f6; display: flex; justify-content: flex-end; gap: 12px;';
         const cancel = document.createElement('button');
         cancel.textContent = '取消';
-        cancel.style.cssText = 'padding: 8px 18px; border-radius: 8px; border: 1px solid #e2e8f0; background: white; color: #475569; cursor: pointer; font-size: 14px;';
+        cancel.style.cssText = 'padding: 8px 20px; border-radius: 10px; border: 1px solid #e2e8f0; background: white; color: #475569; cursor: pointer; font-size: 14px; font-weight: 500; transition: background 0.15s;';
+        cancel.onmouseover = () => cancel.style.background = '#f1f5f9';
+        cancel.onmouseout = () => cancel.style.background = 'white';
         const confirm = document.createElement('button');
         confirm.textContent = '确认';
-        confirm.style.cssText = 'padding: 8px 18px; border-radius: 8px; border: none; background: #2ECC71; color: white; cursor: pointer; font-size: 14px; font-weight: 500;';
+        confirm.style.cssText = `padding: 8px 22px; border-radius: 10px; border: none; background: ${GREEN}; color: white; cursor: pointer; font-size: 14px; font-weight: 600; box-shadow: 0 2px 4px rgba(46,204,113,0.3); transition: background 0.15s;`;
+        confirm.onmouseover = () => confirm.style.background = '#27AE60';
+        confirm.onmouseout = () => confirm.style.background = GREEN;
         footer.appendChild(cancel);
         footer.appendChild(confirm);
         box.appendChild(footer);
@@ -1408,6 +1454,10 @@ async function generateAndCopyWeeklyView(targetStudent) {
             teacher_name: s.teacher_name,
             transport_fee: s.transport_fee,
             other_fee: s.other_fee,
+            // transformToCalendarData 读取 row.type / row.type_name 来生成授课类型前缀
+            // (如"入户(19:00-22:30)：周耀华")并判定评审/咨询是否标红。
+            // 缓存里类型字段名是 schedule_type_cn(中文)，必须映射到 type，否则前缀丢失、不标红。
+            type: s.schedule_type_cn || s.schedule_type_name || s.type_name || s.schedule_type || '',
             schedule_type: s.schedule_type,
             schedule_type_cn: s.schedule_type_cn,
             course_id: s.course_id,
@@ -1491,10 +1541,15 @@ async function generateAndCopyWeeklyView(targetStudent) {
  * 构造离屏 wrapper + Excel 风格表格
  */
 function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
+    const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
+    // table-layout:fixed 必须有显式总宽，否则列宽被忽略、列坍缩、文本竖排
+    const totalWidth = HEADERS.reduce((sum, h) => sum + (WEEKLY_VIEW_STYLE.columnPx[h] || 0), 0);
+
     const wrapper = document.createElement('div');
     wrapper.style.cssText = [
         'position: absolute', 'top: -99999px', 'left: 0',
-        'z-index: -1', 'background: #ffffff', 'padding: 0',
+        'z-index: -1', 'background: #ffffff', 'padding: 16px',
+        `width: ${totalWidth + 32}px`,
         `font-family: ${WEEKLY_VIEW_STYLE.fontCJK}`
     ].join(';');
 
@@ -1502,10 +1557,9 @@ function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
     table.style.cssText = [
         'border-collapse: collapse', 'background: #ffffff',
         `font-family: ${WEEKLY_VIEW_STYLE.fontCJK}`,
-        'color: #000000', 'table-layout: fixed'
+        'color: #000000', 'table-layout: fixed',
+        `width: ${totalWidth}px`
     ].join(';');
-
-    const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
 
     // 表头
     const thead = document.createElement('thead');
@@ -1634,7 +1688,8 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
     const S = WEEKLY_VIEW_STYLE;
     const parts = [
         `border: 1px solid ${S.border}`,
-        `padding: 4px 8px`,
+        `padding: ${S.cellPaddingY}px ${S.cellPaddingX}px`,
+        `line-height: ${S.lineHeight}`,
         `vertical-align: middle`,
         `color: ${S.defaultText}`,
         `width: ${widthPx}px`,
