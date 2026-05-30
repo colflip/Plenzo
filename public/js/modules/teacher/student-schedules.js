@@ -117,6 +117,15 @@ export async function initStudentSchedulesSection() {
         }
     }
 
+    // 绑定导出本周视图按钮
+    const exportWeeklyBtn = document.getElementById('exportWeeklyViewBtn');
+    if (exportWeeklyBtn) {
+        if (!exportWeeklyBtn.__exportWeeklyBound) {
+            exportWeeklyBtn.addEventListener('click', exportWeeklyScheduleView);
+            exportWeeklyBtn.__exportWeeklyBound = true;
+        }
+    }
+
     await loadSchedules(currentWeekStart);
 }
 
@@ -1202,7 +1211,7 @@ async function exportTeacherStudents() {
 window.exportTeacherStudents = exportTeacherStudents;
 
 /* ==========================================================================
- * 导出本周视图（图片 → 剪贴板）
+ * 导出当前视图（图片 → 剪贴板）
  *
  * 严格遵循 export-manager.js 第 1 工作表的样式与数据处理逻辑：
  *   - 复用 window.ExportManager.transformExportData 生成的行数据
@@ -1221,11 +1230,11 @@ const WEEKLY_VIEW_STYLE = {
         '费用': 120,
         '周汇总': 110
     },
-    // 单元格内边距与行高
-    cellPaddingY: 12,
-    cellPaddingX: 12,
-    lineHeight: 1.6,
-    minRowHeight: 60,   // 固定行高，加大以贴近目标视觉
+    // 单元格内边距与行高（压制到接近 Excel 紧凑默认行高，对齐目标图）
+    cellPaddingY: 5,
+    cellPaddingX: 10,
+    lineHeight: 1.35,
+    minRowHeight: 32,   // 紧凑行高，贴近 Excel 第1表默认
     // 字体：改无衬线黑体，匹配目标外观（雅黑/PingFang），ASCII 仍用 Times 贴近 Excel 数字
     fontCJK: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "微软雅黑", sans-serif',
     fontASCII: '"Times New Roman", serif',
