@@ -1237,10 +1237,10 @@ const WEEKLY_VIEW_STYLE = {
         '周汇总': 110
     },
     // 单元格内边距与行高（进一步压缩）
-    cellPaddingY: 2,
+    cellPaddingY: 1,
     cellPaddingX: 8,
-    lineHeight: 1.2,
-    minRowHeight: 24,   // 压缩行高
+    lineHeight: 1.1,
+    minRowHeight: 22,   // 压缩行高
     // 字体：中文和标点使用宋体，英文和数字使用 Times New Roman
     fontCJK: 'SimSun, "宋体", STSong, serif',
     fontASCII: '"Times New Roman", serif',
@@ -1751,9 +1751,6 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
     ];
 
     const strValue = String(value || '');
-    // 判断是否为纯英文字母和数字（不含标点），标点使用宋体
-    const isEnglishOrNum = /^[a-zA-Z0-9\s]*$/.test(strValue);
-    const fontFamily = (!isHeader && isEnglishOrNum && strValue.length > 0) ? S.fontASCII : S.fontCJK;
 
     if (isHeader) {
         // 表头：F2F2F2 + 12pt + 加粗 + 居中
@@ -1763,6 +1760,29 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
         parts.push(`font-weight: bold`);
         parts.push(`text-align: center`);
         return parts.join(';');
+    }
+
+    // 字体选择逻辑
+    const isFinanceCol = column === '费用' || column === '周汇总';
+    let fontFamily;
+
+    if (isFinanceCol) {
+        // 费用列和周汇总列：检查是否同时包含中文字符和数字
+        const hasChinese = /[一-龥]/.test(strValue);
+        const hasDigit = /\d/.test(strValue);
+
+        if (hasChinese && hasDigit) {
+            // 同时包含中文和数字（如"何俊华31"），使用宋体确保视觉一致
+            fontFamily = S.fontCJK;
+        } else {
+            // 纯数字或纯文字，按原逻辑判断
+            const isEnglishOrNum = /^[a-zA-Z0-9\s]*$/.test(strValue);
+            fontFamily = (isEnglishOrNum && strValue.length > 0) ? S.fontASCII : S.fontCJK;
+        }
+    } else {
+        // 其他列：判断是否为纯英文字母和数字（不含标点），标点使用宋体
+        const isEnglishOrNum = /^[a-zA-Z0-9\s]*$/.test(strValue);
+        fontFamily = (isEnglishOrNum && strValue.length > 0) ? S.fontASCII : S.fontCJK;
     }
 
     parts.push(`font-family: ${fontFamily}`);
