@@ -237,27 +237,31 @@ const teacherController = {
     async exportMySchedules(req, res) {
         try {
             const teacherId = req.user.id;
+            const teacherName = req.user.name || req.user.username || '教师';
             const { startDate, endDate } = req.query;
 
-            // 1. 实例化独立导出服务
-            const teacherExportService = require('../utils/teacherExportService');
+            if (!startDate || !endDate) {
+                return res.status(400).json({ success: false, error: '缺少起止日期参数' });
+            }
 
-            // 2. 生成文件
-            const result = await teacherExportService.exportSchedule(teacherId, startDate, endDate);
+            const AdvancedExportService = require('../utils/advancedExportService');
+            const exportService = new AdvancedExportService(db);
 
-            // 3. 发送文件
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+            // 返回原始行数据供前端生成 Excel
+            const exportData = await exportService.exportTeacherSchedule(startDate, endDate, { teacher_id: teacherId });
+            const filename = `教师授课记录_${startDate}_${endDate}.xlsx`;
 
-            const encodedFilename = encodeURIComponent(result.filename);
-            res.setHeader('Content-Disposition', `attachment; filename="${encodedFilename}"`);
-            res.setHeader('Content-Length', result.buffer.length);
-
-            res.end(result.buffer);
+            res.json({
+                success: true,
+                data: exportData,
+                filename: filename,
+                format: 'excel',
+                recordCount: exportData.length
+            });
 
         } catch (error) {
             console.error('Export error:', error);
-            res.status(error.status || 500).json({ error: error.message || '导出失败' });
+            res.status(error.status || 500).json({ success: false, error: error.message || '导出失败' });
         }
     },
 

@@ -460,15 +460,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
                 const mainType = isRecord ? typeName.replace('记录', '') : typeName;
 
-                const statusStr = isCancelled ? 'C' : (isModifiedAway ? 'M' : 'N');
-                // 再次调整：matchKey 必须包含状态，否则相同学生同时间的“已取消”和“正常”会混在一起
-                const matchKey = isStudent || isSingleStudent ? `${timeStr}|||${statusStr}` : `${sName}|||${timeStr}|||${statusStr}`;
+                // 移除 statusStr，使同一时间段的课程合并到一个单元格
+                const matchKey = isStudent || isSingleStudent ? `${timeStr}` : `${sName}|||${timeStr}`;
 
                 if (!cellsMap[matchKey]) {
                     cellsMap[matchKey] = {
-                        matchKey, sName, loc, timeStr, sTime, statusStr,
-                        isCancelled: isCancelled, 
-                        isModifiedAway: isModifiedAway,
+                        matchKey, sName, loc, timeStr, sTime,
                         items: []
                     };
                 }
@@ -484,6 +481,81 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             const shouldShowStudent = !isStudent && !isSingleStudent && cell.sName !== 'Unknown';
             const displayName = cell.sName === 'all-std' ? '全体学生' : cell.sName;
 
+            // 按状态分组：正常、已取消、调走
+            const normalItems = [];
+            const cancelledItems = [];
+            const modifiedAwayItems = [];
+
+            cell.items.forEach(r => {
+                const status = String(r.status || r['状态']).toLowerCase();
+                const isCancelled = (status === 'cancelled' || status === '已取消' || status === '0');
+                const isModifiedAway = (status === 'modified_away');
+
+                if (isCancelled) {
+                    cancelledItems.push(r);
+                } else if (isModifiedAway) {
+                    modifiedAwayItems.push(r);
+                } else {
+                    normalItems.push(r);
+                }
+            });
+
+            // 构建课程类型文本的辅助函数
+            const buildTypeTexts = (items) => {
+                const allTypes = items.map(r => r._typeName || '');
+                const typeGroups = {};
+
+                items.forEach(r => {
+                    let typeName = r._typeName || '';
+                    const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
+                    let mType = isRecord ? typeName.replace('记录', '') : typeName;
+
+                    if (isRecord) {
+                        const parentType = allTypes.find(t => t.includes(mType) && !t.includes('记录'));
+                        if (parentType) {
+                            mType = parentType;
+                        }
+                    }
+
+                    if (!typeGroups[mType]) typeGroups[mType] = [];
+                    typeGroups[mType].push(r);
+                });
+
+                const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
+
+                const typeTexts = [];
+                Object.keys(typeGroups)
+                    .sort((a, b) => {
+                        const cleanA = a.replace('⁺', '').replace('~', '').replace('（线上）', '').replace('(线上)', '');
+                        const cleanB = b.replace('⁺', '').replace('~', '').replace('（线上）', '').replace('(线上)', '');
+                        return (TYPE_PRIORITY[cleanA] || 99) - (TYPE_PRIORITY[cleanB] || 99);
+                    })
+                    .forEach(mType => {
+                        const typeItems = typeGroups[mType];
+                        typeItems.sort((a, b) => {
+                            const isRecA = a._typeName && a._typeName.includes('记录');
+                            const isRecB = b._typeName && b._typeName.includes('记录');
+                            if (isRecA && !isRecB) return 1;
+                            if (!isRecA && isRecB) return -1;
+                            const idA = Number(a.teacher_id || a.id || a['教师ID'] || 0);
+                            const idB = Number(b.teacher_id || b.id || b['教师ID'] || 0);
+                            return idA - idB;
+                        });
+
+                        const teacherContents = typeItems.map(item => {
+                            const tName = item.teacher_name || item.name || '-';
+                            const isRecord = item._typeName && item._typeName.includes('记录');
+                            return isRecord ? `${tName}（记录）` : tName;
+                        });
+
+                        const uniqueTeacherContents = [...new Set(teacherContents)];
+                        typeTexts.push(`${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
+                    });
+
+                return typeTexts;
+            };
+
+            // 构建前缀
             let namePrefix = '';
             const hasTemp = cell.items.some(r => (r.is_temp ?? r.adjustment_type) == 1);
             const hasAdj = cell.items.some(r => (r.is_temp ?? r.adjustment_type) == 2 || r.status === 'modified_away');
@@ -492,77 +564,57 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             else if (hasAdj) namePrefix = '~';
 
             const pfxClean = shouldShowStudent ? `[${displayName}]` : '';
-            // 计划列如果已取消，也显示“已取消”前缀以符合用户新需求
-            const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
             const pfxNormal = shouldShowStudent ? `${namePrefix}[${displayName}]` : (namePrefix || '');
 
-            const allTypes = cell.items.map(r => r._typeName || '');
-            const typeGroups = {};
-            cell.items.forEach(r => {
-                let typeName = r._typeName || '';
-                const isRecord = typeName.includes('记录') && (typeName.includes('评审') || typeName.includes('咨询'));
-                let mType = isRecord ? typeName.replace('记录', '') : typeName;
-                
-                if (isRecord) {
-                    const parentType = allTypes.find(t => t.includes(mType) && !t.includes('记录'));
-                    if (parentType) {
-                        mType = parentType;
-                    }
-                }
-                
-                if (!typeGroups[mType]) typeGroups[mType] = [];
-                typeGroups[mType].push(r);
-            });
+            // 构建文本片段数组（用于 rich text）
+            const textParts = [];
 
-            const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
-            
-            const typeTexts = [];
-            Object.keys(typeGroups)
-                .sort((a, b) => {
-                    const cleanA = a.replace('⁺', '').replace('~', '').replace('（线上）', '').replace('(线上)', '');
-                    const cleanB = b.replace('⁺', '').replace('~', '').replace('（线上）', '').replace('(线上)', '');
-                    return (TYPE_PRIORITY[cleanA] || 99) - (TYPE_PRIORITY[cleanB] || 99);
-                })
-                .forEach(mType => {
-                    const typeItems = typeGroups[mType];
-                    typeItems.sort((a, b) => {
-                        const isRecA = a._typeName && a._typeName.includes('记录');
-                        const isRecB = b._typeName && b._typeName.includes('记录');
-                        if (isRecA && !isRecB) return 1;
-                        if (!isRecA && isRecB) return -1;
-                        const idA = Number(a.teacher_id || a.id || a['教师ID'] || 0);
-                        const idB = Number(b.teacher_id || b.id || b['教师ID'] || 0);
-                        return idA - idB;
-                    });
-
-                    const teacherContents = typeItems.map(item => {
-                        const tName = item.teacher_name || item.name || '-';
-                        const isRecord = item._typeName && item._typeName.includes('记录');
-                        return isRecord ? `${tName}（记录）` : tName;
-                    });
-
-                    const uniqueTeacherContents = [...new Set(teacherContents)];
-                    typeTexts.push(`${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
+            // 正常课程
+            if (normalItems.length > 0) {
+                const normalTypeTexts = buildTypeTexts(normalItems);
+                const prefix = isPlanList ? pfxClean : pfxNormal;
+                textParts.push({
+                    text: `${prefix}${normalTypeTexts.join('；')}`,
+                    isCancelled: false,
+                    isModifiedAway: false
                 });
-
-            let finalPrefix = '';
-            let finalSuffix = '';
-            if (cell.isCancelled && !isPlanList) { // 取消前缀不显示在计划列表
-                finalPrefix = pfxCancel;
-                finalSuffix = `]`;
-            } else {
-                finalPrefix = isPlanList ? pfxClean : pfxNormal;
             }
 
+            // 已取消课程
+            if (cancelledItems.length > 0) {
+                const cancelledTypeTexts = buildTypeTexts(cancelledItems);
+                const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
+                textParts.push({
+                    text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
+                    isCancelled: true,
+                    isModifiedAway: false
+                });
+            }
+
+            // 调走课程（如果需要显示）
+            if (modifiedAwayItems.length > 0 && !isPlanList) {
+                const modifiedAwayTypeTexts = buildTypeTexts(modifiedAwayItems);
+                const pfxModified = shouldShowStudent ? `${namePrefix}[${displayName}]调走[` : `${namePrefix}调走[`;
+                textParts.push({
+                    text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
+                    isCancelled: false,
+                    isModifiedAway: true
+                });
+            }
+
+            // 合并文本片段
+            const fullText = textParts.map(p => p.text).join('；');
+
             return {
-                text: `${finalPrefix}${typeTexts.join('；')}${finalSuffix}`,
-                displayName: displayName, // 传递给合并函数
+                text: fullText,
+                textParts: textParts,  // 保留分段信息用于 rich text
+                displayName: displayName,
                 isRed: cell.items.some(r => r._isReviewOrConsultation),
                 sTime: cell.sTime,
-                isModified: cell.isCancelled && !isPlanList,
-                isCancelled: cell.isCancelled,
-                isCancelledGrey: cell.isCancelled,
-                isModifiedAwayGrey: cell.isModifiedAway
+                isModified: cancelledItems.length > 0 || modifiedAwayItems.length > 0,
+                isCancelled: cancelledItems.length > 0,
+                isCancelledGrey: cancelledItems.length > 0,
+                isModifiedAwayGrey: modifiedAwayItems.length > 0
             };
         };
 
@@ -603,6 +655,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 '_isRedRow': rowIsRed,
                 '_planIsRed': pObj ? pObj.isRed : false,
                 '_actualIsRed': aObj ? aObj.isRed : false,
+                '_planTextParts': pObj ? pObj.textParts : null,
+                '_actualTextParts': aObj ? aObj.textParts : null,
                 '_planIsCancelledGrey': pObj ? pObj.isCancelledGrey : false,
                 '_planIsModifiedAwayGrey': pObj ? pObj.isModifiedAwayGrey : false,
                 '_actualIsCancelledGrey': aObj ? aObj.isCancelledGrey : false,
@@ -1761,8 +1815,41 @@ async function generateExcelFile(exportData, filename, userType) {
 
     let hasData = false;
 
-    // 助手函数：解析 <b> 标签并返回 ExcelJS RichText 数组
-    const parseRichText = (str) => {
+    // 助手函数：解析富文本（支持 <b> 标签和 textParts 数组）
+    const parseRichText = (str, textParts) => {
+        // 如果有 textParts，使用它来构建 rich text
+        if (textParts && textParts.length > 0) {
+            const richTextArray = [];
+            textParts.forEach((part, index) => {
+                if (index > 0) {
+                    // 添加分隔符
+                    richTextArray.push({ text: '；', font: { name: '宋体', sz: 11 } });
+                }
+
+                if (part.isCancelled) {
+                    // 已取消：灰色、斜体
+                    richTextArray.push({
+                        text: part.text,
+                        font: { name: '宋体', sz: 11, color: { argb: 'FF595959' }, italic: true }
+                    });
+                } else if (part.isModifiedAway) {
+                    // 调走：茶色、斜体
+                    richTextArray.push({
+                        text: part.text,
+                        font: { name: '宋体', sz: 11, color: { argb: 'FF8C6239' }, italic: true }
+                    });
+                } else {
+                    // 正常：黑色
+                    richTextArray.push({
+                        text: part.text,
+                        font: { name: '宋体', sz: 11 }
+                    });
+                }
+            });
+            return { richText: richTextArray };
+        }
+
+        // 回退：解析 <b> 标签
         if (typeof str !== 'string' || !str.includes('<b>')) return str;
         const parts = [];
         const regex = /<b>(.*?)<\/b>/g;
@@ -1790,6 +1877,8 @@ async function generateExcelFile(exportData, filename, userType) {
                 delete newRow._isRedRow;
                 delete newRow._planIsRed;
                 delete newRow._actualIsRed;
+                delete newRow._planTextParts;
+                delete newRow._actualTextParts;
                 delete newRow._planIsCancelledGrey;
                 delete newRow._planIsModifiedAwayGrey;
                 delete newRow._actualIsCancelledGrey;
@@ -2140,39 +2229,44 @@ async function generateExcelFile(exportData, filename, userType) {
                             cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
                         }
 
-                        // c. 评审/咨询类 -> 红色文字; 取消/被替换调课 -> 灰色文字+斜体 (仅限工作表1)
+                        // c. 评审/咨询类 -> 红色文字; 取消/被替换调课 -> 使用 rich text (仅限工作表1)
                         const isCoreField = headerVal.includes('计划安排') || headerVal.includes('实际安排') || headerVal.includes('类型');
 
                         if (sheetIndex === 0) {
                             let isCellRed = (isCoreField && isRedRow);
-                            let isCellCancelledGrey = false;
-                            let isCellModifiedAwayGrey = false;
 
                             if (dataRow && typeof dataRow._planIsRed !== 'undefined') {
                                 if (headerVal.includes('计划安排')) {
                                     isCellRed = dataRow._planIsRed;
-                                    isCellCancelledGrey = dataRow._planIsCancelledGrey;
-                                    isCellModifiedAwayGrey = dataRow._planIsModifiedAwayGrey;
+                                    // 如果有 textParts，应用 rich text
+                                    if (dataRow._planTextParts && dataRow._planTextParts.length > 0) {
+                                        const richTextValue = parseRichText(strValue, dataRow._planTextParts);
+                                        if (richTextValue && richTextValue.richText) {
+                                            cell.v = richTextValue;
+                                            cell.t = 's'; // 确保类型为字符串
+                                        }
+                                    }
                                 }
                                 if (headerVal.includes('实际安排')) {
                                     isCellRed = dataRow._actualIsRed;
-                                    isCellCancelledGrey = dataRow._actualIsCancelledGrey;
-                                    isCellModifiedAwayGrey = dataRow._actualIsModifiedAwayGrey;
+                                    // 如果有 textParts，应用 rich text
+                                    if (dataRow._actualTextParts && dataRow._actualTextParts.length > 0) {
+                                        const richTextValue = parseRichText(strValue, dataRow._actualTextParts);
+                                        if (richTextValue && richTextValue.richText) {
+                                            cell.v = richTextValue;
+                                            cell.t = 's'; // 确保类型为字符串
+                                        }
+                                    }
                                 }
                             }
 
-                            if (isCellCancelledGrey || isCellModifiedAwayGrey) {
-                                cell.s.font.italic = true;
-                            }
-
-                            if (isCoreField && isCellRed) {
-                                cell.s.font.color = { rgb: "FF0000" };
-                            } else if (isCoreField && isCellCancelledGrey) {
-                                cell.s.font.color = { rgb: "595959" }; // 已取消：最深的灰色 (或 #333333)
-                            } else if (isCoreField && isCellModifiedAwayGrey) {
-                                cell.s.font.color = { rgb: "8C6239" }; // 被调走的原排课：第3深的茶色
-                            } else {
-                                cell.s.font.color = { rgb: "000000" };
+                            // 只有在没有使用 rich text 时才应用整体颜色
+                            if (isCoreField && !cell.v?.richText) {
+                                if (isCellRed) {
+                                    cell.s.font.color = { rgb: "FF0000" };
+                                } else {
+                                    cell.s.font.color = { rgb: "000000" };
+                                }
                             }
                         } else {
                             // Sheet 2, 3, 4 全部使用黑色

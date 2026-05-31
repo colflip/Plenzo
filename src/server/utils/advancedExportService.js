@@ -616,8 +616,8 @@ ca.id as schedule_id,
         }));
     }
 
-    async exportStudentSchedule(startDate, endDate) {
-        const rows = await this.queryStudentSchedule(startDate, endDate, {});
+    async exportStudentSchedule(startDate, endDate, filters = {}) {
+        const rows = await this.queryStudentSchedule(startDate, endDate, filters);
         return rows.map(row => ({
             schedule_id: row.schedule_id,
             student_id: row.student_id,
