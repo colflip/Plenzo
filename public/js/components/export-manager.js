@@ -2075,7 +2075,7 @@ async function generateExcelFile(exportData, filename, userType) {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
 }
-}
+
 async function loadXLSXLibrary() {
     return new Promise((resolve, reject) => {
         if (typeof ExcelJS !== 'undefined') {
