@@ -285,7 +285,7 @@ const teacherController = {
 
             // 如果前端需要直接下载Excel文件
             if (req.query.download === 'true') {
-                return excelGenerator.sendExcelResponse(res, exportResult.data, exportResult.filename);
+                return await excelGenerator.sendExcelResponse(res, exportResult.data, exportResult.filename);
             }
 
             // 返回JSON数据供前端处理

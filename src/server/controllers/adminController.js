@@ -1943,7 +1943,7 @@ const adminController = {
 
             // 如果是Excel格式且是多Sheet，直接发送文件
             if (format === 'excel' && isMultiSheet) {
-                return excelGenerator.sendExcelResponse(res, exportData, filename);
+                return await excelGenerator.sendExcelResponse(res, exportData, filename);
             }
 
             // 返回导出数据（单Sheet或CSV）
