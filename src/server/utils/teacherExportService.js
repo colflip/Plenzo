@@ -1,12 +1,12 @@
 const db = require('../db/db');
-const xlsx = require('xlsx');
+const enhancedExcel = require('../services/enhancedExcelService');
 
 class TeacherExportService {
     /**
      * generating export data for teacher
-     * @param {number} teacherId 
-     * @param {string} startDate 
-     * @param {string} endDate 
+     * @param {number} teacherId
+     * @param {string} startDate
+     * @param {string} endDate
      */
     async exportSchedule(teacherId, startDate, endDate) {
         // 0. Determine Date Column dynamically
@@ -22,7 +22,7 @@ class TeacherExportService {
 
         // 1. Query Data
         const query = `
-            SELECT 
+            SELECT
                 ca.id,
                 ca.${dateCol} as date,
                 ca.start_time,
@@ -36,6 +36,7 @@ class TeacherExportService {
                 t.name as teacher_name,
                 ca.transport_fee,
                 ca.other_fee,
+                ca.adjustment_type,
                 COALESCE(sty.description, sty.name) as type_name
             FROM course_arrangement ca
             JOIN students s ON ca.student_id = s.id
@@ -55,34 +56,90 @@ class TeacherExportService {
 
         const teacherName = rows[0].teacher_name || '教师';
 
-        // 2. Prepare Sheets
+        // 2. 生成按时间段分组的总览表
+        const timeSlotOverview = this.generateTimeSlotOverview(rows);
+
+        // 3. 生成传统总览表（保持兼容）
         const overviewSheet = this.generateOverviewSheet(rows);
+
+        // 4. 生成明细信息表
         const detailSheet = this.generateDetailSheet(rows, startDate, endDate);
 
-        // 3. Create Workbook
-        const workbook = xlsx.utils.book_new();
+        // 5. Create Workbook using enhanced service
+        const workbook = enhancedExcel.createWorkbook();
 
-        // Add Overview Sheet
-        const wsOverview = xlsx.utils.json_to_sheet(overviewSheet);
-        this.autoFitColumns(wsOverview, overviewSheet);
-        xlsx.utils.book_append_sheet(workbook, wsOverview, '总览表');
+        // Add Time Slot Overview Sheet (新增：按时间段分组)
+        enhancedExcel.addWorksheet(workbook, timeSlotOverview, '课程安排（按时间段）');
+
+        // Add Traditional Overview Sheet
+        enhancedExcel.addWorksheet(workbook, overviewSheet, '总览表');
 
         // Add Detail Sheet
-        const wsDetail = xlsx.utils.json_to_sheet(detailSheet);
-        this.autoFitColumns(wsDetail, detailSheet);
-        xlsx.utils.book_append_sheet(workbook, wsDetail, '明细信息表');
+        enhancedExcel.addWorksheet(workbook, detailSheet, '明细信息表');
 
-        // 4. Generate Buffer
-        const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        // 6. Generate Buffer
+        const buffer = await enhancedExcel.writeToBuffer(workbook);
 
-        // 5. Generate Filename
-        const timestamp = this.getTimestamp();
+        // 7. Generate Filename
+        const timestamp = enhancedExcel.getTimestamp();
         const filename = `[${teacherName}]授课记录_[${startDate}_${endDate}]_${timestamp}.xlsx`;
 
         return {
             buffer,
             filename
         };
+    }
+
+    /**
+     * 生成按时间段分组的总览表
+     */
+    generateTimeSlotOverview(rows) {
+        // 按日期和时间段分组
+        const grouped = new Map();
+
+        rows.forEach(row => {
+            const date = enhancedExcel.formatDate(row.date);
+            const timeSlot = `${enhancedExcel.formatTime(row.start_time)}-${enhancedExcel.formatTime(row.end_time)}`;
+            const key = `${date}_${timeSlot}`;
+
+            if (!grouped.has(key)) {
+                const dateObj = new Date(row.date);
+                const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+                grouped.set(key, {
+                    '日期': date,
+                    '星期': days[dateObj.getDay()],
+                    '时间段': timeSlot,
+                    '计划安排': [],
+                    '实际安排': []
+                });
+            }
+
+            const group = grouped.get(key);
+            const isCancelled = row.status === 'cancelled' || row.status === '已取消' || row.status === 0 || row.status === 2;
+            const isNew = row.adjustment_type == 1;
+
+            // 构建课程信息（包含时间段）
+            const courseInfo = `${row.type_name || '未知'}(${timeSlot})：${row.student_name}`;
+
+            if (isCancelled) {
+                group['计划安排'].push(`[已取消]${courseInfo}`);
+            } else if (isNew) {
+                group['实际安排'].push(`[新增]${courseInfo}`);
+            } else {
+                group['计划安排'].push(courseInfo);
+                group['实际安排'].push(courseInfo);
+            }
+        });
+
+        // 转换为数组并格式化，使用分号分隔
+        return Array.from(grouped.values()).map(group => ({
+            '日期': group['日期'],
+            '星期': group['星期'],
+            '时间段': group['时间段'],
+            '计划安排': group['计划安排'].join('；'),
+            '实际安排': group['实际安排'].join('；')
+        }));
     }
 
     generateOverviewSheet(rows) {
@@ -97,14 +154,28 @@ class TeacherExportService {
                 return num > 0 ? String(Math.ceil(num * 100) / 100) : '';
             };
 
+            // 状态标记
+            let studentName = row.student_name;
+            const isCancelled = row.status === 'cancelled' || row.status === '已取消' || row.status === 0 || row.status === 2;
+            const isNew = row.adjustment_type == 1;
+            const isAdjusted = row.adjustment_type == 2;
+
+            if (isCancelled) {
+                studentName = `[已取消]${studentName}`;
+            } else if (isNew) {
+                studentName = `[新增]${studentName}`;
+            } else if (isAdjusted) {
+                studentName = `[调整]${studentName}`;
+            }
+
             return {
-                '学生名称': row.student_name,
+                '学生名称': studentName,
                 '类型': row.type_name || '未知',
-                '日期': this.formatDate(row.date),
-                '时间段': `${row.start_time?.slice(0, 5)}-${row.end_time?.slice(0, 5)}`,
+                '日期': enhancedExcel.formatDate(row.date),
+                '时间段': `${enhancedExcel.formatTime(row.start_time)}-${enhancedExcel.formatTime(row.end_time)}`,
                 '星期': week,
-                '状态': this.formatStatus(row.status),
-                '创建时间': this.formatDateTime(row.created_at),
+                '状态': enhancedExcel.formatStatus(row.status),
+                '创建时间': enhancedExcel.formatDateTime(row.created_at),
                 '排课ID': row.id,
                 '教师ID': row.teacher_id,
                 '学生ID': row.student_id,
@@ -117,6 +188,18 @@ class TeacherExportService {
 
     generateDetailSheet(rows, startDate, endDate) {
         const stats = {};
+
+        // 类型归一化映射
+        const normalizeType = (typeName) => {
+            if (!typeName) return typeName;
+            const lower = String(typeName).toLowerCase();
+            if (lower.includes('线上入户') || lower.includes('（线上）入户')) return '入户';
+            if (lower.includes('线上评审') || lower.includes('（线上）评审')) return '评审';
+            if (lower.includes('线上咨询') || lower.includes('（线上）咨询')) return '咨询';
+            if (lower.includes('线上评审记录') || lower.includes('（线上）评审记录')) return '评审记录';
+            if (lower.includes('线上咨询记录') || lower.includes('（线上）咨询记录')) return '咨询记录';
+            return typeName;
+        };
 
         rows.filter(row => !['cancelled', '0', 'modified_away'].includes(String(row.status || '').toLowerCase())).forEach(row => {
             const studentName = row.student_name || '未知';
@@ -134,7 +217,7 @@ class TeacherExportService {
                 };
             }
 
-            const type = row.type_name;
+            const type = normalizeType(row.type_name);
             if (type && stats[studentName].hasOwnProperty(type)) {
                 stats[studentName][type]++;
             } else if (type === '入户课') {
@@ -142,9 +225,8 @@ class TeacherExportService {
             }
         });
 
-        const dateRangeStr = `${this.formatDate(startDate)}-${this.formatDate(endDate)}`;
+        const dateRangeStr = `${enhancedExcel.formatDate(startDate)}-${enhancedExcel.formatDate(endDate)}`;
 
-        // Track totals for the summary row
         const globalTotals = {
             '试教': 0,
             '入户': 0,
@@ -157,9 +239,7 @@ class TeacherExportService {
 
         const result = Object.values(stats);
 
-        // Calculate remarks for each student and accumulate totals
         result.forEach(item => {
-            // Accumulate totals
             globalTotals['试教'] += item['试教'];
             globalTotals['入户'] += item['入户'];
             globalTotals['半次入户'] += item['半次入户'];
@@ -168,7 +248,6 @@ class TeacherExportService {
             globalTotals['集体活动'] += item['集体活动'];
             globalTotals['咨询'] += item['咨询'];
 
-            // Calculate weighted sums for remarks
             let totalInHome = item['入户'] + (item['半次入户'] * 0.5) + (item['评审记录'] * 0.5);
             let totalReview = item['评审'] + (item['评审记录'] * 1);
             let totalGroup = item['集体活动'];
@@ -180,14 +259,12 @@ class TeacherExportService {
             if (totalGroup > 0) parts.push(`${totalGroup}次集体活动`);
             if (totalConsult > 0) parts.push(`${totalConsult}次咨询`);
 
-            // Format: 在[学生姓名]，导出选择的日期段，a次入户...
             const details = parts.length > 0 ? `，${parts.join('，')}。` : '。';
             item['备注'] = `在${item['学生姓名']}，${dateRangeStr}${details}`;
         });
 
-        // Create Summary Row
         const summaryRow = {
-            '学生姓名': '', // Empty or '汇总'
+            '学生姓名': '',
             '试教': globalTotals['试教'],
             '入户': globalTotals['入户'],
             '半次入户': globalTotals['半次入户'],
@@ -198,7 +275,6 @@ class TeacherExportService {
             '备注': ''
         };
 
-        // Calculate weighted sums for Summary details
         let sumInHome = globalTotals['入户'] + (globalTotals['半次入户'] * 0.5) + (globalTotals['评审记录'] * 0.5);
         let sumReview = globalTotals['评审'] + (globalTotals['评审记录'] * 1);
         let sumGroup = globalTotals['集体活动'];
@@ -210,7 +286,6 @@ class TeacherExportService {
         if (sumGroup > 0) sumParts.push(`${sumGroup}次集体活动`);
         if (sumConsult > 0) sumParts.push(`${sumConsult}次咨询`);
 
-        // Format: 导出选择的日期段，a次入户...
         const sumDetails = sumParts.length > 0 ? `，${sumParts.join('，')}。` : '。';
         summaryRow['备注'] = `${dateRangeStr}${sumDetails}`;
 
@@ -219,68 +294,6 @@ class TeacherExportService {
         return result;
     }
 
-    autoFitColumns(ws, data) {
-        if (!data || data.length === 0) return;
-        const keys = Object.keys(data[0]);
-        const colWidths = keys.map(key => {
-            // Header width
-            let maxWidth = this.getStringWidth(key);
-            // Content width
-            data.forEach(row => {
-                const val = row[key] ? String(row[key]) : '';
-                const width = this.getStringWidth(val);
-                if (width > maxWidth) maxWidth = width;
-            });
-            // Max limit to avoid super wide columns
-            return { wch: Math.min(maxWidth + 10, 80) };
-        });
-        ws['!cols'] = colWidths;
-    }
-
-    getStringWidth(str) {
-        if (!str) return 0;
-        let width = 0;
-        for (let i = 0; i < str.length; i++) {
-            const code = str.charCodeAt(i);
-            if (code > 255) width += 2;
-            else width += 1;
-        }
-        return width;
-    }
-
-    formatDate(date) {
-        if (!date) return '';
-        if (date instanceof Date) return date.toISOString().slice(0, 10);
-        return String(date).slice(0, 10);
-    }
-
-    formatDateTime(date) {
-        if (!date) return '';
-        try {
-            const d = new Date(date);
-            return d.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
-        } catch (e) {
-            return String(date);
-        }
-    }
-
-    formatStatus(status) {
-        const map = {
-            'pending': '待确认',
-            'confirmed': '已确认',
-            'completed': '已完成',
-            'cancelled': '已取消',
-            'modified_away': '已调整'
-        };
-        return map[status] || status;
-    }
-
-    getTimestamp() {
-        const now = new Date();
-        const yyyyMMdd = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const hhmmss = now.toTimeString().slice(0, 8).replace(/:/g, '');
-        return `${yyyyMMdd}${hhmmss}`;
-    }
 }
 
 module.exports = new TeacherExportService();

@@ -10,6 +10,7 @@ const { recordAudit } = require('../middleware/audit');
 const ExportUtils = require('../utils/exportUtils');
 const AdvancedExportService = require('../utils/advancedExportService');
 const ExportLogService = require('../utils/exportLogService');
+const excelGenerator = require('../services/excelGeneratorService');
 
 const adminController = {
     /**
@@ -1877,6 +1878,7 @@ const adminController = {
             // ===== 执行导出 =====
             let exportData = [];
             let filename = '';
+            let isMultiSheet = false;
 
             // 根据导出类型获取数据
             switch (type) {
@@ -1897,8 +1899,14 @@ const adminController = {
                         );
                     }
                     const teacherId = req.query.teacher_id;
-                    exportData = await exportService.exportTeacherSchedule(startDate, endDate, { student_id, teacher_id: teacherId });
-                    filename = `教师授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+                    // 使用新的多Sheet导出
+                    const teacherExportResult = await exportService.generateExportData('teacher_schedule', startDate, endDate, {
+                        student_id,
+                        teacher_id: teacherId
+                    });
+                    exportData = teacherExportResult.data;
+                    filename = teacherExportResult.filename;
+                    isMultiSheet = true;
                     break;
 
                 case 'student_schedule':
@@ -1907,8 +1915,11 @@ const adminController = {
                             standardResponse(false, null, '导出学生排课记录需要指定日期范围')
                         );
                     }
-                    exportData = await exportService.exportStudentSchedule(startDate, endDate);
-                    filename = `学生授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+                    // 使用新的多Sheet导出
+                    const studentExportResult = await exportService.generateExportData('student_schedule', startDate, endDate, { student_id });
+                    exportData = studentExportResult.data;
+                    filename = studentExportResult.filename;
+                    isMultiSheet = true;
                     break;
 
                 default:
@@ -1921,19 +1932,31 @@ const adminController = {
             const duration = Date.now() - startTime;
             try {
                 if (logId) {
-                    await logService.logExportComplete(logId, exportData.length, duration);
+                    const recordCount = isMultiSheet
+                        ? Object.values(exportData).reduce((sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0), 0)
+                        : exportData.length;
+                    await logService.logExportComplete(logId, recordCount, duration);
                 }
             } catch (logError) {
                 console.warn('记录导出完成日志失败:', logError.message);
             }
 
-            // 返回导出数据
+            // 如果是Excel格式且是多Sheet，直接发送文件
+            if (format === 'excel' && isMultiSheet) {
+                return excelGenerator.sendExcelResponse(res, exportData, filename);
+            }
+
+            // 返回导出数据（单Sheet或CSV）
+            const recordCount = isMultiSheet
+                ? Object.values(exportData).reduce((sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0), 0)
+                : exportData.length;
+
             res.json({
                 success: true,
                 data: exportData,
                 filename: filename,
                 format: format,
-                recordCount: exportData.length
+                recordCount: recordCount
             });
 
         } catch (error) {

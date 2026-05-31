@@ -1,6 +1,7 @@
 const db = require('../db/db');
 const ExportUtils = require('../utils/exportUtils');
 const AdvancedExportService = require('../utils/advancedExportService');
+const excelGenerator = require('../services/excelGeneratorService');
 const { standardResponse } = require('../middleware/validation');
 
 const SLOT_COLUMNS = Object.freeze({
@@ -273,16 +274,31 @@ const teacherController = {
             }
 
             const exportService = new AdvancedExportService(db);
-            const exportData = await exportService.exportTeacherSchedule(startDate, endDate, { teacher_id: teacherId });
 
+            // 使用新的多Sheet导出方法
+            const exportResult = await exportService.generateExportData(
+                'teacher_schedule',
+                startDate,
+                endDate,
+                { teacher_id: teacherId, user_name: req.user.name || req.user.username }
+            );
+
+            // 如果前端需要直接下载Excel文件
+            if (req.query.download === 'true') {
+                return excelGenerator.sendExcelResponse(res, exportResult.data, exportResult.filename);
+            }
+
+            // 返回JSON数据供前端处理
             const responseData = {
-                data: exportData,
-                filename: `[${req.user.name || req.user.username || '教师'}]授课记录_${startDate}_${endDate}.xlsx`,
-                format: 'excel',
-                recordCount: exportData.length
+                data: exportResult.data,
+                filename: exportResult.filename,
+                format: exportResult.format,
+                recordCount: Object.values(exportResult.data).reduce(
+                    (sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0),
+                    0
+                )
             };
 
-            // 保持返回格式和 adminController 中 advancedExport 一致
             res.json(standardResponse(true, responseData, '教师数据导出成功'));
         } catch (error) {
             console.error('Teacher Advanced Export Error:', error);
