@@ -1236,13 +1236,13 @@ const WEEKLY_VIEW_STYLE = {
         '费用': 120,
         '周汇总': 110
     },
-    // 单元格内边距与行高（压制到接近 Excel 紧凑默认行高，对齐目标图）
-    cellPaddingY: 5,
-    cellPaddingX: 10,
-    lineHeight: 1.35,
-    minRowHeight: 32,   // 紧凑行高，贴近 Excel 第1表默认
-    // 字体：改无衬线黑体，匹配目标外观（雅黑/PingFang），ASCII 仍用 Times 贴近 Excel 数字
-    fontCJK: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "微软雅黑", sans-serif',
+    // 单元格内边距与行高（进一步压缩）
+    cellPaddingY: 2,
+    cellPaddingX: 8,
+    lineHeight: 1.2,
+    minRowHeight: 24,   // 压缩行高
+    // 字体：中文和标点使用宋体，英文和数字使用 Times New Roman
+    fontCJK: 'SimSun, "宋体", STSong, serif',
     fontASCII: '"Times New Roman", serif',
     fontPt: 11,         // 内容 11pt
     headerFontPt: 11,   // 表头与内容同字号，仅加粗
@@ -1751,7 +1751,8 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
     ];
 
     const strValue = String(value || '');
-    const isEnglishOrNum = /^[\x00-\x7F]*$/.test(strValue);
+    // 判断是否为纯英文字母和数字（不含标点），标点使用宋体
+    const isEnglishOrNum = /^[a-zA-Z0-9\s]*$/.test(strValue);
     const fontFamily = (!isHeader && isEnglishOrNum && strValue.length > 0) ? S.fontASCII : S.fontCJK;
 
     if (isHeader) {
