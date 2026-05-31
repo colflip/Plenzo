@@ -1265,14 +1265,25 @@ const WEEKLY_VIEW_STYLE = {
 /**
  * 等待依赖项加载完成
  */
-async function waitForDependencies(maxWaitMs = 5000) {
+async function waitForDependencies(maxWaitMs = 10000) {
     const startTime = Date.now();
+    let lastLog = 0;
     while (Date.now() - startTime < maxWaitMs) {
+        const now = Date.now();
+        if (now - lastLog > 1000) {
+            console.log(`等待依赖项... html2canvas: ${!!window.html2canvas}, ExportManager: ${!!window.ExportManager}`);
+            lastLog = now;
+        }
         if (window.html2canvas && window.ExportManager && typeof window.ExportManager.transformExportData === 'function') {
+            console.log('所有依赖项已加载');
             return true;
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
     }
+    console.error('依赖项加载超时，缺失:', {
+        html2canvas: !window.html2canvas,
+        ExportManager: !window.ExportManager
+    });
     return false;
 }
 
@@ -1291,8 +1302,18 @@ async function exportWeeklyScheduleView() {
 
     if (!depsReady) {
         console.error('依赖项加载超时');
-        if (window.apiUtils) {
-            window.apiUtils.showToast('导出组件加载中，请稍后再试', 'warning');
+        if (!window.html2canvas) {
+            if (window.apiUtils) {
+                window.apiUtils.showToast('截图组件 html2canvas 加载失败，请刷新页面重试', 'error');
+            }
+        } else if (!window.ExportManager) {
+            if (window.apiUtils) {
+                window.apiUtils.showToast('导出组件 ExportManager 加载失败，请刷新页面重试', 'error');
+            }
+        } else {
+            if (window.apiUtils) {
+                window.apiUtils.showToast('导出组件加载中，请稍后再试', 'warning');
+            }
         }
         return;
     }

@@ -1115,8 +1115,39 @@
     <!-- Scripts -->
     <!-- 优先加载核心依赖 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
-            onerror="this.onerror=null; this.src='/js/libs/html2canvas.min.js';"></script>
+
+    <!-- html2canvas: 仅使用本地版本，添加详细错误日志 -->
+    <script>
+        // 诊断脚本：检测 html2canvas 加载状态
+        (function() {
+            var script = document.createElement('script');
+            script.src = '/js/libs/html2canvas.min.js';
+            script.onload = function() {
+                console.log('✓ html2canvas 本地文件加载成功');
+                if (window.html2canvas) {
+                    console.log('✓ window.html2canvas 已定义');
+                } else {
+                    console.error('✗ html2canvas 文件加载但未定义到 window');
+                }
+            };
+            script.onerror = function(e) {
+                console.error('✗ html2canvas 本地文件加载失败:', e);
+                console.error('尝试的路径:', script.src);
+                console.error('当前页面 URL:', window.location.href);
+                // 尝试 CDN 作为备用
+                var cdnScript = document.createElement('script');
+                cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+                cdnScript.onload = function() {
+                    console.log('✓ html2canvas CDN 备用加载成功');
+                };
+                cdnScript.onerror = function() {
+                    console.error('✗ html2canvas CDN 备用也加载失败');
+                };
+                document.head.appendChild(cdnScript);
+            };
+            document.head.appendChild(script);
+        })();
+    </script>
 
     <!-- 加载应用核心组件 -->
     <script src="/js/core/api-client.js"></script>
