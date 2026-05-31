@@ -602,12 +602,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 });
             }
 
-            // 合并文本片段
-            const fullText = textParts.map(p => p.text).join('；');
+            // 合并文本片段 - 用换行符分隔不同状态的课程
+            const fullText = textParts.map(p => p.text).join('\n');
 
             return {
                 text: fullText,
-                textParts: textParts,  // 保留分段信息用于 rich text
+                textParts: textParts,  // 保留分段信息用于样式判断
                 displayName: displayName,
                 isRed: cell.items.some(r => r._isReviewOrConsultation),
                 sTime: cell.sTime,
@@ -1815,41 +1815,8 @@ async function generateExcelFile(exportData, filename, userType) {
 
     let hasData = false;
 
-    // 助手函数：解析富文本（支持 <b> 标签和 textParts 数组）
-    const parseRichText = (str, textParts) => {
-        // 如果有 textParts，使用它来构建 rich text
-        if (textParts && textParts.length > 0) {
-            const richTextArray = [];
-            textParts.forEach((part, index) => {
-                if (index > 0) {
-                    // 添加分隔符
-                    richTextArray.push({ text: '；', font: { name: '宋体', sz: 11 } });
-                }
-
-                if (part.isCancelled) {
-                    // 已取消：灰色、斜体
-                    richTextArray.push({
-                        text: part.text,
-                        font: { name: '宋体', sz: 11, color: { argb: 'FF595959' }, italic: true }
-                    });
-                } else if (part.isModifiedAway) {
-                    // 调走：茶色、斜体
-                    richTextArray.push({
-                        text: part.text,
-                        font: { name: '宋体', sz: 11, color: { argb: 'FF8C6239' }, italic: true }
-                    });
-                } else {
-                    // 正常：黑色
-                    richTextArray.push({
-                        text: part.text,
-                        font: { name: '宋体', sz: 11 }
-                    });
-                }
-            });
-            return { richText: richTextArray };
-        }
-
-        // 回退：解析 <b> 标签
+    // 助手函数：解析 <b> 标签并返回富文本数组（xlsx-js-style 不支持，保留用于未来扩展）
+    const parseRichText = (str) => {
         if (typeof str !== 'string' || !str.includes('<b>')) return str;
         const parts = [];
         const regex = /<b>(.*?)<\/b>/g;
@@ -2229,44 +2196,39 @@ async function generateExcelFile(exportData, filename, userType) {
                             cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
                         }
 
-                        // c. 评审/咨询类 -> 红色文字; 取消/被替换调课 -> 使用 rich text (仅限工作表1)
+                        // c. 评审/咨询类 -> 红色文字; 取消/被替换调课 -> 灰色文字+斜体 (仅限工作表1)
                         const isCoreField = headerVal.includes('计划安排') || headerVal.includes('实际安排') || headerVal.includes('类型');
 
                         if (sheetIndex === 0) {
                             let isCellRed = (isCoreField && isRedRow);
+                            let isCellCancelledGrey = false;
+                            let isCellModifiedAwayGrey = false;
 
                             if (dataRow && typeof dataRow._planIsRed !== 'undefined') {
                                 if (headerVal.includes('计划安排')) {
                                     isCellRed = dataRow._planIsRed;
-                                    // 如果有 textParts，应用 rich text
-                                    if (dataRow._planTextParts && dataRow._planTextParts.length > 0) {
-                                        const richTextValue = parseRichText(strValue, dataRow._planTextParts);
-                                        if (richTextValue && richTextValue.richText) {
-                                            cell.v = richTextValue;
-                                            cell.t = 's'; // 确保类型为字符串
-                                        }
-                                    }
+                                    isCellCancelledGrey = dataRow._planIsCancelledGrey;
+                                    isCellModifiedAwayGrey = dataRow._planIsModifiedAwayGrey;
                                 }
                                 if (headerVal.includes('实际安排')) {
                                     isCellRed = dataRow._actualIsRed;
-                                    // 如果有 textParts，应用 rich text
-                                    if (dataRow._actualTextParts && dataRow._actualTextParts.length > 0) {
-                                        const richTextValue = parseRichText(strValue, dataRow._actualTextParts);
-                                        if (richTextValue && richTextValue.richText) {
-                                            cell.v = richTextValue;
-                                            cell.t = 's'; // 确保类型为字符串
-                                        }
-                                    }
+                                    isCellCancelledGrey = dataRow._actualIsCancelledGrey;
+                                    isCellModifiedAwayGrey = dataRow._actualIsModifiedAwayGrey;
                                 }
                             }
 
-                            // 只有在没有使用 rich text 时才应用整体颜色
-                            if (isCoreField && !cell.v?.richText) {
-                                if (isCellRed) {
-                                    cell.s.font.color = { rgb: "FF0000" };
-                                } else {
-                                    cell.s.font.color = { rgb: "000000" };
-                                }
+                            if (isCellCancelledGrey || isCellModifiedAwayGrey) {
+                                cell.s.font.italic = true;
+                            }
+
+                            if (isCoreField && isCellRed) {
+                                cell.s.font.color = { rgb: "FF0000" };
+                            } else if (isCoreField && isCellCancelledGrey) {
+                                cell.s.font.color = { rgb: "595959" }; // 已取消：灰色
+                            } else if (isCoreField && isCellModifiedAwayGrey) {
+                                cell.s.font.color = { rgb: "8C6239" }; // 被调走：茶色
+                            } else {
+                                cell.s.font.color = { rgb: "000000" };
                             }
                         } else {
                             // Sheet 2, 3, 4 全部使用黑色
