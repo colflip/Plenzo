@@ -1890,16 +1890,51 @@ async function generateExcelFile(exportData, filename, userType) {
         const headers = Object.keys(cleanData[0]);
 
         // 设置列宽
-        const firstSheetColumnWidths = { '日期': 12, '星期': 8, '计划安排': 60, '实际安排': 60, '费用': 20, '周汇总': 15 };
+        const firstSheetColumnWidths = { '日期': 15, '星期': 10, '计划安排': 60, '实际安排': 60, '费用': 20, '周汇总': 15 };
         const minWidths = { '时间段': 15, '备注': 30, '创建时间': 20, '日期': 12, '类型': 15, '星期': 6 };
 
-        worksheet.columns = headers.map(header => {
+        worksheet.columns = headers.map((header, colIndex) => {
             let width = 10;
+
+            // 第1工作表：特定列宽
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
-            } else if (minWidths[header]) {
+            }
+            // 第2工作表：前6列15，第8列15，第9列120
+            else if (sheetIndex === 1) {
+                if (colIndex < 6) {
+                    width = 15; // 第1-6列
+                } else if (colIndex === 7) {
+                    width = 15; // 第8列（核对）
+                } else if (colIndex === 8) {
+                    width = 120; // 第9列（备注）
+                } else {
+                    width = 10; // 第7列（汇总）保持默认
+                }
+            }
+            // 第3工作表：上课地点×2.5
+            else if (sheetIndex === 2) {
+                if (header === '上课地点') {
+                    width = 25;
+                } else if (minWidths[header]) {
+                    width = minWidths[header];
+                }
+            }
+            // 第4工作表：A-L列15，M列（汇总）60，其他列15
+            else if (sheetIndex === 3) {
+                if (colIndex < 12) {
+                    width = 15; // A-L列（前12列）
+                } else if (header === '汇总') {
+                    width = 60; // M列（汇总列）
+                } else {
+                    width = 15; // 其他列默认15
+                }
+            }
+            // 其他情况使用 minWidths
+            else if (minWidths[header]) {
                 width = minWidths[header];
             }
+
             return { header: header, key: header, width: width };
         });
 
@@ -2025,7 +2060,14 @@ async function generateExcelFile(exportData, filename, userType) {
         headerRow.eachCell((cell) => {
             cell.font = { name: '宋体', size: 12, bold: true };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+            // 第3工作表表头启用自动换行
+            if (sheetIndex === 2) {
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            } else {
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            }
+
             cell.border = {
                 top: { style: 'thin', color: { argb: 'FFD4D4D4' } },
                 bottom: { style: 'thin', color: { argb: 'FFD4D4D4' } },
