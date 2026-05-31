@@ -121,9 +121,20 @@ export async function initStudentSchedulesSection() {
     const exportWeeklyBtn = document.getElementById('exportWeeklyViewBtn');
     if (exportWeeklyBtn) {
         if (!exportWeeklyBtn.__exportWeeklyBound) {
-            exportWeeklyBtn.addEventListener('click', exportWeeklyScheduleView);
+            exportWeeklyBtn.addEventListener('click', () => {
+                console.log('导出当前视图按钮被点击');
+                exportWeeklyScheduleView().catch(err => {
+                    console.error('导出当前视图失败:', err);
+                    if (window.apiUtils) {
+                        window.apiUtils.showToast('导出失败: ' + err.message, 'error');
+                    }
+                });
+            });
             exportWeeklyBtn.__exportWeeklyBound = true;
+            console.log('导出当前视图按钮事件已绑定');
         }
+    } else {
+        console.warn('未找到导出当前视图按钮 (exportWeeklyViewBtn)');
     }
 
     await loadSchedules(currentWeekStart);
@@ -1252,16 +1263,47 @@ const WEEKLY_VIEW_STYLE = {
 };
 
 /**
+ * 等待依赖项加载完成
+ */
+async function waitForDependencies(maxWaitMs = 5000) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+        if (window.html2canvas && window.ExportManager && typeof window.ExportManager.transformExportData === 'function') {
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return false;
+}
+
+/**
  * 导出本周视图主入口
  * - 多学生：弹窗选择
  * - 单/无学生：直接进入下一步
  */
 async function exportWeeklyScheduleView() {
+    console.log('exportWeeklyScheduleView 函数开始执行');
+    console.log('ExportManager 可用:', !!window.ExportManager);
+    console.log('html2canvas 可用:', !!window.html2canvas);
+
+    // 等待依赖项加载
+    const depsReady = await waitForDependencies();
+
+    if (!depsReady) {
+        console.error('依赖项加载超时');
+        if (window.apiUtils) {
+            window.apiUtils.showToast('导出组件加载中，请稍后再试', 'warning');
+        }
+        return;
+    }
+
     if (!window.ExportManager || typeof window.ExportManager.transformExportData !== 'function') {
+        console.error('ExportManager 未加载或缺少 transformExportData 方法');
         if (window.apiUtils) window.apiUtils.showToast('导出组件 (ExportManager) 未加载', 'error');
         return;
     }
     if (!window.html2canvas) {
+        console.error('html2canvas 未加载');
         if (window.apiUtils) window.apiUtils.showToast('截图组件 (html2canvas) 未加载', 'error');
         return;
     }

@@ -1113,9 +1113,12 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/js/libs/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- 优先加载核心依赖 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+            onerror="this.onerror=null; this.src='/js/libs/html2canvas.min.js';"></script>
+
+    <!-- 加载应用核心组件 -->
     <script src="/js/core/api-client.js"></script>
     <script src="/js/utils/color-utils.js"></script>
     <script src="/js/utils/schedule-date-labels.js"></script>
@@ -1124,6 +1127,8 @@
     <script src="/js/components/toast.js"></script>
     <script src="/js/components/export-manager.js?v=1"></script>
     <script src="/js/components/export-dialog.js"></script>
+
+    <!-- 加载模块 -->
     <script type="module" src="/js/modules/admin/ui-helper.js"></script>
     <script type="module" src="/js/modules/teacher/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>
