@@ -7,6 +7,8 @@
  * 4. 指定时间段的学生排课记录
  */
 
+const enhancedExcel = require('../services/enhancedExcelService');
+
 class AdvancedExportService {
     constructor(db) {
         this.db = db;
@@ -206,7 +208,7 @@ class AdvancedExportService {
      */
     async exportTeacherInfo() {
         const query = `
-            SELECT 
+            SELECT
                 t.id,
                 t.username,
                 t.name,
@@ -221,7 +223,7 @@ class AdvancedExportService {
                 COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
             FROM teachers t
             LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id
-            GROUP BY t.id, t.username, t.name, t.profession, t.contact, 
+            GROUP BY t.id, t.username, t.name, t.profession, t.contact,
                      t.work_location, t.home_address, t.last_login, t.created_at
             ORDER BY t.created_at DESC
         `;
@@ -238,8 +240,8 @@ class AdvancedExportService {
             completion_rate: row.total_schedules > 0
                 ? ((row.confirmed_schedules / row.total_schedules) * 100).toFixed(2) + '%'
                 : '0%',
-            created_at: this.formatDateTime(row.created_at),
-            last_login: this.formatDateTime(row.last_login)
+            created_at: enhancedExcel.formatDateTime(row.created_at),
+            last_login: enhancedExcel.formatDateTime(row.last_login)
         }));
     }
 
@@ -248,7 +250,7 @@ class AdvancedExportService {
      */
     async exportStudentInfo() {
         const query = `
-            SELECT 
+            SELECT
                 s.id,
                 s.username,
                 s.name,
@@ -263,7 +265,7 @@ class AdvancedExportService {
                 COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
             FROM students s
             LEFT JOIN course_arrangement ca ON s.id = ca.student_id
-            GROUP BY s.id, s.username, s.name, s.profession, s.contact, 
+            GROUP BY s.id, s.username, s.name, s.profession, s.contact,
                      s.visit_location, s.home_address, s.last_login, s.created_at
             ORDER BY s.created_at DESC
         `;
@@ -280,8 +282,8 @@ class AdvancedExportService {
             participation_rate: row.total_schedules > 0
                 ? ((row.confirmed_schedules / row.total_schedules) * 100).toFixed(2) + '%'
                 : '0%',
-            created_at: this.formatDateTime(row.created_at),
-            last_login: this.formatDateTime(row.last_login)
+            created_at: enhancedExcel.formatDateTime(row.created_at),
+            last_login: enhancedExcel.formatDateTime(row.last_login)
         }));
     }
 
@@ -305,8 +307,9 @@ class AdvancedExportService {
             if (!userName && rawData.length > 0) userName = rawData[0].teacher_name;
             filenamePrefix = `[${userName || '教师'}]授课记录`;
 
-            // 构建多Sheet数据
+            // 构建多Sheet数据 - 新增按时间段分组的视图
             data = {
+                '课程安排（按时间段）': this.formatTimeSlotView(rawData, 'teacher'),
                 '总览表': this.formatOverviewData(rawData, 'teacher'),
                 '明细信息表': this.aggregateDetails(rawData, 'teacher')
             };
@@ -317,6 +320,7 @@ class AdvancedExportService {
             filenamePrefix = `[${userName || '学生'}]授课记录`;
 
             data = {
+                '课程安排（按时间段）': this.formatTimeSlotView(rawData, 'student'),
                 '总览表': this.formatOverviewData(rawData, 'student'),
                 '明细信息表': this.aggregateDetails(rawData, 'student')
             };
@@ -326,15 +330,65 @@ class AdvancedExportService {
         return {
             format: 'excel',
             data: data,
-            filename: `${filenamePrefix}_[${startDate}_${endDate}]_${this.getTimestamp()}.xlsx`
+            filename: `${filenamePrefix}_[${startDate}_${endDate}]_${enhancedExcel.getTimestamp()}.xlsx`
         };
     }
 
-    getTimestamp() {
-        const now = new Date();
-        const yyyyMMdd = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const hhmmss = now.toTimeString().slice(0, 8).replace(/:/g, '');
-        return `${yyyyMMdd}${hhmmss}`;
+    /**
+     * 格式化按时间段分组的视图（新增）
+     */
+    formatTimeSlotView(rawData, role) {
+        // 按日期和时间段分组
+        const grouped = new Map();
+
+        rawData.forEach(row => {
+            const date = enhancedExcel.formatDate(row.date);
+            const timeSlot = `${enhancedExcel.formatTime(row.start_time)}-${enhancedExcel.formatTime(row.end_time)}`;
+            const key = `${date}_${timeSlot}`;
+
+            if (!grouped.has(key)) {
+                const dateObj = new Date(row.date);
+                const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+                grouped.set(key, {
+                    '日期': date,
+                    '星期': days[dateObj.getDay()],
+                    '时间段': timeSlot,
+                    '计划安排': [],
+                    '实际安排': []
+                });
+            }
+
+            const group = grouped.get(key);
+            const isCancelled = row.status === 'cancelled' || row.status === '已取消' || row.status === 0 || row.status === 2;
+            const isNew = row.adjustment_type == 1;
+
+            // 构建课程信息（包含时间段）
+            let courseInfo;
+            if (role === 'teacher') {
+                courseInfo = `${row.type_name || '未知'}(${timeSlot})：${row.student_name}`;
+            } else {
+                courseInfo = `${row.type_name || '未知'}(${timeSlot})：${row.teacher_name}`;
+            }
+
+            if (isCancelled) {
+                group['计划安排'].push(`[已取消]${courseInfo}`);
+            } else if (isNew) {
+                group['实际安排'].push(`[新增]${courseInfo}`);
+            } else {
+                group['计划安排'].push(courseInfo);
+                group['实际安排'].push(courseInfo);
+            }
+        });
+
+        // 转换为数组并格式化，使用分号分隔
+        return Array.from(grouped.values()).map(group => ({
+            '日期': group['日期'],
+            '星期': group['星期'],
+            '时间段': group['时间段'],
+            '计划安排': group['计划安排'].join('；'),
+            '实际安排': group['实际安排'].join('；')
+        }));
     }
 
     /**
@@ -448,20 +502,27 @@ ca.id as schedule_id,
             const week = days[dateObj.getDay()];
 
             const isCancelled = (row.status === 'cancelled' || row.status === 2 || row.status === 0);
-            
+
             let namePrefix = '';
-            if (row.adjustment_type == 1 && !isCancelled) namePrefix = '⁺';
-            else if (row.adjustment_type == 2) namePrefix = '~';
+            let studentName = row.student_name;
+
+            if (row.adjustment_type == 1 && !isCancelled) {
+                namePrefix = '[新增]';
+            } else if (row.adjustment_type == 2) {
+                namePrefix = '[调整]';
+            } else if (isCancelled) {
+                namePrefix = '[已取消]';
+            }
 
             // 基础字段
             const item = {
-                'student_name': namePrefix ? `${namePrefix}[${row.student_name}]` : row.student_name,
+                'student_name': namePrefix ? `${namePrefix}${studentName}` : studentName,
                 'type': row.type_name || '未知',
                 'date': row.date instanceof Date ? row.date.toISOString().slice(0, 10) : row.date,
                 'week': week,
                 'time_range': row.time_range,
-                'status': this.formatStatus(row.status),
-                'created_at': this.formatDateTime(row.created_at),
+                'status': enhancedExcel.formatStatus(row.status),
+                'created_at': enhancedExcel.formatDateTime(row.created_at),
                 'schedule_id': row.schedule_id,
                 'teacher_id': row.teacher_id,
                 'student_id': row.student_id,
@@ -501,7 +562,7 @@ ca.id as schedule_id,
             const name = row[groupKey] || '未知';
             if (!stats[name]) {
                 stats[name] = {
-                    '老师姓名': name,
+                    '姓名': name,
                     '试教': 0,
                     '入户': 0,
                     '半次入户': 0,
@@ -523,17 +584,6 @@ ca.id as schedule_id,
         });
 
         return Object.values(stats);
-    }
-
-    formatStatus(status) {
-        const map = {
-            'pending': '待确认',
-            'confirmed': '已确认',
-            'completed': '已完成',
-            'cancelled': '已取消',
-            'modified_away': '已调整'
-        };
-        return map[status] || status;
     }
 
     /**
@@ -702,12 +752,11 @@ ca.id as schedule_id,
      * Format date time
      */
     formatDateTime(value) {
-        if (!value) return '';
-        try {
-            return new Date(value).toLocaleString('zh-CN', { hour12: false });
-        } catch (e) {
-            return String(value);
-        }
+        return enhancedExcel.formatDateTime(value);
+    }
+
+    getTimestamp() {
+        return enhancedExcel.getTimestamp();
     }
 
 }
