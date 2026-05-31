@@ -1943,7 +1943,16 @@ const adminController = {
 
             // 如果是Excel格式且是多Sheet，直接发送文件
             if (format === 'excel' && isMultiSheet) {
-                return await excelGenerator.sendExcelResponse(res, exportData, filename);
+                console.log('[AdminController] 准备发送多Sheet Excel文件:', filename);
+                console.log('[AdminController] 数据sheets:', Object.keys(exportData));
+                try {
+                    await excelGenerator.sendExcelResponse(res, exportData, filename);
+                    console.log('[AdminController] Excel文件发送成功');
+                    return;
+                } catch (excelError) {
+                    console.error('[AdminController] Excel生成失败:', excelError);
+                    throw excelError;
+                }
             }
 
             // 返回导出数据（单Sheet或CSV）
@@ -1961,7 +1970,13 @@ const adminController = {
 
         } catch (error) {
             const statusCode = error.status || 500;
-            console.error('高级导出错误:', error);
+            console.error('[AdminController] 高级导出错误:', error);
+            console.error('[AdminController] 错误详情:', {
+                message: error.message,
+                stack: error.stack,
+                type: req.query.type,
+                format: req.query.format
+            });
 
             // 记录导出失败
             if (logId) {
