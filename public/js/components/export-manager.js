@@ -573,10 +573,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             if (normalItems.length > 0) {
                 const normalTypeTexts = buildTypeTexts(normalItems);
                 const prefix = isPlanList ? pfxClean : pfxNormal;
+                const isRed = normalItems.some(r => r._isReviewOrConsultation);
                 textParts.push({
                     text: `${prefix}${normalTypeTexts.join('；')}`,
                     isCancelled: false,
-                    isModifiedAway: false
+                    isModifiedAway: false,
+                    isRed: isRed
                 });
             }
 
@@ -584,10 +586,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             if (cancelledItems.length > 0) {
                 const cancelledTypeTexts = buildTypeTexts(cancelledItems);
                 const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
+                const isRed = cancelledItems.some(r => r._isReviewOrConsultation);
                 textParts.push({
                     text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
                     isCancelled: true,
-                    isModifiedAway: false
+                    isModifiedAway: false,
+                    isRed: isRed
                 });
             }
 
@@ -595,10 +599,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             if (modifiedAwayItems.length > 0 && !isPlanList) {
                 const modifiedAwayTypeTexts = buildTypeTexts(modifiedAwayItems);
                 const pfxModified = shouldShowStudent ? `${namePrefix}[${displayName}]调走[` : `${namePrefix}调走[`;
+                const isRed = modifiedAwayItems.some(r => r._isReviewOrConsultation);
                 textParts.push({
                     text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
                     isCancelled: false,
-                    isModifiedAway: true
+                    isModifiedAway: true,
+                    isRed: isRed
                 });
             }
 
@@ -1823,13 +1829,25 @@ async function generateExcelFile(exportData, filename, userType) {
             if (index > 0) {
                 richText.push({ text: '；', font: { name: '宋体', size: 11 } });
             }
+
+            let color = { argb: 'FF000000' }; // 默认黑色
+            let italic = false;
+
+            // 优先级：已取消 > 调走 > 评审/咨询
             if (part.isCancelled) {
-                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF595959' }, italic: true } });
+                color = { argb: 'FF595959' }; // 灰色
+                italic = true;
             } else if (part.isModifiedAway) {
-                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF8C6239' }, italic: true } });
-            } else {
-                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF000000' } } });
+                color = { argb: 'FF8C6239' }; // 茶色
+                italic = true;
+            } else if (part.isRed) {
+                color = { argb: 'FFFF0000' }; // 红色
             }
+
+            richText.push({
+                text: part.text,
+                font: { name: '宋体', size: 11, color: color, italic: italic }
+            });
         });
         return { richText: richText };
     };
