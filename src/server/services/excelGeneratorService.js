@@ -56,28 +56,49 @@ class ExcelGeneratorService {
      * @param {string} filename - 文件名
      */
     async sendExcelResponse(res, data, filename) {
-        let result;
+        try {
+            console.log('[ExcelGenerator] 开始生成 Excel 文件:', filename);
+            console.log('[ExcelGenerator] 数据类型:', Array.isArray(data) ? 'Array' : typeof data);
 
-        // 判断是多Sheet还是单Sheet
-        if (typeof data === 'object' && !Array.isArray(data)) {
-            // 多Sheet数据
-            result = await this.generateMultiSheetExcel(data, filename);
-        } else if (Array.isArray(data)) {
-            // 单Sheet数据
-            result = await this.generateSingleSheetExcel(data, filename);
-        } else {
-            throw new Error('无效的数据格式');
+            let result;
+
+            // 判断是多Sheet还是单Sheet
+            if (typeof data === 'object' && !Array.isArray(data)) {
+                // 多Sheet数据
+                console.log('[ExcelGenerator] 生成多Sheet Excel, sheets:', Object.keys(data));
+                result = await this.generateMultiSheetExcel(data, filename);
+            } else if (Array.isArray(data)) {
+                // 单Sheet数据
+                console.log('[ExcelGenerator] 生成单Sheet Excel, 行数:', data.length);
+                result = await this.generateSingleSheetExcel(data, filename);
+            } else {
+                throw new Error('无效的数据格式');
+            }
+
+            if (!result || !result.buffer) {
+                throw new Error('生成 Excel buffer 失败');
+            }
+
+            console.log('[ExcelGenerator] Buffer 生成成功, 大小:', result.buffer.length, 'bytes');
+
+            // 设置响应头
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+            const encodedFilename = encodeURIComponent(result.filename);
+            res.setHeader('Content-Disposition', `attachment; filename="${encodedFilename}"`);
+            res.setHeader('Content-Length', result.buffer.length);
+
+            console.log('[ExcelGenerator] 响应头已设置，开始发送文件');
+            res.end(result.buffer);
+            console.log('[ExcelGenerator] 文件发送完成');
+
+            return true;
+        } catch (error) {
+            console.error('[ExcelGenerator] 生成 Excel 失败:', error);
+            console.error('[ExcelGenerator] 错误堆栈:', error.stack);
+            throw error;
         }
-
-        // 设置响应头
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-
-        const encodedFilename = encodeURIComponent(result.filename);
-        res.setHeader('Content-Disposition', `attachment; filename="${encodedFilename}"`);
-        res.setHeader('Content-Length', result.buffer.length);
-
-        res.end(result.buffer);
     }
 }
 
