@@ -602,12 +602,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 });
             }
 
-            // 合并文本片段 - 用换行符分隔不同状态的课程
-            const fullText = textParts.map(p => p.text).join('\n');
+            // 合并文本片段 - 用分号分隔不同状态的课程
+            const fullText = textParts.map(p => p.text).join('；');
 
             return {
                 text: fullText,
-                textParts: textParts,  // 保留分段信息用于样式判断
+                textParts: textParts,  // 保留分段信息用于 rich text
                 displayName: displayName,
                 isRed: cell.items.some(r => r._isReviewOrConsultation),
                 sTime: cell.sTime,
@@ -1785,12 +1785,12 @@ function formatLocalDateString(date) {
  * @param {string} filename - 文件名 (可选)
  */
 async function generateExcelFile(exportData, filename, userType) {
-    // 确保 XLSX 库已加载
-    if (typeof XLSX === 'undefined') {
+    // 确保 ExcelJS 库已加载
+    if (typeof ExcelJS === 'undefined') {
         await loadXLSXLibrary();
     }
 
-    const wb = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
 
     // 统一处理成 { SheetName: DataArray } 格式
     let sheets = {};
@@ -1814,490 +1814,277 @@ async function generateExcelFile(exportData, filename, userType) {
     }
 
     let hasData = false;
+    const sheetNames = Object.keys(sheets);
 
-    // 助手函数：解析 <b> 标签并返回富文本数组（xlsx-js-style 不支持，保留用于未来扩展）
-    const parseRichText = (str) => {
-        if (typeof str !== 'string' || !str.includes('<b>')) return str;
-        const parts = [];
-        const regex = /<b>(.*?)<\/b>/g;
-        let lastIndex = 0;
-        let match;
-        while ((match = regex.exec(str)) !== null) {
-            if (match.index > lastIndex) {
-                parts.push({ text: str.substring(lastIndex, match.index) });
+    // 辅助函数：构建 ExcelJS rich text
+    const buildRichText = (textParts) => {
+        const richText = [];
+        textParts.forEach((part, index) => {
+            if (index > 0) {
+                richText.push({ text: '；', font: { name: '宋体', size: 11 } });
             }
-            parts.push({ text: match[1], font: { bold: true, name: '宋体', sz: 11 } });
-            lastIndex = regex.lastIndex;
-        }
-        if (lastIndex < str.length) {
-            parts.push({ text: str.substring(lastIndex) });
-        }
-        return { richText: parts };
+            if (part.isCancelled) {
+                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF595959' }, italic: true } });
+            } else if (part.isModifiedAway) {
+                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF8C6239' }, italic: true } });
+            } else {
+                richText.push({ text: part.text, font: { name: '宋体', size: 11, color: { argb: 'FF000000' } } });
+            }
+        });
+        return { richText: richText };
     };
 
-    Object.keys(sheets).forEach((sheetName, sheetIndex) => {
+    for (let sheetIndex = 0; sheetIndex < sheetNames.length; sheetIndex++) {
+        const sheetName = sheetNames[sheetIndex];
         const rawDataList = sheets[sheetName];
-        if (Array.isArray(rawDataList) && rawDataList.length > 0) {
-            // Remove internal flags before converting to sheet
-            const cleanData = rawDataList.map(row => {
-                const newRow = { ...row };
-                delete newRow._isRedRow;
-                delete newRow._planIsRed;
-                delete newRow._actualIsRed;
-                delete newRow._planTextParts;
-                delete newRow._actualTextParts;
-                delete newRow._planIsCancelledGrey;
-                delete newRow._planIsModifiedAwayGrey;
-                delete newRow._actualIsCancelledGrey;
-                delete newRow._actualIsModifiedAwayGrey;
-                delete newRow._sTime;
-                delete newRow._parsedDate;
-                delete newRow._parsedTimeRange;
-                delete newRow._typeName;
-                delete newRow._groupType;
-                delete newRow._isSunday;
-                delete newRow._weekNumber;
-                delete newRow._isSingleStudent;
-                delete newRow._student_id;
-                delete newRow._teacher_id;
-                delete newRow._isSummaryRow;
-                delete newRow._isModifiedDate;
-                delete newRow._isSubRowOfMixed;
-                return newRow;
-            });
 
-            const ws = XLSX.utils.json_to_sheet(cleanData);
+        if (!Array.isArray(rawDataList) || rawDataList.length === 0) continue;
 
-            // --- 1. 计算列宽 ---
-            const colWidths = [];
-            const headers = Object.keys(cleanData[0]);
+        // 清理内部标记
+        const cleanData = rawDataList.map(row => {
+            const newRow = { ...row };
+            delete newRow._isRedRow;
+            delete newRow._planIsRed;
+            delete newRow._actualIsRed;
+            delete newRow._planTextParts;
+            delete newRow._actualTextParts;
+            delete newRow._planIsCancelledGrey;
+            delete newRow._planIsModifiedAwayGrey;
+            delete newRow._actualIsCancelledGrey;
+            delete newRow._actualIsModifiedAwayGrey;
+            delete newRow._sTime;
+            delete newRow._parsedDate;
+            delete newRow._parsedTimeRange;
+            delete newRow._typeName;
+            delete newRow._groupType;
+            delete newRow._isSunday;
+            delete newRow._weekNumber;
+            delete newRow._isSingleStudent;
+            delete newRow._student_id;
+            delete newRow._teacher_id;
+            delete newRow._isSummaryRow;
+            delete newRow._isModifiedDate;
+            delete newRow._isSubRowOfMixed;
+            return newRow;
+        });
 
-            // 预设宽度
-            const minWidths = {
-                '时间段': 15,
-                '备注': 30,
-                '创建时间': 20,
-                '日期': 12,
-                '类型': 15,
-                '星期': 6
-            };
-            const firstSheetColumnWidths = {
-                '日期': 12,
-                '星期': 8,
-                '计划安排': 60,
-                '实际安排': 60,
-                '费用': 20,
-                '周汇总': 15
-            };
+        const worksheet = workbook.addWorksheet(sheetName);
+        const headers = Object.keys(cleanData[0]);
 
-            headers.forEach((key, i) => {
-                if (sheetIndex === 0 && Object.prototype.hasOwnProperty.call(firstSheetColumnWidths, key)) {
-                    colWidths[i] = { wch: firstSheetColumnWidths[key] };
-                    return;
-                }
+        // 设置列宽
+        const firstSheetColumnWidths = { '日期': 12, '星期': 8, '计划安排': 60, '实际安排': 60, '费用': 20, '周汇总': 15 };
+        const minWidths = { '时间段': 15, '备注': 30, '创建时间': 20, '日期': 12, '类型': 15, '星期': 6 };
 
-                let maxLength = minWidths[key] || 10;
-                const sampleSize = Math.min(cleanData.length, 50);
-                for (let r = 0; r < sampleSize; r++) {
-                    const val = cleanData[r][key];
-                    if (val) {
-                        const strVal = String(val);
-                        // 针对多行内容，按最长的一行计算宽度
-                        const lines = strVal.split('\n');
-                        lines.forEach(line => {
-                            let len = 0;
-                            for (let k = 0; k < line.length; k++) {
-                                len += (line.charCodeAt(k) > 255 ? 2 : 1);
-                            }
-                            if (len > maxLength) maxLength = len;
-                        });
-                    }
-                }
-                if (key === '星期') {
-                    colWidths[i] = { wch: 8 }; // 放宽列宽以防拥挤
-                } else {
-                    let wch = maxLength + 2;
-                    // 1. 基础财务列缩放 (针对 Sheet 2/3/4 的基础比例)
-                    if (sheetIndex !== 0) {
-                        if (key === '费用') wch = Math.max((maxLength + 4) * 2, 24); // 宽度增加一倍
-                        else if (key === '周汇总' || key === '汇总') wch *= 0.45;
-                    }
-
-                    // 2. 精细化调整 (满足用户对 Sheet 1 的空隙和对齐需求)
-                    if (sheetIndex === 0) {
-                        // 移除固定倍率，改用“最大长度 + 适当留白”的自适应策略
-                        // 调整后的自适应列宽：周汇总 +4, 费用 +12(-35%), 计划/实际合计 -10%
-                        const gap = (key === '周汇总') ? 4 : 12;
-                        wch = Math.max(maxLength + gap, 15);
-
-                        if (key === '计划安排' || key === '实际安排') {
-                            wch *= 0.9;
-                        } else if (key === '费用') {
-                            wch *= 1.3; // 原为0.65，现在增加一倍即1.3
-                        }
-                    } else if (key === '  ') {
-                        // 祝福语列：使用 Apple Chancery 艺术字体，笔锋较长，需要极宽间距以确保单行完整
-                        // 尤其在不换行模式下，给予 +25 的强力补偿
-                        wch = maxLength + 25;
-                    } else if ((sheetIndex === 1 || sheetIndex === 3) && key === '汇总') {
-                        wch *= 2.24;
-                    } else if (sheetIndex === 1 && key === '核对') {
-                        wch = Math.max(maxLength + 25, 34);
-                    } else if (sheetIndex === 3 && key === '备注') {
-                        wch *= 1.86;
-                    }
-
-                    colWidths[i] = { wch: Math.min(Math.max(wch, 10), 80) };
-                }
-            });
-            ws['!cols'] = colWidths;
-
-            // --- 2. 冻结所有工作表的首行 (增强版兼容性) ---
-            // 同时应用两种标准，确保在微软 Office 和 WPS 中均生效
-            ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
-            ws['!views'] = [{
-                state: 'frozen',
-                xSplit: 0,
-                ySplit: 1,
-                topLeftCell: 'A2',
-                activePane: 'bottomLeft',
-                sel: 'A2'
-            }];
-
-            // --- 3. 合并单元格 (Merge Logic for Sheet 0) ---
-            if (sheetIndex === 0) {
-                if (!ws['!merges']) ws['!merges'] = [];
-                // We need to find consecutive rows with same Date/Week
-                // rawDataList matches cleanData index 1:1
-
-                let dateStartRow = 1; // 0 is header, data starts at 1
-                let weekStartRow = 1;
-
-                // Column Indices for Date and Week
-                const dateColIdx = headers.indexOf('日期');
-                const weekColIdx = headers.indexOf('星期');
-
-                if (dateColIdx !== -1 && weekColIdx !== -1) {
-                    for (let i = 1; i < rawDataList.length; i++) {
-                        const prev = rawDataList[i - 1];
-                        const curr = rawDataList[i];
-                        const currentRowIdx = i + 1; // logical row index in Excel (0-based)
-
-                        // Check Date Change
-                        if (curr['日期'] !== prev['日期']) {
-                            // Merge previous block if > 1 row
-                            if ((i) - dateStartRow > 0) {
-                                ws['!merges'].push({ s: { r: dateStartRow, c: dateColIdx }, e: { r: i, c: dateColIdx } });
-                                ws['!merges'].push({ s: { r: dateStartRow, c: weekColIdx }, e: { r: i, c: weekColIdx } });
-                            }
-                            dateStartRow = currentRowIdx;
-                        }
-                    }
-                    // Merge last block
-                    if (rawDataList.length - dateStartRow > 0) {
-                        ws['!merges'].push({ s: { r: dateStartRow, c: dateColIdx }, e: { r: rawDataList.length, c: dateColIdx } });
-                        ws['!merges'].push({ s: { r: dateStartRow, c: weekColIdx }, e: { r: rawDataList.length, c: weekColIdx } });
-                    }
-                }
-
-                // --- 费用列与周汇总列合并（按日期和周次）---
-                const feeColIdx = headers.indexOf('费用');
-                const weekSumColIdx = headers.indexOf('周汇总');
-
-                // 费用列按“日期”合并 (无论是否单选学生)
-                if (feeColIdx !== -1) {
-                    let feeStartRow = 1;
-                    for (let i = 1; i < rawDataList.length; i++) {
-                        const prev = rawDataList[i - 1];
-                        const curr = rawDataList[i];
-                        const currentRowIdx = i + 1;
-                        if (curr['日期'] !== prev['日期']) {
-                            if ((i) - feeStartRow > 0) {
-                                ws['!merges'].push({ s: { r: feeStartRow, c: feeColIdx }, e: { r: i, c: feeColIdx } });
-                            }
-                            feeStartRow = currentRowIdx;
-                        }
-                    }
-                    if (rawDataList.length - feeStartRow > 0) {
-                        ws['!merges'].push({ s: { r: feeStartRow, c: feeColIdx }, e: { r: rawDataList.length, c: feeColIdx } });
-                    }
-                }
-
-                // 周汇总列按“周次”合并 (无论是否单选学生)
-                if (weekSumColIdx !== -1) {
-                    let weekStartRow = 1;
-                    for (let i = 1; i < rawDataList.length; i++) {
-                        const prev = rawDataList[i - 1];
-                        const curr = rawDataList[i];
-                        const currentRowIdx = i + 1;
-                        if (curr._weekNumber !== prev._weekNumber) {
-                            if ((i) - weekStartRow > 0) {
-                                ws['!merges'].push({ s: { r: weekStartRow, c: weekSumColIdx }, e: { r: i, c: weekSumColIdx } });
-                            }
-                            weekStartRow = currentRowIdx;
-                        }
-                    }
-                    if (rawDataList.length - weekStartRow > 0) {
-                        ws['!merges'].push({ s: { r: weekStartRow, c: weekSumColIdx }, e: { r: rawDataList.length, c: weekSumColIdx } });
-                    }
-                }
-
-                // -- 计划安排列由于使用了新的Key对齐逻辑，不再需要此处的垂直合并代码 --
-                // 原有基于 _isSubRowOfMixed 的合并逻辑已废弃并移除，以避免出现被合并导致的单元格文字丢失
+        worksheet.columns = headers.map(header => {
+            let width = 10;
+            if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
+                width = firstSheetColumnWidths[header];
+            } else if (minWidths[header]) {
+                width = minWidths[header];
             }
+            return { header: header, key: header, width: width };
+        });
 
-            // --- 4. 应用样式 ---
-            const range = XLSX.utils.decode_range(ws['!ref']);
-            // Helper: Check if string is English/Num
-            const isEnglishOrNum = (str) => /^[\x00-\x7F]*$/.test(String(str));
+        // 添加数据行并应用样式
+        cleanData.forEach((rowData, rowIndex) => {
+            const originalRow = rawDataList[rowIndex];
+            const excelRow = worksheet.addRow(rowData);
 
-            for (let R = range.s.r; R <= range.e.r; ++R) {
-                // Check flags from raw data (R-1 because R=0 is header)
-                const dataRow = (R > 0) ? rawDataList[R - 1] : null;
-                const isRedRow = dataRow ? dataRow._isRedRow : false;
-                const isSunday = dataRow ? (dataRow['星期'] === '周日') : false;
-                const isSummaryRow = dataRow ? dataRow._isSummaryRow : false;
+            excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                const header = headers[colNumber - 1];
+                const value = rowData[header];
+                const strValue = String(value || '');
 
-                // 判断当前行是否包含已被取消的内容
-                let isCancelledRow = false;
-                if (dataRow) {
-                    if (dataRow['实际安排'] && String(dataRow['实际安排']).includes('已取消')) {
-                        isCancelledRow = true;
-                    } else if (dataRow['计划安排'] && String(dataRow['计划安排']).includes('已取消')) {
-                        isCancelledRow = true;
-                    } else if (dataRow['状态'] && (String(dataRow['状态']).includes('已取消') || String(dataRow['状态']).toLowerCase() === 'cancelled')) {
-                        isCancelledRow = true;
+                // 基础样式
+                cell.font = { name: '宋体', size: 11 };
+                cell.alignment = { vertical: 'middle', wrapText: true, horizontal: 'center' };
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                    bottom: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                    left: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                    right: { style: 'thin', color: { argb: 'FFD4D4D4' } }
+                };
+
+                // 应用 rich text（计划安排和实际安排列）
+                if (sheetIndex === 0) {
+                    if (header === '计划安排' && originalRow._planTextParts && originalRow._planTextParts.length > 0) {
+                        cell.value = buildRichText(originalRow._planTextParts);
+                    } else if (header === '实际安排' && originalRow._actualTextParts && originalRow._actualTextParts.length > 0) {
+                        cell.value = buildRichText(originalRow._actualTextParts);
                     }
                 }
 
-                for (let C = range.s.c; C <= range.e.c; ++C) {
-                    const cellAddress = XLSX.utils.encode_cell({ c: C, r: R });
-                    // Ensure cell exists even if empty (essential for merged cells styling)
-                    if (!ws[cellAddress]) {
-                        // Only recreate if it's within data range (might be needed for borders on merged cells)
-                        // For simple usage, we only style existing cells usually, 
-                        // but merged cells usually only keep top-left content. Use top-left for style?
-                        // XLSX-style library handles border on merged cells often by applying to top-left.
-                        continue;
-                    }
+                // 条件样式
+                const isSunday = originalRow['星期'] === '周日';
+                const isSummaryRow = originalRow._isSummaryRow;
+                const isCancelledRow = originalRow['实际安排'] && String(originalRow['实际安排']).includes('已取消');
 
-                    const cell = ws[cellAddress];
-                    const value = cell.v || '';
-                    const strValue = String(value);
+                // 日期列 -> 浅绿色
+                if (header.includes('日期')) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+                }
 
-                    // Base Style
-                    cell.s = {
-                        font: { name: '宋体', sz: 11 },
-                        alignment: { vertical: 'center', wrapText: true, horizontal: 'center' },
-                        border: {
-                            top: { style: 'thin', color: { rgb: "D4D4D4" } },
-                            bottom: { style: 'thin', color: { rgb: "D4D4D4" } },
-                            left: { style: 'thin', color: { rgb: "D4D4D4" } },
-                            right: { style: 'thin', color: { rgb: "D4D4D4" } }
+                // 周日行 -> 浅蓝色
+                if (isSunday) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                }
+
+                // 第一个工作表的特殊样式
+                if (sheetIndex === 0) {
+                    const isCoreField = header.includes('计划安排') || header.includes('实际安排') || header.includes('类型');
+                    if (isCoreField) {
+                        let isCellRed = false;
+                        if (header.includes('计划安排')) {
+                            isCellRed = originalRow._planIsRed;
+                        } else if (header.includes('实际安排')) {
+                            isCellRed = originalRow._actualIsRed;
                         }
+                        // 只有在没有 rich text 时才应用整体颜色
+                        if (isCellRed && !cell.value?.richText) {
+                            cell.font = { ...cell.font, color: { argb: 'FFFF0000' } };
+                        }
+                    }
+                }
+
+                // 已取消行的斜体（费用和周汇总列除外）
+                if (isCancelledRow && header !== '费用' && header !== '周汇总') {
+                    cell.font = { ...cell.font, italic: true };
+                }
+
+                // 日期变动标记
+                if (originalRow._isModifiedDate && (header === '日期' || header === '星期')) {
+                    cell.font = { ...cell.font, italic: true };
+                }
+
+                // 汇总行样式
+                if (isSummaryRow && header === '汇总') {
+                    cell.font = { ...cell.font, bold: true };
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FF000000' } },
+                        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+                        left: { style: 'thin', color: { argb: 'FF000000' } },
+                        right: { style: 'thin', color: { argb: 'FF000000' } }
                     };
+                }
 
-                    // 处理 "/" 靠左显示 (排除费用列，费用列要求居中)
-                    const headerRefForAlign = XLSX.utils.encode_cell({ c: C, r: 0 });
-                    const headerCellForAlign = ws[headerRefForAlign];
-                    const headerValForAlign = headerCellForAlign ? String(headerCellForAlign.v) : '';
-                    const isFeeColumn = headerValForAlign.includes('费用') || headerValForAlign.includes('费');
+                // 费用/汇总/统计列特殊对齐
+                const s2RightBottom = ['试教', '入户', '评审', '集体活动', '咨询', '汇总'];
+                const s4RightBottom = ['入户', '试教', '评审', '评审记录', '半次入户', '集体活动', '咨询', '(线上)评审', '(线上)入户', '(线上)咨询', '咨询记录', '汇总'];
+                const isFinanceHeader = header === '费用' || header === '周汇总' || header === '汇总';
+                const needsRightBottom = isFinanceHeader || (sheetIndex === 1 && s2RightBottom.includes(header)) || (sheetIndex === 3 && s4RightBottom.includes(header));
 
-                    if (strValue === '/' && !isFeeColumn) {
-                        cell.s.alignment.horizontal = 'left';
-                    }
-
-                    if (isEnglishOrNum(value)) {
-                        cell.s.font.name = 'Times New Roman';
-                    }
-
-                    if (isCancelledRow) {
-                        // 获取当前列的表头来判断是否是费用列
-                        const cancelHeaderRef = XLSX.utils.encode_cell({ c: C, r: 0 });
-                        const cancelHeaderCell = ws[cancelHeaderRef];
-                        const cancelHeaderVal = cancelHeaderCell ? String(cancelHeaderCell.v) : '';
-
-                        // 费用和周汇总列不使用斜体，保持正常字体
-                        if (cancelHeaderVal !== '费用' && cancelHeaderVal !== '周汇总') {
-                            cell.s.font.italic = true;
-                        } else {
-                            if (!cell.s) cell.s = {};
-                            if (!cell.s.font) cell.s.font = {};
-                            cell.s.font.italic = false;
-                        }
-                    }
-
-                    // 如果该行有特殊的日期变动标记，且当前列为“日期”或“星期”，则设为斜体
-                    if (dataRow && dataRow._isModifiedDate) {
-                        const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
-                        const headerCell = ws[headerRef];
-                        const headerVal = headerCell ? String(headerCell.v) : '';
-                        if (headerVal === '日期' || headerVal === '星期') {
-                            cell.s.font.italic = true;
-                        }
-                    }
-
-                    // --- 汇总行样式重构 (根据新需求) ---
-                    if (isSummaryRow) {
-                        const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
-                        const headerCell = ws[headerRef];
-                        const headerVal = headerCell ? String(headerCell.v) : '';
-
-                        if (headerVal === '汇总') {
-                            // 汇总行与汇总列相交的单元格：增加边框 (宽度降低50% 即改为 thin)
-                            cell.s.font.bold = true;
-                            cell.s.border = {
-                                top: { style: 'thin', color: { rgb: "000000" } },
-                                bottom: { style: 'thin', color: { rgb: "000000" } },
-                                left: { style: 'thin', color: { rgb: "000000" } },
-                                right: { style: 'thin', color: { rgb: "000000" } }
-                            };
-
-                            // 仅在第2个工作表(sheetIndex === 1)的汇总行写入祝福语（非管理员）
-                            if (sheetIndex === 1 && isSummaryRow && userType !== 'admin') {
-                                // 之前的逻辑是直接写入 nextCell，现在已经在转换阶段处理了。
-                                // 这里我们只需要确保祝福语单元格样式正确。
-                            }
-                        }
-                    }
-
-                    if (R === 0) {
-                        // Header Style
-                        cell.s.font.sz = 12;
-                        cell.s.font.bold = true;
-                        cell.s.font.name = '宋体';
-                        cell.s.fill = { fgColor: { rgb: "F2F2F2" } };
-
-                        // 如果是空格列头（祝福语列），清除内容但不删除单元格以保持边框
-                        if (String(value).trim() === '') {
-                            cell.v = '';
-                        }
-                    } else {
-                        // Content
-
-                        // Horizontal Align
-                        // Sheet 3 (Index 2) always center, others left-align long text
-                        if (sheetIndex !== 2 && strValue.length > 10) {
-                            cell.s.alignment.horizontal = 'left';
-                        }
-
-                        // 2. 通用条件样式 (所有 Sheet)
-                        const headerRef = XLSX.utils.encode_cell({ c: C, r: 0 });
-                        const headerCell = ws[headerRef];
-                        const headerVal = headerCell ? String(headerCell.v) : '';
-
-                        // a. 日期列 -> 浅绿色
-                        if (headerVal.includes('日期')) {
-                            cell.s.fill = { fgColor: { rgb: "E2EFDA" } };
-                        }
-
-                        // b. 周日行 -> 浅蓝色
-                        if (isSunday) {
-                            cell.s.fill = { fgColor: { rgb: "DDEBF7" } };
-                        }
-
-                        // c. 评审/咨询类 -> 红色文字; 取消/被替换调课 -> 灰色文字+斜体 (仅限工作表1)
-                        const isCoreField = headerVal.includes('计划安排') || headerVal.includes('实际安排') || headerVal.includes('类型');
-
-                        if (sheetIndex === 0) {
-                            let isCellRed = (isCoreField && isRedRow);
-                            let isCellCancelledGrey = false;
-                            let isCellModifiedAwayGrey = false;
-
-                            if (dataRow && typeof dataRow._planIsRed !== 'undefined') {
-                                if (headerVal.includes('计划安排')) {
-                                    isCellRed = dataRow._planIsRed;
-                                    isCellCancelledGrey = dataRow._planIsCancelledGrey;
-                                    isCellModifiedAwayGrey = dataRow._planIsModifiedAwayGrey;
-                                }
-                                if (headerVal.includes('实际安排')) {
-                                    isCellRed = dataRow._actualIsRed;
-                                    isCellCancelledGrey = dataRow._actualIsCancelledGrey;
-                                    isCellModifiedAwayGrey = dataRow._actualIsModifiedAwayGrey;
-                                }
-                            }
-
-                            if (isCellCancelledGrey || isCellModifiedAwayGrey) {
-                                cell.s.font.italic = true;
-                            }
-
-                            if (isCoreField && isCellRed) {
-                                cell.s.font.color = { rgb: "FF0000" };
-                            } else if (isCoreField && isCellCancelledGrey) {
-                                cell.s.font.color = { rgb: "595959" }; // 已取消：灰色
-                            } else if (isCoreField && isCellModifiedAwayGrey) {
-                                cell.s.font.color = { rgb: "8C6239" }; // 被调走：茶色
-                            } else {
-                                cell.s.font.color = { rgb: "000000" };
-                            }
-                        } else {
-                            // Sheet 2, 3, 4 全部使用黑色
-                            cell.s.font.color = { rgb: "000000" };
-                        }
-
-                        // d. 费用/汇总/统计列特殊对齐 (右对齐 + 底部对齐)
-                        const s2RightBottom = ['试教', '入户', '评审', '集体活动', '咨询', '汇总'];
-                        const s4RightBottom = ['入户', '试教', '评审', '评审记录', '半次入户', '集体活动', '咨询', '(线上)评审', '(线上)入户', '(线上)咨询', '咨询记录', '汇总'];
-
-                        const isFinanceHeader = headerVal === '费用' || headerVal === '周汇总' || headerVal === '汇总';
-                        const needsRightBottom = isFinanceHeader ||
-                            (sheetIndex === 1 && s2RightBottom.includes(headerVal)) ||
-                            (sheetIndex === 3 && s4RightBottom.includes(headerVal));
-
-                        if (needsRightBottom) {
-                            // 统一所有财务/统计列为：右对齐 + 底部对齐 + 自动换行
-                            cell.s.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
-
-                            // 清理可能残留的标签并取消加粗
-                            if (typeof value === 'string') {
-                                cell.v = value.replace(/<b>/g, '').replace(/<\/b>/g, '');
-                            }
-                            cell.s.font.bold = false;
-
-                            // Sheet 1 费用列和周汇总列缩进处理
-                            if (sheetIndex === 0 && (headerVal === '费用' || headerVal === '周汇总')) {
-                                cell.s.font.italic = false; // 坚决去除任何可能因级联或行状态导致的斜体
-
-                                const cellValue = strValue;
-                                // 判断是否包含多个教师/学生（通过检测换行符 \n）
-                                const hasMultipleEntries = cellValue.includes('\n');
-
-                                if (!hasMultipleEntries && cellValue !== '/') {
-                                    // 单行非空信息：右侧对齐，通过缩进在左侧产生呼吸感
-                                    cell.s.alignment.indent = 1;
-                                }
-                            }
-                        }
-
-                        // e. 祝福语列样式处理（识别内容）
-                        if (strValue.includes('Congratulations！') || strValue.includes('Good Luck！')) {
-                            // 强制单行显示，黑色艺术字体（Apple Chancery）居中加粗，字号调小一号(11)
-                            cell.s.alignment = { horizontal: 'center', vertical: 'center', wrapText: false };
-                            cell.s.font = { name: 'Apple Chancery', sz: 11, bold: true, color: { rgb: "000000" } };
+                if (needsRightBottom) {
+                    cell.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
+                    cell.font = { ...cell.font, bold: false, italic: false };
+                    if (sheetIndex === 0 && (header === '费用' || header === '周汇总')) {
+                        const hasMultipleEntries = strValue.includes('\n');
+                        if (!hasMultipleEntries && strValue !== '/') {
+                            cell.alignment = { ...cell.alignment, indent: 1 };
                         }
                     }
                 }
+
+                // 祝福语列样式
+                if (strValue.includes('Congratulations！') || strValue.includes('Good Luck！')) {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
+                    cell.font = { name: 'Apple Chancery', size: 11, bold: true, color: { argb: 'FF000000' } };
+                }
+
+                // "/" 靠左显示（排除费用列）
+                if (strValue === '/' && !header.includes('费用') && !header.includes('费')) {
+                    cell.alignment = { ...cell.alignment, horizontal: 'left' };
+                }
+
+                // 长文本靠左对齐（非第三个工作表）
+                if (sheetIndex !== 2 && strValue.length > 10 && !needsRightBottom) {
+                    cell.alignment = { ...cell.alignment, horizontal: 'left' };
+                }
+            });
+        });
+
+        // 设置表头样式
+        const headerRow = worksheet.getRow(1);
+        headerRow.eachCell((cell) => {
+            cell.font = { name: '宋体', size: 12, bold: true };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border = {
+                top: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                bottom: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                left: { style: 'thin', color: { argb: 'FFD4D4D4' } },
+                right: { style: 'thin', color: { argb: 'FFD4D4D4' } }
+            };
+        });
+
+        // 应用合并单元格（仅第一个工作表）
+        if (sheetIndex === 0) {
+            const feeColIdx = headers.indexOf('费用');
+            const weekSumColIdx = headers.indexOf('周汇总');
+
+            // 费用列按"日期"合并
+            if (feeColIdx !== -1) {
+                let feeStartRow = 2;
+                for (let i = 1; i < rawDataList.length; i++) {
+                    const prev = rawDataList[i - 1];
+                    const curr = rawDataList[i];
+                    if (curr['日期'] !== prev['日期']) {
+                        if (i + 1 - feeStartRow > 0) {
+                            worksheet.mergeCells(feeStartRow, feeColIdx + 1, i + 1, feeColIdx + 1);
+                        }
+                        feeStartRow = i + 2;
+                    }
+                }
+                if (rawDataList.length + 1 - feeStartRow > 0) {
+                    worksheet.mergeCells(feeStartRow, feeColIdx + 1, rawDataList.length + 1, feeColIdx + 1);
+                }
             }
 
-            XLSX.utils.book_append_sheet(wb, ws, sheetName);
-            hasData = true;
+            // 周汇总列按"周次"合并
+            if (weekSumColIdx !== -1) {
+                let weekStartRow = 2;
+                for (let i = 1; i < rawDataList.length; i++) {
+                    const prev = rawDataList[i - 1];
+                    const curr = rawDataList[i];
+                    if (curr._weekNumber !== prev._weekNumber) {
+                        if (i + 1 - weekStartRow > 0) {
+                            worksheet.mergeCells(weekStartRow, weekSumColIdx + 1, i + 1, weekSumColIdx + 1);
+                        }
+                        weekStartRow = i + 2;
+                    }
+                }
+                if (rawDataList.length + 1 - weekStartRow > 0) {
+                    worksheet.mergeCells(weekStartRow, weekSumColIdx + 1, rawDataList.length + 1, weekSumColIdx + 1);
+                }
+            }
         }
-    });
+
+        hasData = true;
+    }
 
     if (!hasData) throw new Error('没有可导出的数据');
-    const finalFilename = filename || `export_${Date.now()}.xlsx`;
-    XLSX.writeFile(wb, finalFilename);
+
+    // 生成并下载文件
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || `export_${Date.now()}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
 }
 async function loadXLSXLibrary() {
     return new Promise((resolve, reject) => {
-        if (typeof XLSX !== 'undefined') {
+        if (typeof ExcelJS !== 'undefined') {
             resolve();
             return;
         }
 
         const script = document.createElement('script');
-        // 使用支持样式的 xlsx-js-style 库 (bundle version contains everything)
-        script.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js';
+        script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
         script.onload = resolve;
         script.onerror = reject;
         document.head.appendChild(script);
