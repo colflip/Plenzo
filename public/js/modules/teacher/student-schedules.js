@@ -122,19 +122,14 @@ export async function initStudentSchedulesSection() {
     if (exportWeeklyBtn) {
         if (!exportWeeklyBtn.__exportWeeklyBound) {
             exportWeeklyBtn.addEventListener('click', () => {
-                console.log('导出当前视图按钮被点击');
                 exportWeeklyScheduleView().catch(err => {
-                    console.error('导出当前视图失败:', err);
                     if (window.apiUtils) {
                         window.apiUtils.showToast('导出失败: ' + err.message, 'error');
                     }
                 });
             });
             exportWeeklyBtn.__exportWeeklyBound = true;
-            console.log('导出当前视图按钮事件已绑定');
         }
-    } else {
-        console.warn('未找到导出当前视图按钮 (exportWeeklyViewBtn)');
     }
 
     await loadSchedules(currentWeekStart);
@@ -1267,23 +1262,12 @@ const WEEKLY_VIEW_STYLE = {
  */
 async function waitForDependencies(maxWaitMs = 10000) {
     const startTime = Date.now();
-    let lastLog = 0;
     while (Date.now() - startTime < maxWaitMs) {
-        const now = Date.now();
-        if (now - lastLog > 1000) {
-            console.log(`等待依赖项... html2canvas: ${!!window.html2canvas}, ExportManager: ${!!window.ExportManager}`);
-            lastLog = now;
-        }
         if (window.html2canvas && window.ExportManager && typeof window.ExportManager.transformExportData === 'function') {
-            console.log('所有依赖项已加载');
             return true;
         }
         await new Promise(resolve => setTimeout(resolve, 200));
     }
-    console.error('依赖项加载超时，缺失:', {
-        html2canvas: !window.html2canvas,
-        ExportManager: !window.ExportManager
-    });
     return false;
 }
 
@@ -1293,15 +1277,10 @@ async function waitForDependencies(maxWaitMs = 10000) {
  * - 单/无学生：直接进入下一步
  */
 async function exportWeeklyScheduleView() {
-    console.log('exportWeeklyScheduleView 函数开始执行');
-    console.log('ExportManager 可用:', !!window.ExportManager);
-    console.log('html2canvas 可用:', !!window.html2canvas);
-
     // 等待依赖项加载
     const depsReady = await waitForDependencies();
 
     if (!depsReady) {
-        console.error('依赖项加载超时');
         if (!window.html2canvas) {
             if (window.apiUtils) {
                 window.apiUtils.showToast('截图组件 html2canvas 加载失败，请刷新页面重试', 'error');
@@ -1319,12 +1298,10 @@ async function exportWeeklyScheduleView() {
     }
 
     if (!window.ExportManager || typeof window.ExportManager.transformExportData !== 'function') {
-        console.error('ExportManager 未加载或缺少 transformExportData 方法');
         if (window.apiUtils) window.apiUtils.showToast('导出组件 (ExportManager) 未加载', 'error');
         return;
     }
     if (!window.html2canvas) {
-        console.error('html2canvas 未加载');
         if (window.apiUtils) window.apiUtils.showToast('截图组件 (html2canvas) 未加载', 'error');
         return;
     }
