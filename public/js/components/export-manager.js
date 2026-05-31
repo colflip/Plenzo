@@ -1900,32 +1900,34 @@ async function generateExcelFile(exportData, filename, userType) {
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
             }
-            // 第2工作表：前6列15，第8列15，第9列120
+            // 第2工作表：前6列15，汇总列40，核对列15，备注列80
             else if (sheetIndex === 1) {
                 if (colIndex < 6) {
                     width = 15; // 第1-6列
+                } else if (header === '汇总') {
+                    width = 40; // 第7列（汇总）
+                } else if (header === '备注') {
+                    width = 80; // 第9列（备注）
                 } else if (colIndex === 7) {
                     width = 15; // 第8列（核对）
-                } else if (colIndex === 8) {
-                    width = 120; // 第9列（备注）
                 } else {
-                    width = 10; // 第7列（汇总）保持默认
+                    width = 10;
                 }
             }
-            // 第3工作表：上课地点×2.5
+            // 第3工作表：上课地点40
             else if (sheetIndex === 2) {
                 if (header === '上课地点') {
-                    width = 25;
+                    width = 40;
                 } else if (minWidths[header]) {
                     width = minWidths[header];
                 }
             }
-            // 第4工作表：A-L列15，M列（汇总）60，其他列15
+            // 第4工作表：A-L列15，M列（汇总）40，其他列15
             else if (sheetIndex === 3) {
-                if (colIndex < 12) {
+                if (header === '汇总') {
+                    width = 40; // M列（汇总列）
+                } else if (colIndex < 12) {
                     width = 15; // A-L列（前12列）
-                } else if (header === '汇总') {
-                    width = 60; // M列（汇总列）
                 } else {
                     width = 15; // 其他列默认15
                 }
