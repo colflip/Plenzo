@@ -10,7 +10,6 @@ const { recordAudit } = require('../middleware/audit');
 const ExportUtils = require('../utils/exportUtils');
 const AdvancedExportService = require('../utils/advancedExportService');
 const ExportLogService = require('../utils/exportLogService');
-const excelGenerator = require('../services/excelGeneratorService');
 
 const adminController = {
     /**
@@ -1878,7 +1877,6 @@ const adminController = {
             // ===== 执行导出 =====
             let exportData = [];
             let filename = '';
-            let isMultiSheet = false;
 
             // 根据导出类型获取数据
             switch (type) {
@@ -1899,14 +1897,12 @@ const adminController = {
                         );
                     }
                     const teacherId = req.query.teacher_id;
-                    // 使用新的多Sheet导出
-                    const teacherExportResult = await exportService.generateExportData('teacher_schedule', startDate, endDate, {
+                    // 返回原始行数据，由前端 ExportManager 统一生成多 Sheet Excel
+                    exportData = await exportService.exportTeacherSchedule(startDate, endDate, {
                         student_id,
                         teacher_id: teacherId
                     });
-                    exportData = teacherExportResult.data;
-                    filename = teacherExportResult.filename;
-                    isMultiSheet = true;
+                    filename = `教师授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
                     break;
 
                 case 'student_schedule':
@@ -1915,11 +1911,9 @@ const adminController = {
                             standardResponse(false, null, '导出学生排课记录需要指定日期范围')
                         );
                     }
-                    // 使用新的多Sheet导出
-                    const studentExportResult = await exportService.generateExportData('student_schedule', startDate, endDate, { student_id });
-                    exportData = studentExportResult.data;
-                    filename = studentExportResult.filename;
-                    isMultiSheet = true;
+                    // 返回原始行数据，由前端 ExportManager 统一生成多 Sheet Excel
+                    exportData = await exportService.exportStudentSchedule(startDate, endDate, { student_id });
+                    filename = `学生授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
                     break;
 
                 default:
@@ -1932,40 +1926,19 @@ const adminController = {
             const duration = Date.now() - startTime;
             try {
                 if (logId) {
-                    const recordCount = isMultiSheet
-                        ? Object.values(exportData).reduce((sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0), 0)
-                        : exportData.length;
-                    await logService.logExportComplete(logId, recordCount, duration);
+                    await logService.logExportComplete(logId, exportData.length, duration);
                 }
             } catch (logError) {
                 console.warn('记录导出完成日志失败:', logError.message);
             }
 
-            // 如果是Excel格式且是多Sheet，直接发送文件
-            if (format === 'excel' && isMultiSheet) {
-                console.log('[AdminController] 准备发送多Sheet Excel文件:', filename);
-                console.log('[AdminController] 数据sheets:', Object.keys(exportData));
-                try {
-                    await excelGenerator.sendExcelResponse(res, exportData, filename);
-                    console.log('[AdminController] Excel文件发送成功');
-                    return;
-                } catch (excelError) {
-                    console.error('[AdminController] Excel生成失败:', excelError);
-                    throw excelError;
-                }
-            }
-
-            // 返回导出数据（单Sheet或CSV）
-            const recordCount = isMultiSheet
-                ? Object.values(exportData).reduce((sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0), 0)
-                : exportData.length;
-
+            // 返回原始数据，由前端 ExportManager 统一生成 Excel
             res.json({
                 success: true,
                 data: exportData,
                 filename: filename,
                 format: format,
-                recordCount: recordCount
+                recordCount: exportData.length
             });
 
         } catch (error) {
