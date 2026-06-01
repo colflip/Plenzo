@@ -1997,6 +1997,14 @@ async function generateExcelFile(exportData, filename, userType) {
                     }
                 }
 
+                // 第1工作表费用/周汇总列：纯数字以数字形式存储
+                if (sheetIndex === 0 && (header === '费用' || header === '周汇总')) {
+                    const trimmed = strValue.trim();
+                    if (trimmed !== '' && /^\d+(\.\d+)?$/.test(trimmed)) {
+                        cell.value = Number(trimmed);
+                    }
+                }
+
                 // 条件样式
                 const isSunday = originalRow['星期'] === '周日';
                 const isSummaryRow = originalRow._isSummaryRow;
