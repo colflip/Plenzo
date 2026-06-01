@@ -1928,18 +1928,16 @@ async function generateExcelFile(exportData, filename, userType) {
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
             }
-            // 第2工作表：前6列15，汇总列50，核对列40，备注列60
+            // 第2工作表：汇总50、核对40、备注60，其余列15（按列名判断，不依赖位置）
             else if (sheetIndex === 1) {
-                if (colIndex < 6) {
-                    width = 15; // 第1-6列
-                } else if (header === '汇总') {
-                    width = 50; // 第7列（汇总）
-                } else if (header === '备注') {
-                    width = 60; // 第9列（备注）
+                if (header === '汇总') {
+                    width = 50;
                 } else if (header === '核对') {
-                    width = 40; // 第8列（核对）
+                    width = 40;
+                } else if (header === '备注') {
+                    width = 60;
                 } else {
-                    width = 10;
+                    width = 15;
                 }
             }
             // 第3工作表：上课地点40，更新时间/课程状态自动更新时间翻倍20
