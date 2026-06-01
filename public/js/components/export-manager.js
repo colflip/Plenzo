@@ -2072,12 +2072,7 @@ async function generateExcelFile(exportData, filename, userType) {
                 if (needsRightBottom) {
                     cell.alignment = { horizontal: 'right', vertical: 'bottom', wrapText: true };
                     cell.font = { ...cell.font, bold: false, italic: false };
-                    if (sheetIndex === 0 && (header === '费用' || header === '周汇总')) {
-                        const hasMultipleEntries = strValue.includes('\n');
-                        if (!hasMultipleEntries && strValue !== '/') {
-                            cell.alignment = { ...cell.alignment, indent: 1 };
-                        }
-                    }
+                    // 第1工作表费用/周汇总：去掉缩进，右侧间距减半（原 indent:1 留太多空白）
                 }
 
                 // 祝福语列样式
@@ -2096,15 +2091,33 @@ async function generateExcelFile(exportData, filename, userType) {
                     cell.alignment = { ...cell.alignment, horizontal: 'left' };
                 }
 
-                // 第2工作表：汇总、核对列水平垂直居中
-                if (sheetIndex === 1 && (header === '汇总' || header === '核对')) {
+                // 第2工作表：核对列水平垂直居中
+                if (sheetIndex === 1 && header === '核对') {
                     cell.alignment = { ...cell.alignment, horizontal: 'center', vertical: 'middle' };
                 }
 
-                // 纯数字加粗：第2工作表 B-G 列(colNumber 2-7)、第4工作表 B-M 列(colNumber 2-13)
+                // 第2工作表：汇总列靠右显示，文本中的数字加粗（rich text）
+                if (sheetIndex === 1 && header === '汇总') {
+                    cell.alignment = { ...cell.alignment, horizontal: 'right', vertical: 'middle', wrapText: true };
+                    const sumStr = strValue;
+                    if (sumStr.trim() !== '' && /\d/.test(sumStr)) {
+                        const parts = [];
+                        const numRe = /(\d+(?:\.\d+)?)/g;
+                        let li = 0, mm;
+                        while ((mm = numRe.exec(sumStr)) !== null) {
+                            if (mm.index > li) parts.push({ text: sumStr.substring(li, mm.index), font: { name: '宋体', size: 11 } });
+                            parts.push({ text: mm[1], font: { name: '宋体', size: 11, bold: true } });
+                            li = numRe.lastIndex;
+                        }
+                        if (li < sumStr.length) parts.push({ text: sumStr.substring(li), font: { name: '宋体', size: 11 } });
+                        cell.value = { richText: parts };
+                    }
+                }
+
+                // 纯数字加粗：第2工作表 B-F 列(colNumber 2-6)、第4工作表 B-M 列(colNumber 2-13)
                 const isPureNumberCell = strValue.trim() !== '' && /^\d+(\.\d+)?$/.test(strValue.trim());
                 if (isPureNumberCell) {
-                    if (sheetIndex === 1 && colNumber >= 2 && colNumber <= 7) {
+                    if (sheetIndex === 1 && colNumber >= 2 && colNumber <= 6) {
                         cell.font = { ...cell.font, bold: true };
                     } else if (sheetIndex === 3 && colNumber >= 2 && colNumber <= 13) {
                         cell.font = { ...cell.font, bold: true };
