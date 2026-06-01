@@ -1794,7 +1794,7 @@ function buildCellStyle({ isHeader, widthPx, column, value, row }) {
 
     // 行级条件标记（对照源码 2001-2015 / 2075）
     const isSunday = !!(row && row._isSunday);
-    const isFinanceCol = column === '费用' || column === '周汇总';
+    // isFinanceCol 已在上方字体选择逻辑中声明，此处复用
     // 整行是否含“已取消”内容（任一安排列出现“已取消”）→ 全行斜体（财务列除外）
     const isCancelledRow = !!(row && (
         (row['实际安排'] && String(row['实际安排']).includes('已取消')) ||

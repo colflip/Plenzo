@@ -1928,12 +1928,12 @@ async function generateExcelFile(exportData, filename, userType) {
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
             }
-            // 第2工作表：汇总50、核对40、备注60，其余列15（按列名判断，不依赖位置）
+            // 第2工作表：汇总30、核对20、备注60，其余列15（按列名判断，不依赖位置）
             else if (sheetIndex === 1) {
                 if (header === '汇总') {
-                    width = 50;
+                    width = 30;
                 } else if (header === '核对') {
-                    width = 40;
+                    width = 20;
                 } else if (header === '备注') {
                     width = 60;
                 } else {
@@ -2037,8 +2037,8 @@ async function generateExcelFile(exportData, filename, userType) {
                     }
                 }
 
-                // 已取消行的斜体（费用和周汇总列除外）
-                if (isCancelledRow && header !== '费用' && header !== '周汇总') {
+                // 已取消行的斜体（费用/周汇总列除外；计划安排/实际安排列由 rich text 各自控制样式）
+                if (isCancelledRow && header !== '费用' && header !== '周汇总' && header !== '计划安排' && header !== '实际安排') {
                     cell.font = { ...cell.font, italic: true };
                 }
 
@@ -2094,6 +2094,21 @@ async function generateExcelFile(exportData, filename, userType) {
                 // 长文本靠左对齐（非第三个工作表）
                 if (sheetIndex !== 2 && strValue.length > 10 && !needsRightBottom) {
                     cell.alignment = { ...cell.alignment, horizontal: 'left' };
+                }
+
+                // 第2工作表：汇总、核对列水平垂直居中
+                if (sheetIndex === 1 && (header === '汇总' || header === '核对')) {
+                    cell.alignment = { ...cell.alignment, horizontal: 'center', vertical: 'middle' };
+                }
+
+                // 纯数字加粗：第2工作表 B-G 列(colNumber 2-7)、第4工作表 B-M 列(colNumber 2-13)
+                const isPureNumberCell = strValue.trim() !== '' && /^\d+(\.\d+)?$/.test(strValue.trim());
+                if (isPureNumberCell) {
+                    if (sheetIndex === 1 && colNumber >= 2 && colNumber <= 7) {
+                        cell.font = { ...cell.font, bold: true };
+                    } else if (sheetIndex === 3 && colNumber >= 2 && colNumber <= 13) {
+                        cell.font = { ...cell.font, bold: true };
+                    }
                 }
             });
         });
