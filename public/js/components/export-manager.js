@@ -1916,16 +1916,16 @@ async function generateExcelFile(exportData, filename, userType) {
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
             }
-            // 第2工作表：前6列15，汇总列40，核对列20，备注列80
+            // 第2工作表：前6列15，汇总列50，核对列40，备注列60
             else if (sheetIndex === 1) {
                 if (colIndex < 6) {
                     width = 15; // 第1-6列
                 } else if (header === '汇总') {
-                    width = 40; // 第7列（汇总）
+                    width = 50; // 第7列（汇总）
                 } else if (header === '备注') {
-                    width = 80; // 第9列（备注）
+                    width = 60; // 第9列（备注）
                 } else if (header === '核对') {
-                    width = 20; // 第8列（核对）
+                    width = 40; // 第8列（核对）
                 } else {
                     width = 10;
                 }
