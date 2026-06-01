@@ -585,14 +585,26 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             // 已取消课程
             if (cancelledItems.length > 0) {
                 const cancelledTypeTexts = buildTypeTexts(cancelledItems);
-                const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
                 const isRed = cancelledItems.some(r => r._isReviewOrConsultation);
-                textParts.push({
-                    text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
-                    isCancelled: true,
-                    isModifiedAway: false,
-                    isRed: isRed
-                });
+                if (isPlanList) {
+                    // 计划列：不显示"已取消"包裹，正常文本但斜体+降色
+                    textParts.push({
+                        text: `${pfxClean}${cancelledTypeTexts.join('；')}`,
+                        isCancelled: false,
+                        isModifiedAway: false,
+                        isRed: isRed,
+                        isPlanDimmed: true
+                    });
+                } else {
+                    // 实际列：保持"已取消[...]"包裹
+                    const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
+                    textParts.push({
+                        text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
+                        isCancelled: true,
+                        isModifiedAway: false,
+                        isRed: isRed
+                    });
+                }
             }
 
             // 调走课程（如果需要显示）
@@ -1833,13 +1845,17 @@ async function generateExcelFile(exportData, filename, userType) {
             let color = { argb: 'FF000000' }; // 默认黑色
             let italic = false;
 
-            // 优先级：已取消 > 调走 > 评审/咨询
+            // 优先级：已取消(实际列) > 调走 > 计划列降色 > 评审/咨询
             if (part.isCancelled) {
                 color = { argb: 'FF595959' }; // 灰色
                 italic = true;
             } else if (part.isModifiedAway) {
                 color = { argb: 'FF8C6239' }; // 茶色
                 italic = true;
+            } else if (part.isPlanDimmed) {
+                // 计划列已取消/已调整：斜体 + 降色（黑→灰，红→浅红）
+                italic = true;
+                color = part.isRed ? { argb: 'FFFF8080' } : { argb: 'FF595959' };
             } else if (part.isRed) {
                 color = { argb: 'FFFF0000' }; // 红色
             }
@@ -1900,7 +1916,7 @@ async function generateExcelFile(exportData, filename, userType) {
             if (sheetIndex === 0 && firstSheetColumnWidths[header]) {
                 width = firstSheetColumnWidths[header];
             }
-            // 第2工作表：前6列15，汇总列40，核对列15，备注列80
+            // 第2工作表：前6列15，汇总列40，核对列20，备注列80
             else if (sheetIndex === 1) {
                 if (colIndex < 6) {
                     width = 15; // 第1-6列
@@ -1908,16 +1924,18 @@ async function generateExcelFile(exportData, filename, userType) {
                     width = 40; // 第7列（汇总）
                 } else if (header === '备注') {
                     width = 80; // 第9列（备注）
-                } else if (colIndex === 7) {
-                    width = 15; // 第8列（核对）
+                } else if (header === '核对') {
+                    width = 20; // 第8列（核对）
                 } else {
                     width = 10;
                 }
             }
-            // 第3工作表：上课地点40
+            // 第3工作表：上课地点40，更新时间/课程状态自动更新时间翻倍20
             else if (sheetIndex === 2) {
                 if (header === '上课地点') {
                     width = 40;
+                } else if (header === '更新时间' || header === '课程状态自动更新时间') {
+                    width = 20;
                 } else if (minWidths[header]) {
                     width = minWidths[header];
                 }
@@ -2004,6 +2022,11 @@ async function generateExcelFile(exportData, filename, userType) {
                 // 已取消行的斜体（费用和周汇总列除外）
                 if (isCancelledRow && header !== '费用' && header !== '周汇总') {
                     cell.font = { ...cell.font, italic: true };
+                }
+
+                // 第3工作表：已取消状态整行斜体灰色
+                if (sheetIndex === 2 && String(originalRow['状态'] || '').includes('已取消')) {
+                    cell.font = { ...cell.font, italic: true, color: { argb: 'FF595959' } };
                 }
 
                 // 日期变动标记
