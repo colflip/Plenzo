@@ -607,17 +607,29 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 }
             }
 
-            // 调走课程（如果需要显示）
-            if (modifiedAwayItems.length > 0 && !isPlanList) {
+            // 调走/已调整课程
+            if (modifiedAwayItems.length > 0) {
                 const modifiedAwayTypeTexts = buildTypeTexts(modifiedAwayItems);
-                const pfxModified = shouldShowStudent ? `${namePrefix}[${displayName}]调走[` : `${namePrefix}调走[`;
                 const isRed = modifiedAwayItems.some(r => r._isReviewOrConsultation);
-                textParts.push({
-                    text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
-                    isCancelled: false,
-                    isModifiedAway: true,
-                    isRed: isRed
-                });
+                if (isPlanList) {
+                    // 计划列：显示已调整课程，不带"调走"包裹，斜体+降色
+                    textParts.push({
+                        text: `${pfxClean}${modifiedAwayTypeTexts.join('；')}`,
+                        isCancelled: false,
+                        isModifiedAway: false,
+                        isRed: isRed,
+                        isPlanDimmed: true
+                    });
+                } else {
+                    // 实际列：保持"调走[...]"包裹
+                    const pfxModified = shouldShowStudent ? `${namePrefix}[${displayName}]调走[` : `${namePrefix}调走[`;
+                    textParts.push({
+                        text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
+                        isCancelled: false,
+                        isModifiedAway: true,
+                        isRed: isRed
+                    });
+                }
             }
 
             // 合并文本片段 - 用分号分隔不同状态的课程
