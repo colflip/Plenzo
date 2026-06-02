@@ -1548,8 +1548,8 @@ async function generateAndCopyWeeklyView(targetStudent) {
         rows = rows['每日排课明细'] || rows[Object.keys(rows)[0]] || [];
     }
 
-    // 3. 生成表格 DOM
-    const wrapper = buildWeeklyViewWrapper(rows, weekDates, targetStudent);
+    // 3. 生成表格 DOM（传入 adaptedRows 以便计算"调/加/原"水印）
+    const wrapper = buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows);
     document.body.appendChild(wrapper);
 
     // 4. html2canvas + 剪贴板（沿用 Safari 兼容的 Promise 模式）
@@ -1590,10 +1590,29 @@ async function generateAndCopyWeeklyView(targetStudent) {
 /**
  * 构造离屏 wrapper + Excel 风格表格
  */
-function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
+function buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows) {
     const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
     // table-layout:fixed 必须有显式总宽，否则列宽被忽略、列坍缩、文本竖排
     const totalWidth = HEADERS.reduce((sum, h) => sum + (WEEKLY_VIEW_STYLE.columnPx[h] || 0), 0);
+
+    // 计算每天的水印文本（复用主表 getScheduleWatermarkText 的逻辑）：
+    //   adjustment_type = 1 (临时加课) → "加"
+    //   adjustment_type = 2 (调整后的课) → "调"
+    //   两者皆有 → "调/加"
+    //   该天所有都是 modified_away 且 adjustment_type=0 → "原"
+    const watermarkByDate = {};
+    if (Array.isArray(adaptedRows)) {
+        const byDate = {};
+        adaptedRows.forEach(r => {
+            const dk = normalizeDateKey(r.date);
+            if (!byDate[dk]) byDate[dk] = [];
+            byDate[dk].push(r);
+        });
+        Object.keys(byDate).forEach(dk => {
+            const text = getScheduleWatermarkText(byDate[dk]);
+            if (text) watermarkByDate[dk] = text;
+        });
+    }
 
     const wrapper = document.createElement('div');
     wrapper.style.cssText = [
@@ -1666,8 +1685,17 @@ function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
                 td.rowSpan = rowspans.weekSpan[i];
             }
 
-            // 内容：处理换行
-            renderMultiline(td, value);
+            // 内容：安排列优先按 textParts 分段渲染，让"同 cell 多课程按各自状态着色"
+            if ((h === '计划安排' || h === '实际安排')) {
+                const parts = h === '计划安排' ? r._planTextParts : r._actualTextParts;
+                if (Array.isArray(parts) && parts.length > 0) {
+                    renderTextParts(td, parts);
+                } else {
+                    renderMultiline(td, value);
+                }
+            } else {
+                renderMultiline(td, value);
+            }
 
             td.style.cssText = buildCellStyle({
                 isHeader: false,
@@ -1676,6 +1704,34 @@ function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
                 value: value,
                 row: r
             });
+
+            // 水印：附在日期 td 上（跨整个日期合并块，水印落右下角）
+            if (h === '日期' && rowspans.dateFirst[i]) {
+                const wmText = watermarkByDate[normalizeDateKey(r['日期'])];
+                if (wmText) {
+                    td.style.cssText += ';position:relative;overflow:hidden;';
+                    const wm = document.createElement('span');
+                    wm.setAttribute('aria-hidden', 'true');
+                    const wmSize = wmText.length > 1 ? '28px' : '36px';
+                    wm.style.cssText = [
+                        'position: absolute',
+                        'bottom: -4px',
+                        'right: 2px',
+                        `font-size: ${wmSize}`,
+                        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
+                        'color: rgba(0,102,204,0.18)',
+                        'pointer-events: none',
+                        'z-index: 0',
+                        'transform: rotate(-15deg)',
+                        'line-height: 1',
+                        'user-select: none',
+                        'font-weight: bold'
+                    ].join(';');
+                    wm.textContent = wmText;
+                    td.appendChild(wm);
+                }
+            }
+
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -1695,6 +1751,48 @@ function renderMultiline(td, value) {
     lines.forEach((line, idx) => {
         if (idx > 0) td.appendChild(document.createElement('br'));
         td.appendChild(document.createTextNode(line));
+    });
+}
+
+/**
+ * 按 textParts 分段渲染：同一 cell 内多个课程按各自状态着色
+ *   优先级: cancelled(灰斜体) > modifiedAway(茶色斜体) > planDimmed(降色斜体) > red(红色) > 默认黑
+ *   段间用全角分号";" 分隔（对齐 Excel buildRichText 行为）
+ *   _isRecord（评审记录）情况，文本里已含"（记录）"后缀，无需特殊处理
+ */
+function renderTextParts(td, parts) {
+    const S = WEEKLY_VIEW_STYLE;
+    // 关键：clear cell-level color/italic so each span dictates its own style.
+    // buildCellStyle 会基于行级状态给整个 td 上 color/font-style，但分段模式
+    // 必须由 span 自己决定。
+    td.style.color = S.defaultText;
+    td.style.fontStyle = 'normal';
+    parts.forEach((p, idx) => {
+        if (idx > 0) {
+            // 段间分隔（黑色默认色）
+            const sep = document.createElement('span');
+            sep.textContent = '；';
+            td.appendChild(sep);
+        }
+        const span = document.createElement('span');
+        let color = S.defaultText;
+        let italic = false;
+        if (p.isCancelled) {
+            color = S.cancelledText;
+            italic = true;
+        } else if (p.isModifiedAway) {
+            color = S.modifiedAwayText;
+            italic = true;
+        } else if (p.isPlanDimmed) {
+            italic = true;
+            color = p.isRed ? '#FF8080' : S.cancelledText;
+        } else if (p.isRed) {
+            color = S.reviewText;
+        }
+        span.style.color = color;
+        if (italic) span.style.fontStyle = 'italic';
+        span.textContent = p.text;
+        td.appendChild(span);
     });
 }
 
