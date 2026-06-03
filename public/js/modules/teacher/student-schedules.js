@@ -1306,14 +1306,28 @@ async function exportWeeklyScheduleView() {
         return;
     }
 
-    // 1. 从缓存学生列表中筛选出本周排课的学生（更贴近用户预期）
-    const studentsWithSchedules = collectStudentsFromCache();
+    // 1. 拉取完整周数据（show_plan=true），确保与 Excel 第 1 工作表一致：
+    //    含已取消(cancelled)与已调整(modified_away)原课，便于计划安排列降色展示。
+    //    不复用 cachedSchedules，因其受界面"显示全部安排"开关过滤，会丢失 modified_away 原课。
+    const prepToastId = window.apiUtils ? window.apiUtils.showToast('正在准备导出数据...', 'info', 0) : null;
+    let fullSchedules;
+    try {
+        fullSchedules = await fetchFullWeekSchedules();
+    } catch (err) {
+        if (prepToastId && window.apiUtils) window.apiUtils.hideToast(prepToastId);
+        if (window.apiUtils) window.apiUtils.showToast('获取导出数据失败: ' + err.message, 'error');
+        return;
+    }
+    if (prepToastId && window.apiUtils) window.apiUtils.hideToast(prepToastId);
+
+    // 2. 仅保留本周实际有课程的学生（含已取消/已调整）；无课程的学生不出现在选择项中
+    const studentsWithSchedules = collectStudentsWithSchedules(fullSchedules);
     if (studentsWithSchedules.length === 0) {
         if (window.apiUtils) window.apiUtils.showToast('本周没有可导出的学生数据', 'warning');
         return;
     }
 
-    // 2. 选学生（>1 弹窗）
+    // 3. 选学生：只有一人时直接导出，多人时弹窗
     let target;
     if (studentsWithSchedules.length === 1) {
         target = studentsWithSchedules[0];
@@ -1326,25 +1340,39 @@ async function exportWeeklyScheduleView() {
     }
     if (!target) return;
 
-    // 3. 生成并复制
-    await generateAndCopyWeeklyView(target);
+    // 4. 生成并复制（传入完整数据，避免再次请求）
+    await generateAndCopyWeeklyView(target, fullSchedules);
 }
 
 /**
- * 从缓存中收集本周有排课的学生（不依赖外部接口）
+ * 拉取本周全部学生的完整排课（show_plan=true），与 Excel 导出口径一致。
+ * 含已取消、已调整(modified_away)原课，用于计划安排列降色展示。
  */
-function collectStudentsFromCache() {
+async function fetchFullWeekSchedules() {
+    const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
+    const startDate = toISODate(weekDates[0]);
+    const endDate = toISODate(weekDates[weekDates.length - 1]);
+    const response = await fetch(
+        `/api/teacher/student-schedules?startDate=${startDate}&endDate=${endDate}&show_plan=true`,
+        { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }
+    );
+    if (!response.ok) throw new Error('获取学生课程安排失败');
+    const data = await response.json();
+    if (data && data.schedules) return Array.isArray(data.schedules) ? data.schedules : [];
+    return Array.isArray(data) ? data : [];
+}
+
+/**
+ * 从排课数据中收集"实际有课程"的学生（含已取消/已调整），按 id 升序。
+ */
+function collectStudentsWithSchedules(schedules) {
     const seen = new Map();
-    cachedSchedules.forEach(s => {
+    (schedules || []).forEach(s => {
         const id = s.student_id;
         if (id == null) return;
         if (!seen.has(id)) {
             seen.set(id, { id: id, name: s.student_name || '未知学生' });
         }
-    });
-    // 兼容：如果缓存有完整学生列表也合并进来（含本周无排课的学生）
-    cachedStudents.forEach(st => {
-        if (!seen.has(st.id)) seen.set(st.id, { id: st.id, name: st.name || '未知学生' });
     });
     return Array.from(seen.values()).sort((a, b) => (a.id || 0) - (b.id || 0));
 }
@@ -1482,15 +1510,16 @@ function pickStudentForWeeklyView(students) {
 /**
  * 主流程：复用 ExportManager 转换数据 → 渲染 DOM → 截图 → 写剪贴板
  */
-async function generateAndCopyWeeklyView(targetStudent) {
+async function generateAndCopyWeeklyView(targetStudent, sourceSchedules) {
     const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成本周视图...', 'info', 0) : null;
 
     const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
     const startDateObj = weekDates[0];
     const endDateObj = weekDates[weekDates.length - 1];
 
-    // 1. 过滤出本周 + 该学生的排课
-    const adaptedRows = cachedSchedules
+    // 1. 过滤出本周 + 该学生的排课（使用完整数据，含已取消/已调整原课）
+    const baseSchedules = Array.isArray(sourceSchedules) ? sourceSchedules : cachedSchedules;
+    const adaptedRows = baseSchedules
         .filter(s => String(s.student_id) === String(targetStudent.id))
         .map(s => ({
             id: s.id,
