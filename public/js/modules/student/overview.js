@@ -21,7 +21,7 @@ const refreshBtnEl = () => document.getElementById('refreshTodaySchedulesBtn');
 /**
  * 统一的教师排序函数
  * 规则:
- * 1. 特殊课程类型(评审、咨询)的教师排在最后
+ * 1. 咨询记录/评审记录类型的教师排在最后
  * 2. 其他教师按ID由小到大排序
  */
 function sortTeachersByIdAndType(scheduleA, scheduleB) {
@@ -33,16 +33,16 @@ function sortTeachersByIdAndType(scheduleA, scheduleB) {
         item.schedule_type || ''
     ).toString();
 
-    const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+    const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
 
     const typeA = getTypeName(scheduleA);
     const typeB = getTypeName(scheduleB);
-    const specialA = isSpecial(typeA);
-    const specialB = isSpecial(typeB);
+    const recordA = isRecord(typeA);
+    const recordB = isRecord(typeB);
 
-    // 特殊课程类型排在最后
-    if (specialA && !specialB) return 1;
-    if (!specialA && specialB) return -1;
+    // 咨询记录/评审记录排在最后
+    if (recordA && !recordB) return 1;
+    if (!recordA && recordB) return -1;
 
     // 其他按教师ID由小到大排序
     return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);

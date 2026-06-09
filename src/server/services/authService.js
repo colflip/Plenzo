@@ -41,19 +41,31 @@ function getJwtSecret() {
 
 /**
  * 获取 JWT 过期时间
+ * @param {boolean} rememberMe - 是否勾选记住我
  * @returns {string}
  * @private
  */
-function getJwtExpiresIn() {
+function getJwtExpiresIn(rememberMe = false) {
+    if (rememberMe) {
+        // 勾选记住我时：30天
+        return process.env.JWT_REMEMBER_EXPIRES_IN || '30d';
+    }
+    // 未勾选记住我：默认24小时
     return process.env.JWT_EXPIRES_IN || '24h';
 }
 
 /**
  * 获取 Refresh Token 过期时间
+ * @param {boolean} rememberMe
  * @returns {string}
  * @private
  */
-function getRefreshTokenExpiresIn() {
+function getRefreshTokenExpiresIn(rememberMe = false) {
+    if (rememberMe) {
+        // 勾选记住我时：30天
+        return process.env.REFRESH_TOKEN_REMEMBER_EXPIRES_IN || '30d';
+    }
+    // 未勾选记住我：7天
     return process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
 }
 
@@ -84,9 +96,10 @@ class AuthService {
      * @param {string} username - 用户名
      * @param {string} password - 密码
      * @param {string} userType - 用户类型 (admin/teacher/student)
+     * @param {boolean} rememberMe - 是否勾选记住我
      * @returns {Promise<object>} { user, token }
      */
-    async login(username, password, userType) {
+    async login(username, password, userType, rememberMe = false) {
         const table = getTable(userType);
 
         // 1. 查询用户
@@ -135,7 +148,7 @@ class AuthService {
             console.warn('Failed to update last_login:', err.message);
         }
 
-        // 5. 生成 Token
+        // 5. 生成 Token — 根据 rememberMe 决定过期时间
         const token = jwt.sign(
             {
                 id: user.id,
@@ -143,7 +156,7 @@ class AuthService {
                 permissionLevel: user.permission_level || null
             },
             getJwtSecret(),
-            { expiresIn: getJwtExpiresIn() }
+            { expiresIn: getJwtExpiresIn(rememberMe) }
         );
 
         // 5.1 生成 Refresh Token (可选)
@@ -154,7 +167,7 @@ class AuthService {
                 type: 'refresh'
             },
             getJwtSecret(),
-            { expiresIn: getRefreshTokenExpiresIn() }
+            { expiresIn: getRefreshTokenExpiresIn(rememberMe) }
         );
 
         // 6. 返回结果 (去除敏感信息)
@@ -167,7 +180,8 @@ class AuthService {
         return {
             token,
             refreshToken,
-            expiresIn: getJwtExpiresIn(),
+            expiresIn: getJwtExpiresIn(rememberMe),
+            rememberMe,
             user: {
                 id: safeUser.id,
                 username: safeUser.username,

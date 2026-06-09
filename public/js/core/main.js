@@ -6,6 +6,7 @@ const LAST_USER_TYPE_KEY = 'lastUserType';
 
 document.addEventListener('DOMContentLoaded', () => {
     initCustomSelect();
+    initRememberMe();
     initLogin();
 });
 
@@ -85,12 +86,36 @@ function initCustomSelect() {
 }
 
 /**
+ * Initialize "Remember Me" checkbox
+ */
+function initRememberMe() {
+    const checkbox = document.getElementById('rememberMe');
+    if (!checkbox) return;
+
+    try {
+        // If user was previously "remembered", auto-check the box
+        const remembered = sessionStorage.getItem('rememberMeState');
+        if (remembered === 'true') {
+            checkbox.checked = true;
+        }
+    } catch (e) { /* ignore storage errors */ }
+
+    // Sync icon state on change
+    checkbox.addEventListener('change', () => {
+        try {
+            sessionStorage.setItem('rememberMeState', checkbox.checked ? 'true' : 'false');
+        } catch (e) { /* ignore */ }
+    });
+}
+
+/**
  * Initialize Login Logic
  */
 function initLogin() {
     const loginBtn = document.getElementById('loginBtn');
     const usernameInput = document.getElementById('username');
     const passwordInput = document.getElementById('password');
+    const rememberMeCheckbox = document.getElementById('rememberMe');
     const userTypeSelect = document.getElementById('userType');
     const errorMessage = document.getElementById('errorMessage');
 
@@ -109,6 +134,7 @@ function initLogin() {
         const username = usernameInput.value.trim();
         const password = passwordInput.value.trim();
         const userType = userTypeSelect.value; // teacher, student, admin
+        const rememberMe = rememberMeCheckbox ? rememberMeCheckbox.checked : false;
 
         // Simple validation
         if (!username || !password) {
@@ -131,7 +157,8 @@ function initLogin() {
                     data = await window.apiUtils.post('/auth/login', {
                         username,
                         password,
-                        userType
+                        userType,
+                        rememberMe
                     });
                 } catch (err) {
                     throw err; // Re-throw to be caught by outer catch
@@ -141,7 +168,7 @@ function initLogin() {
                 const response = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, userType })
+                    body: JSON.stringify({ username, password, userType, rememberMe })
                 });
 
                 data = await response.json();
@@ -153,8 +180,18 @@ function initLogin() {
 
             // Success
             if (data.token) {
-                localStorage.setItem('token', data.token);
-                localStorage.setItem('userType', userType); // Helper for some pages
+                if (rememberMe) {
+                    // Use localStorage for persistent session
+                    localStorage.setItem('token', data.token);
+                    // Remove sessionStorage token if it exists, to avoid confusion
+                    sessionStorage.removeItem('tempToken');
+                } else {
+                    // Use sessionStorage for session-only (clears on browser close)
+                    sessionStorage.setItem('tempToken', data.token);
+                    localStorage.removeItem('token');
+                }
+
+                localStorage.setItem('userType', userType);
                 localStorage.setItem(LAST_USER_TYPE_KEY, userType);
                 if (data.user) {
                     localStorage.setItem('userData', JSON.stringify(data.user));

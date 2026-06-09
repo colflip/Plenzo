@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.i18nUtils.applyChartFont();
     }
     if (window.Overview && window.Overview.loadOverviewStats) window.Overview.loadOverviewStats();
-    else if (window.loadOverviewStats) window.loadOverviewStats();
+    else if (window.Overview?.loadOverviewStats) window.loadOverviewStats();
     loadTodaySchedules();
     setupEventListeners();
     setupScheduleTypeListeners();
@@ -243,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 仅在总览 section 可见时刷新，避免干扰其他页面操作
         const overviewSection = document.getElementById('overview');
         if (overviewSection && overviewSection.classList.contains('active')) {
-            loadOverviewStats();
+            if (window.loadOverviewStats) window.loadOverviewStats();
             // loadTodaySchedules(); // 禁用今日排课自动刷新
         }
     }, 15000);

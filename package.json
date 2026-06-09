@@ -1,7 +1,7 @@
 {
-  "name": "schedule-widget",
+  "name": "classflow",
   "version": "1.0.0",
-  "description": "schedule-widget - Teacher-Student Scheduling System",
+  "description": "Classflow - Teacher-Student Scheduling System",
   "main": "src/server/app.js",
   "scripts": {
     "start": "node src/server/app.js",

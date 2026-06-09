@@ -340,127 +340,6 @@
         .theme-checkbox-label:hover .theme-checkbox-custom {
             border-color: #2ECC71;
         }
-        /* === 反馈表单样式 === */
-        /* Override global grid for feedback form */
-        #feedbackForm {
-            display: block !important;
-        }
-        .fb-section {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-        .fb-row {
-            display: flex;
-            align-items: center;
-            width: 100%;
-        }
-        .fb-label {
-            flex-shrink: 0;
-            width: 80px;
-            text-align: right;
-            padding-right: 16px;
-            font-weight: 500;
-            color: #2C3E50;
-            font-size: 14px;
-            line-height: 40px;
-        }
-        .fb-field-full {
-            flex: 1;
-            min-width: 0;
-        }
-        .fb-field-half {
-            flex: 1;
-            min-width: 0;
-        }
-        .fb-input,
-        .fb-textarea {
-            width: 100%;
-            height: 40px;
-            padding: 0 12px;
-            border: 1px solid #E9ECEF;
-            border-radius: 8px;
-            font-size: 14px;
-            background-color: #F8F9FA;
-            color: #2C3E50;
-            box-sizing: border-box;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .fb-input:focus,
-        .fb-textarea:focus {
-            outline: none;
-            border-color: #2ECC71;
-            box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
-            background-color: #FFFFFF;
-        }
-        .fb-textarea {
-            padding: 10px 12px;
-            min-height: 40px;
-            resize: vertical;
-            font-family: inherit;
-        }
-        .fb-select {
-            flex: 1;
-            min-width: 0;
-            height: 40px;
-            padding: 0 32px 0 12px;
-            border: 1px solid #E9ECEF;
-            border-radius: 8px;
-            font-size: 14px;
-            background-color: #F8F9FA;
-            color: #2C3E50;
-            box-sizing: border-box;
-            cursor: pointer;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .fb-select:focus {
-            outline: none;
-            border-color: #2ECC71;
-            box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
-            background-color: #FFFFFF;
-        }
-        .fb-half-group {
-            display: flex;
-            align-items: center;
-            gap: 0;
-        }
-        .fb-half-group > .fb-label {
-            flex-shrink: 0;
-            width: 80px;
-            text-align: right;
-            padding-right: 16px;
-            font-weight: 500;
-            color: #2C3E50;
-            font-size: 14px;
-            line-height: 40px;
-        }
-        .fb-half-group > .fb-field-half {
-            flex: 1;
-            min-width: 0;
-        }
-        .fb-half-group > .priority-label {
-            margin-left: 24px;
-        }
-        /* === 反馈表格居中 === */
-        #feedbacksTable th,
-        #feedbacksTable td {
-            text-align: center;
-        }
-        #feedbacksTable td {
-            vertical-align: middle;
-        }
-        /* === 反馈表单按钮间距 === */
-        #feedbackFormContainer .form-actions {
-            margin-top: 32px;
-            padding-top: 16px;
-            border-top: 1px solid #E9ECEF;
-        }
-        /* === 状态选择框自适应最小宽度 === */
-        #feedbackStatus {
-            flex: 0 0 auto;
-            min-width: 120px;
-            max-width: 200px;
-        }
     </style>
 </head>
 
@@ -498,7 +377,7 @@
                     <span class="nav-text">数据统计</span>
                 </a>
                 <a href="#" class="nav-item" data-section="system-settings">
-                    <span class="material-icons-round">tune</span>
+                    <span class="material-icons-round">settings</span>
                     <span class="nav-text">系统设置</span>
                 </a>
             </nav>
@@ -792,40 +671,39 @@
 
                 <!-- 系统设置（课程类型管理 + 节假日管理） -->
                 <section id="system-settings" class="dashboard-section">
-                    <!-- 顶部二级菜单栏：完全仿照数据统计的 statistics-controls -->
                     <div class="header-toolbar statistics-controls system-settings-header">
                         <div class="statistics-tabs">
-                            <div class="tab-btn-group inline-tabs">
-                                <button class="tab-btn active" data-settings-view="schedule-types-view">课程类型</button>
-                                <button class="tab-btn" data-settings-view="holiday-config-view">节假日管理</button>
-                                <button class="tab-btn" data-settings-view="feedback-view">反馈</button>
+                            <div class="tab-btn-group">
+                                <button class="tab-btn active" data-view="schedule-types-view">课程类型</button>
+                                <button class="tab-btn" data-view="holiday-config-view">节假日管理</button>
                             </div>
-                            <!-- 右侧功能按钮区（紧邻菜单，仿统计页"导出数据"位置）-->
-                            <div class="settings-actions" id="settingsActions">
-                                <div class="settings-view-actions active" data-actions-for="schedule-types-view">
-                                    <button id="addScheduleTypeBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 添加类型
-                                    </button>
-                                </div>
-                                <div class="settings-view-actions" data-actions-for="holiday-config-view">
-                                    <button id="addHolidayBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 添加节假日
-                                    </button>
-                                    <button id="loadHolidaysBtn" class="add-btn">
-                                        <span class="material-icons-round">sync</span> 从 API 同步
-                                    </button>
-                                </div>
-                                <div class="settings-view-actions" data-actions-for="feedback-view">
-                                    <button id="addFeedbackBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 提交反馈
-                                    </button>
-                                </div>
-                            </div>
+                        </div>
+                        <!-- 课程类型工具栏按钮 -->
+                        <div class="settings-view-actions settings-view-actions-active" id="schedule-types-actions">
+                            <button id="addScheduleTypeBtn" class="add-btn">
+                                <span class="material-icons-round">add</span> 添加类型
+                            </button>
+                        </div>
+                        <!-- 节假日管理工具栏按钮 -->
+                        <div class="settings-view-actions settings-view-actions-hidden" id="holiday-actions">
+                            <button id="addHolidayBtn" class="add-btn">
+                                <span class="material-icons-round">add</span> 添加
+                            </button>
+                            <button id="loadHolidaysBtn" class="add-btn" style="background-color: var(--primary-color, #3b82f6);">
+                                <span class="material-icons-round">sync</span> 从 API 同步
+                            </button>
                         </div>
                     </div>
 
                     <!-- 课程类型管理子视图 -->
                     <div id="schedule-types-view" class="settings-view active">
+                        <div class="header-toolbar schedule-controls">
+                            <div class="toolbar-actions" style="margin-left: 0;">
+                                <button id="addScheduleTypeBtn" class="add-btn">
+                                    <span class="material-icons-round">add</span> 添加类型
+                                </button>
+                            </div>
+                        </div>
                         <div class="table-container">
                             <table id="scheduleTypesTable">
                                 <thead>
@@ -865,14 +743,13 @@
                     </div>
 
                     <!-- 节假日管理子视图 -->
-                    <div id="holiday-config-view" class="settings-view">
+                    <div id="holiday-config-view" class="settings-view" style="display: none;">
                         <div class="table-container">
                             <table id="holidaysTable">
                                 <thead>
                                     <tr>
                                         <th>年份</th>
                                         <th>类型</th>
-                                        <th>优先级</th>
                                         <th>日期范围</th>
                                         <th>名称</th>
                                         <th>操作</th>
@@ -930,92 +807,8 @@
                             </form>
                         </div>
                     </div>
-
-                    <!-- 反馈管理子视图 -->
-                    <div id="feedback-view" class="settings-view">
-                        <div class="table-container">
-                            <table id="feedbacksTable">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>类型</th>
-                                        <th>优先级</th>
-                                        <th>标题</th>
-                                        <th>状态</th>
-                                        <th>提交人</th>
-                                        <th>提交时间</th>
-                                        <th>操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="feedbacksTableBody">
-                                    <!-- 通过 JS 动态加载 -->
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- 反馈表单模态 -->
-                        <div id="feedbackFormContainer" class="form-container" style="display: none;">
-                            <div class="form-header">
-                                <h3 id="feedbackFormTitle">提交反馈</h3>
-                                <button class="close-btn" id="closeFeedbackFormBtn"></button>
-                            </div>
-                            <form id="feedbackForm" data-mode="add" data-id="">
-                                <div class="fb-section">
-                                    <!-- 上：标题 -->
-                                    <div class="fb-row">
-                                        <span class="fb-label">标题</span>
-                                        <div class="fb-field-full">
-                                            <input type="text" id="feedbackTitle" class="fb-input" placeholder="简要描述反馈内容（选填）" maxlength="120">
-                                        </div>
-                                    </div>
-                                    <!-- 中上：类型 + 优先级 -->
-                                    <div class="fb-half-group">
-                                        <span class="fb-label">类型</span>
-                                        <div class="fb-field-half">
-                                            <select id="feedbackType" class="fb-select" required>
-                                                <option value="feature">功能反馈</option>
-                                                <option value="bug">系统 Bug</option>
-                                                <option value="request">新功能需求</option>
-                                                <option value="other">其他反馈</option>
-                                            </select>
-                                        </div>
-                                        <span class="fb-label priority-label">优先级</span>
-                                        <div class="fb-field-half">
-                                            <select id="feedbackPriority" class="fb-select" required>
-                                                <option value="high">高</option>
-                                                <option value="medium" selected>中</option>
-                                                <option value="low">低</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <!-- 中下：详细描述 -->
-                                    <div class="fb-row">
-                                        <span class="fb-label">详细描述</span>
-                                        <div class="fb-field-full">
-                                            <textarea id="feedbackDescription" class="fb-textarea" rows="2" required placeholder="请详细描述问题/需求/反馈内容..."></textarea>
-                                        </div>
-                                    </div>
-                                    <!-- 下：状态（仅编辑时显示） -->
-                                    <div class="fb-row" id="feedbackStatusGroup" style="display:none;">
-                                        <span class="fb-label">状态</span>
-                                        <div class="fb-field-full">
-                                            <select id="feedbackStatus" class="fb-select">
-                                                <option value="open">未处理</option>
-                                                <option value="in_progress">处理中</option>
-                                                <option value="done">已完成</option>
-                                                <option value="rejected">已拒绝</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="form-actions">
-                                    <button type="button" id="cancelFeedbackFormBtn" class="btn btn-secondary">取消</button>
-                                    <button type="submit" id="feedbackFormSubmit">提交</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
                 </section>
+
 
                 <!-- 排课管理部分 -->
                 <section id="schedule" class="dashboard-section">
@@ -1045,10 +838,6 @@
                         <span class="material-icons-round">visibility</span>
                         <span id="showPlanBtnText">显示全部安排</span>
                     </button>
-                            <button id="exportCurrentViewBtn" class="add-btn" style="margin-left: 10px;">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">image</span>
-                                导出当前视图
-                            </button>
                         </div>
 
                         <!-- Right: Filters -->
@@ -1465,13 +1254,13 @@
         <script src="/js/utils/export-ui-manager.js"></script>
         <script src="/js/components/export-manager.js?v=1"></script>
         <script src="/js/components/export-dialog.js?v=20240121"></script>
-        <script src="/js/components/weekly-view-export.js"></script>
         <script type="module" src="/js/modules/admin/statistics.js"></script>
         <script type="module" src="/js/modules/admin/stats-logic.js"></script>
         <script type="module" src="/js/modules/admin/user-logic.js"></script>
         <script type="module" src="/js/modules/admin/schedule-logic.js"></script>
         <script type="module" src="/js/modules/admin/teacher-availability.js"></script>
         <script type="module" src="/js/modules/admin/schedule-types.js"></script>
+        <script type="module" src="/js/modules/admin/holiday-manager.js"></script>
         <script type="module" src="/js/modules/admin/admin-reward.js"></script>
         <script type="module" src="/js/modules/admin/schedule-utils.js"></script>
         <script type="module" src="/js/modules/admin/index.js"></script>
@@ -1479,7 +1268,6 @@
         <script type="module" src="/js/modules/admin/schedule-manager.js"></script>
         <script src="/js/modules/admin/legacy-adapter.js" defer></script>
         <script type="module" src="/js/modules/admin/student-availability.js"></script>
-        <script type="module" src="/js/modules/admin/feedback-manager.js"></script>
         <script src="/js/modules/admin/student-schedule-fees.js"></script>
         <script src="/js/modules/shared/version-badge.js" defer></script>
     </div>

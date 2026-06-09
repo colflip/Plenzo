@@ -96,8 +96,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    /* 居中显示项目名称与图标 */
-    padding: 24px 20px;
+    padding: 28px 20px;
+    background: linear-gradient(180deg, rgba(240,249,255,0.5) 0%, transparent 100%);
     border-bottom: 1px solid #E9ECEF;
     overflow: hidden;
     white-space: nowrap;
@@ -105,22 +105,25 @@ body {
 }
 
 .logo-icon {
-    width: 48px;
-    height: 48px;
+    width: 52px;
+    height: 52px;
     object-fit: contain;
-    margin-right: 12px;
+    margin-right: 14px;
+    flex-shrink: 0;
     transition: all 0.3s ease;
+    filter: drop-shadow(0 2px 4px rgba(37, 99, 235, 0.15));
 }
 
 .logo-text {
     font-size: var(--font-size-lg);
-    font-weight: 600;
-    color: #2C3E50;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.5px;
     transition: all 0.3s ease;
 }
 
 .sidebar.collapsed .logo {
-    padding: 24px 0;
+    padding: 28px 0;
     justify-content: center;
 }
 
@@ -132,12 +135,6 @@ body {
 
 .sidebar.collapsed .logo-icon {
     margin: 0;
-}
-
-.nav-menu {
-    padding: 20px 0;
-    flex-grow: 1;
-    overflow-y: auto;
 }
 
 .nav-item {
@@ -988,55 +985,54 @@ body {
 
 /* Data Table Clean Style */
 .data-table,
-#usersTable {
+#usersTable,
+#teachingDetailsTable {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     margin: 0;
-    font-size: 14px;
-}
-
-#scheduleTypesTable {
-    width: auto;
-    min-width: 460px;
-    max-width: 100%;
-    margin: 0 auto;
-    border-collapse: collapse;
     font-size: 14px;
 }
 
 .data-table th,
 #usersTable th,
-#scheduleTypesTable th {
-    background-color: #F9FAFB;
-    /* Light grey header */
+#scheduleTypesTable th,
+#teachingDetailsTable th {
+    background-color: #F8F9FA;
+    /* Unified header bg across all data tables */
     color: var(--admin-text-body);
     font-weight: 600;
     font-size: 14px;
     letter-spacing: 0;
-    padding: 16px 12px;
-    border-bottom: 2px solid #E5E7EB;
+    padding: 16px 20px;
+    border-bottom: 1px solid #E9ECEF;
     text-align: center;
+    box-shadow: none;
 }
 
 .data-table td,
 #usersTable td,
-#scheduleTypesTable td {
-    padding: 16px 24px;
+#scheduleTypesTable td,
+#teachingDetailsTable td {
+    padding: 16px 20px;
     color: var(--admin-text-main);
     border-bottom: 1px solid var(--admin-border);
     vertical-align: middle;
+    text-align: center;
 }
 
 .data-table tbody tr:last-child td,
 #usersTable tbody tr:last-child td,
-#scheduleTypesTable tbody tr:last-child td {
+#scheduleTypesTable tbody tr:last-child td,
+#teachingDetailsTable tbody tr:last-child td {
     border-bottom: none;
 }
 
 .data-table tr:hover,
 #usersTable tbody tr:hover,
-#scheduleTypesTable tbody tr:hover {
-    background-color: #F9FAFB;
+#scheduleTypesTable tbody tr:hover,
+#teachingDetailsTable tbody tr:hover {
+    background-color: #F8F9FA;
 }
 
 /* Action Buttons in Table */
@@ -1084,16 +1080,60 @@ body {
     color: white;
 }
 
-/* 课程类型表格紧凑样式 */
+/* 课程类型表格：与节假日表格保持一致的显示样式 */
 #scheduleTypesTable th,
 #scheduleTypesTable td {
-    padding: 10px 12px;
-    /* 原来是 12px 15px，减少约50% */
-    font-size: 18px;
+    padding: 16px 20px;
+    font-size: var(--font-size-base);
+    text-align: left;
+    border-bottom: 1px solid #E9ECEF;
+}
+
+#scheduleTypesTable th {
+    text-align: center;
+    background-color: #F8F9FA;
+    font-weight: 600;
+    color: #2C3E50;
+    white-space: nowrap;
+}
+
+#scheduleTypesTable tbody tr:last-child td {
+    border-bottom: none;
 }
 
 #scheduleTypesTable .edit-btn,
 #scheduleTypesTable .delete-btn {
+    padding: 3px 8px;
+    font-size: 12px;
+}
+
+/* 节假日表格：完全仿照课程类型表格的样式（背景、边框、阴影、字体、行高） */
+#holidaysTable th,
+#holidaysTable td {
+    padding: 16px 20px;
+    font-size: var(--font-size-base);
+    text-align: center;
+    border-bottom: 1px solid #E9ECEF;
+}
+
+#holidaysTable th {
+    background-color: #F8F9FA;
+    font-weight: 600;
+    font-size: 14px;
+    color: #2C3E50;
+    white-space: nowrap;
+}
+
+#holidaysTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
+#holidaysTable tbody tr:hover {
+    background-color: #F9FAFB;
+}
+
+#holidaysTable .edit-btn,
+#holidaysTable .delete-btn {
     padding: 3px 8px;
     font-size: 12px;
 }
@@ -2132,6 +2172,16 @@ tr:last-child td {
     opacity: 1;
 }
 
+
+.settings-view {
+    display: none;
+    width: 100%;
+}
+
+.settings-view.active {
+    display: block;
+}
+
 /* 日期导航 */
 .date-navigation {
     display: flex;
@@ -2802,8 +2852,8 @@ tr:last-child td {
 #weeklyHeader th {
     position: sticky;
     top: 0;
-    background: #F5F5F5;
-    /* 表头整行淡灰色 */
+    background: #F8F9FA;
+    /* 表头整行淡灰色（与其它表格统一）*/
     z-index: 4;
 }
 
@@ -3145,8 +3195,8 @@ tr:last-child td {
     position: sticky;
     left: 0;
     /* 与日期表头保持一致的背景与视觉层级 */
-    background: #F5F5F5;
-    /* 第一列数据背景为淡灰色 */
+    background: #F8F9FA;
+    /* 第一列数据背景与表头一致 */
     z-index: 2;
     /* 确保在其他单元格之上 */
     box-shadow: 2px 0 0 rgba(0, 0, 0, 0.04);
@@ -3158,8 +3208,8 @@ tr:last-child td {
     /* 表头略高，防止被内容遮挡 */
     font-weight: 600;
     color: #2C3E50;
-    background: #EFEFEF;
-    /* 第一列表头使用更浅灰 */
+    background: #F8F9FA;
+    /* 第一列表头与日期表头一致 */
     /* == User Requested Adjustments == */
     font-size: 14px;
     /* Align font size with the adjacent date columns */
@@ -5383,8 +5433,8 @@ svg {
 
     /* 确保首列有背景色，防止滚动透视 */
     .weekly-schedule-table th:first-child {
-        background-color: #f8fafc !important;
-        /* 表头背景色 */
+        background-color: #F8F9FA !important;
+        /* 表头背景色（与其它表格统一） */
     }
 
     .weekly-schedule-table td:first-child {
@@ -5501,7 +5551,7 @@ svg {
     }
 
     #schedule .weekly-schedule-table th:first-child {
-        background-color: #f8fafc !important;
+        background-color: #F8F9FA !important;
     }
 
     /* 确保周视图表头在移动端可见 */
@@ -6373,12 +6423,16 @@ svg {
 }
 
 #availabilityBody td,
-#scheduleTypesTable tbody td,
 #weeklyBody td {
     padding: 10px 4px !important;
     /* 统一为用户管理模块基准高度 */
     height: 96px;
     /* 统一高度值 */
+    line-height: 1.4 !important;
+    vertical-align: middle;
+}
+
+#scheduleTypesTable tbody td {
     line-height: 1.4 !important;
     vertical-align: middle;
 }
@@ -6392,16 +6446,20 @@ svg {
 
 #availabilityHeader th,
 #studentAvailabilityHeader th,
-#scheduleTypesTable thead th,
 #weeklyHeader th,
 #ssWeeklyHeader th,
 #weeklyHeaderAvail th {
     font-size: 14px !important;
     font-weight: 600 !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    /* Shadow style */
-    background-color: #F9FAFB;
-    /* Ensure background handles shadow visibility */
+    box-shadow: none;
+    background-color: #F8F9FA;
+    color: #2C3E50;
+}
+
+#scheduleTypesTable thead th {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    background-color: #F8F9FA;
 }
 
 /* Ensure Date/Day stacking in headers */
@@ -6441,32 +6499,31 @@ svg {
     background-color: #f8fafc;
 }
 
-/* Borders for Course Type Table (Matching Availability Table) */
+/* Course Type Table: match Holiday/generic table (bottom border only, no full grid) */
 #scheduleTypesTable {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 #scheduleTypesTable th,
 #scheduleTypesTable td {
-    border: 1px solid #E9ECEF;
+    border: none;
+    border-bottom: 1px solid #E9ECEF;
 }
 
-/* Fine-tuning for Course Type Table (Specific Overrides) */
+#scheduleTypesTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
 #scheduleTypesTable thead th {
-    height: 76px !important;
-    /* Reduced by 20% */
-    padding: 12px 4px !important;
+    padding: 16px 20px !important;
 }
 
 #scheduleTypesTable tbody td {
-    height: 58px !important;
-    /* Reduced by 20% */
-    padding: 10px 4px !important;
+    padding: 16px 20px !important;
     font-weight: normal !important;
-    /* Non-bold text */
-    color: #333;
-    /* Ensure readable contrast */
+    color: #4A5568;
 }
 
 /* Ensure action buttons also respect the non-bold/normal weight if needed, though icons are symbols */
@@ -6499,75 +6556,77 @@ svg {
     line-height: 1.5;
 }
 
-/* 2. User Table Styles - Inherit from Course Type / Availability Table */
+/* 2. User Table Styles - match Holiday/Course Type Table */
 #usersTable {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     table-layout: auto;
-    /* 改为auto,让指定的列宽生效 */
 }
 
 #usersTable th,
 #usersTable td {
-    border: 1px solid #E9ECEF;
+    border: none;
+    border-bottom: 1px solid #E9ECEF;
     text-align: center !important;
     vertical-align: middle !important;
 }
 
+#usersTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
 #usersTable thead th {
-    height: 82px !important;
-    padding: 12px 4px !important;
-    font-size: 16px !important;
-    font-weight: bold !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    background-color: #F9FAFB;
+    padding: 16px 20px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    box-shadow: none;
+    background-color: #F8F9FA;
+    color: #2C3E50;
     line-height: 1.4 !important;
+    height: auto !important;
 }
 
 #usersTable tbody td {
-    height: 96px !important;
-    padding: 10px 4px !important;
-    font-size: 16px !important;
+    padding: 16px 20px !important;
+    font-size: var(--font-size-base) !important;
     font-weight: normal !important;
-    color: #333;
+    color: #4A5568;
     line-height: 1.4 !important;
+    height: auto !important;
 }
 
 #usersTable tbody tr:hover td {
-    background-color: #f8fafc;
+    background-color: #F8F9FA;
 }
 
-/* Action Icons Alignment */
-/* Action Icons Alignment */
+/* Action icons: plain transparent (match Holiday/Course Type) */
 #usersTable .btn-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    background: #fff;
-    border: 1px solid #E2E8F0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0 4px;
     cursor: pointer;
     vertical-align: middle;
-    margin: 0 4px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 #usersTable .btn-icon:hover {
-    background-color: #f8fafc;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    background: none;
+    box-shadow: none;
 }
 
 #usersTable .edit-btn {
-    color: #64748b;
+    color: #2ECC71;
 }
 
 #usersTable .edit-btn:hover {
-    color: #3b82f6;
-    border-color: #bfdbfe;
-    background-color: #eff6ff;
+    color: #27AE60;
+    background: none;
+    border: none;
 }
 
 #usersTable .delete-btn {
@@ -6576,12 +6635,12 @@ svg {
 
 #usersTable .delete-btn:hover {
     color: #dc2626;
-    border-color: #fecaca;
-    background-color: #fef2f2;
+    background: none;
+    border: none;
 }
 
 #usersTable .material-icons-round {
-    font-size: 20px;
+    font-size: 18px;
 }
 
 /* ============================================
@@ -7112,7 +7171,7 @@ svg {
 }
 
 .weekly-schedule-table th.date-header {
-    background-color: #FAFAFA !important;
+    background-color: #F8F9FA !important;
     padding: 16px 12px !important;
     border-bottom: 2px solid #E5E7EB !important;
     border-right: 1px solid #E5E7EB !important;
@@ -7126,7 +7185,7 @@ svg {
 .weekly-schedule-table th.time-col-header,
 .weekly-schedule-table th:first-child,
 .weekly-schedule-table td.sticky-col {
-    background-color: #FAFAFA !important;
+    background-color: #F8F9FA !important;
     padding: 16px 12px !important;
     font-weight: 600 !important;
     color: #1F2937 !important;
@@ -9234,3 +9293,210 @@ svg {
         font-size: 10px;
     }
 }
+
+/* ============================================
+   System Settings: Top Bar (mimics statistics-controls)
+   ============================================ */
+
+.system-settings-header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+/* Action area — sits inside .statistics-tabs next to the tab group (mimics statistics "导出数据") */
+.settings-actions {
+    display: flex;
+    align-items: center;
+}
+
+.settings-view-actions {
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-view-actions.active {
+    display: flex;
+}
+
+/* ============================================
+   学生空闲时段：仿照节假日/课程类型表的视觉风格
+   - 去除日期列之间的纵向边界线
+   - 去除首列右侧 2px 阴影
+   - 去除强制单元格高度
+   - 单元格 padding 与其它数据表一致
+   - 保留横向行分隔线 + 首列 border-right 作为结构分隔
+   ============================================ */
+#studentAvailabilityTable,
+#availabilityTable,
+#schedule .weekly-schedule-table,
+#availability .weekly-schedule-table,
+#schedules .weekly-schedule-table,
+#student-schedules .weekly-schedule-table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+}
+
+#studentAvailabilityTable thead th,
+#studentAvailabilityTable tbody td,
+#availabilityTable thead th,
+#availabilityTable tbody td,
+#schedule .weekly-schedule-table thead th,
+#schedule .weekly-schedule-table tbody td,
+#availability .weekly-schedule-table thead th,
+#availability .weekly-schedule-table tbody td,
+#schedules .weekly-schedule-table thead th,
+#schedules .weekly-schedule-table tbody td,
+#student-schedules .weekly-schedule-table thead th,
+#student-schedules .weekly-schedule-table tbody td {
+    border-right: none !important;
+    border-left: none !important;
+    border-top: none !important;
+    border-bottom: 1px solid #E9ECEF !important;
+    padding: 16px 20px !important;
+    height: auto !important;
+}
+
+#studentAvailabilityTable tbody tr:last-child td,
+#availabilityTable tbody tr:last-child td,
+#schedule .weekly-schedule-table tbody tr:last-child td,
+#availability .weekly-schedule-table tbody tr:last-child td,
+#schedules .weekly-schedule-table tbody tr:last-child td,
+#student-schedules .weekly-schedule-table tbody tr:last-child td {
+    border-bottom: none !important;
+}
+
+/* 首列：去除灰色背景与右侧分隔线，与节假日/课程类型/用户表保持一致的白底无分隔风格 */
+#studentAvailabilityTable th.sticky-col,
+#studentAvailabilityTable th:first-child,
+#availabilityTable th.sticky-col,
+#availabilityTable th:first-child,
+#schedule .weekly-schedule-table th.sticky-col,
+#schedule .weekly-schedule-table th:first-child,
+#availability .weekly-schedule-table th.sticky-col,
+#availability .weekly-schedule-table th:first-child,
+#schedules .weekly-schedule-table th.sticky-col,
+#schedules .weekly-schedule-table th:first-child,
+#student-schedules .weekly-schedule-table th.sticky-col,
+#student-schedules .weekly-schedule-table th:first-child {
+    box-shadow: none !important;
+    border-right: none !important;
+    background-color: #F8F9FA !important;
+}
+
+#studentAvailabilityTable td.sticky-col,
+#studentAvailabilityTable td:first-child,
+#availabilityTable td.sticky-col,
+#availabilityTable td:first-child,
+#schedule .weekly-schedule-table td.sticky-col,
+#schedule .weekly-schedule-table td:first-child,
+#availability .weekly-schedule-table td.sticky-col,
+#availability .weekly-schedule-table td:first-child,
+#schedules .weekly-schedule-table td.sticky-col,
+#schedules .weekly-schedule-table td:first-child,
+#student-schedules .weekly-schedule-table td.sticky-col,
+#student-schedules .weekly-schedule-table td:first-child {
+    box-shadow: none !important;
+    border-right: none !important;
+    background-color: transparent !important;
+}
+
+/* 首列姓名：文字样式与节假日/课程类型/用户表的单元格保持一致 */
+#studentAvailabilityTable tbody td.sticky-col,
+#studentAvailabilityTable tbody td:first-child,
+#availabilityTable tbody td.sticky-col,
+#availabilityTable tbody td:first-child,
+#schedule .weekly-schedule-table tbody td.sticky-col,
+#schedule .weekly-schedule-table tbody td:first-child,
+#availability .weekly-schedule-table tbody td.sticky-col,
+#availability .weekly-schedule-table tbody td:first-child,
+#schedules .weekly-schedule-table tbody td.sticky-col,
+#schedules .weekly-schedule-table tbody td:first-child,
+#student-schedules .weekly-schedule-table tbody td.sticky-col,
+#student-schedules .weekly-schedule-table tbody td:first-child {
+    color: #4A5568 !important;
+    font-size: var(--font-size-base) !important;
+    font-weight: 400 !important;
+}
+
+/* ============================================
+   教师/学生空闲时段：单元格行高强一致（以学生空闲时段为基准）
+   ============================================ */
+#studentAvailabilityTable tbody tr,
+#availabilityTable tbody tr,
+#availability .weekly-schedule-table tbody tr {
+    min-height: 0 !important;
+    height: auto !important;
+}
+
+#studentAvailabilityTable tbody td,
+#availabilityTable tbody td,
+#availability .weekly-schedule-table tbody td {
+    min-height: 0 !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+}
+
+/* 时段图标容器：两表统一最小高度，确保数据行视觉高度一致 */
+#studentAvailabilityTable tbody .slot-container,
+#availabilityTable tbody .slot-container,
+#availability .weekly-schedule-table tbody .slot-container {
+    min-height: 32px !important;
+    height: auto !important;
+}
+
+/* ============================================
+   排课管理周视图（管理员/教师/学生）：列分界线虚线 + 减少卡片纵向间距与单元格内边距
+   - .schedule-card-group margin-bottom: 8px → 4px (-50%)
+   - 单元格 padding: 16px 20px → 4px 5px (-75%)
+   - 列与列之间用虚线分隔
+   ============================================ */
+#schedule .weekly-schedule-table tbody td,
+#schedules .weekly-schedule-table tbody td,
+#student-schedules .weekly-schedule-table tbody td {
+    padding: 4px 5px !important;
+    border-right: 1px dashed #CBD5E1 !important;
+}
+
+#schedule .weekly-schedule-table tbody td:last-child,
+#schedules .weekly-schedule-table tbody td:last-child,
+#student-schedules .weekly-schedule-table tbody td:last-child {
+    border-right: none !important;
+}
+
+#schedule .weekly-schedule-table thead th,
+#schedules .weekly-schedule-table thead th,
+#student-schedules .weekly-schedule-table thead th {
+    border-right: 1px dashed #CBD5E1 !important;
+}
+
+#schedule .weekly-schedule-table thead th:last-child,
+#schedules .weekly-schedule-table thead th:last-child,
+#student-schedules .weekly-schedule-table thead th:last-child {
+    border-right: none !important;
+}
+
+/* 排课/课程安排周视图：姓名列右侧用虚线分隔（与列间虚线一致）；
+   空闲时段表的首列仍保持无右分隔 */
+#schedule .weekly-schedule-table thead th:first-child,
+#schedule .weekly-schedule-table thead th.sticky-col,
+#schedule .weekly-schedule-table tbody td:first-child,
+#schedule .weekly-schedule-table tbody td.sticky-col,
+#schedules .weekly-schedule-table thead th:first-child,
+#schedules .weekly-schedule-table thead th.sticky-col,
+#schedules .weekly-schedule-table tbody td:first-child,
+#schedules .weekly-schedule-table tbody td.sticky-col,
+#student-schedules .weekly-schedule-table thead th:first-child,
+#student-schedules .weekly-schedule-table thead th.sticky-col,
+#student-schedules .weekly-schedule-table tbody td:first-child,
+#student-schedules .weekly-schedule-table tbody td.sticky-col {
+    border-right: 1px dashed #CBD5E1 !important;
+}
+
+#schedule .schedule-card-group,
+#schedules .schedule-card-group,
+#student-schedules .schedule-card-group {
+    margin-bottom: 4px !important;
+}
+

@@ -10,6 +10,8 @@ import { StatisticsManager } from './statistics.js';
 import * as Overview from './overview.js';
 import * as UILayout from './ui-layout.js';
 import * as ScheduleUtils from './schedule-utils.js';
+import * as HolidayManager from './holiday-manager.js';
+import * as FeedbackManager from './feedback-manager.js';
 
 // Expose modules globally
 window.UserManager = UserManager;
@@ -19,6 +21,8 @@ window.StatisticsManager = StatisticsManager;
 window.Overview = Overview;
 window.UILayout = UILayout;
 window.ScheduleUtils = ScheduleUtils;
+window.HolidayManager = HolidayManager;
+window.FeedbackManager = FeedbackManager;
 
 // Aliases for legacy-adapter.js
 window.normalizeScheduleRows = ScheduleUtils.normalizeScheduleRows;
@@ -32,12 +36,12 @@ window.updateScheduleStatus = ScheduleUtils.updateScheduleStatus;
 window.renderWeeklyLoading = ScheduleUtils.renderWeeklyLoading;
 window.renderWeeklyError = ScheduleUtils.renderWeeklyError;
 
-// Provide global aliases for legacy-adapter.js to find them during transition
+// Provide global aliases for legacy-adapter.js
 window.loadOverviewStats = Overview.loadOverviewStats;
 window.showSection = UILayout.showSection;
 
 
-// Expose functions globally for legacy inline event handlers (onclick="...")
+// Expose functions globally for legacy inline event handlers
 const globalExports = {
     // User Manager
     loadUsers: UserManager.loadUsers,
@@ -49,11 +53,19 @@ const globalExports = {
     // Schedule Manager
     loadSchedules: ScheduleManager.loadSchedules,
     updateScheduleStatus: ScheduleManager.updateScheduleStatus,
-    // openCellEditor is internal/not exported in manager, need to check if used in onclick
-    // It is used in renderWeeklyBody -> onclick.
 
     // UI Helper
-    adjustSelectMinWidth: UIHelper.adjustSelectMinWidth
+    adjustSelectMinWidth: UIHelper.adjustSelectMinWidth,
+
+    // Holiday Manager
+    openHolidayForm: HolidayManager.openHolidayForm,
+    closeHolidayForm: HolidayManager.closeHolidayForm,
+    loadHolidays: HolidayManager.loadHolidays,
+
+    // Feedback Manager
+    openFeedbackForm: FeedbackManager.openFeedbackForm,
+    closeFeedbackForm: FeedbackManager.closeFeedbackForm,
+    loadFeedbacks: FeedbackManager.loadFeedbacks,
 };
 
 Object.assign(window, globalExports);
@@ -63,6 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
     UserManager.setupUserEventListeners();
     ScheduleManager.setupScheduleEventListeners();
     UIHelper.setupSidebarToggle();
+    HolidayManager.setupHolidayEventListeners();
+    FeedbackManager.setupFeedbackEventListeners();
 
     // Init Statistics
     StatisticsManager.init();
@@ -72,11 +86,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (overlay) {
         overlay.addEventListener('click', (e) => {
             if (e.target !== overlay) return;
-            // 关闭所有可能打开的 form-container 弹窗
             const containers = [
                 'userFormContainer',
                 'scheduleTypeFormContainer',
-                'scheduleFormContainer'
+                'scheduleFormContainer',
+                'holidayFormContainer',
+                'feedbackFormContainer'
             ];
             containers.forEach(id => {
                 const el = document.getElementById(id);

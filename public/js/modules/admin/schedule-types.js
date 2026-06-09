@@ -11,7 +11,7 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 // 加载课程类型列表
 export async function loadScheduleTypes() {
     const tbody = document.getElementById('scheduleTypesTableBody');
-    const tableContainer = document.querySelector('#schedule-types.dashboard-section .table-container');
+    const tableContainer = document.querySelector('#schedule-types-view .table-container');
     if (!tbody || !tableContainer) return;
 
     // 1. 先渲染表头（HTML中已有静态表头，此步骤确保DOM已准备好）
@@ -54,14 +54,14 @@ export function renderScheduleTypesTable(types) {
     types.forEach(type => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><strong style="color: #333;">${type.name}</strong></td>
-            <td style="color: #666;">${type.description || '-'}</td>
-            <td class="actions">
-                <button class="btn-icon edit-type-btn" data-id="${type.id}" data-name="${type.name}" data-description="${type.description || ''}" title="编辑">
-                    <span class="material-icons-round">edit</span>
+            <td>${type.name}</td>
+            <td>${type.description || '-'}</td>
+            <td>
+                <button class="edit-type-btn" data-id="${type.id}" data-name="${type.name}" data-description="${type.description || ''}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
+                    <span class="material-icons-round" style="font-size:18px;">edit</span>
                 </button>
-                <button class="btn-icon delete-type-btn" data-id="${type.id}" title="删除" style="color: #ef4444;">
-                    <span class="material-icons-round">delete</span>
+                <button class="delete-type-btn" data-id="${type.id}" title="删除" style="background:none;border:none;color:#ef4444;cursor:pointer;">
+                    <span class="material-icons-round" style="font-size:18px;">delete</span>
                 </button>
             </td>
         `;

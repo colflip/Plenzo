@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Classflow 登录系统">
     <meta name="theme-color" content="#10b981">
-    <title>登录 - Classflow</title>
+    <title>登录 - Schedule Widget</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -257,7 +257,7 @@
         </div>
 
         <div class="login-footer">
-            <span class="brand-text">Classflow</span>
+            <span class="brand-text">Schedule Widget</span>
             <span class="separator">|</span>
             <span class="copyright-text">&copy; <span id="copyrightYear">2007</span> 蔚蓝</span>
         </div>

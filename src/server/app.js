@@ -20,6 +20,7 @@ const {
 } = require('./middleware');
 
 const initScheduler = require('./jobs/scheduler');
+const runDatabaseMigrations = require('./db/migrations');
 
 const app = express();
 
@@ -95,6 +96,11 @@ if (process.env.VERCEL) {
         console.log(`🔌 端口: ${PORT}`);
         console.log(`🔒 安全中间件: 已启用`);
         console.log(`=================================`);
+
+        // 运行数据库迁移（幂等，失败不阻断启动）
+        runDatabaseMigrations().catch(err => {
+            console.error('❌ 数据库迁移启动失败:', err);
+        });
 
         try {
             initScheduler();
