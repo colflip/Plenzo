@@ -41,7 +41,8 @@ window.ExportDialog = (function () {
         TEACHER_INFO: 'teacher_info',           // 老师信息数据
         STUDENT_INFO: 'student_info',           // 学生信息数据
         TEACHER_SCHEDULE: 'teacher_schedule',   // 老师授课记录
-        STUDENT_SCHEDULE: 'student_schedule'    // 学生排课记录
+        STUDENT_SCHEDULE: 'student_schedule',   // 学生排课记录
+        SCHEDULE_DATA: 'schedule_data'          // 排课数据（教师+学生合并，6 工作表）
     };
 
     const EXPORT_FORMATS = {
@@ -62,15 +63,22 @@ window.ExportDialog = (function () {
             requiresDateRange: false,
             icon: 'people'
         },
+        [EXPORT_TYPES.SCHEDULE_DATA]: {
+            label: '排课数据',
+            description: '导出指定时间范围内的排课数据（含教师、学生授课汇总与统计，共 6 张工作表）',
+            requiresDateRange: true,
+            icon: 'event_note'
+        },
+        // 以下两项仅供教师端 / 学生端使用（各自走专属路由），管理端已合并为 SCHEDULE_DATA
         [EXPORT_TYPES.TEACHER_SCHEDULE]: {
-            label: '老师授课记录',
-            description: '导出老师在指定时间范围内的排课详细记录',
+            label: '排课数据',
+            description: '导出指定时间范围内的排课数据（含汇总与统计）',
             requiresDateRange: true,
             icon: 'event_note'
         },
         [EXPORT_TYPES.STUDENT_SCHEDULE]: {
-            label: '学生上课记录',
-            description: '导出学生在指定时间范围内的上课详细记录',
+            label: '排课数据',
+            description: '导出指定时间范围内的排课数据（含汇总与统计）',
             requiresDateRange: true,
             icon: 'calendar_month'
         }
@@ -284,7 +292,7 @@ window.ExportDialog = (function () {
         const filterSection = document.getElementById('exportFilterSection');
         const studentFilter = document.getElementById('exportStudentFilter');
         const teacherFilter = document.getElementById('exportTeacherFilter');
-        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.STUDENT_SCHEDULE);
+        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.STUDENT_SCHEDULE || typeId === EXPORT_TYPES.SCHEDULE_DATA);
 
         // 显示筛选区域容器
         if (filterSection) {
@@ -648,14 +656,14 @@ window.ExportDialog = (function () {
 
             // 添加学生筛选
             const studentSelect = document.getElementById('exportStudentSelect');
-            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE) &&
+            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE || state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) &&
                 studentSelect && studentSelect.value) {
                 params.append('student_id', studentSelect.value);
             }
 
             // 添加教师筛选
             const teacherSelect = document.getElementById('exportTeacherSelect');
-            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE) &&
+            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE || state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) &&
                 teacherSelect && teacherSelect.value) {
                 params.append('teacher_id', teacherSelect.value);
                 state.teacherName = teacherSelect.options[teacherSelect.selectedIndex].text;
@@ -792,7 +800,8 @@ window.ExportDialog = (function () {
                 if (userType === 'teacher') {
                     filename = exportResult.filename;
                 } else if (state.selectedType !== EXPORT_TYPES.TEACHER_SCHEDULE &&
-                    state.selectedType !== EXPORT_TYPES.STUDENT_SCHEDULE) {
+                    state.selectedType !== EXPORT_TYPES.STUDENT_SCHEDULE &&
+                    state.selectedType !== EXPORT_TYPES.SCHEDULE_DATA) {
                     // 管理端的非排课类型使用后端文件名
                     filename = exportResult.filename;
                 }
@@ -808,6 +817,7 @@ window.ExportDialog = (function () {
                     // 如果是特定格式的需求，强制调整 coreName
                     if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) coreName = '教师授课记录';
                     if (state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE) coreName = '学生排课记录';
+                    if (state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) coreName = '排课数据';
 
                     // 管理员名称使用 username
                     const adminName = appUser.username || appUser.name || 'admin';
@@ -1055,9 +1065,9 @@ window.ExportDialog = (function () {
                 }
             }, 50);
         } else if (currentUser.userType === 'admin') {
-            // 管理员默认选中教师授课记录
+            // 管理员默认选中排课数据
             setTimeout(() => {
-                const el = document.querySelector(`.export-type-item[data-type="teacher_schedule"]`);
+                const el = document.querySelector(`.export-type-item[data-type="schedule_data"]`);
                 if (el) {
                     el.click();
                 }
@@ -1080,10 +1090,14 @@ window.ExportDialog = (function () {
         
         let filteredTypes = Object.entries(EXPORT_TYPE_CONFIG);
         if (userType === 'teacher') {
-            // 班主任只保留教师授课记录导出
+            // 班主任只保留排课数据导出（走教师专属路由）
             filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.TEACHER_SCHEDULE);
         } else if (userType === 'student') {
             filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.STUDENT_SCHEDULE);
+        } else {
+            // 管理端：信息类导出 + 合并后的排课数据；隐藏供教师/学生路由用的 schedule 别名项
+            filteredTypes = filteredTypes.filter(([id]) =>
+                id !== EXPORT_TYPES.TEACHER_SCHEDULE && id !== EXPORT_TYPES.STUDENT_SCHEDULE);
         }
         
         const html = `

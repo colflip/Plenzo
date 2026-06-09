@@ -141,7 +141,7 @@ function renderStudentAvailabilityHeader(dates) {
     const days = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     const today = new Date().toDateString();
 
-    let html = '<tr><th style="width: 120px; min-width: 120px;">学生姓名</th>';
+    let html = '<tr><th style="width: 120px; min-width: 120px; text-align: center;">学生姓名/日期</th>';
     dates.forEach((date, i) => {
         const isToday = date.toDateString() === today;
         let lunarLabel = '';

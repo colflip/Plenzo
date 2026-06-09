@@ -12,10 +12,14 @@ class ApiUtils {
     }
 
     /**
-     * 获取认证token
+     * 获取认证token（同时检查localStorage和sessionStorage）
      */
     getAuthToken() {
-        return localStorage.getItem('token');
+        // 优先检查 localStorage（持久化存储 - 记住我）
+        const token = localStorage.getItem('token');
+        if (token) return token;
+        // 其次检查 sessionStorage（会话存储 - 未记住我）
+        return sessionStorage.getItem('tempToken');
     }
 
     /**
@@ -30,6 +34,7 @@ class ApiUtils {
      */
     clearAuthToken() {
         localStorage.removeItem('token');
+        sessionStorage.removeItem('tempToken');
     }
 
     /**
@@ -178,51 +183,16 @@ class ApiUtils {
      */
     handleError(error, showToast = true, suppressConsole = true) {
         if (!suppressConsole) {
-            
-        }
 
-        // 401先提示再跳转
-        if (error.status === 401) {
-            if (showToast) this.showErrorToast(error);
-
-            // 如果是登录接口，不执行清除和跳转词
-            if (error.endpoint && (error.endpoint.includes('/auth/login') || error.endpoint.includes('/login'))) {
-                return error;
-            }
-
-            this.clearAuthToken();
-            // 如果不在首页，则跳转到首页词
-            if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') {
-                window.location.href = '/';
-            }
-            return error;
         }
 
         if (showToast) {
-            // 更友好的错误文案（附带服务器返回细节）
-            const statusMsg = this.friendlyMessageFromStatus(error.status);
-            let message = error.message || statusMsg || '操作失败';
-
-            // 附带后端 validation errors 第一个错误提示
-            if (error.errors && error.errors.length > 0) {
-                const firstError = error.errors[0];
-                const field = firstError.field ? `${firstError.field}: ` : '';
-                message = `${field}${firstError.message}`;
-            }
-
-            // 附带接口路径信息（调试更方便）
-            if (error.endpoint) {
-                message = `${message}（接口：${error.endpoint}）`;
-            }
-
-            this.showToast(message, 'error');
+            this.showErrorToast(error);
         }
-
-        return error;
     }
 
     /**
-     * 不同状态码的友好提示
+     * 从HTTP状态码获取友好的中文错误信息
      */
     friendlyMessageFromStatus(status) {
         switch (status) {

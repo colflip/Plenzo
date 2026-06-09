@@ -1916,6 +1916,20 @@ const adminController = {
                     filename = `学生授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
                     break;
 
+                case 'schedule_data':
+                    if (!startDate || !endDate) {
+                        return res.status(400).json(
+                            standardResponse(false, null, '导出排课数据需要指定日期范围')
+                        );
+                    }
+                    // 合并导出：教师 + 学生 6 工作表，统一走 exportTeacherSchedule（含全字段），由前端 ExportManager 生成
+                    exportData = await exportService.exportTeacherSchedule(startDate, endDate, {
+                        student_id,
+                        teacher_id: req.query.teacher_id
+                    });
+                    filename = `排课数据_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+                    break;
+
                 default:
                     return res.status(400).json(
                         standardResponse(false, null, `不支持的导出类型: ${type}`)
@@ -2103,6 +2117,223 @@ const adminController = {
     },
 
     /**
+     * 获取节假日列表
+     */
+    async getHolidays(req, res) {
+        try {
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, [], '获取节假日成功(离线)'));
+            }
+
+            const result = await db.query('SELECT * FROM holidays ORDER BY year ASC, start_date ASC');
+            res.json(standardResponse(true, result.rows || [], '获取节假日成功'));
+        } catch (error) {
+            console.error('获取节假日错误:', error);
+
+            const errMsg = String(error.message || '');
+            const isDbError = errMsg.includes('fetch failed') ||
+                errMsg.includes('ECONNRESET') ||
+                errMsg.includes('NeonDbError') ||
+                errMsg.includes('socket disconnected') ||
+                errMsg.includes('does not exist') ||
+                error.code === '42P01';
+
+            if (isDbError) {
+                console.warn('[Resilience] 数据库连接异常或表未就绪，节假日启用静默降级');
+                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
+            }
+
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 创建节假日
+     */
+    async createHoliday(req, res) {
+        try {
+            const { year, type, label, start_date, end_date } = req.body;
+            if (!year || !type || !label || !start_date || !end_date) {
+                return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
+            }
+
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.status(201).json(standardResponse(true, { id: Date.now(), year, type, label, start_date, end_date }, '创建成功(离线)'));
+            }
+
+            const result = await db.query(
+                'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+                [year, type, label, start_date, end_date]
+            );
+
+            await recordAudit(req, { op: 'create_holiday', details: { year, type, label, start_date, end_date } });
+            res.status(201).json(standardResponse(true, result.rows[0], '创建节假日成功'));
+        } catch (error) {
+            console.error('创建节假日错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 更新节假日
+     */
+    async updateHoliday(req, res) {
+        try {
+            const { id } = req.params;
+            const { year, type, label, start_date, end_date } = req.body;
+            if (!year || !type || !label || !start_date || !end_date) {
+                return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
+            }
+
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, { id: Number(id), year, type, label, start_date, end_date }, '更新成功(离线)'));
+            }
+
+            const result = await db.query(
+                'UPDATE holidays SET year = $1, type = $2, label = $3, start_date = $4, end_date = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING *',
+                [year, type, label, start_date, end_date, id]
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: '节假日记录不存在' });
+            }
+
+            await recordAudit(req, { op: 'update_holiday', entityId: id, details: { year, type, label, start_date, end_date } });
+            res.json(standardResponse(true, result.rows[0], '更新节假日成功'));
+        } catch (error) {
+            console.error('更新节假日错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 删除节假日
+     */
+    async deleteHoliday(req, res) {
+        try {
+            const { id } = req.params;
+
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, null, '删除成功(离线)'));
+            }
+
+            const result = await db.query('DELETE FROM holidays WHERE id = $1 RETURNING id', [id]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: '节假日记录不存在' });
+            }
+
+            await recordAudit(req, { op: 'delete_holiday', entityId: id });
+            res.json(standardResponse(true, null, '删除节假日成功'));
+        } catch (error) {
+            console.error('删除节假日错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 批量同步节假日（按涉及年份先清空再写入）
+     */
+    async batchUpsertHolidays(req, res) {
+        try {
+            const { items } = req.body;
+            if (!Array.isArray(items) || items.length === 0) {
+                return res.status(400).json({ message: '同步数据不能为空' });
+            }
+
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, { count: items.length }, '同步成功(离线)'));
+            }
+
+            const years = [...new Set(items.map(i => i.year).filter(Boolean))];
+            if (years.length > 0) {
+                await db.query(`DELETE FROM holidays WHERE year = ANY($1::int[])`, [years]);
+            }
+
+            for (const item of items) {
+                if (!item.year || !item.type || !item.label || !item.start_date || !item.end_date) continue;
+                await db.query(
+                    'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
+                    [item.year, item.type, item.label, item.start_date, item.end_date]
+                );
+            }
+
+            await recordAudit(req, { op: 'batch_sync_holidays', details: { years, count: items.length } });
+            res.json(standardResponse(true, { count: items.length, years }, `成功同步 ${items.length} 条节假日数据`));
+        } catch (error) {
+            console.error('批量同步节假日错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 从第三方 API 同步节假日（后端代理，规避浏览器 CSP/CORS）
+     * 拉取 timor.tech 节假日数据，按年份清空后写入，返回最新列表
+     */
+    async syncHolidaysFromAPI(req, res) {
+        try {
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, [], '同步成功(离线，无数据写入)'));
+            }
+
+            const years = Array.isArray(req.body && req.body.years) && req.body.years.length
+                ? req.body.years
+                : [2025, 2026, 2027];
+
+            const items = [];
+            for (const year of years) {
+                let data;
+                try {
+                    const resp = await fetch(`https://timor.tech/api/holiday/year/${year}`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0' }
+                    });
+                    if (!resp.ok) continue;
+                    data = await resp.json();
+                } catch (e) {
+                    console.warn(`节假日同步：获取 ${year} 年数据失败`, e.message);
+                    continue;
+                }
+                if (!data || !data.holiday) continue;
+
+                for (const [key, info] of Object.entries(data.holiday)) {
+                    if (!key || key.length < 2 || !info || !info.name) continue;
+                    const parts = key.replace(/^-/, '').split('-');
+                    const month = (parts[0] || '01').padStart(2, '0');
+                    const day = (parts[1] || '01').padStart(2, '0');
+                    const date = `${year}-${month}-${day}`;
+                    items.push({
+                        year,
+                        type: info.holiday ? 'holiday' : 'makeup',
+                        label: info.name,
+                        start_date: date,
+                        end_date: date
+                    });
+                }
+            }
+
+            if (items.length === 0) {
+                return res.json(standardResponse(true, [], '未获取到节假日数据（该年份可能尚未发布）'));
+            }
+
+            const syncedYears = [...new Set(items.map(i => i.year))];
+            await db.query(`DELETE FROM holidays WHERE year = ANY($1::int[])`, [syncedYears]);
+            for (const item of items) {
+                await db.query(
+                    'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
+                    [item.year, item.type, item.label, item.start_date, item.end_date]
+                );
+            }
+
+            await recordAudit(req, { op: 'sync_holidays_from_api', details: { years: syncedYears, count: items.length } });
+
+            const result = await db.query('SELECT * FROM holidays ORDER BY year ASC, start_date ASC');
+            res.json(standardResponse(true, result.rows || [], `成功同步 ${items.length} 条节假日数据`));
+        } catch (error) {
+            console.error('同步节假日错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
      * 管理员更新排课费用
      * @param {string} req.params.id - 课程ID
      * @param {number} req.body.transport_fee - 交通费
@@ -2187,6 +2418,150 @@ const adminController = {
             });
             res.json(resMap);
         } catch (e) { res.status(500).json({ message: '服务器错误' }); }
+    },
+
+    // ============================================
+    // 反馈管理（功能反馈 / Bug / 新功能需求）
+    // ============================================
+
+    /**
+     * 列表
+     */
+    async listFeedbacks(req, res) {
+        try {
+            if (process.env.OFFLINE_DEV === 'true') {
+                return res.json(standardResponse(true, [], '获取反馈成功(离线)'));
+            }
+            const result = await db.query(
+                `SELECT id, type, priority, title, description, status,
+                        submitter_id, submitter_role, submitter_name,
+                        created_at, updated_at
+                   FROM feedbacks
+                  ORDER BY created_at DESC`
+            );
+            res.json(standardResponse(true, result.rows || [], '获取反馈成功'));
+        } catch (error) {
+            console.error('获取反馈错误:', error);
+            const msg = String(error.message || '');
+            if (msg.includes('does not exist') || error.code === '42P01' ||
+                msg.includes('NeonDbError') || msg.includes('fetch failed')) {
+                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
+            }
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 创建反馈
+     * 任意已登录用户均可提交（不限角色）
+     */
+    async createFeedback(req, res) {
+        try {
+            const { type, priority, title, description } = req.body || {};
+            const allowedTypes = ['feature', 'bug', 'request', 'other'];
+            const allowedPriorities = ['high', 'medium', 'low'];
+            if (!type || !allowedTypes.includes(type)) {
+                return res.status(400).json(standardResponse(false, null, '反馈类型无效'));
+            }
+            const pri = allowedPriorities.includes(priority) ? priority : 'medium';
+            if (!description || typeof description !== 'string' || description.trim().length === 0) {
+                return res.status(400).json(standardResponse(false, null, '请填写详细描述'));
+            }
+            const desc = description.trim();
+            const ttl = (title && String(title).trim().length > 0)
+                ? String(title).trim().slice(0, 120)
+                : desc.slice(0, 50);
+
+            const user = req.user || {};
+            const submitterId = user.id || null;
+            const submitterRole = user.role || null;
+            const submitterName = user.name || user.username || null;
+
+            const result = await db.query(
+                `INSERT INTO feedbacks (type, priority, title, description, status,
+                                        submitter_id, submitter_role, submitter_name)
+                 VALUES ($1,$2,$3,$4,'open',$5,$6,$7)
+                 RETURNING *`,
+                [type, pri, ttl, desc, submitterId, submitterRole, submitterName]
+            );
+            res.json(standardResponse(true, result.rows[0], '反馈已提交'));
+        } catch (error) {
+            console.error('创建反馈错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 更新反馈（状态/优先级/标题/描述）
+     * 管理员可修改任意；其它角色仅能修改自己提交的
+     */
+    async updateFeedback(req, res) {
+        try {
+            const { id } = req.params;
+            const { type, priority, title, description, status } = req.body || {};
+            const user = req.user || {};
+
+            const cur = await db.query('SELECT * FROM feedbacks WHERE id = $1', [id]);
+            if (!cur.rows.length) {
+                return res.status(404).json(standardResponse(false, null, '反馈不存在'));
+            }
+            const row = cur.rows[0];
+            const isAdmin = user.role === 'admin';
+            const isOwner = row.submitter_id && user.id && row.submitter_id === user.id;
+            if (!isAdmin && !isOwner) {
+                return res.status(403).json(standardResponse(false, null, '无权修改该反馈'));
+            }
+
+            const allowedTypes = ['feature', 'bug', 'request', 'other'];
+            const allowedPriorities = ['high', 'medium', 'low'];
+            const allowedStatus = ['open', 'in_progress', 'done', 'rejected'];
+
+            const next = {
+                type: allowedTypes.includes(type) ? type : row.type,
+                priority: allowedPriorities.includes(priority) ? priority : row.priority,
+                title: (title && String(title).trim().length) ? String(title).trim().slice(0, 120) : row.title,
+                description: (description && String(description).trim().length) ? String(description).trim() : row.description,
+                status: allowedStatus.includes(status) ? status : row.status,
+            };
+
+            const result = await db.query(
+                `UPDATE feedbacks
+                    SET type=$1, priority=$2, title=$3, description=$4, status=$5,
+                        updated_at=CURRENT_TIMESTAMP
+                  WHERE id=$6
+                  RETURNING *`,
+                [next.type, next.priority, next.title, next.description, next.status, id]
+            );
+            res.json(standardResponse(true, result.rows[0], '反馈已更新'));
+        } catch (error) {
+            console.error('更新反馈错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
+     * 删除反馈：管理员或提交人本人
+     */
+    async deleteFeedback(req, res) {
+        try {
+            const { id } = req.params;
+            const user = req.user || {};
+            const cur = await db.query('SELECT submitter_id FROM feedbacks WHERE id = $1', [id]);
+            if (!cur.rows.length) {
+                return res.status(404).json(standardResponse(false, null, '反馈不存在'));
+            }
+            const ownerId = cur.rows[0].submitter_id;
+            const isAdmin = user.role === 'admin';
+            const isOwner = ownerId && user.id && ownerId === user.id;
+            if (!isAdmin && !isOwner) {
+                return res.status(403).json(standardResponse(false, null, '无权删除该反馈'));
+            }
+            await db.query('DELETE FROM feedbacks WHERE id = $1', [id]);
+            res.json(standardResponse(true, { id }, '反馈已删除'));
+        } catch (error) {
+            console.error('删除反馈错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
     }
 };
 

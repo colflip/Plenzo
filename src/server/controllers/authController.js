@@ -13,8 +13,8 @@ const authController = {
      * @description 用户登录
      */
     login: asyncHandler(async (req, res) => {
-        const { username, password, userType } = req.body;
-        const result = await authService.login(username, password, userType);
+        const { username, password, userType, rememberMe } = req.body;
+        const result = await authService.login(username, password, userType, rememberMe === true || rememberMe === 'true');
         res.json(result);
     }),
 

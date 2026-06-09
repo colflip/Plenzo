@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="schedule-widget 登录系统">
+    <meta name="description" content="Classflow 登录系统">
     <meta name="theme-color" content="#10b981">
-    <title>登录 - Schedule Widget</title>
+    <title>登录 - Classflow</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,30 +32,46 @@
 
         .login-card {
             width: 100%;
-            max-width: 400px;
-            padding: 2.5rem;
-            background: rgba(255, 255, 255, 0.9);
+            max-width: 946px;
+            /* 440px * 1.3 ≈ 570, but keep a little padding margin → 520px to stay usable */
+            padding: 1.44rem 2rem;
+            /* height reduced ~20% from 2.125rem → 1.6rem; side padding preserved */
+            background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.5);
-            box-shadow: var(--shadow-xl);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            border-radius: 18px;
         }
 
         .brand-header {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.25rem;
         }
 
         .brand-icon {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 1rem;
+            width: 56px;
+            height: 56px;
+            margin-bottom: 0.75rem;
             object-fit: contain;
+        }
+
+        .brand-header h1 {
+            font-size: 1.625rem;
+            /* slightly smaller heading */
+            margin-bottom: 0.35rem;
+        }
+
+        .brand-header p {
+            font-size: 0.875rem;
+            color: var(--color-gray-500);
+            margin-bottom: 0;
         }
 
         .login-form {
             display: flex;
             flex-direction: column;
-            gap: 1.25rem;
+            gap: 0.875rem;
+            /* reduced gap between inputs */
         }
 
         .form-group {
@@ -65,7 +81,6 @@
         .form-icon {
             position: absolute;
             left: 16px;
-            /* Adjusted for new padding */
             top: 50%;
             transform: translateY(-50%);
             color: var(--color-gray-400);
@@ -73,8 +88,85 @@
             z-index: 10;
         }
 
+        .form-options {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 0.125rem;
+        }
+
+        /* ============================================
+         * Custom Checkbox — Figma-accurate style
+         * ============================================ */
+        .remember-me-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: #334155;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Hide native checkbox */
+        .remember-me-label input[type="checkbox"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        /* Custom checkbox square */
+        .remember-me-label .check-box {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #cbd5e1;
+            /* slate-300 — empty state */
+            border-radius: 4px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            background: #fff;
+        }
+
+        .remember-me-label .check-box svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: #fff;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0;
+            transform: scale(0.5);
+            transition: all 0.15s ease;
+        }
+
+        /* Checked state — filled green with checkmark */
+        .remember-me-label input[type="checkbox"]:checked+.check-box {
+            background: #10b981;
+            border-color: #10b981;
+        }
+
+        .remember-me-label input[type="checkbox"]:checked+.check-box svg {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .remember-me-label:hover .check-box {
+            border-color: #10b981;
+        }
+
+        .remember-me-label input[type="checkbox"]:checked+.check-box:hover {
+            background: #059669;
+            border-color: #059669;
+        }
+
         .login-footer {
-            margin-top: 2.5rem;
+            margin-top: 2rem;
             text-align: center;
             font-size: 13px;
             color: var(--color-gray-500);
@@ -141,10 +233,22 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="form-options">
+                    <label class="remember-me-label">
+                        <input type="checkbox" id="rememberMe">
+                        <span class="check-box">
+                            <svg viewBox="0 0 24 24">
+                                <polyline points="4 12 10 18 20 6"></polyline>
+                            </svg>
+                        </span>
+                        记住我
+                    </label>
+                </div>
             </div>
 
             <button id="loginBtn" class="btn primary-btn"
-                style="width: 100%; justify-content: center; padding: 12px; margin-top: 24px;">
+                style="width: 100%; justify-content: center; padding: 12px; margin-top: 1.25rem; border-radius: 10px; font-size: 0.95rem; font-weight: 600;">
                 登录
             </button>
 
@@ -153,7 +257,7 @@
         </div>
 
         <div class="login-footer">
-            <span class="brand-text">Schedule Widget</span>
+            <span class="brand-text">Classflow</span>
             <span class="separator">|</span>
             <span class="copyright-text">&copy; <span id="copyrightYear">2007</span> 蔚蓝</span>
         </div>

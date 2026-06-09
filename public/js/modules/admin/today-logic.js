@@ -89,16 +89,16 @@ function renderTodaySchedules(schedules) {
         });
 
         groupedSchedules.forEach(subGroup => {
-            // Sort items: Normal first, then Special (matching previous logic)
+            // Sort items: Normal first, then Record types (咨询记录/评审记录) last
             subGroup.items.sort((a, b) => {
                 const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-                const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+                const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
                 const typeA = getTypeName(a);
                 const typeB = getTypeName(b);
-                const specialA = isSpecial(typeA);
-                const specialB = isSpecial(typeB);
-                if (specialA && !specialB) return 1;
-                if (!specialA && specialB) return -1;
+                const recordA = isRecord(typeA);
+                const recordB = isRecord(typeB);
+                if (recordA && !recordB) return 1;
+                if (!recordA && recordB) return -1;
                 return (a.teacher_id || 0) - (b.teacher_id || 0);
             });
 
@@ -230,7 +230,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     const details = document.createElement('div');
     details.className = 'today-card-details';
 
-    // 按教师ID排序，并标注非主要类型
+    // 按教师ID排序，并标注非主要类型；咨询记录/评审记录教师排在最后
     const teacherMap = new Map();
     items.forEach(item => {
         const tid = item.teacher_id || 0;
@@ -242,8 +242,15 @@ function buildTodayScheduleCard(schedule, items = []) {
         }
     });
 
-    // 按ID排序
-    const sortedTeachers = Array.from(teacherMap.values()).sort((a, b) => a.id - b.id);
+    // 按ID排序，咨询记录/评审记录类型排在最后
+    const sortedTeachers = Array.from(teacherMap.values()).sort((a, b) => {
+        const isRecord = (t) => t.type.includes('评审记录') || t.type.includes('咨询记录');
+        const rA = isRecord(a.type);
+        const rB = isRecord(b.type);
+        if (rA && !rB) return 1;
+        if (!rA && rB) return -1;
+        return a.id - b.id;
+    });
 
     // 检查是否有多种类型（只在多种类型时才标注）
     const uniqueTypes = new Set(sortedTeachers.map(t => t.type));

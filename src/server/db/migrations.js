@@ -91,6 +91,62 @@ async function runDatabaseMigrations() {
             console.log('数据库迁移完成：添加 fee_audit_logs 表');
         }
 
+        // 检查是否需要添加 holidays 表
+        const holidaysTableResult = await db.query(`
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'holidays'
+        `);
+
+        if (holidaysTableResult.rows.length === 0) {
+            await db.query(`
+                CREATE TABLE public.holidays (
+                    id SERIAL PRIMARY KEY,
+                    year INTEGER NOT NULL,
+                    type VARCHAR(20) NOT NULL,
+                    label VARCHAR(100) NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await db.query(`CREATE INDEX idx_holidays_year ON public.holidays(year)`);
+            await db.query(`COMMENT ON TABLE public.holidays IS '节假日/调休补班配置表'`);
+            console.log('数据库迁移完成：添加 holidays 表');
+        }
+
+        // 检查是否需要添加 feedbacks 表（用户反馈/Bug 报告/新功能需求）
+        const feedbacksTableResult = await db.query(`
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'feedbacks'
+        `);
+
+        if (feedbacksTableResult.rows.length === 0) {
+            await db.query(`
+                CREATE TABLE public.feedbacks (
+                    id SERIAL PRIMARY KEY,
+                    type VARCHAR(20) NOT NULL,
+                    priority VARCHAR(10) NOT NULL DEFAULT 'medium',
+                    title VARCHAR(120) NOT NULL,
+                    description TEXT NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'open',
+                    submitter_id INTEGER,
+                    submitter_role VARCHAR(20),
+                    submitter_name VARCHAR(80),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await db.query(`CREATE INDEX idx_feedbacks_status ON public.feedbacks(status)`);
+            await db.query(`CREATE INDEX idx_feedbacks_submitter ON public.feedbacks(submitter_id, submitter_role)`);
+            await db.query(`COMMENT ON TABLE public.feedbacks IS '用户反馈/Bug/新功能需求表'`);
+            console.log('数据库迁移完成：添加 feedbacks 表');
+        }
+
     } catch (error) {
         console.error('数据库迁移失败:', error);
         // 不要因为迁移失败而中断应用启动

@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // 清除本地存储的用户信息
             // Clear Schedule Cache
             Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('schedule_widget_admin_')) {
+                if (key.startsWith('classflow_admin_')) {
                     localStorage.removeItem(key);
                 }
             });

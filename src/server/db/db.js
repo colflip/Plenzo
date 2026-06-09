@@ -1,5 +1,10 @@
 require('dotenv').config();
 
+// Bypass TLS certificate verification in development (local proxy MITM)
+if (process.env.NODE_ENV === 'development') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 const connectionString = process.env.DATABASE_URL || '';
 const preferServerless =
   process.env.DB_DRIVER === 'neon' || connectionString.includes('neon.tech');

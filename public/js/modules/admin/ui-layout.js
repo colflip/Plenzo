@@ -12,36 +12,13 @@ export function setupNavigation() {
             // 使用 currentTarget 确保点击图标/文字也能正确读到 data-section
             const section = e.currentTarget.dataset.section;
             if (section) {
-                // 先刷新对应数据，再进入功能区域
+                // 数据加载由 showSection 统一在切换可见区后触发；此处仅做不影响可见性的预处理。
+                // 关键：不要在这里 await 任何数据请求，否则 section 还处于 display:none 时
+                // 表格容器无法承载加载遮罩，用户进入页面时看不到过渡动画。
                 try {
                     if (section === 'overview') {
+                        // overview 没有遮罩需求，可保持原样
                         if (window.loadOverviewStats) await window.loadOverviewStats();
-                    } else if (section === 'users') {
-                        // Default to teacher view per request
-                        const teacherTab = document.querySelector('#userRoleTabs .tab-btn[data-type="teacher"]');
-                        if (teacherTab) {
-                            const tabs = document.querySelectorAll('#userRoleTabs .tab-btn');
-                            tabs.forEach(t => t.classList.remove('active'));
-                            teacherTab.classList.add('active');
-                        }
-                        if (window.UserManager && window.UserManager.loadUsers) await window.UserManager.loadUsers('teacher', { reset: true });
-                        else if (window.loadUsers) await window.loadUsers('teacher', { reset: true });
-                    } else if (section === 'schedule') {
-                        if (window.ScheduleManager && window.ScheduleManager.loadSchedules) await window.ScheduleManager.loadSchedules();
-                        else if (window.loadSchedules) await window.loadSchedules();
-                    } else if (section === 'statistics') {
-                        // handled by showSection -> loadStatistics
-                    } else if (section === 'availability') {
-                        if (window.initTeacherAvailability) window.initTeacherAvailability();
-                    } else if (section === 'student-availability') {
-                        if (window.initStudentAvailability) {
-                            window.initStudentAvailability();
-                        } else {
-                            
-                        }
-                        if (window.initStudentScheduleFees) {
-                            window.initStudentScheduleFees();
-                        }
                     }
                 } catch (_) { }
                 showSection(section);
@@ -60,6 +37,46 @@ export function setupNavigation() {
             }
         });
     }
+
+    setupSettingsTabs();
+}
+
+// 系统设置：二级 tab 切换（课程类型 / 节假日管理）
+function activateSettingsView(viewId) {
+    const section = document.getElementById('system-settings');
+    if (!section) return;
+
+    section.querySelectorAll('.statistics-tabs .tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.settingsView === viewId);
+    });
+    section.querySelectorAll('.settings-view').forEach(view => {
+        view.classList.toggle('active', view.id === viewId);
+    });
+    section.querySelectorAll('.settings-view-actions').forEach(group => {
+        group.classList.toggle('active', group.dataset.actionsFor === viewId);
+    });
+}
+
+export function setupSettingsTabs() {
+    const section = document.getElementById('system-settings');
+    if (!section) return;
+
+    const tabs = section.querySelectorAll('.statistics-tabs .tab-btn');
+    tabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const viewId = btn.dataset.settingsView;
+            if (!viewId) return;
+            activateSettingsView(viewId);
+
+            if (viewId === 'schedule-types-view') {
+                if (window.loadScheduleTypes) window.loadScheduleTypes();
+            } else if (viewId === 'holiday-config-view') {
+                if (window.loadHolidays) window.loadHolidays();
+            } else if (viewId === 'feedback-view') {
+                if (window.loadFeedbacks) window.loadFeedbacks();
+            }
+        });
+    });
 }
 
 // 显示指定部分
@@ -112,6 +129,12 @@ export function showSection(sectionId) {
         case 'schedule-types':
             if (window.loadScheduleTypes) window.loadScheduleTypes();
             setHeaderTitle('课程类型管理');
+            break;
+        case 'system-settings':
+            setHeaderTitle('系统设置');
+            // 默认激活课程类型子视图并加载其数据
+            activateSettingsView('schedule-types-view');
+            if (window.loadScheduleTypes) window.loadScheduleTypes();
             break;
         case 'student-availability':
             if (window.initStudentAvailability) {

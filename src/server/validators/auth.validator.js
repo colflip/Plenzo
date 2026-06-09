@@ -47,6 +47,10 @@ const loginSchema = Joi.object({
         .messages({
             'any.only': '用户类型无效',
             'any.required': '用户类型不能为空'
+        }),
+    rememberMe: Joi.boolean().default(false)
+        .messages({
+            'any.only': 'rememberMe 必须为 true 或 false'
         })
 });
 

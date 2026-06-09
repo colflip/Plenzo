@@ -98,8 +98,8 @@ const corsOptions = {
             : [];
 
         const allowedOrigins = [
-            'https://schedule-widget.vercel.app',
-            'https://schedule-widget.onrender.com',
+            'https://classflow.vercel.app',
+            'https://classflow.onrender.com',
             'http://localhost:3000',
             'http://localhost:3001',
             'http://localhost:5173',

@@ -407,7 +407,7 @@ export const WeeklyDataStore = {
     _isFresh(ts) { return ts && (Date.now() - ts) < this.ttlMs; },
 
     // Persistent Store Keys
-    _CACHE_KEY_prefix: 'schedule_widget_admin_',
+    _CACHE_KEY_prefix: 'classflow_admin_',
 
     _loadFromLocal(key) {
         try {
@@ -797,7 +797,7 @@ function renderWeeklyHeader(weekDates) {
     if (!thead) return;
     if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, ''); } else { thead.innerHTML = ''; }
     const tr = document.createElement('tr');
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<th class="sticky-col student-cell">学生姓名</th>'); } else { tr.innerHTML = '<th class="sticky-col student-cell">学生姓名</th>'; }
+    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<th class="sticky-col student-cell" style="text-align: center;">学生姓名/日期</th>'); } else { tr.innerHTML = '<th class="sticky-col student-cell" style="text-align: center;">学生姓名/日期</th>'; }
 
     const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
     weekDates.forEach(d => {
@@ -907,22 +907,11 @@ function renderWeeklyBody(students, schedules, weekDates) {
 }
 
 // Task 30 & 31: Improved Capture Logic
-async function handleStudentRowCapture(student, originalTr) {
-    if (!window.html2canvas) {
-        if (window.apiUtils) window.apiUtils.showToast('组件未加载 (html2canvas missing)', 'error');
-        return;
-    }
-
-    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成图片...', 'info', 0) : null;
-
-    // 1. Get Source Elements
-    const originalHeaderTr = document.querySelector('#weeklyHeader tr');
-    const originalTable = document.querySelector('#weeklyBody').closest('table');
-
-    if (!originalHeaderTr || !originalTable) return;
-
-    // 2. Create Clone Container (Mimic exact structure for CSS inheritance)
-    // Wrapper to hold the context
+/**
+ * 创建离屏截图容器 + 复制原表格外观的空 <table>（含表头边框/圆角）。
+ * 供单行截图与整表截图复用。
+ */
+function buildCaptureWrapper(originalTable) {
     const wrapper = document.createElement('div');
     wrapper.id = 'schedule'; // Matches #schedule CSS scope
     wrapper.style.position = 'absolute';
@@ -936,9 +925,7 @@ async function handleStudentRowCapture(student, originalTr) {
 
     const tableClone = document.createElement('table');
     tableClone.className = originalTable.className; // Copy classes: 'weekly-schedule-table'
-    // Copy inline styles if any
     tableClone.style.cssText = originalTable.style.cssText;
-    // Force background to white
     tableClone.style.backgroundColor = '#ffffff';
     tableClone.style.width = '100%';
     // 恢复外扩边框线及大圆角
@@ -948,11 +935,17 @@ async function handleStudentRowCapture(student, originalTr) {
     tableClone.style.borderRadius = '8px';
     tableClone.style.overflow = 'hidden';
 
-    // 3. Clone Header with Widths Preserved
+    wrapper.appendChild(tableClone);
+    return { wrapper, tableClone };
+}
+
+/**
+ * 克隆表头行并保留列宽 / 去除 sticky 定位 / 补回边框。
+ */
+function buildCapturedHeader(originalHeaderTr) {
     const thead = document.createElement('thead');
     const headerRowClone = originalHeaderTr.cloneNode(true);
 
-    // Sync widths
     const origThs = originalHeaderTr.querySelectorAll('th');
     const cloneThs = headerRowClone.querySelectorAll('th');
 
@@ -972,10 +965,16 @@ async function handleStudentRowCapture(student, originalTr) {
     });
 
     thead.appendChild(headerRowClone);
-    tableClone.appendChild(thead);
+    return thead;
+}
 
-    // 4. Clone Body Row
-    const tbody = document.createElement('tbody');
+/**
+ * 克隆一行学生排课并修复 cloneNode 引起的塌陷：
+ *   - 同步列宽、去 sticky、补回单元格边框与底色
+ *   - 重筑课程卡片圆角/边框/顶部彩条
+ *   - 将 <select> 状态下拉替换为居中 <span>（html2canvas 无法正确渲染下拉对齐）
+ */
+function buildCapturedRow(originalTr) {
     const rowClone = originalTr.cloneNode(true);
 
     // Sync widths for cells (redundant but safe) and remove sticky
@@ -1053,13 +1052,15 @@ async function handleStudentRowCapture(student, originalTr) {
         cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 
-    tbody.appendChild(rowClone);
-    tableClone.appendChild(tbody);
+    return rowClone;
+}
 
-    wrapper.appendChild(tableClone);
+/**
+ * 把离屏 wrapper 截图并写入剪贴板（Safari 兼容的 Promise 模式）。
+ * 无论成功失败都会移除 wrapper。
+ */
+async function captureWrapperToClipboard(wrapper, toastId, successMsg) {
     document.body.appendChild(wrapper);
-
-    // 5. Capture
     try {
         const makeImagePromise = new Promise(async (resolve, reject) => {
             try {
@@ -1091,14 +1092,37 @@ async function handleStudentRowCapture(student, originalTr) {
         const item = new ClipboardItem({ 'image/png': makeImagePromise });
         await navigator.clipboard.write([item]);
 
-        if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${student.name} 的课表图片`);
-
+        if (window.apiUtils) window.apiUtils.showSuccessToast(successMsg);
     } catch (err) {
-
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
         if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
         if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
     }
+}
+
+async function handleStudentRowCapture(student, originalTr) {
+    if (!window.html2canvas) {
+        if (window.apiUtils) window.apiUtils.showToast('组件未加载 (html2canvas missing)', 'error');
+        return;
+    }
+
+    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成图片...', 'info', 0) : null;
+
+    const originalHeaderTr = document.querySelector('#weeklyHeader tr');
+    const originalTable = document.querySelector('#weeklyBody')?.closest('table');
+    if (!originalHeaderTr || !originalTable) {
+        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+        return;
+    }
+
+    const { wrapper, tableClone } = buildCaptureWrapper(originalTable);
+    tableClone.appendChild(buildCapturedHeader(originalHeaderTr));
+
+    const tbody = document.createElement('tbody');
+    tbody.appendChild(buildCapturedRow(originalTr));
+    tableClone.appendChild(tbody);
+
+    await captureWrapperToClipboard(wrapper, toastId, `已复制 ${student.name} 的课表图片`);
 }
 
 function scrollWidthWithBuffer(el) {
@@ -1129,7 +1153,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
     // 排序逻辑改进：
     // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 在此基础上，保持评审/咨询类在后的原有逻辑
+    // 2. 咨询记录/评审记录类型的教师在最后，其他按教师ID排序
     group.sort((a, b) => {
         const getStatus = (item) => (item.status || 'pending').toLowerCase();
         const statusA = getStatus(a);
@@ -1143,15 +1167,15 @@ function buildAdminScheduleCard(group, student, dateKey) {
         if (!inactiveA && inactiveB) return -1;
 
         const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-        const isSpecial = (name) => name.includes('评审') || name.includes('咨询');
+        const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
 
         const typeA = getTypeName(a);
         const typeB = getTypeName(b);
-        const specialA = isSpecial(typeA);
-        const specialB = isSpecial(typeB);
+        const recordA = isRecord(typeA);
+        const recordB = isRecord(typeB);
 
-        if (specialA && !specialB) return 1;
-        if (!specialA && specialB) return -1;
+        if (recordA && !recordB) return 1;
+        if (!recordA && recordB) return -1;
         return (a.teacher_id || 0) - (b.teacher_id || 0);
     });
 
@@ -1764,6 +1788,20 @@ export async function setupScheduleEventListeners() {
         }
     });
 
+    const exportViewBtn = document.getElementById('exportCurrentViewBtn');
+    if (exportViewBtn && !exportViewBtn.__exportViewBound) {
+        exportViewBtn.addEventListener('click', () => {
+            if (typeof window.exportWeeklyScheduleView !== 'function') {
+                if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
+                return;
+            }
+            window.exportWeeklyScheduleView('admin').catch(err => {
+                if (window.apiUtils) window.apiUtils.showToast('导出失败: ' + err.message, 'error');
+            });
+        });
+        exportViewBtn.__exportViewBound = true;
+    }
+
     const form = document.getElementById('scheduleForm');
     if (form) {
         form.addEventListener('submit', async (e) => {
@@ -2008,5 +2046,29 @@ window.ScheduleManager = {
         loadSchedules(false, false);
     }
 };
+
+// 向共享模块（weekly-view-export.js）注册管理员角色上下文：
+//   - 当前周起点取自 window.__weeklyRange（管理员排课页的真实状态）
+//   - 拉取数据走 /admin/schedules/grid?show_plan=true，与教师端口径一致
+if (typeof window.registerWeeklyViewExportContext === 'function') {
+    window.registerWeeklyViewExportContext('admin', {
+        getWeekStart() {
+            const range = window.__weeklyRange;
+            if (range && range.start) {
+                const d = new Date(range.start);
+                if (!Number.isNaN(d.getTime())) return d;
+            }
+            return null;
+        },
+        async fetchSchedules(startDate, endDate) {
+            const rows = await window.apiUtils.get('/admin/schedules/grid', {
+                start_date: startDate,
+                end_date: endDate,
+                show_plan: 'true'
+            });
+            return Array.isArray(rows) ? rows : [];
+        }
+    });
+}
 
 // Expose required methods to window for legacy code

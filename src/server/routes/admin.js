@@ -54,6 +54,23 @@ router.post('/schedule-types', authMiddleware, adminOnly, adminController.create
 router.put('/schedule-types/:id', authMiddleware, adminOnly, adminController.updateScheduleType);
 router.delete('/schedule-types/:id', authMiddleware, adminOnly, adminController.deleteScheduleType);
 
+// 节假日管理路由（/batch 和 /sync 必须在 /:id 之前注册）
+router.get('/holidays', authMiddleware, adminController.getHolidays);
+router.post('/holidays', authMiddleware, adminOnly, adminController.createHoliday);
+router.post('/holidays/sync', authMiddleware, adminOnly, adminController.syncHolidaysFromAPI);
+router.put('/holidays/batch', authMiddleware, adminOnly, adminController.batchUpsertHolidays);
+router.put('/holidays/:id', authMiddleware, adminOnly, adminController.updateHoliday);
+router.delete('/holidays/:id', authMiddleware, adminOnly, adminController.deleteHoliday);
+
+// 反馈管理路由：
+//  - list：任意已登录用户可查看（也可改为 adminOnly，按需求决定）
+//  - create：任意已登录用户可提交
+//  - update/delete：管理员或提交人本人（在控制器内做权限判断）
+router.get('/feedbacks', authMiddleware, adminController.listFeedbacks);
+router.post('/feedbacks', authMiddleware, adminController.createFeedback);
+router.put('/feedbacks/:id', authMiddleware, adminController.updateFeedback);
+router.delete('/feedbacks/:id', authMiddleware, adminController.deleteFeedback);
+
 // 手动触发排课状态更新任务
 router.post('/jobs/trigger-status-update', authMiddleware, adminOnly, async (req, res, next) => {
     try {
