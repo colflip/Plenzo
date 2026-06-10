@@ -603,7 +603,7 @@
     font-size: 16px;
     cursor: pointer;
     padding: 6px;
-    border-radius: 8px;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -690,7 +690,7 @@
     background: var(--brand-primary, #2ECC71);
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 999px;
     cursor: pointer;
     font-size: 14px;
     transition: background-color 0.2s;

@@ -2,6 +2,7 @@
  * Main Application Entry Point (Login Page)
  */
 
+const REMEMBERED_USERNAME_KEY = 'rememberedUsername';
 const LAST_USER_TYPE_KEY = 'lastUserType';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -91,19 +92,24 @@ function initCustomSelect() {
 function initRememberMe() {
     const checkbox = document.getElementById('rememberMe');
     if (!checkbox) return;
+    const usernameInput = document.getElementById('username');
 
+    // Restore remembered username from localStorage
     try {
-        // If user was previously "remembered", auto-check the box
-        const remembered = sessionStorage.getItem('rememberMeState');
-        if (remembered === 'true') {
+        const rememberedUsername = localStorage.getItem(REMEMBERED_USERNAME_KEY);
+        if (rememberedUsername) {
+            usernameInput.value = rememberedUsername;
             checkbox.checked = true;
         }
     } catch (e) { /* ignore storage errors */ }
 
-    // Sync icon state on change
+    // Sync checkbox state on change
     checkbox.addEventListener('change', () => {
         try {
-            sessionStorage.setItem('rememberMeState', checkbox.checked ? 'true' : 'false');
+            if (!checkbox.checked) {
+                // Unchecked: clear remembered username
+                localStorage.removeItem(REMEMBERED_USERNAME_KEY);
+            }
         } catch (e) { /* ignore */ }
     });
 }
@@ -195,6 +201,11 @@ function initLogin() {
                 localStorage.setItem(LAST_USER_TYPE_KEY, userType);
                 if (data.user) {
                     localStorage.setItem('userData', JSON.stringify(data.user));
+                }
+
+                // Save remembered username on successful login
+                if (rememberMe) {
+                    localStorage.setItem(REMEMBERED_USERNAME_KEY, username);
                 }
 
                 // Redirect based on role

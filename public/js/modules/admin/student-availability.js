@@ -45,7 +45,7 @@ window.initStudentAvailability = function () {
 async function loadStudentAvailability() {
     const tableBody = document.getElementById('studentAvailabilityBody');
     const weekRangeSpan = document.getElementById('avStudentWeekRange');
-    const tableContainer = document.querySelector('#student-availability.dashboard-section .weekly-table-container');
+    const tableContainer = document.querySelector('#student-availability .weekly-table-container');
 
     if (!tableBody || !weekRangeSpan || !tableContainer) return;
 
@@ -141,7 +141,7 @@ function renderStudentAvailabilityHeader(dates) {
     const days = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     const today = new Date().toDateString();
 
-    let html = '<tr><th style="width: 120px; min-width: 120px; text-align: center;">学生姓名/日期</th>';
+    let html = '<tr style="vertical-align: middle;"><th style="width: 120px; min-width: 120px; text-align: center; vertical-align: middle;">学生姓名/日期</th>';
     dates.forEach((date, i) => {
         const isToday = date.toDateString() === today;
         let lunarLabel = '';
@@ -154,7 +154,7 @@ function renderStudentAvailabilityHeader(dates) {
         } catch (e) { }
 
         const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`;
-        html += `<th class="${isToday ? 'today-col' : ''}">
+        html += `<th class="${isToday ? 'today-col' : ''}" style="vertical-align: middle;">
             <div class="th-content">
                 <span class="th-date" style="line-height:1.2;">${dateStr}${lunarLabel}</span>
                 <span class="th-day">${days[i]}</span>

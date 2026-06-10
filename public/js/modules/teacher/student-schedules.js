@@ -442,11 +442,23 @@ function renderSchedulesGrid(weekDates, schedules, students = []) {
         const style = document.createElement('style');
         style.id = 'teacher-ss-fixing-style';
         style.innerHTML = `
-            #student-schedules .weekly-schedule-table thead th:first-child,
-            #student-schedules .weekly-schedule-table tbody td:first-child {
+            #student-schedules .weekly-schedule-table thead th:first-child {
+                background-color: #F8F9FA !important;
+                color: #1F2937 !important;
+                font-weight: 600 !important;
+                font-size: 14px !important;
+                text-align: center !important;
+                padding: 16px 12px !important;
+                border-bottom: 2px solid #E5E7EB !important;
+                border-right: 1px dashed #CBD5E1 !important;
+                position: sticky !important;
+                left: 0 !important;
+                z-index: 10 !important;
+                min-width: 120px !important;
+            }            #student-schedules .weekly-schedule-table tbody td:first-child {
+                background-color: #F8F9FA !important;
                 position: sticky !important;
                 left: 0;
-                background-color: #F8FAFC !important;
                 border-right: 1px solid #E5E7EB !important;
                 z-index: 10 !important;
                 text-align: center;
