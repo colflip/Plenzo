@@ -795,7 +795,7 @@ body {
     color: #475569;
     font-size: 10px;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: 999px;
     margin-left: 6px;
     vertical-align: middle;
     font-weight: 600;
@@ -1310,7 +1310,7 @@ body {
     cursor: pointer;
     padding: 4px;
     color: #6b7280;
-    border-radius: 4px;
+    border-radius: 999px;
     transition: all 0.2s;
     display: flex;
     align-items: center;
@@ -1822,7 +1822,7 @@ tr:last-child td {
     width: 100%;
     padding: 8px;
     border: 1px solid #ddd;
-    border-radius: 4px;
+    border-radius: 999px;
 }
 
 /* 日历样式 */
@@ -3352,7 +3352,7 @@ tr:last-child td {
 
 @media (max-width: 480px) {
     .weekly-table-container {
-        border-radius: 4px;
+        border-radius: 999px;
     }
 
     .schedule-item {
@@ -3610,7 +3610,7 @@ tr:last-child td {
             padding: 8px 14px;
             background: #ffffff;
             border: 1px solid #d1d5db;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 13px;
             font-weight: 500;
             color: #374151;
@@ -3724,7 +3724,7 @@ tr:last-child td {
             height: 32px;
             background: transparent;
             border: none;
-            border-radius: 4px;
+            border-radius: 999px;
             color: #64748b;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -4285,7 +4285,7 @@ button {
 .date-input {
     padding: 6px 10px;
     border: 1px solid var(--border-muted, #d1d5db);
-    border-radius: 4px;
+    border-radius: 999px;
     font-size: 14px;
 }
 
@@ -4311,7 +4311,7 @@ button {
     padding: 6px 12px;
     border: 1px solid var(--border-muted, #d1d5db);
     background: var(--bg-surface, #ffffff);
-    border-radius: 4px;
+    border-radius: 999px;
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -6420,7 +6420,7 @@ svg {
     overflow: hidden;
     color: transparent !important;
     background-color: #e9ecef;
-    border-radius: 4px;
+    border-radius: 999px;
     min-height: 20px;
 }
 
@@ -6911,7 +6911,7 @@ svg {
     justify-content: center;
     padding: 0 4px;
     /* Reduced padding */
-    border-radius: 4px;
+    border-radius: 999px;
     font-size: 10px;
     /* Smaller font */
     height: 18px;
@@ -7270,6 +7270,7 @@ svg {
 .weekly-schedule-table td:first-child {
     width: 75px !important;
     min-width: 75px !important;
+    background-color: #F8F9FA !important;
 }
 
 .weekly-schedule-table th .date-label {
@@ -9102,7 +9103,7 @@ svg {
     padding: 6px 12px;
     border: 1px solid var(--border-muted, #d1d5db);
     background: var(--bg-surface, #ffffff);
-    border-radius: 4px;
+    border-radius: 999px;
     font-size: 13px;
     color: var(--text-secondary, #6b7280);
     cursor: pointer;

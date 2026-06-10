@@ -442,38 +442,44 @@ function renderSchedulesGrid(weekDates, schedules, students = []) {
         const style = document.createElement('style');
         style.id = 'teacher-ss-fixing-style';
         style.innerHTML = `
-            #student-schedules .weekly-schedule-table thead th:first-child {
+            /* ===== First column (student name): unified header + data ===== */
+            #student-schedules .weekly-schedule-table thead th:first-child,
+            #student-schedules .weekly-schedule-table tbody td:first-child {
                 background-color: #F8F9FA !important;
-                color: #1F2937 !important;
-                font-weight: 600 !important;
-                font-size: 14px !important;
+                min-width: 120px !important;
+                width: 120px !important;
                 text-align: center !important;
+                vertical-align: middle !important;
                 padding: 16px 12px !important;
+                font-size: 14px !important;
+                border-right: 1px solid #E5E7EB !important;
+            }
+
+            /* Header cell: sticky top + bottom border */
+            #student-schedules .weekly-schedule-table thead th:first-child {
+                position: sticky !important;
+                left: 0 !important;
+                z-index: 11 !important;
                 border-bottom: 2px solid #E5E7EB !important;
-                border-right: 1px dashed #CBD5E1 !important;
+                font-weight: 600 !important;
+                color: #1F2937 !important;
+            }
+
+            /* Data cells: sticky on scroll */
+            #student-schedules .weekly-schedule-table tbody td:first-child {
                 position: sticky !important;
                 left: 0 !important;
                 z-index: 10 !important;
-                min-width: 120px !important;
-            }            #student-schedules .weekly-schedule-table tbody td:first-child {
-                background-color: #F8F9FA !important;
-                position: sticky !important;
-                left: 0;
-                border-right: 1px solid #E5E7EB !important;
-                z-index: 10 !important;
-                text-align: center;
-                width: 112px !important;
-                min-width: 112px !important;
+                font-size: 16px !important;
+                font-weight: 600 !important;
             }
-            #student-schedules .weekly-schedule-table tbody td:first-child {
-                background-color: white !important;
-                vertical-align: middle;
-                font-size: 16px;
-                font-weight: 600;
-            }
+
+            /* Row hover: first column follows row */
             #student-schedules .weekly-schedule-table tbody tr:hover td:first-child {
-                background-color: transparent !important;
+                background-color: #F1F5F9 !important;
             }
+
+            /* Allow full location text & variable height */
             .schedule-footer .location-text {
                 white-space: normal !important;
                 overflow: visible !important;

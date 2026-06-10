@@ -169,7 +169,7 @@
     padding: 6px 12px;
     border: 1px solid rgba(203, 213, 225, 0.6);
     border-radius: var(--sch-radius-sm);
-    background-color: #FFFFFF;
+    background-color: #F8F9FA;
     font-size: 13px;
     color: var(--sch-text-main);
     cursor: pointer;
@@ -241,7 +241,7 @@
 .weekly-schedule-table tbody td:first-child {
     width: 120px;
     /* Fixed width for student column */
-    background-color: #FFFFFF;
+    background-color: #F8F9FA;
     position: sticky;
     left: 0;
     z-index: 10;

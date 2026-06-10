@@ -37,7 +37,7 @@
 
     /* Spacing */
     --stats-radius-sm: 999px;
-    --stats-radius-md: 999px;
+    --stats-radius-md: 8px;
     --stats-radius-lg: 16px;
 }
 
@@ -53,7 +53,7 @@
 .statistics-controls {
     background: var(--stats-surface);
     border: 1px solid var(--stats-border);
-    border-radius: var(--stats-radius-md);
+    border-radius: 999px;
     padding: 16px;
     margin-bottom: 24px;
     display: flex;
@@ -69,7 +69,7 @@
     display: flex;
     background: #F9FAFB;
     padding: 4px;
-    border-radius: var(--stats-radius-md);
+    border-radius: 999px;
     border: 1px solid var(--stats-border);
 }
 
@@ -105,7 +105,7 @@
     padding: 10px 20px;
     background-color: var(--stats-surface);
     border: 1px solid var(--stats-border);
-    border-radius: var(--stats-radius-md);
+    border-radius: 999px;
     color: var(--stats-text-main);
     font-weight: 500;
     font-size: 14px;
