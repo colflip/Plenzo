@@ -3,6 +3,8 @@
  * @description 处理管理控制台的通用UI逻辑
  */
 
+import { setupSidebarToggle as sharedSetupSidebarToggle } from '../shared/dashboard-kit.js';
+
 /**
  * 调整下拉框最小宽度以适应内容
  */
@@ -40,103 +42,7 @@ export function adjustSelectMinWidth(selectEl) {
  * 设置侧边栏切换逻辑
  */
 export function setupSidebarToggle() {
-    const sidebar = document.querySelector('.sidebar');
-    const mainContent = document.querySelector('.main-content');
-    const toggleBtns = document.querySelectorAll('.toggle-sidebar');
-    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-    const sidebarOverlay = document.getElementById('sidebarOverlay');
-    const navItems = document.querySelectorAll('.nav-item');
-
-    if (!sidebar || !mainContent) return;
-
-    // Desktop Toggle Logic
-    const saveMenuState = (isCollapsed) => {
-        try { localStorage.setItem('sidebarCollapsed', isCollapsed); } catch (_) { }
-    };
-
-    const loadMenuState = () => {
-        const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-        if (isCollapsed) {
-            sidebar.classList.add('collapsed');
-            mainContent.classList.add('expanded');
-        } else {
-            sidebar.classList.remove('collapsed');
-            mainContent.classList.remove('expanded');
-        }
-    };
-
-    const toggleSidebar = () => {
-        const isCollapsed = sidebar.classList.toggle('collapsed');
-        mainContent.classList.toggle('expanded', isCollapsed);
-        saveMenuState(isCollapsed);
-    };
-
-    toggleBtns.forEach(btn => btn.addEventListener('click', toggleSidebar));
-    loadMenuState();
-
-    // Mobile Menu Logic
-    function openMobileSidebar() {
-        sidebar.classList.add('mobile-open');
-        if (sidebarOverlay) sidebarOverlay.classList.add('active');
-        if (mobileMenuToggle) {
-            mobileMenuToggle.classList.add('active');
-            const icon = mobileMenuToggle.querySelector('.material-icons-round');
-            if (icon) icon.textContent = 'close';
-        }
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeMobileSidebar() {
-        sidebar.classList.remove('mobile-open');
-        if (sidebarOverlay) sidebarOverlay.classList.remove('active');
-        if (mobileMenuToggle) {
-            mobileMenuToggle.classList.remove('active');
-            const icon = mobileMenuToggle.querySelector('.material-icons-round');
-            if (icon) icon.textContent = 'menu';
-        }
-        document.body.style.overflow = '';
-    }
-
-    if (mobileMenuToggle) {
-        mobileMenuToggle.addEventListener('click', (e) => {
-            e.preventDefault();
-            // 关键：不再阻断冒泡，但确保逻辑独立
-            const willOpen = !sidebar.classList.contains('mobile-open');
-            if (willOpen) {
-                openMobileSidebar();
-            } else {
-                closeMobileSidebar();
-            }
-        });
-    }
-
-    if (sidebarOverlay) {
-        sidebarOverlay.addEventListener('click', (e) => {
-            e.preventDefault();
-            closeMobileSidebar();
-        });
-    }
-
-    // Auto-close on nav item click (mobile only)
-    navItems.forEach(navItem => {
-        navItem.addEventListener('click', () => {
-            if (window.innerWidth <= 768) {
-                // 点击菜单项后立即响应关闭，增加用户体验流畅度
-                closeMobileSidebar();
-            }
-        });
-    });
-
-    // Auto-close on resize to desktop
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            if (window.innerWidth > 768) {
-                closeMobileSidebar();
-            }
-        }, 250);
-    });
+    sharedSetupSidebarToggle({ storageKey: 'sidebarCollapsed' });
 }
 
 /**

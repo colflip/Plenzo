@@ -36,8 +36,8 @@
     --stats-font-family: 'Inter', system-ui, -apple-system, sans-serif;
 
     /* Spacing */
-    --stats-radius-sm: 6px;
-    --stats-radius-md: 12px;
+    --stats-radius-sm: 999px;
+    --stats-radius-md: 999px;
     --stats-radius-lg: 16px;
 }
 

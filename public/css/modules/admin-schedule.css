@@ -37,7 +37,7 @@
     --sch-font-family: 'Inter', system-ui, -apple-system, sans-serif;
 
     /* Spacing */
-    --sch-radius-sm: 6px;
+    --sch-radius-sm: 999px;
     --sch-radius-md: 12px;
     --sch-radius-lg: 16px;
 }

@@ -74,7 +74,7 @@ body {
     color: #2C3E50;
     padding: 0;
     flex-shrink: 0;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
     border-right: 1px solid #E9ECEF;
     display: flex;
     flex-direction: column;
@@ -110,7 +110,7 @@ body {
     object-fit: contain;
     margin-right: 14px;
     flex-shrink: 0;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
     filter: drop-shadow(0 2px 4px rgba(37, 99, 235, 0.15));
 }
 
@@ -119,7 +119,7 @@ body {
     font-weight: 700;
     color: #1e293b;
     letter-spacing: -0.5px;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
 }
 
 .sidebar.collapsed .logo {
@@ -143,7 +143,7 @@ body {
     padding: 12px 20px;
     color: #2C3E50;
     text-decoration: none;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
     margin: 4px 12px;
     border-radius: 12px;
     font-weight: 500;
@@ -154,12 +154,12 @@ body {
 .nav-item .material-icons-round {
     font-size: 22px;
     margin-right: 12px;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
 }
 
 .nav-text {
     font-size: var(--font-size-base);
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
     white-space: nowrap;
 }
 
@@ -216,10 +216,18 @@ body {
     transition: 0s;
 }
 
+.nav-menu {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .sidebar-footer {
-    padding: 10px 20px;
+    margin-top: auto;
+    flex-shrink: 0;
+    padding: 10px 0;
     border-top: 1px solid #E9ECEF;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
 }
 
 .sidebar.collapsed .sidebar-footer {
@@ -237,12 +245,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
+    width: 95%;
     padding: 10px 0;
     border-radius: 12px;
-    transition: all 0.3s ease;
+    transition: all 0.5s ease;
     z-index: 10;
     position: relative;
+    bottom: 4px;
 }
 
 .sidebar.collapsed .toggle-sidebar {
@@ -253,13 +262,13 @@ body {
 }
 
 .toggle-sidebar:hover {
-    background-color: rgba(46, 204, 113, 0.1);
+    background-color: rgba(41, 184, 102, 0.11);
     color: #2ECC71;
 }
 
 .toggle-sidebar .material-icons-round {
     font-size: 24px;
-    transition: transform 0.3s ease;
+    transition: transform 0.5s ease;
 }
 
 .sidebar.collapsed .toggle-sidebar .material-icons-round {
@@ -275,7 +284,7 @@ body {
     /* 预留底部固定菜单高度，避免遮挡 */
     background-color: #FFFFFF;
     overflow-y: auto;
-    transition: margin-left 0.3s ease;
+    transition: margin-left 0.5s ease;
     /* 修改过渡效果 */
     /* margin-left: 250px; 默认的左边距 */
 }
@@ -437,7 +446,7 @@ body {
 .header-toolbar {
     background: #ffffff;
     border: 1px solid var(--admin-border);
-    border-radius: var(--admin-radius-md);
+    border-radius: 999px;
     padding: 16px;
     margin-bottom: 24px;
     display: flex;
@@ -453,13 +462,13 @@ body {
     display: flex;
     background: var(--admin-bg);
     padding: 4px;
-    border-radius: var(--admin-radius-md);
+    border-radius: 999px;
     border: 1px solid var(--admin-border);
 }
 
 .tab-btn {
     padding: 8px 20px;
-    border-radius: var(--admin-radius-sm);
+    border-radius: 999px;
     border: none;
     background: transparent;
     color: var(--admin-text-body);
@@ -496,7 +505,7 @@ body {
     color: white;
     border: none;
     padding: 10px 20px;
-    border-radius: var(--admin-radius-sm);
+    border-radius: 999px;
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
@@ -974,7 +983,7 @@ body {
 .table-container {
     background: var(--admin-surface);
     border: 1px solid var(--admin-border);
-    border-radius: var(--admin-radius-md);
+    border-radius: 16px;
     box-shadow: var(--admin-shadow-sm);
     overflow: hidden;
     /* For border radius */
@@ -1043,7 +1052,7 @@ body {
 #scheduleTypesTable .edit-btn,
 #scheduleTypesTable .delete-btn {
     padding: 6px 12px;
-    border-radius: var(--admin-radius-sm);
+    border-radius: 10px;
     font-size: 12px;
     font-weight: 500;
     border: none;
@@ -1433,7 +1442,7 @@ body {
     border: none;
     background: transparent;
     color: #64748b;
-    border-radius: 6px;
+    border-radius: 999px;
     cursor: pointer;
     font-size: 14px;
     font-weight: bold;
@@ -1522,7 +1531,7 @@ body {
     color: white;
     border: none;
     padding: 10px 20px;
-    border-radius: 10px;
+    border-radius: 999px;
     cursor: pointer;
     transition: all 0.3s ease;
     position: relative;
@@ -1718,7 +1727,7 @@ tr:last-child td {
 /* 通用操作按钮基础样式（用于用户管理区操作列） */
 .action-btn {
     padding: 6px 12px;
-    border-radius: 10px;
+    border-radius: 999px;
     cursor: pointer;
     transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease, border-color .2s ease;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
@@ -1962,6 +1971,7 @@ tr:last-child td {
         gap: 12px;
         padding: 0;
         background: transparent;
+        flex: 1;
     }
 
     .sidebar .nav-item {
@@ -2182,6 +2192,55 @@ tr:last-child td {
     display: block;
 }
 
+.availability-view {
+    display: none;
+    width: 100%;
+}
+
+.availability-view.active {
+    display: block;
+}
+
+/* 空闲时段管理：顶部栏布局——日期导航在左，二级 tab 紧随其后，单行依次显示 */
+#availability-mgmt .system-settings-header .statistics-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    gap: 16px;
+    width: 100%;
+    flex-wrap: nowrap;
+}
+
+#availability-mgmt .system-settings-header .statistics-tabs .tab-btn-group.inline-tabs {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 4px;
+    border-radius: 999px;
+    display: inline-flex;
+    gap: 4px;
+}
+
+#availability-mgmt .system-settings-header .statistics-tabs .tab-btn-group.inline-tabs .tab-btn {
+    border-radius: 999px;
+}
+
+.availability-date-actions {
+    display: flex;
+    align-items: center;
+}
+
+.availability-date-nav {
+    display: none;
+    align-items: center;
+}
+
+.availability-date-nav.active {
+    display: flex;
+}
+
 /* 日期导航 */
 .date-navigation {
     display: flex;
@@ -2384,7 +2443,7 @@ tr:last-child td {
 .user-tabs .tab-btn {
     padding: 8px 14px;
     border: 1px solid var(--border-muted);
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--bg-surface);
     color: var(--text-secondary);
     cursor: pointer;
@@ -2610,7 +2669,7 @@ tr:last-child td {
     height: 32px;
     border: none;
     background: transparent;
-    border-radius: 6px;
+    border-radius: 999px;
     cursor: pointer;
     transition: all 0.2s ease;
     color: #4B5563;
@@ -2751,7 +2810,7 @@ tr:last-child td {
 .btn {
     padding: 8px 16px;
     border: none;
-    border-radius: 6px;
+    border-radius: 999px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -3584,7 +3643,7 @@ tr:last-child td {
             background: #2ECC71;
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
@@ -4026,7 +4085,7 @@ button {
 .statistics-controls .search-btn {
     padding: 8px 14px;
     border: none;
-    border-radius: var(--radius-unified);
+    border-radius: 999px;
     background: var(--brand-primary);
     color: #fff;
     font-weight: 600;
@@ -4051,7 +4110,7 @@ button {
 .statistics-tabs .tab-btn {
     padding: var(--btn-padding-y) var(--btn-padding-x);
     border: 1px solid var(--border-muted);
-    border-radius: var(--btn-radius);
+    border-radius: 999px;
     background: var(--bg-surface);
     color: var(--text-secondary);
     cursor: pointer;
@@ -4403,7 +4462,7 @@ input[type="date"],
 input[type="time"],
 select,
 textarea {
-    border-radius: var(--radius-unified);
+    border-radius: 999px;
     transition: all var(--hover-transition);
 }
 
@@ -4692,7 +4751,7 @@ button {
     justify-content: center;
     gap: 8px;
     padding: 8px 14px;
-    border-radius: 6px;
+    border-radius: 999px;
     font-weight: 600;
     cursor: pointer;
     border: 1px solid transparent;
@@ -4749,7 +4808,7 @@ button {
 .statistics-controls .search-btn {
     padding: 8px 14px;
     border: none;
-    border-radius: var(--radius-unified);
+    border-radius: 999px;
     background: var(--brand-primary);
     color: #fff;
     font-weight: 600;
@@ -4774,7 +4833,7 @@ button {
 .statistics-tabs .tab-btn {
     padding: var(--btn-padding-y) var(--btn-padding-x);
     border: 1px solid var(--border-muted);
-    border-radius: var(--btn-radius);
+    border-radius: 999px;
     background: var(--bg-surface);
     color: var(--text-secondary);
     cursor: pointer;
@@ -6250,6 +6309,12 @@ svg {
     #student-availability .weekly-schedule-table {
         display: table !important;
         width: 100%;
+    }
+
+    /* 空闲时段表头单元格统一垂直居中 */
+    #availability .weekly-schedule-table thead th,
+    #student-availability .weekly-schedule-table thead th {
+        vertical-align: middle !important;
     }
 
     /* 显示移动端4列布局 */
@@ -8903,6 +8968,15 @@ svg {
     text-align: center !important;
     vertical-align: middle !important;
     padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* 排课管理：首列表头单元格水平竖直居中 */
+#schedule .weekly-schedule-table th.student-cell {
+    text-align: center !important;
+    vertical-align: middle !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
 }
 
 /* 课程类型管理表格列宽优化分配 */

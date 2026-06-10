@@ -39,6 +39,44 @@ export function setupNavigation() {
     }
 
     setupSettingsTabs();
+    setupAvailabilityTabs();
+}
+
+// 空闲时段管理：二级 tab 切换（学生 / 教师）
+function activateAvailabilityView(viewId) {
+    const section = document.getElementById('availability-mgmt');
+    if (!section) return;
+
+    section.querySelectorAll('.statistics-tabs .tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.availabilityView === viewId);
+    });
+    section.querySelectorAll('.availability-view').forEach(view => {
+        view.classList.toggle('active', view.id === viewId);
+    });
+    section.querySelectorAll('.availability-date-nav').forEach(nav => {
+        nav.classList.toggle('active', nav.dataset.dateFor === viewId);
+    });
+}
+
+export function setupAvailabilityTabs() {
+    const section = document.getElementById('availability-mgmt');
+    if (!section) return;
+
+    const tabs = section.querySelectorAll('.statistics-tabs .tab-btn');
+    tabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const viewId = btn.dataset.availabilityView;
+            if (!viewId) return;
+            activateAvailabilityView(viewId);
+
+            if (viewId === 'student-availability-view') {
+                if (window.initStudentAvailability) window.initStudentAvailability();
+                if (window.initStudentScheduleFees) window.initStudentScheduleFees();
+            } else if (viewId === 'teacher-availability-view') {
+                if (window.initTeacherAvailability) window.initTeacherAvailability();
+            }
+        });
+    });
 }
 
 // 系统设置：二级 tab 切换（课程类型 / 节假日管理）
@@ -136,6 +174,20 @@ export function showSection(sectionId) {
             activateSettingsView('schedule-types-view');
             if (window.loadScheduleTypes) window.loadScheduleTypes();
             break;
+        case 'availability-mgmt': {
+            const section = document.getElementById('availability-mgmt');
+            const activeBtn = section?.querySelector('.statistics-tabs .tab-btn.active');
+            const activeView = activeBtn?.dataset.availabilityView || 'student-availability-view';
+            activateAvailabilityView(activeView);
+            if (activeView === 'teacher-availability-view') {
+                if (window.initTeacherAvailability) window.initTeacherAvailability();
+            } else {
+                if (window.initStudentAvailability) window.initStudentAvailability();
+                if (window.initStudentScheduleFees) window.initStudentScheduleFees();
+            }
+            setHeaderTitle('空闲时段管理');
+            break;
+        }
         case 'student-availability':
             if (window.initStudentAvailability) {
                 window.initStudentAvailability();
