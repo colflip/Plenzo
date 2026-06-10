@@ -1,7 +1,7 @@
 {
-  "name": "classflow",
+  "name": "plannix",
   "version": "1.0.0",
-  "description": "Classflow - Teacher-Student Scheduling System",
+  "description": "Plannix - A scheduling management system with multi-role permissions.",
   "main": "src/server/app.js",
   "scripts": {
     "start": "node src/server/app.js",

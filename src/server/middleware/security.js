@@ -98,8 +98,8 @@ const corsOptions = {
             : [];
 
         const allowedOrigins = [
-            'https://classflow.vercel.app',
-            'https://classflow.onrender.com',
+            'https://plannix.vercel.app',
+            'https://plannix.onrender.com',
             'http://localhost:3000',
             'http://localhost:3001',
             'http://localhost:5173',

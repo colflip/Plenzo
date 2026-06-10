@@ -31,18 +31,18 @@
 ### 构建镜像
 
 ```bash
-docker build -t classflow .
+docker build -t plannix .
 ```
 
 ### 运行容器
 
 ```bash
 docker run -d \
-  --name classflow \
+  --name plannix \
   -p 3000:3000 \
   -e DATABASE_URL=your_database_url \
   -e JWT_SECRET=your_jwt_secret \
-  classflow
+  plannix
 ```
 
 ## 传统 Node.js 部署

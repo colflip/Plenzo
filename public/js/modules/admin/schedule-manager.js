@@ -407,7 +407,7 @@ export const WeeklyDataStore = {
     _isFresh(ts) { return ts && (Date.now() - ts) < this.ttlMs; },
 
     // Persistent Store Keys
-    _CACHE_KEY_prefix: 'classflow_admin_',
+    _CACHE_KEY_prefix: 'plannix_admin_',
 
     _loadFromLocal(key) {
         try {

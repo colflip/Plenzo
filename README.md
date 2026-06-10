@@ -1,109 +1,30 @@
-<div align="center">
-  <h2>Classflow</h2>
-  <p>
-    智能化 • 可视化 • 全栈式
-    <br />
-    <br />
-    <a href="https://github.com/colflip/classflow/issues">报告 Bug</a>
-    ·
-    <a href="https://github.com/colflip/classflow/issues">提出新功能</a>
-  </p>
-  
-  <p>
-    <img src="https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square" alt="Version">
-    <img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License">
-    <img src="https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg?style=flat-square" alt="Node">
-    <img src="https://img.shields.io/badge/express-4.18.2-000000.svg?style=flat-square" alt="Express">
-    <img src="https://img.shields.io/badge/postgresql-latest-336791.svg?style=flat-square" alt="PostgreSQL">
-  </p>
-</div>
+# Plannix
+
+[![version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/colflip/plannix) [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](./LICENSE) [![node](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org) [![express](https://img.shields.io/badge/express-4.18.2-000000.svg?style=flat-square)](https://expressjs.com) [![postgresql](https://img.shields.io/badge/pg-8.x-336791.svg?style=flat-square)](https://www.postgresql.org)
+
+一款基于关系型数据库与无状态令牌认证的排课管理系统，支持 RBAC 多角色权限模型。
+
+系统采用前后端分离架构，服务端提供 RESTful 接口，客户端以原生 JavaScript 构建 SPA 应用，界面层采用拟态设计语言。实现教师、学生与管理端的差异化信息交互与协同编排：教师端包含普通教师与班主任两种角色，提供可用时段配置、教学工时统计、课程确认及关联学生排课管理；学生端支持多视图课表阅览与学习轨迹追踪；管理员端涵盖排课引擎、实时冲突检测、批量调度、人员管控、费用审计与结构化数据导出。底层数据模型以 `teachers`、`students` 与 `course_arrangement` 为核心实体，结合 `teacher_daily_availability` 与 `student_daily_availability` 时段表支撑冲突校验，`operation_logs` 审计表保障操作可追溯。
+
+| Module    | Tech Stack                            |
+| :-------- | :------------------------------------ |
+| BE        | Node.js + Express + PostgreSQL        |
+| Auth      | JWT + Bcrypt                          |
+| FE        | Native JS (ES6+) + CSS3 Glassmorphism |
+| Val & Sec | Joi\| Helmet + Rate Limit             |
+
+| Command         | Description   |
+| :-------------- | :------------ |
+| `npm start`   | Prod          |
+| `npm run dev` | Dev (nodemon) |
+| `npm test`    | Test          |
+
+本项目基于 [MIT License](./LICENSE)开源。
 
 ---
 
-## 核心功能
+A scheduling management system built on a relational database and stateless token-based authentication, supporting an RBAC multi-role permission model.
 
-### 教师端
-- **仪表盘**: 实时查看日程与统计。
-- **时间管理**: 拖拽设置可用时间，自动同步。
-- **数据分析**: 教学工时可视化。
-- **账户安全**: 完善的资料与安全管理。
+The system adopts a front-end and back-end separation architecture: the server provides RESTful APIs, the client is built as a single-page application (SPA) using native JavaScript, and the interface layer employs a glassmorphism design language. It enables differentiated information exchange and collaborative orchestration across three roles: **Teachers** (regular teachers and head teachers) provide availability scheduling, teaching hour statistics, course confirmation, and associated student schedule management; **Students** support multi-view timetable browsing and learning trajectory tracking; **Administrators** cover the scheduling engine, real-time conflict detection, batch scheduling, personnel lifecycle management, fee auditing, and structured data export. The underlying data model centers on the `teachers`, `students`, and `course_arrangement` entities, leverages the `teacher_daily_availability` and `student_daily_availability` tables for conflict validation, and uses `operation_logs` for audit trail.
 
-### 学生端
-- **日程查看**: 多视图（日/周/月）课表。
-- **时间规划**: 自主设定学习空闲时段。
-- **学习统计**: 学习时长与轨迹追踪。
-
-### 管理端
-- **排课引擎**: 实时冲突检测，支持批量排课/锁定。
-- **人员管理**: 账户生命周期与权限控制。
-- **数据看板**: 系统级报表与 Excel 导出。
-- **系统配置**: 学期、课程类型等参数设置。
-
-## 技术架构
-
-采用**前后端分离**逻辑架构，兼顾开发效率与性能。
-
-| 模块 | 技术选型 | 说明 |
-| :--- | :--- | :--- |
-| **Backend** | **Node.js + Express** | 轻量级 RESTful API 服务 |
-| **Database** | **PostgreSQL** | 云原生关系型数据库 |
-| **Auth** | **JWT + Bcrypt** | 无状态认证与安全加密 |
-| **Frontend** | **Native JS (ES6+)** | 无框架依赖，高性能 |
-| **UI** | **CSS3 + Glassmorphism** | 现代化拟态设计 |
-| **Validation** | **Joi** | 严谨的数据校验 |
-
-## 目录结构
-
-```text
-classflow/
-├── public/                  # 前端静态资源
-│   ├── css/                 # 样式文件
-│   ├── js/                  # 业务逻辑
-│   │   ├── components/      # UI组件 (Modal, Toast)
-│   │   ├── core/            # 核心库 (Auth, ApiClient)
-│   │   └── modules/         # 业务模块
-│   └── index.html           # 应用入口
-├── src/
-│   └── server/              # 后端核心
-│       ├── controllers/     # 控制层
-│       ├── services/        # 业务层
-│       ├── middleware/      # 中间件
-│       ├── routes/          # API路由
-│       ├── db/              # 数据库层
-│       └── app.js           # 服务入口
-├── docs/                    # 项目文档
-└── package.json             # 依赖配置
-```
-
-## 快速开始
-
-### 1. 环境准备
-*   Node.js v16+
-*   npm v8+
-
-### 2. 安装配置
-```bash
-git clone https://github.com/colflip/classflow.git
-cd classflow
-npm install
-cp .env.example .env
-# 编辑 .env 填入数据库信息
-```
-
-### 3. 初始化
-```bash
-npm run db:migrate:restructure
-```
-
-### 4. 启动
-```bash
-# 开发模式
-npm run dev
-# 生产模式
-npm start
-```
-访问: `http://localhost:3001`
-
-## 版权说明
-
-基于 [MIT License](./LICENSE) 开源。
+Released under the [MIT License](./LICENSE).
