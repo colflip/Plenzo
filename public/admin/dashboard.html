@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理员仪表盘 - Classflow</title>
+    <title>管理员仪表盘 - Plannix</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="icon" type="image/png" href="/assets/logo.png?v=9">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
@@ -470,7 +470,7 @@
         <div class="sidebar">
             <div class="logo">
                 <img src="/assets/logo.svg" alt="Logo" class="logo-icon">
-                <span class="logo-text">Classflow</span>
+                <span class="logo-text">Plannix</span>
             </div>
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-section="overview">
@@ -481,13 +481,9 @@
                     <span class="material-icons-round">people</span>
                     <span class="nav-text">用户管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="student-availability">
-                    <span class="material-icons-round">event_busy</span>
-                    <span class="nav-text">学生空闲时段</span>
-                </a>
-                <a href="#" class="nav-item" data-section="availability">
+                <a href="#" class="nav-item" data-section="availability-mgmt">
                     <span class="material-icons-round">event_available</span>
-                    <span class="nav-text">教师空闲时段</span>
+                    <span class="nav-text">空闲时段管理</span>
                 </a>
                 <a href="#" class="nav-item" data-section="schedule">
                     <span class="material-icons-round">event_note</span>
@@ -1196,65 +1192,79 @@
                     </div>
                 </section>
 
-                <!-- 学生空闲时段部分 -->
-                <section id="student-availability" class="dashboard-section">
-                    <div class="header-toolbar schedule-controls">
-                        <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
-                            <div class="week-navigation">
-                                <button id="avStudentPrevWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_left</span>
-                                </button>
-                                <span id="avStudentWeekRange">加载中...</span>
-                                <button id="avStudentNextWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_right</span>
-                                </button>
+                <!-- 空闲时段管理部分（学生 / 教师 二级菜单） -->
+                <section id="availability-mgmt" class="dashboard-section">
+                    <!-- 顶部工具栏：日期导航在左，二级 tab 紧随其后 -->
+                    <div class="header-toolbar statistics-controls system-settings-header">
+                        <div class="statistics-tabs">
+                            <!-- 左侧日期导航（按当前视图切换显示）-->
+                            <div class="availability-date-actions" id="availabilityDateActions">
+                                <div class="availability-date-nav active" data-date-for="student-availability-view">
+                                    <div class="week-navigation">
+                                        <button id="avStudentPrevWeek" class="nav-btn">
+                                            <span class="material-icons-round">chevron_left</span>
+                                        </button>
+                                        <span id="avStudentWeekRange">加载中...</span>
+                                        <button id="avStudentNextWeek" class="nav-btn">
+                                            <span class="material-icons-round">chevron_right</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="availability-date-nav" data-date-for="teacher-availability-view">
+                                    <div class="week-navigation">
+                                        <button id="avPrevWeek" class="nav-btn">
+                                            <span class="material-icons-round">chevron_left</span>
+                                        </button>
+                                        <span id="avWeekRange">加载中...</span>
+                                        <button id="avNextWeek" class="nav-btn">
+                                            <span class="material-icons-round">chevron_right</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-btn-group inline-tabs">
+                                <button class="tab-btn active" data-availability-view="student-availability-view">学生空闲时段</button>
+                                <button class="tab-btn" data-availability-view="teacher-availability-view">教师空闲时段</button>
                             </div>
                         </div>
                     </div>
-                    <div class="weekly-view">
-                        <div class="weekly-table-container">
-                            <table class="weekly-schedule-table" id="studentAvailabilityTable">
-                                <thead id="studentAvailabilityHeader">
-                                    <!-- 通过 JS 渲染 -->
-                                </thead>
-                                <tbody id="studentAvailabilityBody">
-                                    <!-- 通过 JS 渲染 -->
-                                </tbody>
-                            </table>
-                        </div>
+
+                    <!-- 学生空闲时段子视图 -->
+                    <div id="student-availability-view" class="availability-view active">
+                        <section id="student-availability">
+                            <div class="weekly-view">
+                                <div class="weekly-table-container">
+                                    <table class="weekly-schedule-table" id="studentAvailabilityTable">
+                                        <thead id="studentAvailabilityHeader">
+                                            <!-- 通过 JS 渲染 -->
+                                        </thead>
+                                        <tbody id="studentAvailabilityBody">
+                                            <!-- 通过 JS 渲染 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
                     </div>
 
-            </div>
-            </section>
-
-            <!-- 教师空闲时段部分 -->
-            <section id="availability" class="dashboard-section">
-                <div class="header-toolbar schedule-controls">
-                    <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
-                        <div class="week-navigation">
-                            <button id="avPrevWeek" class="nav-btn">
-                                <span class="material-icons-round">chevron_left</span>
-                            </button>
-                            <span id="avWeekRange">加载中...</span>
-                            <button id="avNextWeek" class="nav-btn">
-                                <span class="material-icons-round">chevron_right</span>
-                            </button>
-                        </div>
+                    <!-- 教师空闲时段子视图 -->
+                    <div id="teacher-availability-view" class="availability-view">
+                        <section id="availability">
+                            <div class="weekly-view">
+                                <div class="weekly-table-container">
+                                    <table class="weekly-schedule-table" id="availabilityTable">
+                                        <thead id="availabilityHeader">
+                                            <!-- 通过 JS 渲染 -->
+                                        </thead>
+                                        <tbody id="availabilityBody">
+                                            <!-- 通过 JS 渲染 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
                     </div>
-                </div>
-                <div class="weekly-view">
-                    <div class="weekly-table-container">
-                        <table class="weekly-schedule-table" id="availabilityTable">
-                            <thead id="availabilityHeader">
-                                <!-- 通过 JS 渲染 -->
-                            </thead>
-                            <tbody id="availabilityBody">
-                                <!-- 通过 JS 渲染 -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
+                </section>
 
 
 
