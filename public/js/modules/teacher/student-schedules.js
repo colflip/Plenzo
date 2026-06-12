@@ -442,41 +442,42 @@ function renderSchedulesGrid(weekDates, schedules, students = []) {
         const style = document.createElement('style');
         style.id = 'teacher-ss-fixing-style';
         style.innerHTML = `
-            /* ===== First column (student name): unified header + data ===== */
+            /* ===== 首列（学生姓名）：与表头行 / 数据行视觉一致 =====
+               取消 sticky 定位与多余阴影；表头首格用与其它日期表头相同的浅灰，
+               数据首格透明（与同行排课单元格一致）。 */
             #student-schedules .weekly-schedule-table thead th:first-child,
             #student-schedules .weekly-schedule-table tbody td:first-child {
-                background-color: #F8F9FA !important;
                 min-width: 120px !important;
                 width: 120px !important;
                 text-align: center !important;
                 vertical-align: middle !important;
                 padding: 16px 12px !important;
                 font-size: 14px !important;
-                border-right: 1px solid #E5E7EB !important;
+                position: static !important;
+                left: auto !important;
+                z-index: auto !important;
+                box-shadow: none !important;
+                border-right: 1px dashed #CBD5E1 !important;
             }
 
-            /* Header cell: sticky top + bottom border */
+            /* 表头首格：与其它日期表头一致（浅灰底 + 表头底部分隔线） */
             #student-schedules .weekly-schedule-table thead th:first-child {
-                position: sticky !important;
-                left: 0 !important;
-                z-index: 11 !important;
+                background-color: #F8F9FA !important;
                 border-bottom: 2px solid #E5E7EB !important;
                 font-weight: 600 !important;
                 color: #1F2937 !important;
             }
 
-            /* Data cells: sticky on scroll */
+            /* 数据首格（学生姓名）：透明底，与同行其它单元格一致 */
             #student-schedules .weekly-schedule-table tbody td:first-child {
-                position: sticky !important;
-                left: 0 !important;
-                z-index: 10 !important;
+                background-color: transparent !important;
                 font-size: 16px !important;
                 font-weight: 600 !important;
             }
 
-            /* Row hover: first column follows row */
+            /* 行 hover：首列跟随整行（与其它列一致） */
             #student-schedules .weekly-schedule-table tbody tr:hover td:first-child {
-                background-color: #F1F5F9 !important;
+                background-color: rgba(241, 245, 249, 0.5) !important;
             }
 
             /* Allow full location text & variable height */

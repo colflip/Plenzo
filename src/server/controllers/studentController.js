@@ -387,9 +387,12 @@ const studentController = {
 
             const dateExpr = await getDateExpr('ca');
 
-            // 1. 获取按类型的聚合统计 (排除已取消)
-            const typeStats = await db.query(`
-                SELECT 
+            // 三个查询相互独立，使用 Promise.all 并行执行，
+            // 减少 Neon serverless 多次往返带来的累计延迟
+            const [typeStats, monthlyStats, schedules] = await Promise.all([
+                // 1. 按类型的聚合统计 (排除已取消)
+                db.query(`
+                SELECT
                     COALESCE(sty.description, sty.name) as type,
                     COUNT(*)::int as count
                 FROM course_arrangement ca
@@ -399,11 +402,11 @@ const studentController = {
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate]),
 
-            // 2. 获取每月课程数统计 (柱状图所需)
-            const monthlyStats = await db.query(`
-                SELECT 
+                // 2. 每月课程数统计 (柱状图所需)
+                db.query(`
+                SELECT
                     TO_CHAR(${dateExpr}, 'YYYY-MM') as month,
                     COUNT(*)::int as count
                 FROM course_arrangement ca
@@ -412,12 +415,11 @@ const studentController = {
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY TO_CHAR(${dateExpr}, 'YYYY-MM')
                 ORDER BY month
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate]),
 
-            // 3. 获取所有课程明细 (用于统计页下方的表格，此时已经过滤了日期)
-            // 之前是前端全量拉取，现在我们也在这里一并返回过滤后的结果
-            const schedules = await db.query(`
-                SELECT 
+                // 3. 所有课程明细 (用于统计页下方的表格，已过滤日期)
+                db.query(`
+                SELECT
                     ca.id,
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
@@ -433,7 +435,8 @@ const studentController = {
                   AND ${dateExpr} BETWEEN $2 AND $3
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 ORDER BY date DESC, ca.start_time ASC
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate])
+            ]);
 
             res.json({
                 typeStats: typeStats.rows,

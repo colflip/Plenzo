@@ -5,18 +5,12 @@
 (function (window) {
     // 预定义颜色池（用于统计图表）
     const COLOR_POOL = [
-        '#3366CC', // Blue
-        '#FF9933', // Orange
-        '#7C4DFF', // Purple
-        '#B39DDB', // Light Purple
-        '#4E79A7', // Steel Blue
-        '#8E8CD8', // Lavender
-        '#009688', // Teal
-        '#E91E63', // Pink
-        '#FFEB3B', // Yellow
-        '#795548', // Brown
-        '#607D8B', // Blue Grey
-        '#9C27B0'  // Deep Purple
+        '#F472B6', // Pink
+        '#FB923C', // Orange
+        '#6366F1', // Indigo
+        '#14B8A6', // Teal
+        '#FACC15', // Yellow
+        '#A3E635'  // Lime
     ];
 
     const ScheduleTypesStore = {
@@ -73,9 +67,15 @@
             this.idMap.clear();
 
             types.forEach((t, index) => {
-                // 分配颜色（如果后端没存颜色，按顺序分配）
-                // 暂时这里前端分配，后续可以在数据库加 color 字段
-                const color = COLOR_POOL[index % COLOR_POOL.length];
+                // 颜色统一来源：ColorUtils 调色板（按中文描述/名称匹配），
+                // 未命中的动态类型从扩展色池按顺序分配
+                let color = '';
+                try {
+                    if (window.ColorUtils && typeof window.ColorUtils.getLegendColor === 'function') {
+                        color = window.ColorUtils.getLegendColor(t.description || t.name);
+                    }
+                } catch (_) { }
+                if (!color) color = COLOR_POOL[index % COLOR_POOL.length];
 
                 const typeObj = {
                     ...t,

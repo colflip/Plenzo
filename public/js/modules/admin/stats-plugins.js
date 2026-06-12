@@ -9,20 +9,19 @@
     }
   }
 
-  // 现代化配色方案 - 与 admin-statistics.css 保持一致
-  // 主色: #2ECC71 (Green)
-  // 辅色: #3498DB (Blue), #9B59B6 (Purple), #F1C40F (Yellow), #E74C3C (Red), #1ABC9C (Teal)
+  // 现代化配色方案 - 与 color-utils.js 扩展色池保持一致
+  // 仅作为 getLegendColor 不可用时的兜底
   const ACCESSIBLE_PALETTE = [
-    '#2ECC71', // Green (Primary)
-    '#3498DB', // Blue
-    '#9B59B6', // Purple
-    '#F1C40F', // Yellow
-    '#E74C3C', // Red
-    '#1ABC9C', // Teal
-    '#E67E22', // Orange
-    '#34495E', // Navy
-    '#95A5A6', // Gray
-    '#16A085'  // Dark Teal
+    '#2563EB', // Blue (Primary)
+    '#10B981', // Emerald
+    '#8B5CF6', // Violet
+    '#06B6D4', // Cyan
+    '#F59E0B', // Amber
+    '#F472B6', // Pink
+    '#FB923C', // Orange
+    '#6366F1', // Indigo
+    '#14B8A6', // Teal
+    '#94A3B8'  // Slate
   ];
 
   // 全局配置 Chart.js 默认字体
@@ -32,10 +31,17 @@
     if (window.Chart && Chart.defaults) {
       Chart.defaults.font.family = chartFont;
       Chart.defaults.color = '#64748b'; // slate-500
-      Chart.defaults.scale.grid.color = '#f1f5f9'; // slate-100
-      Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(30, 41, 59, 0.9)'; // slate-800
-      Chart.defaults.plugins.tooltip.padding = 10;
+      Chart.defaults.scale.grid.color = 'rgba(15, 23, 42, 0.06)';
+      // 浅色现代 tooltip，与卡片设计语言一致
+      Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(255, 255, 255, 0.96)';
+      Chart.defaults.plugins.tooltip.titleColor = '#1F2937';
+      Chart.defaults.plugins.tooltip.bodyColor = '#4B5563';
+      Chart.defaults.plugins.tooltip.footerColor = '#1F2937';
+      Chart.defaults.plugins.tooltip.borderColor = '#E5E7EB';
+      Chart.defaults.plugins.tooltip.borderWidth = 1;
+      Chart.defaults.plugins.tooltip.padding = 12;
       Chart.defaults.plugins.tooltip.cornerRadius = 8;
+      Chart.defaults.plugins.tooltip.usePointStyle = true;
     }
   } catch (_) { }
 
@@ -430,15 +436,28 @@
       // 计算异常值边界
       const clampMax = computeClampMaxFromSeries(normalizedStacks);
 
-      const datasets = normalizedStacks.map((s, i) => ({
-        label: s.label,
-        data: sanitizeArray(s.data),
-        backgroundColor: colorFor(s.label, i),
-        borderColor: colorFor(s.label, i),
-        borderWidth: 1,
-        barPercentage: 0.85,
-        categoryPercentage: 0.9
-      }));
+      // 堆叠面积图数据集：平滑曲线 + 半透明填充，悬停才显示数据点
+      // stack: 'types' 与总计线的 stack 分组隔离，避免总计被叠加计算
+      const datasets = normalizedStacks.map((s, i) => {
+        const color = colorFor(s.label, i);
+        return {
+          label: s.label,
+          data: sanitizeArray(s.data),
+          borderColor: color,
+          backgroundColor: addAlpha(color, 0.78),
+          borderWidth: 1.5,
+          fill: i === 0 ? 'origin' : '-1',
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 10,
+          pointBackgroundColor: color,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1.5,
+          spanGaps: true,
+          stack: 'types'
+        };
+      });
 
       // 可选：添加总计折线图叠加
       if (opts.showTotalLine) {
@@ -471,14 +490,16 @@
           pointHoverBackgroundColor: pointColor,
           pointHoverBorderWidth: 2,
           fill: false,
-          order: 0,                        // 折线显示在柱状图上方
-          z: 10                            // 确保层级最高
+          order: 0,                        // 折线显示在面积图上方
+          z: 10,                           // 确保层级最高
+          stack: 'total',                  // 独立 stack 分组，不与类型面积叠加
+          $isTotalLine: true
         });
       }
 
-      // 创建图表配置
+      // 创建图表配置（堆叠面积图）
       const chartConfig = {
-        type: 'bar',
+        type: 'line',
         data: {
           labels: formattedLabels,
           datasets
@@ -512,18 +533,11 @@
                     const newIndex = current === idx ? null : idx;
                     chart.$highlightIndex = newIndex;
                     chart.data.datasets.forEach((ds, di) => {
-                      const base = ds.backgroundColor;
-                      if (newIndex == null) {
-                        ds.backgroundColor = base;
-                        ds.borderColor = base;
-                      } else if (di === newIndex) {
-                        ds.backgroundColor = base;
-                        ds.borderColor = base;
-                      } else {
-                        const dim = addAlpha(base, 0.25);
-                        ds.backgroundColor = dim;
-                        ds.borderColor = dim;
-                      }
+                      if (ds.$isTotalLine) return;
+                      const base = colorFor(ds.label, di);
+                      const active = (newIndex == null) || (di === newIndex);
+                      ds.borderColor = active ? base : addAlpha(base, 0.2);
+                      ds.backgroundColor = active ? addAlpha(base, 0.78) : addAlpha(base, 0.12);
                     });
                     chart.update();
                     return;
@@ -556,13 +570,6 @@
             },
             tooltip: {
               enabled: true,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              titleColor: '#fff',
-              bodyColor: '#fff',
-              borderColor: 'rgba(255, 255, 255, 0.2)',
-              borderWidth: 1,
-              padding: 10,
-              cornerRadius: 6,
               callbacks: {
                 title: function (tooltipItems) {
                   // 将日期格式化为 YYYY年MM月DD日
@@ -631,8 +638,9 @@
                 display: false  // Explicitly hide y-axis title (no labels)
               },
               grid: {
-                color: 'rgba(0,0,0,0.08)'
+                color: 'rgba(15, 23, 42, 0.06)'
               },
+              border: { display: false },
               ticks: {
                 precision: 0 // 确保Y轴显示整数
               }

@@ -13,12 +13,13 @@ export async function initStatisticsSection() {
     setupEventListeners();
 
     try {
-        // Parallel load for better performance
-        // Start with summary for immediate feedback
-        await loadTeachingSummary();
-
-        // Load details in background without blocking
-        loadTeachingCount();
+        // 并发发起两个请求，避免明细请求等待汇总完成（消除前端瀑布）：
+        //  - loadTeachingSummary：汇总卡片 + 每日图表（主视图）
+        //  - loadTeachingCount：明细列表/表格（次视图）
+        // 二者命中不同接口，可同时进行；渲染结果一致。
+        const summaryPromise = loadTeachingSummary();
+        const detailPromise = loadTeachingCount();
+        await Promise.allSettled([summaryPromise, detailPromise]);
     } catch (error) {
         updateDisplay({ schedules: [], typeStats: {} }, '', '');
     }
