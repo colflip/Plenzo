@@ -174,7 +174,17 @@ export async function loadSchedules(baseDate, showLoading = true) {
         const style = document.createElement('style');
         style.id = 'single-row-fix-style';
         style.innerHTML = `
-            #schedules .weekly-schedule-table thead th:first-child,
+            /* 单行视图：首格不再 sticky。
+               表头首格与其它日期表头同为浅灰 #F8F9FA（修复首格白底不一致）；
+               表体首格保持透明，与同行其它单元格一致。 */
+            #schedules .weekly-schedule-table thead th:first-child {
+                width: auto !important;
+                position: static !important;
+                background-color: #F8F9FA !important;
+                border-right: 1px solid #E5E7EB !important;
+                z-index: auto !important;
+                min-width: 140px; /* Essential for cell width consistency */
+            }
             #schedules .weekly-schedule-table tbody td:first-child {
                 width: auto !important;
                 position: static !important;

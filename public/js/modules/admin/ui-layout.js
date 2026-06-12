@@ -7,20 +7,14 @@
 export function setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
-        item.addEventListener('click', async (e) => {
+        item.addEventListener('click', (e) => {
             e.preventDefault();
             // 使用 currentTarget 确保点击图标/文字也能正确读到 data-section
             const section = e.currentTarget.dataset.section;
             if (section) {
-                // 数据加载由 showSection 统一在切换可见区后触发；此处仅做不影响可见性的预处理。
-                // 关键：不要在这里 await 任何数据请求，否则 section 还处于 display:none 时
-                // 表格容器无法承载加载遮罩，用户进入页面时看不到过渡动画。
-                try {
-                    if (section === 'overview') {
-                        // overview 没有遮罩需求，可保持原样
-                        if (window.loadOverviewStats) await window.loadOverviewStats();
-                    }
-                } catch (_) { }
+                // 数据加载由 showSection 统一在切换可见区后触发（非阻塞）。
+                // 关键：此处不要 await 任何数据请求，否则区块还是 display:none 时
+                // 就会卡在网络请求上，导致“点击没反应/要等很久才跳转”，且会重复加载。
                 showSection(section);
             }
         });

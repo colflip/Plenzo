@@ -715,10 +715,11 @@ const teacherController = {
             // 获取日期表达式（带缓存）
             const dateExpr = await getDateExpr('ca');
 
-            // 使用一个统一查询获取类型统计和每日统计，减少DB往返
-            // 先获取类型统计
-            const typeStatsResult = await db.query(`
-                SELECT 
+            // 三个查询相互独立，使用 Promise.all 并行执行，
+            // 减少 Neon serverless 多次往返带来的累计延迟
+            const [typeStatsResult, dailyStatsResult, monthlyStatsResult] = await Promise.all([
+                db.query(`
+                SELECT
                     COALESCE(sty.description, sty.name) as type,
                     COUNT(*) as count
                 FROM course_arrangement ca
@@ -728,10 +729,9 @@ const teacherController = {
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate]),
 
-            // 然后获取每日统计（不需要额外的日期表达式调用）
-            const dailyStatsResult = await db.query(`
+                db.query(`
                 SELECT
                     to_char(DATE_TRUNC('day', ${dateExpr}), 'YYYY-MM-DD') as date,
                     COALESCE(sty.description, sty.name) as type,
@@ -743,12 +743,10 @@ const teacherController = {
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY DATE_TRUNC('day', ${dateExpr}), COALESCE(sty.description, sty.name)
                 ORDER BY date, count DESC
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate]),
 
-            // monthlyStats is optional - only compute if explicitly needed
-            // For now we'll compute it efficiently
-            const monthlyStatsResult = await db.query(`
-                SELECT 
+                db.query(`
+                SELECT
                     DATE_TRUNC('month', ${dateExpr}) as month,
                     COUNT(*) as count
                 FROM course_arrangement ca
@@ -757,7 +755,8 @@ const teacherController = {
                   AND ca.status NOT IN ('cancelled', '0', 'modified_away')
                 GROUP BY DATE_TRUNC('month', ${dateExpr})
                 ORDER BY month
-            `, [req.user.id, startDate, endDate]);
+            `, [req.user.id, startDate, endDate])
+            ]);
 
             res.json({
                 typeStats: typeStatsResult.rows,

@@ -26,8 +26,10 @@ export function convertUserStatsToStackData(stats, limit = 15) {
         return total > 0;
     });
 
-    // 按ID升序排列并截取
-    const sortedStats = [...filteredStats].sort((a, b) => Number(a.id || 0) - Number(b.id || 0)).slice(0, limit);
+    // 按ID升序排列，最多显示 SUMMARY_MAX_SLOTS (15) 人
+    const maxDisplay = typeof SUMMARY_MAX_SLOTS !== 'undefined' ? SUMMARY_MAX_SLOTS : 15;
+    const effectiveLimit = Math.min(limit, maxDisplay);
+    const sortedStats = [...filteredStats].sort((a, b) => Number(a.id || 0) - Number(b.id || 0)).slice(0, effectiveLimit);
 
     // 收集所有类型
     const allTypes = new Set();
@@ -84,8 +86,60 @@ export function getDefaultSchedules() {
     return schedules;
 }
 
+// --- 统一图表视觉常量 ---
+// 浅色现代 tooltip，与卡片设计语言一致
+const MODERN_TOOLTIP = {
+    enabled: true,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    titleColor: '#1F2937',
+    bodyColor: '#4B5563',
+    footerColor: '#1F2937',
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    padding: 12,
+    cornerRadius: 8,
+    boxPadding: 4,
+    usePointStyle: true
+};
+
+// 汇总横向柱图：最多显示15人
+const SUMMARY_MAX_SLOTS = 15;
+// 每行像素高度（柱 22px + 间距）与图例/坐标轴的额外高度
+const SUMMARY_ROW_PX = 34;
+const SUMMARY_EXTRA_PX = 120;
+
+// 两个汇总（教师/学生）按"较多人数"对齐：较多者不补空，较少者前部补空使真实数据沉底。
+// 取各 stack 的实际人数最大值作为共享目标槽位数。
+export function computeSummarySlotTarget(...stacks) {
+    return stacks.reduce((m, s) => Math.max(m, (s && Array.isArray(s.labels)) ? s.labels.length : 0), 0);
+}
+
+// 人数不足 targetSlots 时，在 labels/datasets 前部补空占位，使真实数据沉到底部。
+// 不传 targetSlots 或目标≤自身人数时不补空（单图独立渲染场景）。
+function padStackToBottom(stackData, targetSlots) {
+    const labels = (stackData && stackData.labels) ? stackData.labels : [];
+    const target = Math.max(Number(targetSlots) || 0, 0);
+    if (!labels.length || labels.length >= target) return stackData;
+    const pad = target - labels.length;
+    return {
+        ...stackData,
+        labels: [...new Array(pad).fill(''), ...labels],
+        datasets: (stackData.datasets || []).map(ds => ({
+            ...ds,
+            data: [...new Array(pad).fill(0), ...(ds.data || [])]
+        }))
+    };
+}
+
+// 容器高度交由 CSS（.chart-box aspect-ratio）控制，保持三图正方形等大。
+// 保留函数签名以兼容调用点，但不再强制内联高度。
+function sizeSummaryChartBox(_canvasEl, _slots) {
+    /* no-op: 高度由 CSS aspect-ratio 决定 */
+}
+
 // 绘制学生参与统计图表
-export function renderStudentTypeStackedChart(stackData) {
+// slotTarget：与教师汇总图对齐的共享槽位数（人数少的一方补空沉底）
+export function renderStudentTypeStackedChart(stackData, slotTarget) {
     if (!isChartAvailable()) return;
     const el = document.getElementById('studentParticipationChart');
     if (!el) return;
@@ -118,14 +172,20 @@ export function renderStudentTypeStackedChart(stackData) {
         return c;
     };
 
+    // 与另一汇总图按较多人数对齐：人数少则前部补空沉底
+    const target = Math.max(Number(slotTarget) || 0, (stackData.labels || []).length);
+    stackData = padStackToBottom(stackData, target);
+    sizeSummaryChartBox(el, target);
+
     const datasets = stackData.datasets.map((ds) => ({
         ...ds,
         backgroundColor: getLegendColor(ds.label),
         borderColor: getLegendColor(ds.label),
         borderWidth: 0,
-        borderRadius: 8,
-        barPercentage: 0.9,
-        categoryPercentage: 0.9
+        borderRadius: 6,
+        maxBarThickness: 24,
+        barPercentage: 0.85,
+        categoryPercentage: 0.85
     }));
 
     new window.Chart(ctx, {
@@ -185,15 +245,16 @@ export function renderStudentTypeStackedChart(stackData) {
                         chart.update();
                     }
                 },
-                // 标题字体统一由 Chart.defaults.font 以及 CSS 变量驱动
-                title: { display: true, text: '学生上课汇总' },
-                tooltip: { enabled: true }
+                // 标题外置为 HTML h4，统一排版
+                title: { display: false },
+                tooltip: MODERN_TOOLTIP
             },
             scales: {
-                x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(55,65,81,0.08)' } },
+                x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(15,23,42,0.06)' }, border: { display: false } },
                 y: {
                     stacked: true,
                     grid: { display: false },
+                    border: { display: false },
                     ticks: {
                         autoSkip: false,  // Show all labels, don't skip any
                         font: (context) => {
@@ -401,25 +462,26 @@ export function getLegendColor(name) {
         return window.ScheduleTypesStore.getColor(name);
     }
 
-    // Fallback logic if store not ready
+    // Fallback logic if store not ready（与 color-utils.js 保持一致）
     const key = String(name || '').trim();
     const LEGEND_COLOR_MAP = {
-        '入户': '#3366CC',
-        '试教': '#FF9933',
-        '评审': '#7C4DFF',
-        '评审记录': '#B39DDB',
-        '心理咨询': '#33CC99',
-        '线上辅导': '#0099C6',
-        '线下辅导': '#5C6BC0',
-        '集体活动': '#DC3912',
-        '半次入户': '#4E79A7',
-        '家访': '#8E8CD8',
-        '未分类': '#A0A0A0'
+        '评审': '#2563EB',
+        '(线上)评审': '#60A5FA',
+        '评审记录': '#93C5FD',
+        '入户': '#10B981',
+        '(线上)入户': '#34D399',
+        '半次入户': '#6EE7B7',
+        '咨询': '#8B5CF6',
+        '(线上)咨询': '#A78BFA',
+        '咨询记录': '#C4B5FD',
+        '试教': '#06B6D4',
+        '集体活动': '#F59E0B',
+        '未分类': '#94A3B8'
     };
     if (key && LEGEND_COLOR_MAP[key]) return LEGEND_COLOR_MAP[key];
 
     const hash = Array.from(key).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    const fallback = ['#3366CC', '#FF9933', '#33CC99', '#CC33FF', '#0099C6', '#DC3912', '#7C4DFF', '#5C6BC0', '#66AA00', '#A0A0A0'];
+    const fallback = ['#F472B6', '#FB923C', '#6366F1', '#14B8A6', '#FACC15', '#A3E635'];
     return fallback[hash % fallback.length];
 }
 
@@ -429,7 +491,8 @@ window.getLegendColor = getLegendColor;
 window.__StatsUtils = { buildTeacherTypeStack, buildStudentTypeStack };
 
 // 绘制教师类型堆叠图
-export function renderTeacherTypeStackedChart(stackData) {
+// slotTarget：与学生汇总图对齐的共享槽位数（人数少的一方补空沉底）
+export function renderTeacherTypeStackedChart(stackData, slotTarget) {
     if (!isChartAvailable()) return;
     const el = document.getElementById('teacherTypeStackedChart');
     if (!el) return;
@@ -462,14 +525,20 @@ export function renderTeacherTypeStackedChart(stackData) {
         return c;
     };
 
+    // 与另一汇总图按较多人数对齐：人数少则前部补空沉底
+    const target = Math.max(Number(slotTarget) || 0, (stackData.labels || []).length);
+    stackData = padStackToBottom(stackData, target);
+    sizeSummaryChartBox(el, target);
+
     const datasets = stackData.datasets.map((ds) => ({
         ...ds,
         backgroundColor: getLegendColor(ds.label),
         borderColor: getLegendColor(ds.label),
         borderWidth: 0,
-        borderRadius: 8,
-        barPercentage: 0.9,
-        categoryPercentage: 0.9
+        borderRadius: 6,
+        maxBarThickness: 24,
+        barPercentage: 0.85,
+        categoryPercentage: 0.85
     }));
 
     new window.Chart(ctx, {
@@ -526,14 +595,16 @@ export function renderTeacherTypeStackedChart(stackData) {
                         chart.update();
                     }
                 },
-                title: { display: true, text: '教师授课汇总' },
-                tooltip: { enabled: true }
+                // 标题外置为 HTML h4，统一排版
+                title: { display: false },
+                tooltip: MODERN_TOOLTIP
             },
             scales: {
-                x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(55,65,81,0.08)' } },
+                x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(15,23,42,0.06)' }, border: { display: false } },
                 y: {
                     stacked: true,
                     grid: { display: false },
+                    border: { display: false },
                     ticks: {
                         autoSkip: false,
                         font: (context) => {
@@ -553,47 +624,10 @@ export function renderTeacherTypeStackedChart(stackData) {
 }
 
 // 绘制学生参与度图表
-export function renderStudentParticipationChart(stackData) {
-    if (!isChartAvailable()) return;
-    const el = document.getElementById('studentParticipationChart');
-    if (!el) return;
-    const prev = window.Chart.getChart(el);
-    if (prev) try { prev.destroy(); } catch (_) { }
-    const ctx = el.getContext('2d');
-
-    const datasets = stackData.datasets.map((ds) => ({
-        ...ds,
-        backgroundColor: getLegendColor(ds.label),
-        borderColor: getLegendColor(ds.label),
-        borderWidth: 0,
-        borderRadius: 4,
-        barPercentage: 0.8,
-        categoryPercentage: 0.8
-    }));
-
-    new window.Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: stackData.labels,
-            datasets
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { usePointStyle: true, boxWidth: 10 }
-                },
-                title: { display: true, text: '学生上课统计' },
-                tooltip: { enabled: true }
-            },
-            scales: {
-                x: { stacked: true, grid: { display: false } },
-                y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(55,65,81,0.08)' } }
-            }
-        }
-    });
+// 与 renderStudentTypeStackedChart 渲染同一画布（studentParticipationChart），
+// 仅入口不同（overview.js vs legacy-adapter.js）。统一委托，保证两条路径外观一致。
+export function renderStudentParticipationChart(stackData, slotTarget) {
+    return renderStudentTypeStackedChart(stackData, slotTarget);
 }
 
 
@@ -631,27 +665,69 @@ export function renderScheduleTypeChart(data) {
     };
 
     const normalizedData = Array.isArray(data) ? data : (data?.scheduleTypeDistribution || []);
-    const labels = normalizedData.map(item => item.type);
-    const counts = normalizedData.map(item => parseInt(item.count) || 0);
+    // 从大到小排列，未分类永远置于最后
+    const sorted = normalizedData
+        .map(item => ({ type: item.type, count: parseInt(item.count) || 0 }))
+        .sort((a, b) => {
+            if (a.type === '未分类') return 1;
+            if (b.type === '未分类') return -1;
+            return b.count - a.count;
+        });
+    const labels = sorted.map(item => item.type);
+    const counts = sorted.map(item => item.count);
     const total = counts.reduce((a, b) => a + b, 0);
     const baseColors = labels.map(l => getLegendColor(l));
 
+    // 中心文字：默认显示总课时，悬停分段时切换为该类型详情
+    const centerTextPlugin = {
+        id: 'doughnutCenterText',
+        afterDraw: (chart) => {
+            const area = chart.chartArea;
+            if (!area) return;
+            const cx = (area.left + area.right) / 2;
+            const cy = (area.top + area.bottom) / 2;
+            let main = String(total);
+            let sub = '总课时';
+            const active = chart.getActiveElements ? chart.getActiveElements() : [];
+            if (active && active.length) {
+                const i = active[0].index;
+                const v = chart.data.datasets[0].data[i] || 0;
+                const pct = total > 0 ? ((v / total) * 100).toFixed(1) : 0;
+                main = String(v);
+                sub = `${chart.data.labels[i]} · ${pct}%`;
+            }
+            const c = chart.ctx;
+            c.save();
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.font = "700 30px 'Inter', sans-serif";
+            c.fillStyle = '#1F2937';
+            c.fillText(main, cx, cy - 10);
+            c.font = "500 13px 'Inter', sans-serif";
+            c.fillStyle = '#9CA3AF';
+            c.fillText(sub, cx, cy + 16);
+            c.restore();
+        }
+    };
+
     new window.Chart(ctx, {
         type: 'doughnut',
+        plugins: [centerTextPlugin],
         data: {
             labels,
             datasets: [{
                 data: counts,
                 backgroundColor: baseColors.slice(),
-                borderColor: 'transparent',
-                borderWidth: 0,
-                hoverOffset: 15
+                borderColor: '#FFFFFF',
+                borderWidth: 2,
+                borderRadius: 4,
+                hoverOffset: 8
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '55%',
+            cutout: '68%',
             plugins: {
                 legend: {
                     position: 'bottom',
@@ -661,7 +737,7 @@ export function renderScheduleTypeChart(data) {
                         padding: 14,
                         color: '#374151',
                         font: {},
-                        // 在图例标签中显示百分比
+                        // 图例显示数量与百分比：入户 · 124 (38%)
                         generateLabels: (chart) => {
                             const data = chart.data;
                             if (!data.labels.length) return [];
@@ -670,7 +746,7 @@ export function renderScheduleTypeChart(data) {
                                 const value = data.datasets[0].data[i];
                                 const percent = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
                                 return {
-                                    text: `${label} (${percent}%)`,
+                                    text: `${label} · ${value} (${percent}%)`,
                                     fillStyle: data.datasets[0].backgroundColor[i],
                                     strokeStyle: 'transparent',
                                     hidden: !chart.getDataVisibility(i),
@@ -706,9 +782,10 @@ export function renderScheduleTypeChart(data) {
                         chart.update();
                     }
                 },
-                title: { display: true, text: '课程类型分布' },
+                // 标题外置为 HTML h4
+                title: { display: false },
                 tooltip: {
-                    enabled: true,
+                    ...MODERN_TOOLTIP,
                     callbacks: {
                         label: (context) => {
                             const value = context.parsed || 0;
@@ -848,6 +925,187 @@ export function aggregateCountsByDate(rows, dayLabels, dateField = 'date') {
 
 
 
+// --- 详情信息卡（教师/学生 tab 内每人一张卡，整行显示） ---
+// 卡片含：姓名+总数、类型占比条、文本图例、折算汇总，以及一张
+// 按类型堆叠的每日明细图（X=日期 / Y=数量），完整展示该人所有数据。
+function renderPersonInfoCard(container, opts) {
+    const {
+        cardClass,       // 'teacher-chart' / 'student-chart'（保留原类名供清理选择器使用）
+        canvasId,
+        displayName,
+        paused,
+        personRows,
+        dayLabels,
+        typeOrder,       // 全局类型顺序，保证卡片间颜色/顺序一致
+        mapTypeLabel,
+        convertedText    // 折算汇总文本（业务口径，可为空）
+    } = opts;
+
+    // 按类型聚合本人课时
+    const typeCountMap = new Map();
+    personRows.forEach(r => {
+        const typesStr = String(r.schedule_types || '').trim();
+        const types = typesStr ? typesStr.split(',') : ['未分类'];
+        types.forEach(t => {
+            const label = mapTypeLabel(t);
+            typeCountMap.set(label, (typeCountMap.get(label) || 0) + 1);
+        });
+    });
+    const orderedTypes = typeOrder.filter(t => typeCountMap.has(t));
+    const total = Array.from(typeCountMap.values()).reduce((a, b) => a + b, 0);
+
+    const card = document.createElement('div');
+    card.className = `person-stat-card ${cardClass}` + (paused ? ' person-paused' : '');
+
+    // 单行信息：姓名 + 总数 + 分类课程数 + 折算课程数
+    const header = document.createElement('div');
+    header.className = 'person-card-header';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'person-name';
+    nameEl.textContent = displayName + (paused ? '（暂停）' : '');
+    header.appendChild(nameEl);
+
+    const badge = document.createElement('span');
+    badge.className = 'person-total-badge';
+    badge.textContent = `共 ${total} 节`;
+    header.appendChild(badge);
+
+    // 分类课程数（色点 + 类型 + 数量）
+    const legend = document.createElement('span');
+    legend.className = 'person-type-legend';
+    orderedTypes.forEach(t => {
+        const item = document.createElement('span');
+        item.className = 'person-legend-item';
+        const dot = document.createElement('i');
+        dot.className = 'person-legend-dot';
+        dot.style.backgroundColor = getLegendColor(t);
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode(`${t} ${typeCountMap.get(t)}`));
+        legend.appendChild(item);
+    });
+    header.appendChild(legend);
+
+    // 折算后课程数
+    if (convertedText) {
+        const conv = document.createElement('span');
+        conv.className = 'person-converted';
+        conv.textContent = `折算：${convertedText}`;
+        header.appendChild(conv);
+    }
+
+    card.appendChild(header);
+
+    // 每日明细图：整行显示，按类型堆叠，X=日期 / Y=数量（节）
+    const chartWrap = document.createElement('div');
+    chartWrap.className = 'person-daily-chart';
+    const canvas = document.createElement('canvas');
+    canvas.id = canvasId;
+    chartWrap.appendChild(canvas);
+    card.appendChild(chartWrap);
+
+    container.appendChild(card);
+
+    try {
+        // 按 日期 -> 类型 -> 数量 聚合
+        const dateTypeMap = new Map(dayLabels.map(d => [d, new Map()]));
+        personRows.forEach(r => {
+            const d = String(r.date || '').slice(0, 10);
+            if (!dateTypeMap.has(d)) return;
+            const typesStr = String(r.schedule_types || '').trim();
+            const types = typesStr ? typesStr.split(',') : ['未分类'];
+            const tm = dateTypeMap.get(d);
+            types.forEach(t => {
+                const label = mapTypeLabel(t);
+                tm.set(label, (tm.get(label) || 0) + 1);
+            });
+        });
+
+        // 每个类型一个堆叠数据集（沿用全局类型顺序与配色）
+        const datasets = orderedTypes.map(label => ({
+            label,
+            data: dayLabels.map(d => dateTypeMap.get(d).get(label) || 0),
+            backgroundColor: getLegendColor(label),
+            borderColor: getLegendColor(label),
+            borderWidth: 0,
+            borderRadius: 4,
+            maxBarThickness: 26
+        }));
+
+        // 日期标签格式：跨年 YYYY-MM-DD / 跨月 MM-DD / 同月 DD
+        const fmtDate = (() => {
+            const ds = dayLabels.map(s => new Date(s));
+            const ys = ds.map(d => d.getFullYear());
+            const ms = ds.map(d => d.getMonth());
+            const multiYear = Math.max(...ys) > Math.min(...ys);
+            const multiMonth = multiYear || Math.max(...ms) > Math.min(...ms);
+            return dayLabels.map(s => {
+                const d = new Date(s);
+                if (multiYear) return s;
+                if (multiMonth) return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return String(d.getDate());
+            });
+        })();
+
+        new window.Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels: fmtDate, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    title: { display: false },
+                    tooltip: {
+                        ...MODERN_TOOLTIP,
+                        callbacks: {
+                            title: (items) => {
+                                if (!items || !items.length) return '';
+                                const full = dayLabels[items[0].dataIndex];
+                                const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                                const dt = new Date(full);
+                                return `${full} (${wd[dt.getDay()]})`;
+                            },
+                            label: (ctx) => (ctx.parsed.y > 0 ? `${ctx.dataset.label}: ${ctx.parsed.y} 节` : null),
+                            footer: (items) => {
+                                const sum = items.reduce((a, it) => a + (it.parsed.y || 0), 0);
+                                return sum > 0 ? `总计: ${sum} 节` : '';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { display: false },
+                        border: { display: false },
+                        ticks: {
+                            autoSkip: true,
+                            maxRotation: 0,
+                            color: (ctx) => {
+                                const full = dayLabels[ctx.index];
+                                if (full) {
+                                    const day = new Date(full).getDay();
+                                    if (day === 0 || day === 6) return '#DC2626';
+                                }
+                                return '#64748B';
+                            }
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        grid: { color: 'rgba(15,23,42,0.06)' },
+                        border: { display: false },
+                        ticks: { precision: 0 }
+                    }
+                }
+            }
+        });
+    } catch (_) { }
+}
+
 // 新增：按教师生成多类型光滑曲线图（每位教师一个图）
 export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeacher = '') {
     if (!isChartAvailable()) {
@@ -890,46 +1148,6 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
     });
     const globalTypeOrder = Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label]) => label);
 
-    // 辅助函数：按日期和课程类型聚合数据（用于堆叠柱状图）
-    function aggregateByDateAndType(teacherRows, dayLabels) {
-        // 创建一个 Map: date -> Map(type -> count)
-        const dateTypeMap = new Map();
-        dayLabels.forEach(date => {
-            dateTypeMap.set(date, new Map());
-        });
-
-        teacherRows.forEach(r => {
-            if (!isCountableSchedule(r)) return;
-            const dateStr = String(r.date || '').slice(0, 10);
-            if (!dateStr || !dateTypeMap.has(dateStr)) return;
-
-            const typesStr = String(r.schedule_types || '').trim();
-            const types = typesStr ? typesStr.split(',') : ['未分类'];
-
-            types.forEach(t => {
-                const label = mapTypeLabel(t);
-                const typeMap = dateTypeMap.get(dateStr);
-                typeMap.set(label, (typeMap.get(label) || 0) + 1);
-            });
-        });
-
-        // 为每个课程类型创建一个数据集
-        const datasets = globalTypeOrder.map(typeLabel => {
-            const data = dayLabels.map(date => {
-                const typeMap = dateTypeMap.get(date);
-                return typeMap ? (typeMap.get(typeLabel) || 0) : 0;
-            });
-            return {
-                label: typeLabel,
-                data: data,
-                backgroundColor: getLegendColor(typeLabel),
-                borderRadius: 4
-            };
-        });
-
-        return datasets;
-    }
-
     // 获取教师 id 列表并按状态排序（正常→暂停，删除不显示）
     const teacherIdSet = new Set(rows.map(r => String(r.teacher_id || '').trim()));
     let teachers = Array.from(teacherIdSet);
@@ -963,69 +1181,10 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
         return `t_${h.toString(16)}`;
     };
 
-    // 辅助：根据日期范围格式化日期标签（智能检测跨月/跨年）
-    const formatDateLabels = (labels) => {
-        if (!labels || labels.length === 0) return labels;
-
-        // 解析所有日期
-        const dates = labels.map(dateStr => new Date(dateStr));
-
-        // 获取年份和月份范围
-        const years = dates.map(d => d.getFullYear());
-        const months = dates.map(d => d.getMonth());
-
-        const minYear = Math.min(...years);
-        const maxYear = Math.max(...years);
-        const minMonth = Math.min(...months);
-        const maxMonth = Math.max(...months);
-
-        // 检测是否跨年
-        const spansMultipleYears = maxYear > minYear;
-
-        // 检测是否跨月（同一年内）
-        const spansMultipleMonths = maxMonth > minMonth || spansMultipleYears;
-
-        // 跨年：显示 "YYYY-MM-DD" 格式
-        if (spansMultipleYears) {
-            return labels; // 保持原格式 YYYY-MM-DD
-        }
-
-        // 跨月（但不跨年）：显示 "MM-DD" 格式
-        if (spansMultipleMonths) {
-            return labels.map(dateStr => {
-                const date = new Date(dateStr);
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                return `${month}-${day}`;
-            });
-        }
-
-        // 同一月内：显示 "DD" 格式
-        return labels.map(dateStr => {
-            const date = new Date(dateStr);
-            return String(date.getDate());
-        });
-    };
-
-    // 格式化日期标签
-    const formattedLabels = formatDateLabels(dayLabels);
-
-    // 为每位教师构建按日授课数量柱状图（每位教师一个图）
+    // 为每位教师构建详情信息卡
     teachers.forEach(teacherId => {
         const teacherRows = rows.filter(r => String(r.teacher_id || '') === String(teacherId));
 
-        // 使用堆叠数据集（按课程类型分组）
-        const datasets = aggregateByDateAndType(teacherRows, dayLabels);
-
-
-
-        // DOM：创建图卡片
-        const card = document.createElement('div');
-        card.className = 'chart-container teacher-chart';
-        card.style.position = 'relative'; // For tooltip positioning
-        card.style.height = '320px';
-
-        // 标题文本：老师姓名[数据汇总]
         const st = getStatus(teacherId);
         const displayName = String(nameMap.get(teacherId) || teacherRows.find(r => r.teacher_name)?.teacher_name || '未分配');
 
@@ -1076,209 +1235,24 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
             });
         });
 
-        // 生成汇总文本（仅显示非0的类型）
+        // 生成折算汇总文本（仅显示非0的类型）
         const summary = [];
-        if (typeCounts.visit > 0) summary.push(`入户：${typeCounts.visit}`);
-        if (typeCounts.review > 0) summary.push(`评审：${typeCounts.review}`);
-        if (typeCounts.group > 0) summary.push(`集体活动：${typeCounts.group}`);
-        if (typeCounts.consult > 0) summary.push(`咨询：${typeCounts.consult}`);
+        if (typeCounts.visit > 0) summary.push(`入户 ${typeCounts.visit}`);
+        if (typeCounts.review > 0) summary.push(`评审 ${typeCounts.review}`);
+        if (typeCounts.group > 0) summary.push(`集体活动 ${typeCounts.group}`);
+        if (typeCounts.consult > 0) summary.push(`咨询 ${typeCounts.consult}`);
 
-        const summaryText = summary.length > 0 ? `[${summary.join('，')}]` : '';
-        const titleText = displayName + summaryText + (st === 0 ? '（暂停）' : '');
-
-        // HTML 标题构建逻辑已移除，改由Chart.js统一渲染
-        // 让 Canvas 占据剩余空间并保证宽度
-
-
-
-
-
-
-
-
-        const canvas = document.createElement('canvas');
-        const cid = `teacherDailySeries_${slug(teacherId)}`;
-        canvas.id = cid;
-        // 让 Canvas 占据剩余空间并保证宽度
-        canvas.style.cssText = 'flex: 1; width: 100%; min-height: 0;';
-
-
-        card.appendChild(canvas);
-
-
-
-        container.appendChild(card);
-
-        // 渲染每日授课数量堆叠柱状图
-        try {
-            const ctx = canvas.getContext('2d');
-
-            // Custom plugin to draw mixed-style title
-            const customTitlePlugin = {
-                id: 'customTitle',
-                afterDraw: (chart) => {
-                    const { ctx, width } = chart;
-                    ctx.save();
-
-                    const nameText = displayName + (st === 0 ? '（暂停）' : '');
-                    const dataText = summaryText ? (' ' + summaryText) : '';
-
-                    const nameFont = 'bold 16px "Inter", sans-serif';
-                    // User Request: smaller by 2px (14px) and transparent gray
-                    const dataFont = '14px "Inter", sans-serif';
-                    const nameColor = '#334155'; // slate-700
-                    const dataColor = 'rgba(100, 116, 139, 0.6)'; // slate-500 with opacity
-
-                    ctx.font = nameFont;
-                    const nameWidth = ctx.measureText(nameText).width;
-
-                    ctx.font = dataFont;
-                    const dataWidth = ctx.measureText(dataText).width;
-
-                    const totalWidth = nameWidth + dataWidth;
-                    const startX = (width - totalWidth) / 2;
-                    const y = 20; // Top margin position
-
-                    // Draw Name
-                    ctx.font = nameFont;
-                    ctx.fillStyle = nameColor;
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(nameText, startX, y);
-
-                    // Draw Data
-                    if (dataText) {
-                        ctx.font = dataFont;
-                        ctx.fillStyle = dataColor;
-                        ctx.fillText(dataText, startX + nameWidth, y);
-                    }
-
-                    ctx.restore();
-                }
-            };
-
-            new window.Chart(ctx, {
-                type: 'bar',
-                plugins: [customTitlePlugin],
-                data: {
-                    labels: formattedLabels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    layout: {
-                        padding: {
-                            top: 40, // Increased top padding for custom title
-                            bottom: 10
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'bottom',
-                            align: 'center',
-                            labels: {
-                                boxWidth: 12,
-                                padding: 15,
-                                usePointStyle: true,
-                                generateLabels: function (chart) {
-                                    const data = chart.data;
-                                    if (data.labels.length && data.datasets.length) {
-                                        return data.datasets.map((dataset, i) => {
-                                            // Check if dataset has any data > 0
-                                            const total = dataset.data.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
-                                            if (total <= 0) return null;
-
-                                            return {
-                                                text: dataset.label,
-                                                fillStyle: dataset.backgroundColor,
-                                                strokeStyle: dataset.backgroundColor,
-                                                lineWidth: 0,
-                                                hidden: !chart.isDatasetVisible(i),
-                                                index: i
-                                            };
-                                        }).filter(item => item !== null);
-                                    }
-                                    return [];
-                                }
-                            }
-                        },
-                        title: {
-                            display: false // Use custom draw
-                        },
-                        subtitle: {
-                            display: false
-                        },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                title: function (context) {
-                                    // 显示完整日期
-                                    const index = context[0].dataIndex;
-                                    const fullDate = dayLabels[index];
-                                    const dateObj = new Date(fullDate);
-                                    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-                                    const weekday = weekdays[dateObj.getDay()];
-                                    return `${fullDate} (${weekday})`;
-                                },
-                                label: function (context) {
-                                    const label = context.dataset.label || '';
-                                    const value = context.parsed.y;
-                                    return value > 0 ? `${label}: ${value}节` : null;
-                                },
-                                footer: function (context) {
-                                    // 计算当天总数
-                                    let total = 0;
-                                    context.forEach(item => {
-                                        total += item.parsed.y;
-                                    });
-                                    return total > 0 ? `总计: ${total}节` : '';
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            stacked: true,
-                            beginAtZero: true,
-                            title: {
-                                display: false  // Explicitly hide y-axis title (no teacher name)
-                            },
-                            ticks: {
-                                stepSize: 1
-                            }
-                        },
-                        x: {
-                            stacked: true,
-                            title: {
-                                display: false  // Explicitly hide x-axis title
-                            },
-                            ticks: {
-                                autoSkip: true,
-                                maxRotation: 45,
-                                minRotation: 0,
-                                color: function (context) {
-                                    // 从dayLabels获取完整日期(YYYY-MM-DD)
-                                    const fullDate = dayLabels[context.index];
-                                    if (fullDate) {
-                                        const date = new Date(fullDate); // 直接解析YYYY-MM-DD
-                                        const day = date.getDay();
-                                        // 周六(6)或周日(0)显示红色
-                                        if (day === 0 || day === 6) {
-                                            return '#DC2626'; // 红色
-                                        }
-                                    }
-                                    return '#374151'; // 默认深灰色
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        } catch (e) {
-        }
+        renderPersonInfoCard(container, {
+            cardClass: 'teacher-chart',
+            canvasId: `teacherDailySeries_${slug(teacherId)}`,
+            displayName,
+            paused: st === 0,
+            personRows: teacherRows,
+            dayLabels,
+            typeOrder: globalTypeOrder,
+            mapTypeLabel,
+            convertedText: summary.join(' · ')
+        });
     });
 }
 
@@ -1327,6 +1301,7 @@ window.StatsLogic = {
     getLegendColor,
     renderTeacherTypeStackedChart,
     renderStudentParticipationChart,
+    computeSummarySlotTarget,
     renderScheduleTypeChart,
     renderAllTeachersScheduleBarChart,
     aggregateCountsByDate,
@@ -1344,6 +1319,7 @@ window.buildTeacherTypeStack = buildTeacherTypeStack;
 window.buildStudentTypeStack = buildStudentTypeStack;
 window.renderTeacherTypeStackedChart = renderTeacherTypeStackedChart;
 window.renderStudentParticipationChart = renderStudentParticipationChart;
+window.computeSummarySlotTarget = computeSummarySlotTarget;
 window.renderScheduleTypeChart = renderScheduleTypeChart;
 window.renderAllTeachersScheduleBarChart = renderAllTeachersScheduleBarChart;
 window.aggregateCountsByDate = aggregateCountsByDate;
@@ -1760,46 +1736,6 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
     });
     const globalTypeOrder = Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1]).map(([label]) => label);
 
-    // 辅助函数：按日期和课程类型聚合数据（用于堆叠柱状图）
-    function aggregateByDateAndType(studentRows, dayLabels) {
-        // 创建一个 Map: date -> Map(type -> count)
-        const dateTypeMap = new Map();
-        dayLabels.forEach(date => {
-            dateTypeMap.set(date, new Map());
-        });
-
-        studentRows.forEach(r => {
-            if (!isCountableSchedule(r)) return;
-            const dateStr = String(r.date || '').slice(0, 10);
-            if (!dateStr || !dateTypeMap.has(dateStr)) return;
-
-            const typesStr = String(r.schedule_types || '').trim();
-            const types = typesStr ? typesStr.split(',') : ['未分类'];
-
-            types.forEach(t => {
-                const label = mapTypeLabel(t);
-                const typeMap = dateTypeMap.get(dateStr);
-                typeMap.set(label, (typeMap.get(label) || 0) + 1);
-            });
-        });
-
-        // 为每个课程类型创建一个数据集
-        const datasets = globalTypeOrder.map(typeLabel => {
-            const data = dayLabels.map(date => {
-                const typeMap = dateTypeMap.get(date);
-                return typeMap ? (typeMap.get(typeLabel) || 0) : 0;
-            });
-            return {
-                label: typeLabel,
-                data: data,
-                backgroundColor: getLegendColor(typeLabel),
-                borderRadius: 4
-            };
-        });
-
-        return datasets;
-    }
-
     // 获取学生 id 列表并按状态排序
     const studentIdSet = new Set(rows.map(r => String(r.student_id || '').trim()));
     let students = Array.from(studentIdSet);
@@ -1827,63 +1763,10 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         return `s_${h.toString(16)}`;
     };
 
-    // 辅助：根据日期范围格式化日期标签（智能检测跨月/跨年）
-    const formatDateLabels = (labels) => {
-        if (!labels || labels.length === 0) return labels;
-
-        // 解析所有日期
-        const dates = labels.map(dateStr => new Date(dateStr));
-
-        // 获取年份和月份范围
-        const years = dates.map(d => d.getFullYear());
-        const months = dates.map(d => d.getMonth());
-
-        const minYear = Math.min(...years);
-        const maxYear = Math.max(...years);
-        const minMonth = Math.min(...months);
-        const maxMonth = Math.max(...months);
-
-        // 检测是否跨年
-        const spansMultipleYears = maxYear > minYear;
-
-        // 检测是否跨月（同一年内）
-        const spansMultipleMonths = maxMonth > minMonth || spansMultipleYears;
-
-        // 跨年：显示 "YYYY-MM-DD" 格式
-        if (spansMultipleYears) {
-            return labels; // 保持原格式 YYYY-MM-DD
-        }
-
-        // 跨月（但不跨年）：显示 "MM-DD" 格式
-        if (spansMultipleMonths) {
-            return labels.map(dateStr => {
-                const date = new Date(dateStr);
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                return `${month}-${day}`;
-            });
-        }
-
-        // 同一月内：显示 "DD" 格式
-        return labels.map(dateStr => {
-            const date = new Date(dateStr);
-            return String(date.getDate());
-        });
-    };
-
-    // 格式化日期标签
-    const formattedLabels = formatDateLabels(dayLabels);
-
+    // 为每位学生构建详情信息卡
     students.forEach(studentId => {
         const stuRows = rows.filter(r => String(r.student_id || '') === String(studentId));
-        const datasets = aggregateByDateAndType(stuRows, dayLabels);
 
-        const card = document.createElement('div');
-        card.className = 'chart-container student-chart';
-        card.style.position = 'relative';
-        card.style.height = '320px';
-
-        // card.style.height = '320px'; // 保持原有样式设置
         const st = getStatus(studentId);
         const displayName = String(nameMap.get(studentId) || stuRows.find(r => r.student_name)?.student_name || '未分配');
 
@@ -1931,189 +1814,24 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
             });
         });
 
-        // 生成汇总文本（仅显示非0的类型）
+        // 生成折算汇总文本（仅显示非0的类型）
         const summary = [];
-        if (typeCounts.visit > 0) summary.push(`入户：${typeCounts.visit}`);
-        if (typeCounts.review > 0) summary.push(`评审：${typeCounts.review}`);
-        if (typeCounts.group > 0) summary.push(`集体活动：${typeCounts.group}`);
-        if (typeCounts.consult > 0) summary.push(`咨询：${typeCounts.consult}`);
+        if (typeCounts.visit > 0) summary.push(`入户 ${typeCounts.visit}`);
+        if (typeCounts.review > 0) summary.push(`评审 ${typeCounts.review}`);
+        if (typeCounts.group > 0) summary.push(`集体活动 ${typeCounts.group}`);
+        if (typeCounts.consult > 0) summary.push(`咨询 ${typeCounts.consult}`);
 
-        const summaryText = summary.length > 0 ? `[${summary.join('，')}]` : '';
-
-        const titleText = displayName + summaryText + (st === 0 ? '（暂停）' : '');
-
-        const canvas = document.createElement('canvas');
-        const cid = `studentDailySeries_${slug(studentId)}`;
-        canvas.id = cid;
-
-        card.appendChild(canvas);
-
-        // HTML 标题构建逻辑已移除，改由 Chart.js 统一渲染
-
-        container.appendChild(card);
-
-        try {
-            const ctx = canvas.getContext('2d');
-
-            // Custom plugin to draw mixed-style title for students
-            const customTitlePlugin = {
-                id: 'customStudentTitle',
-                afterDraw: (chart) => {
-                    const { ctx, width } = chart;
-                    ctx.save();
-
-                    const nameText = displayName + (st === 0 ? '（暂停）' : '');
-                    const dataText = summaryText ? (' ' + summaryText) : '';
-
-                    const nameFont = 'bold 16px "Inter", sans-serif';
-                    // User Request: smaller by 2px (14px) and transparent gray
-                    const dataFont = '14px "Inter", sans-serif';
-                    const nameColor = '#334155'; // slate-700
-                    const dataColor = 'rgba(100, 116, 139, 0.6)'; // slate-500 with opacity
-
-                    ctx.font = nameFont;
-                    const nameWidth = ctx.measureText(nameText).width;
-
-                    ctx.font = dataFont;
-                    const dataWidth = ctx.measureText(dataText).width;
-
-                    const totalWidth = nameWidth + dataWidth;
-                    const startX = (width - totalWidth) / 2;
-                    const y = 20; // Top position
-
-                    // Draw Name
-                    ctx.font = nameFont;
-                    ctx.fillStyle = nameColor;
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(nameText, startX, y);
-
-                    // Draw Data
-                    if (dataText) {
-                        ctx.font = dataFont;
-                        ctx.fillStyle = dataColor;
-                        ctx.fillText(dataText, startX + nameWidth, y);
-                    }
-
-                    ctx.restore();
-                }
-            };
-
-            // User Request: if mobile and more than 7 days, auto scroll to keep bars thick
-            if (window.innerWidth < 768 && formattedLabels.length > 7) {
-                const dynamicWidth = formattedLabels.length * 45;
-                ctx.canvas.style.width = dynamicWidth + 'px';
-            }
-
-            new Chart(ctx, {
-                type: 'bar',
-                plugins: [customTitlePlugin],
-                data: {
-                    labels: formattedLabels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    layout: {
-                        padding: { top: 40, bottom: 10 }
-                    },
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    // User Request: increase bar width by 3x on mobile (approx 24px)
-                    // The CSS handles the horizontal scroll via min-width: 1000px
-                    barThickness: (window.innerWidth < 768) ? 24 : undefined,
-                    maxBarThickness: (window.innerWidth < 768) ? 30 : undefined,
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'bottom',
-                            align: 'center',
-                            labels: {
-                                boxWidth: 12,
-                                padding: 15,
-                                usePointStyle: true,
-                                generateLabels: function (chart) {
-                                    const data = chart.data;
-                                    if (data.labels.length && data.datasets.length) {
-                                        return data.datasets.map((dataset, i) => {
-                                            const total = dataset.data.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
-                                            if (total <= 0) return null;
-                                            return {
-                                                text: dataset.label,
-                                                fillStyle: dataset.backgroundColor,
-                                                strokeStyle: dataset.backgroundColor,
-                                                lineWidth: 0,
-                                                hidden: !chart.isDatasetVisible(i),
-                                                index: i
-                                            };
-                                        }).filter(item => item !== null);
-                                    }
-                                    return [];
-                                }
-                            }
-                        },
-                        title: {
-                            display: false
-                        },
-                        subtitle: {
-                            display: false
-                        },
-                        subtitle: {
-                            display: false
-                        }, tooltip: {
-                            callbacks: {
-                                title: (context) => context[0].label,
-                                label: (context) => {
-                                    let label = context.dataset.label || '';
-                                    if (label) label += ': ';
-                                    if (context.parsed.y !== null) label += context.parsed.y + '节';
-                                    return label;
-                                },
-                                footer: (context) => {
-                                    let total = 0;
-                                    context.forEach(item => total += item.parsed.y);
-                                    return total > 0 ? `总计: ${total}节` : '';
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            stacked: true,
-                            beginAtZero: true,
-                            title: { display: false },
-                            ticks: { stepSize: 1 }
-                        },
-                        x: {
-                            stacked: true,
-                            title: { display: false },
-                            ticks: {
-                                autoSkip: true,
-                                maxRotation: 45,
-                                minRotation: 0,
-                                color: function (context) {
-                                    // 从dayLabels获取完整日期(YYYY-MM-DD)
-                                    const fullDate = dayLabels[context.index];
-                                    if (fullDate) {
-                                        const date = new Date(fullDate); // 直接解析YYYY-MM-DD
-                                        const day = date.getDay();
-                                        // 周六(6)或周日(0)显示红色
-                                        if (day === 0 || day === 6) {
-                                            return '#DC2626'; // 红色
-                                        }
-                                    }
-                                    return '#374151'; // 默认深灰色
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        } catch (e) {
-        }
+        renderPersonInfoCard(container, {
+            cardClass: 'student-chart',
+            canvasId: `studentDailySeries_${slug(studentId)}`,
+            displayName,
+            paused: st === 0,
+            personRows: stuRows,
+            dayLabels,
+            typeOrder: globalTypeOrder,
+            mapTypeLabel,
+            convertedText: summary.join(' · ')
+        });
     });
 }
 

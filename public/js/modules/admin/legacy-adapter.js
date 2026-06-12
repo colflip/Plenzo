@@ -1257,8 +1257,12 @@ async function loadStatistics() {
                     // 4. Render - 延迟一小段时间确保 DOM 稳定（特别是 Canvas 尺寸）
                     setTimeout(() => {
                         renderScheduleTypeChart(scheduleDist);
-                        renderTeacherTypeStackedChart(tStack);
-                        renderStudentTypeStackedChart(sStack);
+                        // 两个汇总图按较多人数对齐：人数少的一方补空沉底
+                        const summarySlots = (window.StatsLogic && window.StatsLogic.computeSummarySlotTarget)
+                            ? window.StatsLogic.computeSummarySlotTarget(tStack, sStack)
+                            : Math.max((tStack.labels || []).length, (sStack.labels || []).length);
+                        renderTeacherTypeStackedChart(tStack, summarySlots);
+                        renderStudentTypeStackedChart(sStack, summarySlots);
 
                         // 5. Trigger animations - 嵌套 rAF 确保浏览器完成绘制
                         requestAnimationFrame(() => {
@@ -1579,104 +1583,10 @@ function getDefaultStudentStack() {
 
 
 function renderScheduleTypeChart(data) {
-    if (!isChartAvailable()) return;
-    const canvasId = 'scheduleTypeChart';
-    const el = document.getElementById(canvasId);
-    if (!el) return;
-
-    // Destroy previous chart instance if it exists
-    const oldChart = window.Chart.getChart(el);
-    if (oldChart) oldChart.destroy();
-
-    // Data normalization
-    const normalizedData = Array.isArray(data) ? data : (data?.scheduleTypeDistribution || []);
-    // Guard against empty data
-    if (!normalizedData || normalizedData.length === 0) {
-        // Render empty state or return? For now let's render an empty chart which Chart.js handles gracefully-ish or just return
-        // Ideally we might want to show "No Data" text
+    // 统一委托给 stats-logic.js 的现代环形图实现，避免双份维护
+    if (window.StatsLogic && typeof window.StatsLogic.renderScheduleTypeChart === 'function') {
+        return window.StatsLogic.renderScheduleTypeChart(data);
     }
-
-    const labels = normalizedData.map(item => item.type);
-    const counts = normalizedData.map(item => parseInt(item.count) || 0);
-    const backgroundColors = labels.map(label => getLegendColor(label));
-    const total = counts.reduce((a, b) => a + b, 0);
-
-    new window.Chart(el, {
-        type: 'doughnut',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: counts,
-                backgroundColor: backgroundColors,
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '65%',
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        usePointStyle: true,
-                        padding: 20,
-                        font: { size: 12 },
-                        generateLabels: (chart) => {
-                            const data = chart.data;
-                            if (!data.labels.length) return [];
-                            return data.labels.map((label, i) => {
-                                const value = data.datasets[0].data[i];
-                                const percent = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                return {
-                                    text: `${label} (${percent}%)`,
-                                    fillStyle: data.datasets[0].backgroundColor[i],
-                                    strokeStyle: 'transparent',
-                                    hidden: !chart.getDataVisibility(i),
-                                    index: i
-                                };
-                            });
-                        }
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function (context) {
-                            const label = context.label || '';
-                            // Remove percentage from label if it was added by legend generator (it's not, label is raw)
-                            // But wait, the label in tooltip comes from data.labels.
-                            // The custom generateLabels affects the LEGEND.
-                            const value = context.raw || 0;
-                            const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                            return `${label}: ${value} (${percentage}%)`;
-                        }
-                    }
-                }
-            }
-        },
-        plugins: [{
-            id: 'centerText',
-            beforeDraw: function (chart) {
-                const width = chart.width,
-                    height = chart.height,
-                    ctx = chart.ctx;
-
-                ctx.restore();
-                const fontSize = (height / 114).toFixed(2);
-                ctx.font = `bold ${fontSize}px sans-serif`;
-                ctx.textBaseline = "middle";
-                ctx.fillStyle = "#333";
-
-                const text = total.toString(),
-                    textX = Math.round((width - ctx.measureText(text).width) / 2),
-                    textY = height / 2;
-
-                ctx.fillText(text, textX, textY);
-                ctx.save();
-            }
-        }]
-    });
 }
 
 

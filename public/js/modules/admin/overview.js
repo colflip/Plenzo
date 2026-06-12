@@ -160,11 +160,19 @@ export async function loadOverviewStats() {
             if (data.schedule_types && Array.isArray(data.schedule_types)) {
                 renderScheduleTypeChart(data.schedule_types);
             }
-            if (data.teacher_stats && typeof buildTeacherTypeStack === 'function') {
-                renderTeacherTypeStackedChart(buildTeacherTypeStack(data.teacher_stats));
+            // 教师/学生汇总按较多人数对齐：先各自构建 stack，取较多人数为共享槽位，人数少的一方补空沉底
+            const tStack = (data.teacher_stats && typeof buildTeacherTypeStack === 'function')
+                ? buildTeacherTypeStack(data.teacher_stats) : null;
+            const sStack = (data.student_stats && typeof buildStudentTypeStack === 'function')
+                ? buildStudentTypeStack(data.student_stats) : null;
+            const summarySlots = (typeof computeSummarySlotTarget === 'function')
+                ? computeSummarySlotTarget(tStack, sStack)
+                : Math.max((tStack && tStack.labels || []).length, (sStack && sStack.labels || []).length);
+            if (tStack) {
+                renderTeacherTypeStackedChart(tStack, summarySlots);
             }
-            if (data.student_stats && typeof buildStudentTypeStack === 'function' && typeof renderStudentParticipationChart === 'function') {
-                renderStudentParticipationChart(buildStudentTypeStack(data.student_stats));
+            if (sStack && typeof renderStudentParticipationChart === 'function') {
+                renderStudentParticipationChart(sStack, summarySlots);
             }
         }
 

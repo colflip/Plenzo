@@ -53,7 +53,7 @@
 .schedule-controls {
     background: var(--sch-surface);
     border: 1px solid var(--sch-border);
-    border-radius: var(--sch-radius-md);
+    border-radius: 999px;
     padding: 16px;
     margin-bottom: 24px;
     display: flex;

@@ -105,8 +105,8 @@ body {
 }
 
 .logo-icon {
-    width: 52px;
-    height: 52px;
+    width: 60px;
+    height: 60px;
     object-fit: contain;
     margin-right: 14px;
     flex-shrink: 0;
@@ -115,7 +115,7 @@ body {
 }
 
 .logo-text {
-    font-size: var(--font-size-lg);
+    font-size: 1.3125rem;
     font-weight: 700;
     color: #1e293b;
     letter-spacing: -0.5px;
@@ -7157,8 +7157,8 @@ svg {
 /* 2. Schedule Controls Toolbar */
 .schedule-controls {
     background: white !important;
-    padding: 16px 24px !important;
-    border-radius: 16px !important;
+    padding: 16px !important;
+    border-radius: 999px !important;
     border: 1px solid #E2E8F0 !important;
     display: flex !important;
     justify-content: flex-start !important;
@@ -9036,9 +9036,9 @@ svg {
 }
 
 .statistics-container .date-range-group input[type="date"] {
-    padding: 8px 12px;
+    padding: 8px 14px;
     border: 1px solid var(--border-muted, #d1d5db);
-    border-radius: 6px;
+    border-radius: 999px;
     font-size: 14px;
     min-width: 140px;
     transition: all 0.2s ease;
@@ -9069,11 +9069,11 @@ svg {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
+    padding: 8px 18px;
     background: #2ECC71;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 999px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -9100,7 +9100,7 @@ svg {
 }
 
 .statistics-container .preset-btn {
-    padding: 6px 12px;
+    padding: 6px 14px;
     border: 1px solid var(--border-muted, #d1d5db);
     background: var(--bg-surface, #ffffff);
     border-radius: 999px;
@@ -9573,5 +9573,39 @@ svg {
 #schedules .schedule-card-group,
 #student-schedules .schedule-card-group {
     margin-bottom: 4px !important;
+}
+
+/* ============================================================
+   班主任端·学生课程安排表（#ssWeeklyTable，位于 #student-schedules）
+   首列与表头/同行视觉对齐。置于文件末尾且选择器含 tr（特异度 1,2,3），
+   以覆盖运行时注入样式(teacher-ss-fixing-style，1,2,2)——即便浏览器仍缓存
+   旧版 JS 注入的 sticky，本表样式仍能强制首列为静态、无阴影。
+   - 表头首格"学生姓名"：取消 sticky 定位与多余阴影，灰底 #F8F9FA、
+     虚线右分隔，与其它日期表头完全一致。
+   - 学生姓名列（第二行起）：透明底（与同行排课单元格一致），
+     去除灰底/阴影，虚线右分隔；hover 态与同行其它单元格一致。
+   - 固定首列宽度（含数据加载前的占位状态），避免初始首列过窄。
+   ============================================================ */
+#student-schedules .weekly-schedule-table thead tr th:first-child,
+#student-schedules .weekly-schedule-table tbody tr td:first-child {
+    width: 120px !important;
+    min-width: 120px !important;
+    position: static !important;
+    left: auto !important;
+    z-index: auto !important;
+    box-shadow: none !important;
+    border-right: 1px dashed #CBD5E1 !important;
+}
+
+#student-schedules .weekly-schedule-table thead tr th:first-child {
+    background-color: #F8F9FA !important;
+}
+
+#student-schedules .weekly-schedule-table tbody tr td:first-child {
+    background-color: transparent !important;
+}
+
+#student-schedules .weekly-schedule-table tbody tr:hover td:first-child {
+    background-color: rgba(241, 245, 249, 0.5) !important;
 }
 
