@@ -96,3 +96,9 @@ src/server/db/db.js
 src/server/db/migrations.js
 src/server/db/schema.sql
 docs/DATABASE.md
+
+# ============================
+# Claude & Documentation
+# ============================
+.claude/
+docs/
