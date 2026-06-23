@@ -723,215 +723,67 @@ window.ExportDialog = (function () {
                 apiUrl = `/student/export-advanced?download=true&${params.toString()}`;
             }
 
-            const response = await window.apiUtils.get(apiUrl);
-
+            // 对于文件下载，直接使用 fetch 获取 blob 响应
+            updateProgress(40, '正在请求数据...');
+            const token = localStorage.getItem('token') || sessionStorage.getItem('tempToken');
+            const fetchResponse = await fetch(`/api${apiUrl}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': token ? `Bearer ${token}` : ''
+                }
+            });
 
             updateProgress(60, '正在生成文件...');
-            await new Promise(r => setTimeout(r, 300));
 
-            if (!response) {
+            if (!fetchResponse.ok) {
+                // 尝试解析错误信息
+                let errorMsg = '导出失败';
+                try {
+                    const errorData = await fetchResponse.json();
+                    errorMsg = errorData.message || errorMsg;
+                } catch (e) {
+                    errorMsg = `HTTP ${fetchResponse.status}: ${fetchResponse.statusText}`;
+                }
+                throw new Error(errorMsg);
+            }
+
+            // 获取 blob 数据
+            const blob = await fetchResponse.blob();
+
+            if (!blob || blob.size === 0) {
                 throw new Error('导出 API 返回为空');
             }
 
-            // 检测是否已经是底层 Blob （教师和学生端的定制化导出直接返回的已经是完整二进制表）
-            if (response && response.blob) {
-                const url = window.URL.createObjectURL(response.blob);
-                const a = document.createElement('a');
-                a.href = url;
-                // 使用后端传递的文件名（已解译）作为兜底，如果为空则走回退
-                const dispositionFilename = response.filename
-                    ? decodeURIComponent(response.filename)
-                    : `数据导出_${Date.now()}.xlsx`;
-
-                a.download = dispositionFilename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                window.URL.revokeObjectURL(url);
-
-                updateProgress(100, `文件生成完成，正在下载...`);
-                state.isExporting = false;
-                setTimeout(() => {
-                    showToast(`导出成功`, 'success');
-                    setTimeout(() => close(true), 400);
-                }, 300);
-                return;
-            }
-
-            // API 直接返回导出结果对象 {format, data, columns?, filename} 或直接返回数组
-            const exportResult = response;
-
-            // 5. 构建优化后的文件名
-            // 5. 构建优化后的文件名
-            // 格式要求：
-            // 管理员: [教师/学生]授课记录指定时间[开始_结束]_当前[管理员名].xlsx
-            // 教师/学生: [姓名]授课记录[开始_结束]_当前.xlsx
-
-            const now = new Date();
-            const formatDateForFilename = (d) => {
-                const year = d.getFullYear();
-                const month = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
-                return `${year}${month}${day}`;
-            };
-            const yyyyMMdd = formatDateForFilename(now);
-            const hhmmss = now.toTimeString().slice(0, 8).replace(/:/g, '');
-            const timestamp = `${yyyyMMdd}${hhmmss}`; // YYYYMMDDHHMMSS
-
-            let dateRangeStr = '';
-            if (state.startDate && state.endDate) {
-                const s = formatDateForFilename(state.startDate);
-                const e = formatDateForFilename(state.endDate);
-                dateRangeStr = `[${s}_${e}]`;
-            }
-
-            // 尝试获取用户数据 (兼容 window.currentUser 或 localStorage)
-            let appUser = currentUser || {};
-            if (!appUser.username && !appUser.name) {
-                try {
-                    const localData = JSON.parse(localStorage.getItem('userData'));
-                    if (localData) appUser = localData;
-                } catch (e) {
-                }
-            }
-            let filename = '';
-
-            // 文件名生成逻辑
-            if (exportResult && exportResult.filename) {
-                // 教师端直接使用后端返回的文件名（后端已按需求格式生成）
-                if (userType === 'teacher') {
-                    filename = exportResult.filename;
-                } else if (state.selectedType !== EXPORT_TYPES.TEACHER_SCHEDULE &&
-                    state.selectedType !== EXPORT_TYPES.STUDENT_SCHEDULE &&
-                    state.selectedType !== EXPORT_TYPES.SCHEDULE_DATA) {
-                    // 管理端的非排课类型使用后端文件名
-                    filename = exportResult.filename;
+            // 从响应头获取文件名
+            const contentDisposition = fetchResponse.headers.get('Content-Disposition');
+            let filename = `数据导出_${Date.now()}.xlsx`;
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (filenameMatch && filenameMatch[1]) {
+                    filename = decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
                 }
             }
 
-            // 如果后端没有返回文件名，或管理端排课类型，使用前端生成的格式
-            if (!filename) {
-                if (userType === 'admin') {
-                    // 管理员格式
-                    // 授课记录指定时间 -> 这里的 typeConfig.label 可能是 "教师授课记录" 或 "学生授课记录"
-                    // 去掉可能的 "导出" 字样，保持核心名词
-                    let coreName = typeConfig.label || '数据导出';
-                    // 如果是特定格式的需求，强制调整 coreName
-                    if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) coreName = '教师授课记录';
-                    if (state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE) coreName = '学生排课记录';
-                    if (state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) coreName = '排课数据';
+            // 下载文件
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
 
-                    // 管理员名称使用 username
-                    const adminName = appUser.username || appUser.name || 'admin';
-
-                    // 获取筛选值文本
-                    const studentSelect = document.getElementById('exportStudentSelect');
-                    const teacherSelect = document.getElementById('exportTeacherSelect');
-
-                    let studentFilterStr = '全部学生';
-                    if (studentSelect && studentSelect.value) {
-                        const option = studentSelect.options[studentSelect.selectedIndex];
-                        if (option) studentFilterStr = option.text;
-                    }
-
-                    let teacherFilterStr = '全部教师';
-                    if (teacherSelect && teacherSelect.value) {
-                        const option = teacherSelect.options[teacherSelect.selectedIndex];
-                        if (option) teacherFilterStr = option.text;
-                    }
-
-                    // 格式：教师授课/学生排课记录[学生筛选][老师筛选][导出日期段][导出人用户名]_当前时间戳
-                    filename = `${coreName}[${studentFilterStr}][${teacherFilterStr}]${dateRangeStr}[${adminName}]_${timestamp}`;
-                } else {
-                    // 学生格式
-                    const myName = appUser.name || appUser.username || '用户';
-
-                    filename = `[${myName}]授课记录${dateRangeStr}_${timestamp}`;
-                }
-
-                filename += `.${format === EXPORT_FORMATS.EXCEL ? 'xlsx' : 'csv'}`;
-            }
-
-            // 生成文件 - 传递 filename 参数
-            // 兼容直接返回数组，或嵌套在 data.data 中的情况
-            let rawData = [];
-
-            if (Array.isArray(exportResult)) {
-                rawData = exportResult;
-            } else if (exportResult && exportResult.data) {
-                // 如果是数组或者是对象（多 Sheet），都作为 rawData 处理
-                if (Array.isArray(exportResult.data) || (typeof exportResult.data === 'object' && exportResult.data !== null)) {
-                    rawData = exportResult.data;
-                } else if (Array.isArray(exportResult.data.data)) {
-                    rawData = exportResult.data.data;
-                }
-            }
-
-            // 检查数据是否为空
-            const isEmpty = !rawData || 
-                          (Array.isArray(rawData) && rawData.length === 0) || 
-                          (typeof rawData === 'object' && rawData !== null && Object.keys(rawData).length === 0);
-            
-            if (isEmpty) {
-                throw new Error('没有可导出的数据');
-            }
-
-
-
-            // const studentSelect ... (removed to fix lint, already declared)
-            const selectedStudentId = (document.getElementById('exportStudentSelect') || {}).value;
-            // Get selected student name for remark generation
-            let selectedStudentName = '全部学生';
-            const studentSelectEl = document.getElementById('exportStudentSelect');
-            if (studentSelectEl && studentSelectEl.value) {
-                const opt = studentSelectEl.options[studentSelectEl.selectedIndex];
-                if (opt) selectedStudentName = opt.text;
-            }
-
-            const transformedData = window.ExportManager.transformExportData(rawData, selectedStudentId, selectedStudentName, userType, state, EXPORT_TYPES);
-
-            if (format === EXPORT_FORMATS.EXCEL) {
-                await window.ExportManager.generateExcelFile(transformedData, filename, userType);
-            } else {
-                // CSV 不支持多 Sheet，如果是多 Sheet 数据，默认仅导出 "总览表"
-                let csvData = transformedData;
-
-                if (!Array.isArray(transformedData)) {
-                    if (transformedData['总览表']) {
-                        csvData = transformedData['总览表'];
-                    } else if (typeof transformedData === 'object') {
-                        // 兜底：如果没找到"总览表"，取第一个是数组的值
-                        const values = Object.values(transformedData);
-                        const firstArray = values.find(v => Array.isArray(v));
-                        if (firstArray) {
-                            csvData = firstArray;
-                        }
-                    }
-                }
-
-                showToast('暂不支持 CSV 导出，请升级功能或使用 Excel', 'warning');
-            }
-
-
-
-
-
-
-
-
-            updateProgress(100, `导出完成！共 ${Array.isArray(rawData) ? rawData.length : '多 Sheet'} 条记录`);
-
-            // 重置导出状态
+            updateProgress(100, `文件生成完成，正在下载...`);
             state.isExporting = false;
-
-            // 导出成功，自动关闭对话框
-            const msg = `导出成功！文件名：${filename}`;
-            showToast(msg, 'success');
             setTimeout(() => {
-                const overlay = document.getElementById('exportLoadingOverlay');
-                if (overlay) overlay.style.display = 'none';
-                close(true);
-            }, 800);
+                showToast(`导出成功`, 'success');
+                setTimeout(() => close(true), 400);
+            }, 300);
+
+
+
+
         } catch (error) {
             console.error('Export error:', error);
             updateProgress(0, '导出失败');
