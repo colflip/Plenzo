@@ -4,9 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理员仪表盘 - Plannix</title>
+    <title>管理员仪表盘 - Plenzo</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-    <link rel="icon" type="image/png" href="/assets/logo.png?v=9">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">
     <link rel="stylesheet" href="/css/modules/dashboard.css">
@@ -14,6 +13,7 @@
     <link rel="stylesheet" href="/css/modules/admin-schedule.css">
     <link rel="stylesheet" href="/css/modules/admin-overview.css?v=2">
     <link rel="stylesheet" href="/css/modules/admin-desktop.css">
+    <link rel="stylesheet" href="/css/modules/admin-ai-models.css">
     <link rel="stylesheet" href="/css/modules/dashboard_mobile_fix.css">
     <style>
         /* 全局样式 */
@@ -470,7 +470,7 @@
         <div class="sidebar">
             <div class="logo">
                 <img src="/assets/logo.svg" alt="Logo" class="logo-icon">
-                <span class="logo-text">Plannix</span>
+                <span class="logo-text">Plenzo</span>
             </div>
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-section="overview">
@@ -794,6 +794,7 @@
                             <div class="tab-btn-group inline-tabs">
                                 <button class="tab-btn active" data-settings-view="schedule-types-view">课程类型</button>
                                 <button class="tab-btn" data-settings-view="holiday-config-view">节假日管理</button>
+                                <button class="tab-btn" data-settings-view="ai-models-view">AI 模型</button>
                                 <button class="tab-btn" data-settings-view="feedback-view">反馈</button>
                             </div>
                             <!-- 右侧功能按钮区（紧邻菜单，仿统计页"导出数据"位置）-->
@@ -809,6 +810,11 @@
                                     </button>
                                     <button id="loadHolidaysBtn" class="add-btn">
                                         <span class="material-icons-round">sync</span> 从 API 同步
+                                    </button>
+                                </div>
+                                <div class="settings-view-actions" data-actions-for="ai-models-view">
+                                    <button id="addAIModelBtn" class="add-btn">
+                                        <span class="material-icons-round">add</span> 添加模型
                                     </button>
                                 </div>
                                 <div class="settings-view-actions" data-actions-for="feedback-view">
@@ -922,6 +928,125 @@
                                 <div class="form-actions">
                                     <button type="button" id="cancelHolidayFormBtn" class="btn btn-secondary">取消</button>
                                     <button type="submit" id="holidayFormSubmit">保存</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- AI 模型管理子视图 -->
+                    <div id="ai-models-view" class="settings-view">
+                        <div class="ai-models-container">
+                            <!-- 当前激活模型 -->
+                            <div class="current-model-card">
+                                <h4>当前使用的 AI 模型</h4>
+                                <div id="currentModelInfo">
+                                    <div class="model-info-row">
+                                        <span class="info-label">服务商：</span>
+                                        <span id="currentProvider">-</span>
+                                    </div>
+                                    <div class="model-info-row">
+                                        <span class="info-label">模型名称：</span>
+                                        <span id="currentModel">-</span>
+                                    </div>
+                                    <div class="model-info-row">
+                                        <span class="info-label">API 地址：</span>
+                                        <span id="currentBaseUrl">-</span>
+                                    </div>
+                                    <div class="model-info-row">
+                                        <span class="info-label">状态：</span>
+                                        <span id="currentModelStatus" class="status-badge">-</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 系统预设模型列表 -->
+                            <div class="preset-models-section">
+                                <h4>系统预设模型</h4>
+                                <div class="table-container">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>服务商</th>
+                                                <th>模型名称</th>
+                                                <th>协议</th>
+                                                <th>状态</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- 通过 JS 动态加载 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 自定义模型列表 -->
+                            <div class="custom-models-section">
+                                <h4>我的 AI 模型</h4>
+                                <div class="table-container">
+                                    <table id="customModelsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>名称</th>
+                                                <th>API 地址</th>
+                                                <th>模型</th>
+                                                <th>状态</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="customModelsTableBody">
+                                            <!-- 通过 JS 动态加载 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AI 模型表单模态 -->
+                        <div id="aiModelFormContainer" class="form-container" style="display: none;">
+                            <div class="form-header">
+                                <h3 id="aiModelFormTitle">添加自定义 AI 模型</h3>
+                                <button class="close-btn" id="closeAIModelFormBtn"></button>
+                            </div>
+                            <form id="aiModelForm" data-mode="add" data-id="">
+                                <div class="form-group">
+                                    <label for="aiModelName">模型名称</label>
+                                    <input type="text" id="aiModelName" required placeholder="例如：我的 GPT-4">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelProvider">服务商标识</label>
+                                    <input type="text" id="aiModelProvider" required placeholder="例如：openmodel">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelProtocol">协议</label>
+                                    <select id="aiModelProtocol" required>
+                                        <option value="openai">OpenAI Chat Completions</option>
+                                        <option value="messages">Anthropic Messages</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelApiKey">API Key</label>
+                                    <input type="password" id="aiModelApiKey" required placeholder="sk-... 或 om-...">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelBaseUrl">API 基础地址</label>
+                                    <input type="url" id="aiModelBaseUrl" required placeholder="https://api.example.com/v1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelModelName">模型标识</label>
+                                    <input type="text" id="aiModelModelName" required placeholder="例如：gpt-4o-mini">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelTimeout">超时时间（毫秒）</label>
+                                    <input type="number" id="aiModelTimeout" value="30000" min="1000" max="120000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="aiModelMaxTokens">最大 Token 数</label>
+                                    <input type="number" id="aiModelMaxTokens" value="3000" min="100" max="10000">
+                                </div>
+                                <div class="form-actions">
+                                    <button type="button" id="cancelAIModelFormBtn" class="btn btn-secondary">取消</button>
+                                    <button type="submit" id="aiModelFormSubmit">保存</button>
                                 </div>
                             </form>
                         </div>
@@ -1500,6 +1625,7 @@
         <script type="module" src="/js/modules/admin/student-availability.js"></script>
         <script type="module" src="/js/modules/admin/feedback-manager.js"></script>
         <script src="/js/modules/admin/student-schedule-fees.js"></script>
+        <script src="/js/modules/admin/ai-models-manager.js"></script>
         <script src="/js/modules/shared/version-badge.js" defer></script>
     </div>
     <!-- 费用管理弹窗 (与教师端同款增强版) -->

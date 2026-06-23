@@ -1,0 +1,351 @@
+/* AI 模型管理样式 */
+.ai-models-container {
+    padding: 20px;
+}
+
+.current-model-card {
+    background: #fff;
+    border: 2px solid #2ECC71;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 8px rgba(46, 204, 113, 0.1);
+}
+
+.current-model-card h4 {
+    margin: 0 0 15px 0;
+    color: #2ECC71;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.current-model-card h4::before {
+    content: '✓';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    background: #2ECC71;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 20px;
+    font-size: 14px;
+}
+
+.model-info-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.model-info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    font-weight: 500;
+    color: #666;
+    min-width: 100px;
+}
+
+.model-info-row span:last-child {
+    color: #333;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+}
+
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-badge.active {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.inactive {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.preset-models-section,
+.custom-models-section {
+    margin-bottom: 30px;
+}
+
+.preset-models-section h4,
+.custom-models-section h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#presetModelsTable,
+#customModelsTable {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#presetModelsTable thead,
+#customModelsTable thead {
+    background: #f8f9fa;
+}
+
+#presetModelsTable th,
+#customModelsTable th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    font-size: 13px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+#presetModelsTable td,
+#customModelsTable td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+}
+
+#presetModelsTable tbody tr:hover,
+#customModelsTable tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.model-provider {
+    font-weight: 500;
+    color: #2ECC71;
+}
+
+.model-name {
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: #555;
+}
+
+.model-protocol {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.model-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+}
+
+.model-status.in-use {
+    color: #2ECC71;
+    font-weight: 600;
+}
+
+.model-status.in-use::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #2ECC71;
+    border-radius: 50%;
+}
+
+.model-status.available {
+    color: #3b82f6;
+}
+
+.model-status.available::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #3b82f6;
+    border-radius: 50%;
+}
+
+.model-status.unavailable {
+    color: #ef4444;
+    cursor: help;
+}
+
+.model-status.unavailable::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #ef4444;
+    border-radius: 50%;
+}
+
+.model-status.checking {
+    color: #f59e0b;
+}
+
+.model-status.checking::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #f59e0b;
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.model-status.unknown {
+    color: #999;
+    cursor: help;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.3;
+    }
+}
+
+.model-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-switch {
+    padding: 4px 12px;
+    border: 1px solid #2ECC71;
+    background: white;
+    color: #2ECC71;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-switch:hover {
+    background: #2ECC71;
+    color: white;
+}
+
+.btn-switch:disabled {
+    border-color: #ccc;
+    color: #ccc;
+    cursor: not-allowed;
+}
+
+.btn-edit {
+    padding: 4px 12px;
+    border: 1px solid #3b82f6;
+    background: white;
+    color: #3b82f6;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-edit:hover {
+    background: #3b82f6;
+    color: white;
+}
+
+.btn-delete {
+    padding: 4px 12px;
+    border: 1px solid #ef4444;
+    background: white;
+    color: #ef4444;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-delete:hover {
+    background: #ef4444;
+    color: white;
+}
+
+.btn-test {
+    padding: 4px 12px;
+    border: 1px solid #f59e0b;
+    background: white;
+    color: #f59e0b;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-test:hover {
+    background: #f59e0b;
+    color: white;
+}
+
+/* AI 模型表单样式 */
+#aiModelFormContainer {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+#aiModelForm .form-group {
+    margin-bottom: 16px;
+}
+
+#aiModelForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #333;
+    font-size: 13px;
+}
+
+#aiModelForm input,
+#aiModelForm select,
+#aiModelForm textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: border-color 0.2s;
+}
+
+#aiModelForm input:focus,
+#aiModelForm select:focus,
+#aiModelForm textarea:focus {
+    outline: none;
+    border-color: #2ECC71;
+}
+
+#aiModelForm .form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f0;
+}
