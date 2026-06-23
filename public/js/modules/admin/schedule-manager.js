@@ -407,7 +407,7 @@ export const WeeklyDataStore = {
     _isFresh(ts) { return ts && (Date.now() - ts) < this.ttlMs; },
 
     // Persistent Store Keys
-    _CACHE_KEY_prefix: 'plannix_admin_',
+    _CACHE_KEY_prefix: 'plenzo_admin_',
 
     _loadFromLocal(key) {
         try {
@@ -1724,7 +1724,11 @@ async function loadScheduleFormOptions() {
 }
 
 /**
- * 实时更新教师选择框中的冲突状态提示词
+ * 实时更新教师选择框中的冲突状态提示词（含风险高亮）
+ * 增强点（AI 风险高亮）：
+ *   - 冲突教师选项文字标红 + 前缀图标 ⚠️
+ *   - 无空闲教师选项标橙 + 前缀 ◌
+ *   - 选中冲突教师时在表单顶部显示醒目风险横幅
  */
 async function updateTeacherStatusHints() {
     const form = document.getElementById('scheduleForm');
@@ -1747,18 +1751,69 @@ async function updateTeacherStatusHints() {
         Array.from(teacherSel.options).forEach(opt => {
             if (!opt.value) return;
             const tId = opt.value;
-            const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim();
+            const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim().replace(/^[⚠◌]\s*/, '');
             if (!opt.dataset.baseName) opt.dataset.baseName = baseName;
 
             let hint = '';
+            let prefix = '';
+            let color = '';
             const status = conflicts[tId];
             if (status) {
-                if (status.hasClass) hint = ' (已有排课)';
-                else if (status.isUnavailable) hint = ' (个人无空闲)';
+                if (status.hasClass) {
+                    hint = ' (已有排课)';
+                    prefix = '⚠️ ';
+                    color = '#f87171'; // 红色：时间冲突（高风险）
+                } else if (status.isUnavailable) {
+                    hint = ' (个人无空闲)';
+                    prefix = '◌ ';
+                    color = '#fbbf24'; // 橙色：无空闲（中风险）
+                }
             }
-            opt.textContent = baseName + hint;
+            opt.textContent = prefix + baseName + hint;
+            opt.style.color = color || '';
         });
+
+        // 根据当前选中教师显示/隐藏风险横幅
+        updateConflictWarningBanner(conflicts);
     } catch (e) { }
+}
+
+/**
+ * 冲突风险横幅：当选中的教师存在冲突/无空闲时，在表单顶部显示醒目提示
+ * @param {Object} conflicts - 来自 /admin/teachers/conflicts 的 { teacherId: { hasClass?, isUnavailable? } }
+ */
+function updateConflictWarningBanner(conflicts) {
+    const form = document.getElementById('scheduleForm');
+    const teacherSel = document.getElementById('scheduleTeacher');
+    if (!form || !teacherSel) return;
+
+    let banner = document.getElementById('ai-conflict-warning');
+    const selectedId = teacherSel.value;
+    const status = selectedId ? conflicts[selectedId] : null;
+
+    if (!status || (!status.hasClass && !status.isUnavailable)) {
+        if (banner) banner.remove();
+        return;
+    }
+
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'ai-conflict-warning';
+        banner.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;';
+        form.parentElement.insertBefore(banner, form);
+    }
+
+    if (status.hasClass) {
+        banner.style.background = 'rgba(239,68,68,0.15)';
+        banner.style.border = '1px solid rgba(239,68,68,0.4)';
+        banner.style.color = '#fca5a5';
+        banner.innerHTML = '⚠️ <span>该教师在此时间段已有排课，存在时间冲突。建议使用「✨ AI 推荐时间」寻找无冲突时段。</span>';
+    } else if (status.isUnavailable) {
+        banner.style.background = 'rgba(251,191,36,0.15)';
+        banner.style.border = '1px solid rgba(251,191,36,0.4)';
+        banner.style.color = '#fcd34d';
+        banner.innerHTML = '◌ <span>该教师在此时段标记为不可用。请确认或更换时段。</span>';
+    }
 }
 
 export async function setupScheduleEventListeners() {

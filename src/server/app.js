@@ -65,6 +65,7 @@ app.use('/api/schedule', require('./routes/schedule'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/health', require('./routes/health'));
 app.use('/api/meta', require('./routes/meta'));
+app.use('/api/ai', require('./routes/ai'));
 
 app.get(['/admin/dashboard', '/admin/dashboard.html', '/admin/'], (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/admin/dashboard.html'));

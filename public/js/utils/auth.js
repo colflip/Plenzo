@@ -29,7 +29,7 @@ window.authUtils = {
     logout: function () {
         // Clear Schedule Cache
         Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('plannix_admin_')) {
+            if (key.startsWith('plenzo_admin_')) {
                 localStorage.removeItem(key);
             }
         });

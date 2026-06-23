@@ -12,6 +12,8 @@ import * as UILayout from './ui-layout.js';
 import * as ScheduleUtils from './schedule-utils.js';
 import * as HolidayManager from './holiday-manager.js';
 import * as FeedbackManager from './feedback-manager.js';
+import * as aiAssistant from '../shared/ai-assistant-redesign.js';
+import AISchedule from './ai-schedule.js';
 
 // Expose modules globally
 window.UserManager = UserManager;
@@ -81,6 +83,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Init Statistics
     StatisticsManager.init();
 
+    // Init AI Assistant (右下角悬浮按钮)
+    aiAssistant.init({ role: 'admin' });
+
+    // Init AI Models Manager
+    if (typeof initAIModelsManager === 'function') {
+        initAIModelsManager();
+    }
+
+    // Init AI Schedule (排课 AI 集成：推荐时间 / 自然语言录入 / 批量排课)
+    // 已移除独立按钮，功能整合到 AI 助手面板中
+    // AISchedule.init();
+
     // 统一全局遮罩层点击关闭逻辑
     const overlay = document.getElementById('modalOverlay');
     if (overlay) {
@@ -91,7 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 'scheduleTypeFormContainer',
                 'scheduleFormContainer',
                 'holidayFormContainer',
-                'feedbackFormContainer'
+                'feedbackFormContainer',
+                'aiModelFormContainer'
             ];
             containers.forEach(id => {
                 const el = document.getElementById(id);

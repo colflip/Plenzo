@@ -1,0 +1,130 @@
+{
+  "mistral": [
+    {
+      "id": "mistral-small-latest",
+      "name": "Mistral Small",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 32768
+    },
+    {
+      "id": "mistral-medium-latest",
+      "name": "Mistral Medium",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 32768
+    },
+    {
+      "id": "mistral-large-latest",
+      "name": "Mistral Large",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 128000
+    }
+  ],
+  "agnes": [
+    {
+      "id": "agnes-1.5-flash",
+      "name": "Agnes 1.5 Flash",
+      "capabilities": {
+        "vision": false,
+        "tools": false,
+        "reasoning": false
+      },
+      "contextLength": 8192
+    },
+    {
+      "id": "agnes-2.0-flash",
+      "name": "Agnes 2.0 Flash",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 16384
+    },
+    {
+      "id": "agnes-image-2.0-flash",
+      "name": "Agnes Image 2.0",
+      "capabilities": {
+        "vision": true,
+        "tools": false,
+        "reasoning": false
+      },
+      "contextLength": 16384
+    },
+    {
+      "id": "agnes-image-2.1-flash",
+      "name": "Agnes Image 2.1",
+      "capabilities": {
+        "vision": true,
+        "tools": false,
+        "reasoning": false
+      },
+      "contextLength": 16384
+    }
+  ],
+  "openmodel": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": true
+      },
+      "contextLength": 1048576
+    },
+    {
+      "id": "claude-opus-4-8",
+      "name": "Claude Opus 4.8",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 200000
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 200000
+    }
+  ],
+  "sensenova": [
+    {
+      "id": "sensenova-6.7-flash-lite",
+      "name": "SenseNova 6.7 Flash Lite",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": true
+      },
+      "contextLength": 262144
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash (SenseNova)",
+      "capabilities": {
+        "vision": false,
+        "tools": true,
+        "reasoning": true
+      },
+      "contextLength": 1048576
+    }
+  ]
+}
