@@ -51,7 +51,7 @@ function requestJson(url, headers = {}, timeoutMs = 2500) {
     return new Promise((resolve, reject) => {
         const req = https.get(url, {
             headers: {
-                'User-Agent': 'plannix-version-badge',
+                'User-Agent': 'plenzo-version-badge',
                 'Accept': 'application/vnd.github+json',
                 ...headers
             },
@@ -137,7 +137,7 @@ async function getVersionMeta() {
     }
 
     cachedMeta = {
-        name: process.env.npm_package_name || 'plannix',
+        name: process.env.npm_package_name || 'plenzo',
         version: process.env.npm_package_version || '1.0.0',
         ...meta
     };

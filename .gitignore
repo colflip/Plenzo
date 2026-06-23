@@ -49,10 +49,6 @@ Thumbs.db
 # ============================================
 coverage/
 .nyc_output/
-backstop_data/
-jest.config.js
-**/__tests__/
-*.test.js
 
 # ============================================
 # Temporary Files
@@ -62,43 +58,41 @@ jest.config.js
 .cache/
 
 # ============================================
-# Project Specific
+# Claude AI
 # ============================================
-.github/
-.trae/
-backups/
-db/
-netlify.toml
-_archive/
-scripts/
-
-# ============================================
-# Database
-# ============================================
-src/server/db/*.db
-
-# ============================================
-# Documentation
-# ============================================
-prompt.md
-README.md
-LICENSE
-
-# ============================================
-# Development Tools
-# ============================================
-test-rich.js
-
-# ============================================
-# Database Schema & Migrations
-# ============================================
-src/server/db/db.js
-src/server/db/migrations.js
-src/server/db/schema.sql
-docs/DATABASE.md
-
-# ============================
-# Claude & Documentation
-# ============================
 .claude/
-docs/
+
+# ============================================
+# Development Archives (本地保留，不同步到远程)
+# ============================================
+_archive/
+
+# ============================================
+# Development Documentation (本地保留，不同步到远程)
+# ============================================
+docs/*
+!docs/DEPLOYMENT.md
+
+# ============================================
+# Development Scripts (本地保留，不同步到远程)
+# ============================================
+scripts/*
+!scripts/migrate.js
+
+# ============================================
+# Development Reports (本地保留，不同步到远程)
+# ============================================
+CHANGELOG.md
+
+# ============================================
+# Database Development Files (本地保留，不同步到远程)
+# ============================================
+src/server/db/schema.sql
+src/server/db/test-connection.js
+src/server/db/check-timezone.js
+
+# ============================================
+# Temporary Logs
+# ============================================
+backups/
+server.log

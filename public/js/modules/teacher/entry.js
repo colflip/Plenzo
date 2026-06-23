@@ -19,6 +19,7 @@ import {
     updateUserName,
     createDashboardController,
 } from '../shared/dashboard-kit.js';
+import * as aiAssistant from '../shared/ai-assistant-redesign.js';
 
 let controller = null;
 
@@ -50,6 +51,9 @@ async function initDashboard() {
     setupSidebarToggle({ storageKey: 'sidebarCollapsed' });
     setupLogout();
     setupModalClosures(['passwordChangeModal', 'studentEditModal', 'feeManagementModal']);
+
+    // Init AI Assistant (右下角悬浮按钮，教师角色)
+    aiAssistant.init({ role: 'teacher' });
 
     controller = createDashboardController({
         sectionInitializers: {

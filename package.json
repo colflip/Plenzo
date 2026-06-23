@@ -1,8 +1,26 @@
 {
-  "name": "plannix",
+  "name": "plenzo",
   "version": "1.0.0",
-  "description": "Plannix - A scheduling management system with multi-role permissions.",
+  "description": "An AI-powered scheduling management system with multi-role permissions and intelligent assistant.",
   "main": "src/server/app.js",
+  "keywords": [
+    "scheduling",
+    "education",
+    "course-management",
+    "ai-assistant",
+    "multi-modal",
+    "rbac"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/colflip/plenzo"
+  },
+  "author": "colflip",
+  "license": "CC-BY-NC-4.0",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
   "scripts": {
     "start": "node src/server/app.js",
     "dev": "nodemon src/server/app.js",
@@ -12,10 +30,12 @@
     "test:visual:chromium": "BROWSER=chromium backstop test",
     "test:visual:firefox": "BROWSER=firefox backstop test",
     "test:visual:webkit": "BROWSER=webkit backstop test",
-    "approve:visual": "backstop approve"
+    "approve:visual": "backstop approve",
+    "ai:fetch-models": "node scripts/fetch-ai-models.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "axios": "^1.18.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

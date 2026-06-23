@@ -98,8 +98,8 @@ const corsOptions = {
             : [];
 
         const allowedOrigins = [
-            'https://plannix.vercel.app',
-            'https://plannix.onrender.com',
+            'https://plenzo.vercel.app',
+            'https://plenzo.onrender.com',
             'http://localhost:3000',
             'http://localhost:3001',
             'http://localhost:5173',
