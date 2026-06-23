@@ -66,8 +66,8 @@ class StudentExportService {
         // 5. Create Workbook using enhanced service
         const workbook = enhancedExcel.createWorkbook();
 
-        // Add Time Slot Overview Sheet (新增：按时间段分组)
-        enhancedExcel.addWorksheet(workbook, timeSlotOverview, '课程安排（按时间段）');
+        // Add Time Slot Overview Sheet (新增：按时间段分组) - 启用合并单元格
+        enhancedExcel.addWorksheet(workbook, timeSlotOverview, '课程安排（按时间段）', { mergeDateColumns: true });
 
         // Add Traditional Overview Sheet
         enhancedExcel.addWorksheet(workbook, overviewSheet, '总览表');

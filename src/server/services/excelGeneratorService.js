@@ -9,17 +9,25 @@ const enhancedExcel = require('./enhancedExcelService');
 class ExcelGeneratorService {
     /**
      * 从多Sheet数据生成Excel Buffer
-     * @param {Object} sheetsData - { 'Sheet1': [...data], 'Sheet2': [...data] }
+     * @param {Object} sheetsData - { 'Sheet1': [...data], 'Sheet2': [...data], _worksheetOptions: {...} }
      * @param {string} filename - 文件名
      * @returns {Object} { buffer, filename }
      */
     async generateMultiSheetExcel(sheetsData, filename) {
         const workbook = enhancedExcel.createWorkbook();
 
+        // 提取工作表选项（如果存在）
+        const worksheetOptions = sheetsData._worksheetOptions || {};
+
         // 遍历每个Sheet并添加到工作簿
         Object.entries(sheetsData).forEach(([sheetName, data]) => {
+            // 跳过元数据字段
+            if (sheetName === '_worksheetOptions') return;
+
             if (Array.isArray(data) && data.length > 0) {
-                enhancedExcel.addWorksheet(workbook, data, sheetName);
+                // 获取该工作表的选项
+                const options = worksheetOptions[sheetName] || {};
+                enhancedExcel.addWorksheet(workbook, data, sheetName, options);
             }
         });
 
