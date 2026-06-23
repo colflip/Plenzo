@@ -28,13 +28,12 @@ class EnhancedExcelService {
         }
 
         // 获取列名（过滤掉以 _ 开头的内部字段）
-        const columns = Object.keys(data[0])
-            .filter(key => !key.startsWith('_'))
-            .map(key => ({
-                header: key,
-                key: key,
-                width: this.calculateColumnWidth(key, data)
-            }));
+        const visibleKeys = Object.keys(data[0]).filter(key => !key.startsWith('_'));
+        const columns = visibleKeys.map(key => ({
+            header: key,
+            key: key,
+            width: this.calculateColumnWidth(key, data)
+        }));
 
         worksheet.columns = columns;
 
@@ -42,16 +41,14 @@ class EnhancedExcelService {
         data.forEach((row, rowIndex) => {
             // 过滤掉以 _ 开头的内部字段
             const cleanRow = {};
-            Object.keys(row).forEach(key => {
-                if (!key.startsWith('_')) {
-                    cleanRow[key] = row[key];
-                }
+            visibleKeys.forEach(key => {
+                cleanRow[key] = row[key];
             });
 
             const excelRow = worksheet.addRow(cleanRow);
 
             // 检查是否需要应用 Rich Text 格式
-            Object.keys(cleanRow).forEach((key, colIndex) => {
+            visibleKeys.forEach((key, colIndex) => {
                 const cell = excelRow.getCell(colIndex + 1);
                 const value = cleanRow[key];
 
@@ -102,9 +99,9 @@ class EnhancedExcelService {
             this.mergeWeekSummaryColumn(worksheet, data);
         }
 
-        // 应用列样式
+        // 应用列样式（使用过滤后的可见列名）
         if (options.kind) {
-            this.applyColumnStyles(worksheet, Object.keys(data[0]), options.kind);
+            this.applyColumnStyles(worksheet, visibleKeys, options.kind);
         }
 
         // 设置表头样式
