@@ -479,7 +479,7 @@ class EnhancedExcelService {
     autoCalculateColumnWidths(data) {
         if (!data || data.length === 0) return [];
 
-        const keys = Object.keys(data[0]);
+        const keys = Object.keys(data[0]).filter(key => !key.startsWith('_'));
         return keys.map(key => {
             const width = this.calculateColumnWidth(key, data);
             return { wch: width };
