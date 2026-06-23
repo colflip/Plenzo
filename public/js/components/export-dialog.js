@@ -715,10 +715,12 @@ window.ExportDialog = (function () {
                 if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
                     apiUrl = `/teacher/student-schedules/export?${params.toString()}`;
                 } else {
-                    apiUrl = `/teacher/export?${params.toString()}`;
+                    // 使用 export-advanced 接口以获取多Sheet Excel文件
+                    apiUrl = `/teacher/export-advanced?download=true&${params.toString()}`;
                 }
             } else if (userType === 'student') {
-                apiUrl = `/student/export?${params.toString()}`;
+                // 使用 export-advanced 接口以获取多Sheet Excel文件
+                apiUrl = `/student/export-advanced?download=true&${params.toString()}`;
             }
 
             const response = await window.apiUtils.get(apiUrl);

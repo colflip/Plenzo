@@ -191,6 +191,55 @@ const studentController = {
         }
     },
 
+    /**
+     * 高级导出（供直接获取多Sheet Excel文件）
+     */
+    async advancedExport(req, res) {
+        try {
+            const studentId = req.user.id;
+            const { startDate, endDate } = req.query;
+            const { standardResponse } = require('../middleware/validation');
+
+            if (!startDate || !endDate) {
+                return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
+            }
+
+            const AdvancedExportService = require('../utils/advancedExportService');
+            const excelGenerator = require('../services/excelGeneratorService');
+            const exportService = new AdvancedExportService(db);
+
+            // 使用新的多Sheet导出方法
+            const exportResult = await exportService.generateExportData(
+                'student_schedule',
+                startDate,
+                endDate,
+                { student_id: studentId, user_name: req.user.name || req.user.username }
+            );
+
+            // 如果前端需要直接下载Excel文件
+            if (req.query.download === 'true') {
+                return await excelGenerator.sendExcelResponse(res, exportResult.data, exportResult.filename);
+            }
+
+            // 返回JSON数据供前端处理
+            const responseData = {
+                data: exportResult.data,
+                filename: exportResult.filename,
+                format: exportResult.format,
+                recordCount: Object.values(exportResult.data).reduce(
+                    (sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0),
+                    0
+                )
+            };
+
+            res.json(standardResponse(true, responseData, '学生数据导出成功'));
+        } catch (error) {
+            console.error('Student Advanced Export Error:', error);
+            const { standardResponse } = require('../middleware/validation');
+            res.status(500).json(standardResponse(false, null, error.message || '导出失败'));
+        }
+    },
+
     // 设置时间安排
     /**
      * 批量设置或更新学生的每日时间安排
