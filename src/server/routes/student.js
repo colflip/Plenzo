@@ -33,6 +33,7 @@ router.get('/data-summary', authMiddleware, studentController.getDataSummary);
 
 // 导出功能
 router.get('/export', authMiddleware, studentController.exportMySchedules);
+router.get('/export-advanced', authMiddleware, studentController.advancedExport);
 
 // 确认课程
 router.post('/confirm-schedule/:id', authMiddleware, studentController.confirmSchedule);
