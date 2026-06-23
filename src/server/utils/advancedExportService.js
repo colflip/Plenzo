@@ -313,6 +313,11 @@ class AdvancedExportService {
                 '总览表': this.formatOverviewData(rawData, 'teacher'),
                 '明细信息表': this.aggregateDetails(rawData, 'teacher')
             };
+
+            // 设置合并选项
+            data._worksheetOptions = {
+                '课程安排（按时间段）': { mergeDateColumns: true }
+            };
         } else if (type === 'student_schedule') {
             const rawData = await this.queryStudentSchedule(startDate, endDate, filters);
 
@@ -323,6 +328,11 @@ class AdvancedExportService {
                 '课程安排（按时间段）': this.formatTimeSlotView(rawData, 'student'),
                 '总览表': this.formatOverviewData(rawData, 'student'),
                 '明细信息表': this.aggregateDetails(rawData, 'student')
+            };
+
+            // 设置合并选项
+            data._worksheetOptions = {
+                '课程安排（按时间段）': { mergeDateColumns: true }
             };
         }
 
