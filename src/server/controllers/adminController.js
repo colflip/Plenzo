@@ -7,9 +7,12 @@ const db = require('../db/db');
 const bcrypt = require('bcrypt');
 const { standardResponse } = require('../middleware/validation');
 const { recordAudit } = require('../middleware/audit');
+const { handleExportError } = require('../middleware/exportErrorHandler');
 const ExportUtils = require('../utils/exportUtils');
 const AdvancedExportService = require('../utils/advancedExportService');
 const ExportLogService = require('../utils/exportLogService');
+const UnifiedExportService = require('../services/unifiedExportService');
+const excelGeneratorService = require('../services/excelGeneratorService');
 
 const adminController = {
     /**
@@ -1857,18 +1860,15 @@ const adminController = {
 
             try {
                 // 记录导出开始
-                logId = await logService.logExportStart(
-                    adminId,
-                    adminName,
-                    type,
-                    format,
-                    {
-                        startDate,
-                        endDate,
-                        ipAddress: req.ip || req.connection.remoteAddress,
-                        userAgent: req.get('user-agent')
-                    }
-                );
+                logId = await logService.logExportStart({
+                    userId: adminId,
+                    userType: 'admin',
+                    startDate,
+                    endDate,
+                    studentId: student_id,
+                    teacherId: req.query.teacher_id,
+                    exportType: type
+                });
             } catch (logError) {
                 console.warn('记录导出日志失败:', logError.message);
                 // 继续执行导出，不中断流程
@@ -1891,30 +1891,80 @@ const adminController = {
                     break;
 
                 case 'teacher_schedule':
-                    if (!startDate || !endDate) {
-                        return res.status(400).json(
-                            standardResponse(false, null, '导出老师排课记录需要指定日期范围')
-                        );
-                    }
-                    const teacherId = req.query.teacher_id;
-                    // 返回原始行数据，由前端 ExportManager 统一生成多 Sheet Excel
-                    exportData = await exportService.exportTeacherSchedule(startDate, endDate, {
-                        student_id,
-                        teacher_id: teacherId
-                    });
-                    filename = `教师授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
-                    break;
-
                 case 'student_schedule':
+                    // 排课记录导出：使用新的统一服务（后端生成Excel）
                     if (!startDate || !endDate) {
                         return res.status(400).json(
-                            standardResponse(false, null, '导出学生排课记录需要指定日期范围')
+                            standardResponse(false, null, '导出排课记录需要指定日期范围')
                         );
                     }
-                    // 返回原始行数据，由前端 ExportManager 统一生成多 Sheet Excel
-                    exportData = await exportService.exportStudentSchedule(startDate, endDate, { student_id });
-                    filename = `学生授课记录_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
-                    break;
+
+                    // 1. 查询原始数据
+                    let rawData;
+                    const teacherId = req.query.teacher_id;
+                    let teacherName = null;
+
+                    if (type === 'teacher_schedule') {
+                        rawData = await exportService.queryTeacherSchedule(startDate, endDate, {
+                            student_id,
+                            teacher_id: teacherId
+                        });
+
+                        // 如果指定了教师，获取教师名称
+                        if (teacherId && rawData.length > 0) {
+                            teacherName = rawData[0]?.teacher_name || null;
+                        }
+                    } else {
+                        rawData = await exportService.queryStudentSchedule(startDate, endDate, {
+                            student_id
+                        });
+                    }
+
+                    if (!rawData || rawData.length === 0) {
+                        return res.status(404).json(
+                            standardResponse(false, null, '该时间段内无数据')
+                        );
+                    }
+
+                    // 2. 使用统一服务生成完整的多Sheet数据
+                    const unifiedService = new UnifiedExportService();
+                    const exportResult = await unifiedService.generateCompleteExport(rawData, {
+                        startDate,
+                        endDate,
+                        userType: 'admin',
+                        userId: adminId,
+                        userName: adminName,
+                        studentId: student_id,
+                        teacherId: teacherId,
+                        studentName: rawData[0]?.student_name || '全部学生',
+                        teacherName: teacherName
+                    });
+
+                    // 3. 使用 excelGeneratorService 生成 Excel 文件
+                    const excelResult = await excelGeneratorService.generateMultiSheetExcel(
+                        exportResult.sheets,
+                        exportResult.filename
+                    );
+
+                    // 记录导出成功
+                    if (logId) {
+                        try {
+                            await logService.logExportSuccess(logId, {
+                                recordCount: rawData.length,
+                                fileSize: excelResult.buffer.length,
+                                fileName: excelResult.filename,
+                                duration: Date.now() - startTime
+                            });
+                        } catch (logError) {
+                            console.warn('记录导出完成日志失败:', logError.message);
+                        }
+                    }
+
+                    // 4. 直接发送文件
+                    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
+                    res.setHeader('Content-Length', excelResult.buffer.length);
+                    return res.end(excelResult.buffer);
 
                 case 'schedule_data':
                     if (!startDate || !endDate) {
@@ -1922,13 +1972,65 @@ const adminController = {
                             standardResponse(false, null, '导出排课数据需要指定日期范围')
                         );
                     }
-                    // 合并导出：教师 + 学生 6 工作表，统一走 exportTeacherSchedule（含全字段），由前端 ExportManager 生成
-                    exportData = await exportService.exportTeacherSchedule(startDate, endDate, {
+
+                    // 使用统一服务生成多Sheet Excel（与 teacher_schedule 相同的处理）
+                    const scheduleRawData = await exportService.queryTeacherSchedule(startDate, endDate, {
                         student_id,
                         teacher_id: req.query.teacher_id
                     });
-                    filename = `排课数据_${startDate}_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`;
-                    break;
+
+                    if (!scheduleRawData || scheduleRawData.length === 0) {
+                        return res.status(404).json(
+                            standardResponse(false, null, '该时间段内无数据')
+                        );
+                    }
+
+                    // 获取教师名称
+                    let scheduleTeacherName = null;
+                    if (req.query.teacher_id && scheduleRawData.length > 0) {
+                        scheduleTeacherName = scheduleRawData[0]?.teacher_name || null;
+                    }
+
+                    // 使用统一服务生成完整的多Sheet数据
+                    const UnifiedExportService = require('../services/unifiedExportService');
+                    const scheduleUnifiedService = new UnifiedExportService();
+                    const scheduleExportResult = await scheduleUnifiedService.generateCompleteExport(scheduleRawData, {
+                        startDate,
+                        endDate,
+                        userType: 'admin',
+                        userId: adminId,
+                        userName: adminName,
+                        studentId: student_id,
+                        teacherId: req.query.teacher_id,
+                        studentName: scheduleRawData[0]?.student_name || '全部学生',
+                        teacherName: scheduleTeacherName
+                    });
+
+                    // 生成 Excel 文件
+                    const scheduleExcelResult = await excelGeneratorService.generateMultiSheetExcel(
+                        scheduleExportResult.sheets,
+                        scheduleExportResult.filename
+                    );
+
+                    // 记录导出成功
+                    if (logId) {
+                        try {
+                            await logService.logExportSuccess(logId, {
+                                recordCount: scheduleRawData.length,
+                                fileSize: scheduleExcelResult.buffer.length,
+                                fileName: scheduleExportResult.filename,
+                                duration: Date.now() - startTime
+                            });
+                        } catch (logError) {
+                            console.warn('记录导出完成日志失败:', logError.message);
+                        }
+                    }
+
+                    // 直接发送文件
+                    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(scheduleExportResult.filename)}"`);
+                    res.setHeader('Content-Length', scheduleExcelResult.buffer.length);
+                    return res.end(scheduleExcelResult.buffer);
 
                 default:
                     return res.status(400).json(
@@ -1940,7 +2042,12 @@ const adminController = {
             const duration = Date.now() - startTime;
             try {
                 if (logId) {
-                    await logService.logExportComplete(logId, exportData.length, duration);
+                    await logService.logExportSuccess(logId, {
+                        recordCount: exportData.length,
+                        fileSize: 0,  // 旧版导出无法获取文件大小
+                        fileName: filename,
+                        duration: duration
+                    });
                 }
             } catch (logError) {
                 console.warn('记录导出完成日志失败:', logError.message);
@@ -1956,15 +2063,6 @@ const adminController = {
             });
 
         } catch (error) {
-            const statusCode = error.status || 500;
-            console.error('[AdminController] 高级导出错误:', error);
-            console.error('[AdminController] 错误详情:', {
-                message: error.message,
-                stack: error.stack,
-                type: req.query.type,
-                format: req.query.format
-            });
-
             // 记录导出失败
             if (logId) {
                 try {
@@ -1975,9 +2073,8 @@ const adminController = {
                 }
             }
 
-            res.status(statusCode).json(
-                standardResponse(false, null, error.message || '导出操作失败，请稍后重试或联系管理员')
-            );
+            // 使用统一错误处理
+            return handleExportError(error, req, res);
         }
     },
 
