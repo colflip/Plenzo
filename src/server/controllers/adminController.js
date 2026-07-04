@@ -8,8 +8,9 @@ const bcrypt = require('bcrypt');
 const { standardResponse } = require('../middleware/validation');
 const { recordAudit } = require('../middleware/audit');
 const { handleExportError } = require('../middleware/exportErrorHandler');
-const ExportUtils = require('../utils/exportUtils');
-const AdvancedExportService = require('../utils/advancedExportService');
+const SchemaHelper = require('../utils/schemaHelper');
+const { getTimestamp } = require('../utils/sharedUtils');
+const AdvancedExportService = require('../services/advancedExportService');
 const ExportLogService = require('../utils/exportLogService');
 const UnifiedExportService = require('../services/unifiedExportService');
 const excelGeneratorService = require('../services/excelGeneratorService');
@@ -29,38 +30,36 @@ const adminController = {
             switch (userType) {
                 case 'admin':
                     table = 'administrators';
-                    selectColumns = 'id, username, name, email, permission_level, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, email, permission_level, last_login, created_at';
                     break;
                 case 'teacher':
                     table = 'teachers';
-                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
                     break;
                 case 'student':
                     table = 'students';
-                    selectColumns = 'id, username, name, profession, contact, visit_location, home_address, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, profession, contact, visit_location, home_address, last_login, created_at';
                     break;
                 default:
                     return res.status(400).json({ message: '无效的用户类型' });
             }
 
-            // 分页参数
-            const page = parseInt(req.query.page) || 1;
-            const size = parseInt(req.query.size) || 50;
+            // 分页参数（限制范围防止 DoS）
+            const page = Math.max(1, parseInt(req.query.page) || 1);
+            const size = Math.min(200, Math.max(1, parseInt(req.query.size) || 50));
             const offset = (page - 1) * size;
 
-            // 缓存 schema 检查结果
-            const schemaCacheKey = `has_status_${table}`;
-            adminController._schemaCache = adminController._schemaCache || {};
-            
-            if (adminController._schemaCache[schemaCacheKey] === undefined) {
-                try {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
-                    adminController._schemaCache[schemaCacheKey] = (cols.rows || []).length > 0;
-                } catch (_) { adminController._schemaCache[schemaCacheKey] = false; }
+            // 检查 status 列是否存在（SchemaHelper 内部有缓存）
+            const hasStatus = await SchemaHelper.hasColumn(table, 'status');
+
+            if (hasStatus) {
+                selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
             }
 
-            if (adminController._schemaCache[schemaCacheKey]) {
-                selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
+            // 检查 nickname 列是否存在（向后兼容）
+            const hasNickname = await SchemaHelper.hasColumn(table, 'nickname');
+            if (!hasNickname) {
+                selectColumns = selectColumns.replace(', nickname', '');
             }
 
             const result = await db.query(
@@ -90,15 +89,15 @@ const adminController = {
             switch (userType) {
                 case 'admin':
                     table = 'administrators';
-                    selectColumns = 'id, username, name, email, permission_level, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, email, permission_level, last_login, created_at';
                     break;
                 case 'teacher':
                     table = 'teachers';
-                    selectColumns = 'id, username, name, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
                     break;
                 case 'student':
                     table = 'students';
-                    selectColumns = 'id, username, name, profession, contact, visit_location, home_address, last_login, created_at';
+                    selectColumns = 'id, username, name, nickname, profession, contact, visit_location, home_address, last_login, created_at';
                     break;
                 default:
                     return res.status(400).json(standardResponse(false, null, '无效的用户类型'));
@@ -107,10 +106,13 @@ const adminController = {
             // 若存在 status 列，则动态追加到返回字段
             try {
                 if (table === 'teachers' || table === 'students') {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' AND column_name='status'`);
-                    if ((cols.rows || []).length > 0) {
+                    if (await SchemaHelper.hasColumn(table, 'status')) {
                         selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
                     }
+                }
+                // 若不存在 nickname 列，则移除（向后兼容）
+                if (!(await SchemaHelper.hasColumn(table, 'nickname'))) {
+                    selectColumns = selectColumns.replace(', nickname', '');
                 }
             } catch (_) { }
 
@@ -178,9 +180,9 @@ const adminController = {
             }
 
             const allowedAdditionalByType = {
-                admin: ['permission_level'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids'],
-                student: ['profession', 'contact', 'visit_location', 'home_address', 'status']
+                admin: ['permission_level', 'nickname'],
+                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids', 'nickname'],
+                student: ['profession', 'contact', 'visit_location', 'home_address', 'status', 'nickname']
             };
             const allowedAdditional = allowedAdditionalByType[userType] || [];
             const filteredAdditional = Object.fromEntries(
@@ -205,16 +207,12 @@ const adminController = {
                 filteredAdditional.student_ids = null;
             }
 
-            // 若教师/学生表不存在 status 或 student_ids 列，则忽略该字段，防止 SQL 错误（动态探测器）
+            // 若表不存在某些列，则忽略该字段，防止 SQL 错误
             try {
-                if (userType === 'teacher' || userType === 'student') {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}'`);
-                    const colNames = (cols.rows || []).map(r => r.column_name);
-                    ['status', 'student_ids'].forEach(f => {
-                        if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !colNames.includes(f)) {
-                            delete filteredAdditional[f];
-                        }
-                    });
+                for (const f of ['status', 'student_ids', 'nickname']) {
+                    if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !(await SchemaHelper.hasColumn(table, f))) {
+                        delete filteredAdditional[f];
+                    }
                 }
             } catch (_) { /* 静默处理探测错误 */ }
 
@@ -239,6 +237,7 @@ const adminController = {
             }
 
             // 在事务中创建用户，确保插入与审计原子性
+            let createdUser = null;
             await db.runInTransaction(async (client, usePool) => {
                 // 加密密码
                 const salt = await bcrypt.genSalt(10);
@@ -282,11 +281,12 @@ const adminController = {
                 const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
                 if (rows[0] && rows[0].password_hash) { delete rows[0].password_hash; }
                 if (rows[0] && rows[0].password) { delete rows[0].password; }
+                createdUser = rows[0];
                 // 记录审计（在事务内）
                 try { await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0]?.id, details: { username, name, email, custom_id: id } }); } catch (_) { }
-
-                res.status(201).json(standardResponse(true, rows[0], '创建用户成功'));
             });
+            // 事务成功提交后才发送响应
+            res.status(201).json(standardResponse(true, createdUser, '创建用户成功'));
         } catch (error) {
             console.error('创建用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
@@ -338,9 +338,9 @@ const adminController = {
             }
 
             const allowedAdditionalByType = {
-                admin: ['permission_level'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids'],
-                student: ['profession', 'contact', 'visit_location', 'home_address', 'status']
+                admin: ['permission_level', 'nickname'],
+                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids', 'nickname'],
+                student: ['profession', 'contact', 'visit_location', 'home_address', 'status', 'nickname']
             };
             const allowedAdditional = allowedAdditionalByType[userType] || [];
             const filteredAdditional = Object.fromEntries(
@@ -368,16 +368,12 @@ const adminController = {
 
             // 若教师/学生表不存在 status / student_ids 列，则忽略该字段，防止 SQL 错误
             try {
-                if (userType === 'teacher' || userType === 'student') {
-                    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}'`);
-                    const colNames = (cols.rows || []).map(r => r.column_name);
-                    ['status', 'student_ids'].forEach(f => {
-                        // 补丁：对 teacher 类型且字段为 student_ids 时强行豁免嗅探剔除，确保存入
-                        if (userType === 'teacher' && f === 'student_ids') return;
-                        if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !colNames.includes(f)) {
-                            delete filteredAdditional[f];
-                        }
-                    });
+                for (const f of ['status', 'student_ids', 'nickname']) {
+                    // 补丁：对 teacher 类型且字段为 student_ids 时强行豁免嗅探剔除，确保存入
+                    if (userType === 'teacher' && f === 'student_ids') continue;
+                    if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !(await SchemaHelper.hasColumn(table, f))) {
+                        delete filteredAdditional[f];
+                    }
                 }
             } catch (_) { /* 静默处理探测错误 */ }
 
@@ -387,6 +383,16 @@ const adminController = {
             let updates = [];
             let values = [];
             let currentPlaceholder = 1;
+
+            // 处理密码更新（管理员可以直接重置密码，无需旧密码）
+            const { password } = req.body;
+            if (typeof password !== 'undefined' && password !== null && password !== '') {
+                const salt = await bcrypt.genSalt(10);
+                const passwordHash = await bcrypt.hash(password, salt);
+                updates.push(`password_hash = $${currentPlaceholder}`);
+                values.push(passwordHash);
+                currentPlaceholder++;
+            }
 
             if (typeof username !== 'undefined') {
                 updates.push(`username = $${currentPlaceholder}`);
@@ -478,7 +484,7 @@ const adminController = {
                 return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被占用'));
             }
             console.error('更新用户错误:', error);
-            res.status(500).json(standardResponse(false, null, '服务器错误: ' + (error.message || '')));
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
@@ -534,8 +540,9 @@ const adminController = {
                         await q(`DELETE FROM course_arrangement WHERE ${refCol} = $1`, [id]);
                         await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
                         try { await recordAudit(req, { op: 'delete_cascade', entityType: userType, entityId: Number(id), details: { deletedSchedules: refCount } }); } catch (_) { }
-                        res.json(standardResponse(true, { deletedSchedules: refCount }, '用户及其关联排课已删除'));
                     });
+                    // 事务成功提交后才发送响应
+                    res.json(standardResponse(true, { deletedSchedules: refCount }, '用户及其关联排课已删除'));
                     return;
                 }
             }
@@ -573,24 +580,7 @@ const adminController = {
                 endDate = endDate || '2099-12-31';
             }
 
-            async function getCaDateExpr() {
-                if (getCaDateExpr.cache) return getCaDateExpr.cache;
-                const r = await db.query(`
-                  SELECT column_name FROM information_schema.columns
-                  WHERE table_schema='public' AND table_name='course_arrangement'
-                    AND column_name IN ('arr_date','class_date','date')
-                `);
-                const cols = new Set((r.rows || []).map(x => x.column_name));
-                const parts = [];
-                if (cols.has('arr_date')) parts.push('ca.arr_date');
-                if (cols.has('class_date')) parts.push('ca.class_date');
-                if (cols.has('date')) parts.push('ca.date');
-                const expr = parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'CURRENT_DATE');
-                getCaDateExpr.cache = expr;
-                return expr;
-            }
-
-            const dateExpr = await getCaDateExpr();
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
             const values = [startDate, endDate];
 
             // 检测 teacher/student 表是否包含 status 字段
@@ -720,22 +710,9 @@ const adminController = {
                 return res.status(400).json({ message: '缺少开始/结束日期' });
             }
 
-            // 统一日期列表达式
-            const rCols = await db.query(`
-              SELECT column_name FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-            `);
-            const cset = new Set((rCols.rows || []).map(x => x.column_name));
-            const dateExpr = cset.has('arr_date') ? 'ca.arr_date' : (cset.has('class_date') ? 'ca.class_date' : 'ca.date');
-
-            // 动态 teacher/student 状态列过滤
-            let teacherHasStatus = false, studentHasStatus = false;
-            try {
-                const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                teacherHasStatus = (tCols.rows || []).length > 0;
-                studentHasStatus = (sCols.rows || []).length > 0;
-            } catch (_) { }
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const teacherHasStatus = await SchemaHelper.hasColumn('teachers', 'status');
+            const studentHasStatus = await SchemaHelper.hasColumn('students', 'status');
 
             let sql = `
                 SELECT 
@@ -1083,6 +1060,7 @@ const adminController = {
             }
 
             // 使用统一事务封装，支持 pool client 与 serverless 回退
+            let createdScheduleId = null;
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
 
@@ -1159,9 +1137,11 @@ const adminController = {
                     [teacherId, firstStudentId, firstTypeId, date, startTime, endTime, nextStatus, location || null, req.user.id, familyParticipants, (is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null]
                 );
 
-                // 返回响应（在事务内部返回，在 runInTransaction 结束时会自动 COMMIT）
-                res.status(201).json({ id: insertResult.rows[0].id, skipped_students: Array.isArray(studentIds) ? Math.max(0, studentIds.length - 1) : 0 });
+                // 保存结果，事务提交后再发送响应
+                createdScheduleId = insertResult.rows[0].id;
             });
+            // 事务成功提交后才发送响应
+            res.status(201).json({ id: createdScheduleId, skipped_students: Array.isArray(studentIds) ? Math.max(0, studentIds.length - 1) : 0 });
         } catch (error) {
             console.error('创建排课错误:', error);
             // 友好错误映射
@@ -1185,8 +1165,7 @@ const adminController = {
             }
             return res.status(500).json({
                 message: '服务器错误',
-                code: error.code || 'UNKNOWN_ERROR',
-                errors: [{ field: 'db', message: error.message || '数据库错误' }]
+                errors: [{ field: 'db', message: '数据库错误' }]
             });
         }
     },
@@ -1359,8 +1338,8 @@ const adminController = {
             } else if (error.code === '23514') { // check_violation
                 mapped.message = '检查约束冲突';
                 mapped.errors = [{ field: 'check', message: '不符合数据库检查约束' }];
-            } else if (error.message) {
-                mapped.errors = [{ field: 'db', message: error.message }];
+            } else {
+                mapped.errors = [{ field: 'db', message: '数据库操作失败' }];
             }
             res.status(error.statusCode || 500).json(standardResponse(false, null, mapped.message, mapped.errors));
         }
@@ -1370,11 +1349,18 @@ const adminController = {
         try {
             const { id } = req.params;
 
+            // 先验证排课是否存在
+            const existing = await db.query('SELECT id FROM course_arrangement WHERE id = $1', [id]);
+            if (!existing.rows || existing.rows.length === 0) {
+                return res.status(404).json({ message: '未找到该排课记录' });
+            }
+
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 await q('DELETE FROM course_arrangement WHERE id = $1', [id]);
-                res.json({ message: '排课删除成功' });
             });
+            // 事务成功提交后才发送响应
+            res.json({ message: '排课删除成功' });
         } catch (error) {
             console.error('删除排课错误:', error);
             res.status(500).json({ message: '服务器错误' });
@@ -1404,11 +1390,7 @@ const adminController = {
             res.json({ message: '课程确认状态更新成功' });
         } catch (error) {
             console.error('确认课程错误:', error);
-            res.status(500).json({
-                message: '服务器错误',
-                code: error.code || 'UNKNOWN_ERROR',
-                errors: [{ field: 'db', message: error.message || '数据库错误' }]
-            });
+            res.status(500).json({ message: '服务器错误' });
         }
     },
 
@@ -1418,22 +1400,6 @@ const adminController = {
      */
     async getOverviewStats(req, res) {
         try {
-            async function getCaDateExpr() {
-                if (getCaDateExpr.cache) return getCaDateExpr.cache;
-                const r = await db.query(`
-                  SELECT column_name FROM information_schema.columns
-                  WHERE table_schema='public' AND table_name='course_arrangement'
-                    AND column_name IN ('arr_date','class_date','date')
-                `);
-                const cols = new Set((r.rows || []).map(x => x.column_name));
-                const parts = [];
-                if (cols.has('arr_date')) parts.push('arr_date');
-                if (cols.has('class_date')) parts.push('class_date');
-                if (cols.has('date')) parts.push('date');
-                const expr = parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'CURRENT_DATE');
-                getCaDateExpr.cache = expr;
-                return expr;
-            }
             // 开发离线模式：返回示例统计数据
             if (process.env.OFFLINE_DEV === 'true') {
                 return res.json({
@@ -1445,7 +1411,7 @@ const adminController = {
                 });
             }
             // 获取总览数据
-            const caDateExpr = await getCaDateExpr();
+            const caDateExpr = await SchemaHelper.getDateExpr('');
             const stats = await db.query(`
                 SELECT
                     (SELECT COUNT(*) FROM teachers) as teacher_count,
@@ -1516,18 +1482,7 @@ const adminController = {
             }
 
             // 获取排课统计数据
-            const dateExpr = await (async () => {
-                const r = await db.query(`
-                SELECT column_name FROM information_schema.columns
-                WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-              `);
-                const cols = new Set((r.rows || []).map(x => x.column_name));
-                const parts = [];
-                if (cols.has('arr_date')) parts.push('ca.arr_date');
-                if (cols.has('class_date')) parts.push('ca.class_date');
-                if (cols.has('date')) parts.push('ca.date');
-                return parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'CURRENT_DATE');
-            })();
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
 
             const query = `
                 SELECT
@@ -1574,18 +1529,7 @@ const adminController = {
             }
 
             // 获取用户统计数据
-            const dateExpr2 = await (async () => {
-                const r = await db.query(`
-                SELECT column_name FROM information_schema.columns
-                WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-              `);
-                const cols = new Set((r.rows || []).map(x => x.column_name));
-                const parts = [];
-                if (cols.has('arr_date')) parts.push('ca.arr_date');
-                if (cols.has('class_date')) parts.push('ca.class_date');
-                if (cols.has('date')) parts.push('ca.date');
-                return parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'CURRENT_DATE');
-            })();
+            const dateExpr2 = await SchemaHelper.getDateExpr('ca');
 
             // 教师汇总统计（全部教师，按类型分组）
             const teacherStats = await db.query(`
@@ -1657,176 +1601,6 @@ const adminController = {
         }
     },
 
-    // 导出教师数据
-    async exportTeacherData(req, res) {
-        try {
-            const { startDate, endDate, preset } = req.query;
-
-            try {
-                // 计算实际日期范围
-                const { actualStartDate, actualEndDate } = ExportUtils.calculateDateRange(startDate, endDate, preset);
-
-                // 验证日期范围有效性
-                ExportUtils.validateDateRange(actualStartDate, actualEndDate);
-
-                // 获取日期表达式
-                const dateExpr = await ExportUtils.getDateExpression();
-
-                // 首先查询记录数以验证数据量
-                const countResult = await db.query(`
-                    SELECT COUNT(*) as total_teachers
-                    FROM teachers t
-                    LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
-                        AND ${dateExpr} BETWEEN $1 AND $2
-                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                    GROUP BY t.id
-                `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
-
-                const totalRecords = countResult.rows ? countResult.rows.length : 0;
-
-                // 验证数据量
-                ExportUtils.validateDataSize(totalRecords);
-
-                // 获取教师详细信息和排课统计
-                const teacherDataResult = await db.query(`
-                    SELECT 
-                        t.id,
-                        t.username,
-                        t.name,
-                        t.profession,
-                        t.contact,
-                        t.work_location,
-                        t.home_address,
-                        t.last_login,
-                        t.created_at,
-                        COALESCE(COUNT(ca.id), 0) as total_schedules,
-                        COALESCE(SUM(CASE WHEN ca.status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed_schedules,
-                        COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
-                    FROM teachers t
-                    LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id 
-                        AND ${dateExpr} BETWEEN $1 AND $2
-                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                    GROUP BY t.id, t.username, t.name, t.profession, t.contact, t.work_location, t.home_address, t.last_login, t.created_at
-                    ORDER BY t.created_at DESC
-                `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
-
-                const teacherData = teacherDataResult && teacherDataResult.rows ? teacherDataResult.rows : [];
-
-                // 构建导出数据
-                const excelData = ExportUtils.buildExportPayload('teacher', teacherData, actualStartDate, actualEndDate);
-
-                // 记录审计日志
-                try {
-                    await recordAudit({
-                        adminId: req.user?.id,
-                        action: 'EXPORT_TEACHER_DATA',
-                        details: {
-                            dateRange: `${ExportUtils.formatDateToISO(actualStartDate)} - ${ExportUtils.formatDateToISO(actualEndDate)}`,
-                            recordCount: teacherData.length
-                        }
-                    });
-                } catch (auditError) {
-                    console.warn('记录审计日志失败:', auditError.message);
-                }
-
-                res.json(standardResponse(true, excelData, '教师数据导出成功'));
-            } catch (validationError) {
-                // 处理验证错误
-                const statusCode = validationError.message.includes('超过限制') ? 413 : 400;
-                return res.status(statusCode).json(standardResponse(false, null, validationError.message));
-            }
-        } catch (error) {
-            console.error('导出教师数据错误:', error);
-            const errorMessage = error.message || '导出教师数据失败，请稍后重试';
-            res.status(500).json(standardResponse(false, null, errorMessage));
-        }
-    },
-
-    // 导出学生数据
-    async exportStudentData(req, res) {
-        try {
-            const { startDate, endDate, preset } = req.query;
-
-            try {
-                // 计算实际日期范围
-                const { actualStartDate, actualEndDate } = ExportUtils.calculateDateRange(startDate, endDate, preset);
-
-                // 验证日期范围有效性
-                ExportUtils.validateDateRange(actualStartDate, actualEndDate);
-
-                // 获取日期表达式
-                const dateExpr = await ExportUtils.getDateExpression();
-
-                // 首先查询记录数以验证数据量
-                const countResult = await db.query(`
-                    SELECT COUNT(*) as total_students
-                    FROM students s
-                    LEFT JOIN course_arrangement ca ON s.id = ca.student_id 
-                        AND ${dateExpr} BETWEEN $1 AND $2
-                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                    GROUP BY s.id
-                `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
-
-                const totalRecords = countResult.rows ? countResult.rows.length : 0;
-
-                // 验证数据量
-                ExportUtils.validateDataSize(totalRecords);
-
-                // 获取学生详细信息和排课统计
-                const studentDataResult = await db.query(`
-                    SELECT 
-                        s.id,
-                        s.username,
-                        s.name,
-                        s.profession,
-                        s.contact,
-                        s.visit_location,
-                        s.home_address,
-                        s.last_login,
-                        s.created_at,
-                        COALESCE(COUNT(ca.id), 0) as total_schedules,
-                        COALESCE(SUM(CASE WHEN ca.status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed_schedules,
-                        COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
-                    FROM students s
-                    LEFT JOIN course_arrangement ca ON s.id = ca.student_id 
-                        AND ${dateExpr} BETWEEN $1 AND $2
-                        AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                    GROUP BY s.id, s.username, s.name, s.profession, s.contact, s.visit_location, s.home_address, s.last_login, s.created_at
-                    ORDER BY s.created_at DESC
-                `, [ExportUtils.formatDateToISO(actualStartDate), ExportUtils.formatDateToISO(actualEndDate)]);
-
-                const studentData = studentDataResult && studentDataResult.rows ? studentDataResult.rows : [];
-
-                // 构建导出数据
-                const excelData = ExportUtils.buildExportPayload('student', studentData, actualStartDate, actualEndDate);
-
-                // 记录审计日志
-                try {
-                    await recordAudit({
-                        adminId: req.user?.id,
-                        action: 'EXPORT_STUDENT_DATA',
-                        details: {
-                            dateRange: `${ExportUtils.formatDateToISO(actualStartDate)} - ${ExportUtils.formatDateToISO(actualEndDate)}`,
-                            recordCount: studentData.length
-                        }
-                    });
-                } catch (auditError) {
-                    console.warn('记录审计日志失败:', auditError.message);
-                }
-
-                res.json(standardResponse(true, excelData, '学生数据导出成功'));
-            } catch (validationError) {
-                // 处理验证错误
-                const statusCode = validationError.message.includes('超过限制') ? 413 : 400;
-                return res.status(statusCode).json(standardResponse(false, null, validationError.message));
-            }
-        } catch (error) {
-            console.error('导出学生数据错误:', error);
-            const errorMessage = error.message || '导出学生数据失败，请稍后重试';
-            res.status(500).json(standardResponse(false, null, errorMessage));
-        }
-    },
-
     // ============ 高级导出功能 ============
     /**
      * 高级数据导出接口
@@ -1841,11 +1615,27 @@ const adminController = {
     async advancedExport(req, res) {
         let logId = null;
         let startTime = Date.now();
+        const logService = new ExportLogService(db);
 
         try {
             const { type, format, startDate, endDate, student_id, ...filters } = req.query;
             const adminId = req.user?.id;
-            const adminName = req.user?.name || '未知用户';
+
+            // 从数据库获取管理员名称
+            let adminName = '管理员';
+            if (adminId) {
+                try {
+                    const result = await db.query(
+                        'SELECT username, name FROM administrators WHERE id = $1',
+                        [adminId]
+                    );
+                    if (result && result.rows && result.rows[0]) {
+                        adminName = result.rows[0].name || result.rows[0].username || '管理员';
+                    }
+                } catch (err) {
+                    console.warn('获取管理员名称失败:', err.message);
+                }
+            }
 
             // ===== 参数验证 =====
             if (!type || !format) {
@@ -1856,7 +1646,6 @@ const adminController = {
 
             // ===== 初始化服务 =====
             const exportService = new AdvancedExportService(db);
-            const logService = new ExportLogService(db);
 
             try {
                 // 记录导出开始
@@ -1992,7 +1781,6 @@ const adminController = {
                     }
 
                     // 使用统一服务生成完整的多Sheet数据
-                    const UnifiedExportService = require('../services/unifiedExportService');
                     const scheduleUnifiedService = new UnifiedExportService();
                     const scheduleExportResult = await scheduleUnifiedService.generateCompleteExport(scheduleRawData, {
                         startDate,
@@ -2066,7 +1854,6 @@ const adminController = {
             // 记录导出失败
             if (logId) {
                 try {
-                    const logService = new ExportLogService(db);
                     await logService.logExportError(logId, error.message);
                 } catch (logError) {
                     console.warn('记录导出错误日志失败:', logError.message);
@@ -2498,20 +2285,30 @@ const adminController = {
         try {
             const { date, startTime, endTime, excludeScheduleId } = req.query;
             if (!date || !startTime || !endTime) return res.status(400).json({ message: '缺少参数' });
-            let sql = `SELECT teacher_id FROM course_arrangement WHERE class_date = $1 AND status != 'cancelled' AND (start_time < $3 AND end_time > $2)`;
+            // 使用 SchemaHelper 获取实际日期列名，避免硬编码 class_date
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            let sql = `SELECT ca.teacher_id FROM course_arrangement ca WHERE ${dateExpr} = $1 AND ca.status != 'cancelled' AND (ca.start_time < $3 AND ca.end_time > $2)`;
             const ps = [date, startTime, endTime];
-            if (excludeScheduleId) { sql += ` AND id != $4`; ps.push(excludeScheduleId); }
+            if (excludeScheduleId) { sql += ` AND ca.id != $4`; ps.push(excludeScheduleId); }
             const cR = await db.query(sql, ps);
-            const aR = await db.query(`SELECT teacher_id, morning_available, afternoon_available, evening_available FROM teacher_daily_availability WHERE date = $1`, [date]);
+            // teacher_daily_availability 使用 day_of_week 模式，需转换日期为星期几
+            const dayOfWeek = new Date(date).getDay() || 7; // 1=周一, 7=周日
+            const aR = await db.query(`SELECT teacher_id, start_time, end_time FROM teacher_daily_availability WHERE day_of_week = $1`, [dayOfWeek]);
             const resMap = {};
             (cR.rows || []).forEach(c => { resMap[c.teacher_id] = { hasClass: true }; });
-            const sH = parseInt(startTime.split(':')[0]);
+            // 检查教师可用性：收集每个教师的所有可用时段
+            const teacherSlots = {};
             (aR.rows || []).forEach(a => {
-                let u = false;
-                if (sH < 12 && a.morning_available === 0) u = true;
-                else if (sH >= 12 && sH < 18 && a.afternoon_available === 0) u = true;
-                else if (sH >= 18 && a.evening_available === 0) u = true;
-                if (u) { if (!resMap[a.teacher_id]) resMap[a.teacher_id] = {}; resMap[a.teacher_id].isUnavailable = true; }
+                if (!teacherSlots[a.teacher_id]) teacherSlots[a.teacher_id] = [];
+                teacherSlots[a.teacher_id].push({ start: a.start_time, end: a.end_time });
+            });
+            // 如果教师没有任何可用时段覆盖请求时段，标记为不可用
+            Object.entries(teacherSlots).forEach(([tid, slots]) => {
+                const hasOverlap = slots.some(s => startTime < s.end && endTime > s.start);
+                if (!hasOverlap) {
+                    if (!resMap[tid]) resMap[tid] = {};
+                    resMap[tid].isUnavailable = true;
+                }
             });
             res.json(resMap);
         } catch (e) { res.status(500).json({ message: '服务器错误' }); }
@@ -2571,7 +2368,7 @@ const adminController = {
 
             const user = req.user || {};
             const submitterId = user.id || null;
-            const submitterRole = user.role || null;
+            const submitterRole = user.userType || null;
             const submitterName = user.name || user.username || null;
 
             const result = await db.query(
@@ -2603,7 +2400,7 @@ const adminController = {
                 return res.status(404).json(standardResponse(false, null, '反馈不存在'));
             }
             const row = cur.rows[0];
-            const isAdmin = user.role === 'admin';
+            const isAdmin = user.userType === 'admin';
             const isOwner = row.submitter_id && user.id && row.submitter_id === user.id;
             if (!isAdmin && !isOwner) {
                 return res.status(403).json(standardResponse(false, null, '无权修改该反馈'));
@@ -2648,7 +2445,7 @@ const adminController = {
                 return res.status(404).json(standardResponse(false, null, '反馈不存在'));
             }
             const ownerId = cur.rows[0].submitter_id;
-            const isAdmin = user.role === 'admin';
+            const isAdmin = user.userType === 'admin';
             const isOwner = ownerId && user.id && ownerId === user.id;
             if (!isAdmin && !isOwner) {
                 return res.status(403).json(standardResponse(false, null, '无权删除该反馈'));

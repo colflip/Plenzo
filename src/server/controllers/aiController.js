@@ -27,15 +27,9 @@ const getStatus = (req, res) => {
 };
 
 /**
- * 状态的中英文映射（统一在后端定义）
+ * 状态的中英文映射（统一使用 sharedUtils.STATUS_MAP 作为权威来源）
  */
-const STATUS_MAPPING = {
-    'pending': '待确认',
-    'confirmed': '已确认',
-    'cancelled': '已取消',
-    'completed': '已完成',
-    'modified_away': '已改期'
-};
+const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus } = require('../utils/sharedUtils');
 
 /**
  * 课程类型映射缓存
@@ -55,7 +49,6 @@ async function loadCourseTypeMapping() {
         });
         return courseTypeCache;
     } catch (err) {
-        console.error('[AI] 加载课程类型映射失败:', err.message);
         return {};
     }
 }
@@ -69,10 +62,14 @@ async function translateCourseType(type) {
 }
 
 /**
- * 翻译状态
+ * 获取日期对应的星期几（中文）
+ * @param {string} dateStr - YYYY-MM-DD
+ * @returns {string} 周一~周日
  */
-function translateStatus(status) {
-    return STATUS_MAPPING[status] || status;
+function getDayOfWeek(dateStr) {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const d = new Date(dateStr + 'T00:00:00+08:00');
+    return days[d.getDay()];
 }
 
 /**
@@ -101,6 +98,32 @@ const schedulePreviewStore = new Map();
  * 生产环境应使用 Redis
  */
 const pendingOperationStore = new Map();
+
+/** Map 最大条目数，防止内存泄漏 */
+const MAX_STORE_SIZE = 500;
+
+/**
+ * 清理过期条目并限制 Map 大小
+ */
+function pruneStore(store) {
+    const now = Date.now();
+    for (const [key, entry] of store) {
+        if (entry && entry.expireAt && now > entry.expireAt) {
+            store.delete(key);
+        }
+    }
+    // 如果仍然超过上限，删除最早的条目
+    while (store.size > MAX_STORE_SIZE) {
+        const firstKey = store.keys().next().value;
+        store.delete(firstKey);
+    }
+}
+
+// 每 5 分钟清理一次
+setInterval(() => {
+    pruneStore(schedulePreviewStore);
+    pruneStore(pendingOperationStore);
+}, 5 * 60 * 1000).unref();
 
 /* ============================================================
  * 数据查询工具集（全新设计）
@@ -154,12 +177,13 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'query_students',
-                description: '查询学生列表，返回 id, name, profession, status。可通过姓名模糊搜索学生。',
+                description: '查询学生列表，返回 id, name, nickname, profession, status。可通过姓名或昵称模糊搜索学生。',
                 parameters: {
                     type: 'object',
                     properties: {
                         status: { type: 'integer', enum: [0, 1], description: '0=禁用 1=启用' },
-                        name: { type: 'string', description: '学生姓名（模糊匹配）' }
+                        name: { type: 'string', description: '学生姓名（模糊匹配）' },
+                        nickname: { type: 'string', description: '学生昵称（模糊匹配）' }
                     }
                 }
             }
@@ -177,21 +201,6 @@ const DATA_TOOLS = {
                         endDate: { type: 'string', description: 'YYYY-MM-DD' }
                     },
                     required: ['dimension']
-                }
-            }
-        },
-        {
-            type: 'function',
-            function: {
-                name: 'update_schedule_teacher',
-                description: '修改指定排课的教师。需要先用 query_schedules 查到排课ID，再用 query_teachers 查到新教师ID。',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        scheduleId: { type: 'integer', description: '排课ID' },
-                        newTeacherId: { type: 'integer', description: '新教师ID' }
-                    },
-                    required: ['scheduleId', 'newTeacherId']
                 }
             }
         },
@@ -218,27 +227,57 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'create_schedule_preview',
-                description: '根据可用时段生成排课预览方案。返回建议的排课计划供用户确认。',
+                description: '根据可用时段生成排课预览方案。支持两种模式：\n' +
+                    '1. 单组模式：传 teacherId+studentId+courseType+slots\n' +
+                    '2. 批量模式：传 groups 数组（多教师多课程一次性预览，表格自动排序）',
                 parameters: {
                     type: 'object',
                     properties: {
-                        teacherId: { type: 'integer', description: '教师ID' },
-                        studentId: { type: 'integer', description: '学生ID' },
-                        courseType: { type: 'string', description: '课程类型名称（name字段）：home-visit/half-home-visit/review/review-record等' },
+                        teacherId: { type: 'integer', description: '教师ID（单组模式）' },
+                        studentId: { type: 'integer', description: '学生ID（单组模式）' },
+                        courseType: { type: 'string', description: '课程类型名称（单组模式）' },
+                        location: { type: 'string', description: '上课地点（单组模式）' },
                         slots: {
                             type: 'array',
-                            description: '时段列表',
+                            description: '时段列表（单组模式）',
                             items: {
                                 type: 'object',
                                 properties: {
                                     date: { type: 'string', description: 'YYYY-MM-DD' },
                                     startTime: { type: 'string', description: 'HH:MM:SS' },
                                     endTime: { type: 'string', description: 'HH:MM:SS' }
-                                }
+                                },
+                                required: ['date', 'startTime', 'endTime']
+                            }
+                        },
+                        groups: {
+                            type: 'array',
+                            description: '批量排课分组（批量模式，用于评审/咨询等多教师场景）',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    teacherId: { type: 'integer', description: '教师ID' },
+                                    studentId: { type: 'integer', description: '学生ID' },
+                                    courseType: { type: 'string', description: '课程类型name字段（如 visit/review/review_record 等）' },
+                                    location: { type: 'string', description: '上课地点' },
+                                    slots: {
+                                        type: 'array',
+                                        items: {
+                                            type: 'object',
+                                            properties: {
+                                                date: { type: 'string', description: 'YYYY-MM-DD' },
+                                                startTime: { type: 'string', description: 'HH:MM:SS' },
+                                                endTime: { type: 'string', description: 'HH:MM:SS' },
+                                                status: { type: 'string', description: '状态：confirmed/pending' }
+                                            },
+                                            required: ['date', 'startTime', 'endTime']
+                                        }
+                                    }
+                                },
+                                required: ['teacherId', 'studentId', 'courseType', 'slots']
                             }
                         }
-                    },
-                    required: ['teacherId', 'studentId', 'courseType', 'slots']
+                    }
                 }
             }
         },
@@ -279,7 +318,7 @@ const DATA_TOOLS = {
                                 startTime: { type: 'string', description: '新开始时间 HH:MM:SS' },
                                 endTime: { type: 'string', description: '新结束时间 HH:MM:SS' },
                                 status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed', 'modified_away'], description: '新状态' },
-                                courseType: { type: 'string', description: '新课程类型名称（name字段）：home-visit/half-home-visit/review/review-record等' },
+                                courseType: { type: 'string', description: '新课程类型名称（name字段）：visit/half_visit/review/review_record/consultation/consultation_record/trial/group_activity等' },
                                 location: { type: 'string', description: '新地点（如：新课堂、老课堂等）' },
                                 familyParticipants: { type: 'integer', description: '家长参与人数' },
                                 transportFee: { type: 'number', description: '交通费' },
@@ -345,6 +384,60 @@ const DATA_TOOLS = {
                         startDate: { type: 'string', description: 'YYYY-MM-DD' },
                         endDate: { type: 'string', description: 'YYYY-MM-DD' },
                         status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled'] }
+                    }
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'query_students',
+                description: '查询学生列表，返回 id, name, nickname, profession, status。可通过姓名或昵称模糊搜索学生。',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        status: { type: 'integer', enum: [0, 1], description: '0=禁用 1=启用' },
+                        name: { type: 'string', description: '学生姓名（模糊匹配）' },
+                        nickname: { type: 'string', description: '学生昵称（模糊匹配）' }
+                    }
+                }
+            }
+        }
+    ],
+    student: [
+        {
+            type: 'function',
+            function: {
+                name: 'query_my_overview',
+                description: '查询当前学生的总览数据：本周/本月/本年课程数、待确认/已完成/已取消',
+                parameters: { type: 'object', properties: {} }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'query_my_schedules',
+                description: '查询当前学生的课程列表，支持按日期范围和状态筛选',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        startDate: { type: 'string', description: 'YYYY-MM-DD' },
+                        endDate: { type: 'string', description: 'YYYY-MM-DD' },
+                        status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed'] }
+                    }
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'query_my_statistics',
+                description: '查询当前学生的学习统计数据：按课程类型统计、按月统计',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        startDate: { type: 'string', description: 'YYYY-MM-DD，开始日期' },
+                        endDate: { type: 'string', description: 'YYYY-MM-DD，结束日期' }
                     }
                 }
             }
@@ -471,7 +564,7 @@ async function executeDataTool(toolName, args, req) {
         case 'query_students': {
             if (userType !== 'admin') throw new AppError('权限不足', 403);
 
-            let query = 'SELECT id, name, profession, status FROM students';
+            let query = 'SELECT id, name, nickname, profession, status FROM students';
             const params = [];
             const conditions = [];
             let paramCount = 1;
@@ -484,6 +577,11 @@ async function executeDataTool(toolName, args, req) {
             if (args.name) {
                 conditions.push(`name LIKE $${paramCount++}`);
                 params.push(`%${args.name}%`);
+            }
+
+            if (args.nickname) {
+                conditions.push(`nickname LIKE $${paramCount++}`);
+                params.push(`%${args.nickname}%`);
             }
 
             if (conditions.length > 0) {
@@ -544,19 +642,21 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_my_overview': {
-            if (userType !== 'teacher') throw new AppError('仅教师可查询', 403);
+            if (userType !== 'teacher' && userType !== 'student') throw new AppError('仅教师和学生可查询', 403);
+
+            const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
 
             const [week, month, year, pending, confirmed, cancelled] = await Promise.all([
                 db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE teacher_id=$1 AND class_date>=CURRENT_DATE-7`, [userId]),
+                    WHERE ${idField}=$1 AND class_date>=CURRENT_DATE-7`, [userId]),
                 db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE teacher_id=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
+                    WHERE ${idField}=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
                     AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)`, [userId]),
                 db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE teacher_id=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE teacher_id=$1 AND status='pending'`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE teacher_id=$1 AND status='confirmed'`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE teacher_id=$1 AND status='cancelled'`, [userId])
+                    WHERE ${idField}=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)`, [userId]),
+                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='pending'`, [userId]),
+                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='confirmed'`, [userId]),
+                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='cancelled'`, [userId])
             ]);
 
             return {
@@ -574,14 +674,18 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_my_schedules': {
-            if (userType !== 'teacher') throw new AppError('仅教师可查询', 403);
+            if (userType !== 'teacher' && userType !== 'student') throw new AppError('仅教师和学生可查询', 403);
+
+            const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
+            const joinField = userType === 'teacher' ? 's.name as student_name' : 't.name as teacher_name';
 
             let query = `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
-                        s.name as student_name, st.name as course_type
+                        ${joinField}, st.name as course_type
                         FROM course_arrangement ca
+                        JOIN teachers t ON ca.teacher_id=t.id
                         JOIN students s ON ca.student_id=s.id
                         JOIN schedule_types st ON ca.course_id=st.id
-                        WHERE ca.teacher_id=$1`;
+                        WHERE ca.${idField}=$1`;
             const params = [userId];
             let paramCount = 2;
 
@@ -610,53 +714,37 @@ async function executeDataTool(toolName, args, req) {
 
             return {
                 type: 'schedule_list',
-                title: '我的排课',
+                title: '我的课程',
                 data: translatedData
             };
         }
 
-        case 'update_schedule_teacher': {
-            if (userType !== 'admin') throw new AppError('仅管理员可修改排课', 403);
+        case 'query_my_statistics': {
+            if (userType !== 'student') throw new AppError('仅学生可查询学习统计', 403);
 
-            const { scheduleId, newTeacherId } = args;
+            // 默认查询最近3个月
+            const startDate = args.startDate || new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().split('T')[0];
+            const endDate = args.endDate || new Date().toISOString().split('T')[0];
 
-            // 检查排课是否存在
-            const scheduleCheck = await db.query(
-                'SELECT id, teacher_id, student_id FROM course_arrangement WHERE id=$1',
-                [scheduleId]
-            );
-            if (scheduleCheck.rows.length === 0) {
-                throw new AppError(`排课 ID ${scheduleId} 不存在`, 404);
-            }
-
-            // 检查新教师是否存在
-            const teacherCheck = await db.query(
-                'SELECT id, name, status FROM teachers WHERE id=$1',
-                [newTeacherId]
-            );
-            if (teacherCheck.rows.length === 0) {
-                throw new AppError(`教师 ID ${newTeacherId} 不存在`, 404);
-            }
-            if (teacherCheck.rows[0].status !== 1) {
-                throw new AppError(`教师 ${teacherCheck.rows[0].name} 已被禁用`, 400);
-            }
-
-            // 执行更新
-            await db.query(
-                'UPDATE course_arrangement SET teacher_id=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2',
-                [newTeacherId, scheduleId]
-            );
-
-            const oldTeacherId = scheduleCheck.rows[0].teacher_id;
-            const oldTeacher = await db.query('SELECT name FROM teachers WHERE id=$1', [oldTeacherId]);
-            const newTeacherName = teacherCheck.rows[0].name;
-            const oldTeacherName = oldTeacher.rows[0]?.name || '未知';
+            const [typeStats, monthlyStats] = await Promise.all([
+                db.query(`SELECT st.name as category, st.description as category_cn, COUNT(*) as count
+                    FROM course_arrangement ca
+                    JOIN schedule_types st ON ca.course_id=st.id
+                    WHERE ca.student_id=$1 AND ca.class_date>=$2 AND ca.class_date<=$3
+                    GROUP BY st.name, st.description ORDER BY count DESC`, [userId, startDate, endDate]),
+                db.query(`SELECT TO_CHAR(ca.class_date, 'YYYY-MM') as month, COUNT(*) as count
+                    FROM course_arrangement ca
+                    WHERE ca.student_id=$1 AND ca.class_date>=$2 AND ca.class_date<=$3
+                    GROUP BY month ORDER BY month`, [userId, startDate, endDate])
+            ]);
 
             return {
-                type: 'text',
-                title: '修改成功',
+                type: 'chart_data',
+                title: '学习统计',
                 data: {
-                    message: `已将排课 #${scheduleId} 的教师从「${oldTeacherName}」改为「${newTeacherName}」`
+                    typeStats: typeStats.rows,
+                    monthlyStats: monthlyStats.rows,
+                    period: { startDate, endDate }
                 }
             };
         }
@@ -751,71 +839,99 @@ async function executeDataTool(toolName, args, req) {
         case 'create_schedule_preview': {
             if (userType !== 'admin') throw new AppError('仅管理员可创建排课', 403);
 
-            const { teacherId, studentId, courseType, slots } = args;
+            const { groups } = args;
+            const isBatch = Array.isArray(groups) && groups.length > 0;
 
-            // 验证教师、学生、课程类型
-            const [teacher, student] = await Promise.all([
-                db.query('SELECT id, name FROM teachers WHERE id=$1 AND status=1', [teacherId]),
-                db.query('SELECT id, name FROM students WHERE id=$1 AND status=1', [studentId])
+            // 统一为 groups 格式
+            const normalizedGroups = isBatch ? groups : [{
+                teacherId: args.teacherId,
+                studentId: args.studentId,
+                courseType: args.courseType,
+                location: args.location,
+                slots: args.slots
+            }];
+
+            // 收集所有唯一ID，批量预加载（避免 N+1 查询）
+            const teacherIds = [...new Set(normalizedGroups.map(g => g.teacherId).filter(Boolean))];
+            const studentIds = [...new Set(normalizedGroups.map(g => g.studentId).filter(Boolean))];
+            const courseTypeNames = [...new Set(normalizedGroups.map(g => g.courseType).filter(Boolean))];
+
+            const [teachersResult, studentsResult, courseTypesResult] = await Promise.all([
+                teacherIds.length ? db.query('SELECT id, name FROM teachers WHERE id=ANY($1) AND status=1', [teacherIds]) : { rows: [] },
+                studentIds.length ? db.query('SELECT id, name FROM students WHERE id=ANY($1) AND status=1', [studentIds]) : { rows: [] },
+                courseTypeNames.length ? db.query('SELECT id, name, description FROM schedule_types WHERE name=ANY($1)', [courseTypeNames]) : { rows: [] }
             ]);
 
-            if (teacher.rows.length === 0) throw new AppError(`教师 ID ${teacherId} 不存在或已禁用`, 404);
-            if (student.rows.length === 0) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
+            const teacherMap = Object.fromEntries(teachersResult.rows.map(r => [r.id, r]));
+            const studentMap = Object.fromEntries(studentsResult.rows.map(r => [r.id, r]));
+            const courseTypeMap = Object.fromEntries(courseTypesResult.rows.map(r => [r.name, r]));
 
-            // 查询课程类型ID
-            const courseTypeResult = await db.query(
-                'SELECT id, name FROM schedule_types WHERE name=$1',
-                [courseType]
-            );
-            if (courseTypeResult.rows.length === 0) {
-                throw new AppError(`课程类型 ${courseType} 不存在`, 404);
+            // 验证并收集所有排课数据
+            const allSchedules = [];
+            const previewGroups = [];
+
+            for (const group of normalizedGroups) {
+                const { teacherId, studentId, courseType, location, slots } = group;
+                if (!teacherId || !studentId || !courseType || !slots?.length) continue;
+
+                const teacher = teacherMap[teacherId];
+                const student = studentMap[studentId];
+                if (!teacher) throw new AppError(`教师 ID ${teacherId} 不存在或已禁用`, 404);
+                if (!student) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
+
+                const courseTypeRow = courseTypeMap[courseType];
+                if (!courseTypeRow) throw new AppError(`课程类型 ${courseType} 不存在`, 404);
+
+                const courseId = courseTypeRow.id;
+                const courseTypeCn = courseTypeRow.description || courseType;
+
+                previewGroups.push({
+                    teacherId, studentId, courseId,
+                    teacherName: teacher.name,
+                    studentName: student.name,
+                    courseTypeCn, location: location || null,
+                    slots: slots.map(s => ({ date: s.date, startTime: s.startTime, endTime: s.endTime, status: s.status }))
+                });
+
+                for (const slot of slots) {
+                    allSchedules.push({
+                        class_date: slot.date,
+                        day_of_week: getDayOfWeek(slot.date),
+                        start_time: slot.startTime,
+                        end_time: slot.endTime,
+                        teacher_id: teacher.id,
+                        teacher_name: teacher.name,
+                        student_name: student.name,
+                        course_type_cn: courseTypeCn,
+                        location: location || null,
+                        status: slot.status || 'confirmed',
+                        status_cn: slot.status === 'pending' ? '待确认' : '已确认'
+                    });
+                }
             }
 
-            const courseId = courseTypeResult.rows[0].id;
+            // 按日期和时间排序
+            allSchedules.sort((a, b) => `${a.class_date} ${a.start_time}`.localeCompare(`${b.class_date} ${b.start_time}`));
 
             // 生成预览ID
             const previewId = `preview_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-
-            // 构建预览数据
-            const courseTypeCn = await translateCourseType(courseType);
-            const previewData = {
-                previewId,
-                teacherId,
-                studentId,
-                courseId,
-                teacherName: teacher.rows[0].name,
-                studentName: student.rows[0].name,
-                courseTypeCn,
-                slots: slots.map(slot => ({
-                    date: slot.date,
-                    startTime: slot.startTime,
-                    endTime: slot.endTime
-                })),
-                createdAt: new Date().toISOString()
-            };
-
-            // 存储到内存（5分钟过期）
-            schedulePreviewStore.set(previewId, previewData);
+            schedulePreviewStore.set(previewId, { previewId, groups: previewGroups, createdAt: new Date().toISOString() });
             setTimeout(() => schedulePreviewStore.delete(previewId), 5 * 60 * 1000);
 
+            const uniqueTeachers = [...new Set(previewGroups.map(g => g.teacherName))];
+            const uniqueStudents = [...new Set(previewGroups.map(g => g.studentName))];
+            const uniqueCourses = [...new Set(previewGroups.map(g => g.courseTypeCn))];
+
             return {
-                type: 'schedule_preview',  // 改为 schedule_preview 类型
+                type: 'schedule_preview',
                 title: '排课预览方案',
                 data: {
                     previewId,
-                    teacher: teacher.rows[0].name,
-                    student: student.rows[0].name,
-                    courseType: courseTypeCn,
-                    totalCount: slots.length,
-                    schedules: slots.map(slot => ({
-                        class_date: slot.date,
-                        start_time: slot.startTime,
-                        end_time: slot.endTime,
-                        teacher_name: teacher.rows[0].name,
-                        student_name: student.rows[0].name,
-                        course_type_cn: courseTypeCn,
-                        status_cn: '预览'
-                    }))
+                    teacher: uniqueTeachers.join('、'),
+                    student: uniqueStudents.join('、'),
+                    courseType: uniqueCourses.join('、'),
+                    totalCount: allSchedules.length,
+                    schedules: allSchedules
                 }
             };
         }
@@ -831,23 +947,36 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError('预览方案不存在或已过期，请重新生成', 404);
             }
 
-            const { teacherId, studentId, courseId, slots } = previewData;
+            // 兼容批量模式（groups）和旧单组模式
+            const groups = previewData.groups || [{
+                teacherId: previewData.teacherId,
+                studentId: previewData.studentId,
+                courseId: previewData.courseId,
+                location: previewData.location,
+                slots: previewData.slots
+            }];
 
             // 批量插入排课
             const insertedIds = [];
-            for (const slot of slots) {
-                const result = await db.query(
-                    `INSERT INTO course_arrangement
-                    (teacher_id, student_id, course_id, class_date, start_time, end_time, status, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    RETURNING id`,
-                    [teacherId, studentId, courseId, slot.date, slot.startTime, slot.endTime]
-                );
-                insertedIds.push(result.rows[0].id);
+            for (const group of groups) {
+                const { teacherId, studentId, courseId, location, slots } = group;
+                for (const slot of slots) {
+                    const result = await db.query(
+                        `INSERT INTO course_arrangement
+                        (teacher_id, student_id, course_id, class_date, start_time, end_time, status, location, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        RETURNING id`,
+                        [teacherId, studentId, courseId, slot.date, slot.startTime, slot.endTime, slot.status || 'confirmed', location || null]
+                    );
+                    insertedIds.push(result.rows[0].id);
+                }
             }
 
             // 删除预览数据
             schedulePreviewStore.delete(previewId);
+
+            const uniqueTeachers = [...new Set(groups.map(g => g.teacherName).filter(Boolean))];
+            const uniqueStudents = [...new Set(groups.map(g => g.studentName).filter(Boolean))];
 
             return {
                 type: 'text',
@@ -855,9 +984,9 @@ async function executeDataTool(toolName, args, req) {
                 data: {
                     message: `成功创建 ${insertedIds.length} 条排课记录`,
                     scheduleIds: insertedIds,
-                    teacher: previewData.teacherName,
-                    student: previewData.studentName,
-                    courseType: previewData.courseTypeCn
+                    teacher: uniqueTeachers.join('、'),
+                    student: uniqueStudents.join('、'),
+                    courseType: groups.map(g => g.courseTypeCn).filter(Boolean).join('、')
                 }
             };
         }
@@ -978,165 +1107,6 @@ async function executeDataTool(toolName, args, req) {
                     schedules: existingSchedules.rows,
                     changes,
                     message: `将修改 ${scheduleIds.length} 条排课的${changes.map(c => c.field).join('、')}`
-                }
-            };
-        }
-
-        case 'preview_schedule_deletion': {
-            if (userType !== 'admin') throw new AppError('仅管理员可修改排课', 403);
-
-            const { scheduleIds, fields } = args;
-
-            if (!scheduleIds || scheduleIds.length === 0) {
-                throw new AppError('请提供要修改的排课ID', 400);
-            }
-
-            if (!fields || Object.keys(fields).length === 0) {
-                throw new AppError('请提供要修改的字段', 400);
-            }
-
-            // 检查排课是否存在
-            const existingSchedules = await db.query(
-                `SELECT id, teacher_id, student_id, course_id, class_date, start_time, end_time, status,
-                        location, family_participants, transport_fee, other_fee
-                 FROM course_arrangement
-                 WHERE id = ANY($1)`,
-                [scheduleIds]
-            );
-
-            if (existingSchedules.rows.length === 0) {
-                throw new AppError('未找到指定的排课', 404);
-            }
-
-            if (existingSchedules.rows.length < scheduleIds.length) {
-                const foundIds = existingSchedules.rows.map(r => r.id);
-                const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
-                throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
-            }
-
-            // 构建 UPDATE 语句
-            const updateFields = [];
-            const params = [];
-            let paramCount = 1;
-
-            // 处理课程类型字段（需要转换为 course_id）
-            if (fields.courseType) {
-                const courseTypeResult = await db.query(
-                    'SELECT id FROM schedule_types WHERE name=$1',
-                    [fields.courseType]
-                );
-                if (courseTypeResult.rows.length === 0) {
-                    throw new AppError(`课程类型 ${fields.courseType} 不存在`, 404);
-                }
-                updateFields.push(`course_id=$${paramCount++}`);
-                params.push(courseTypeResult.rows[0].id);
-            }
-
-            // 处理教师字段
-            if (fields.teacherId) {
-                const teacherCheck = await db.query(
-                    'SELECT id, name, status FROM teachers WHERE id=$1',
-                    [fields.teacherId]
-                );
-                if (teacherCheck.rows.length === 0) {
-                    throw new AppError(`教师 ID ${fields.teacherId} 不存在`, 404);
-                }
-                if (teacherCheck.rows[0].status !== 1) {
-                    throw new AppError(`教师 ${teacherCheck.rows[0].name} 已被禁用`, 400);
-                }
-                updateFields.push(`teacher_id=$${paramCount++}`);
-                params.push(fields.teacherId);
-            }
-
-            // 处理学生字段
-            if (fields.studentId) {
-                const studentCheck = await db.query(
-                    'SELECT id, name, status FROM students WHERE id=$1',
-                    [fields.studentId]
-                );
-                if (studentCheck.rows.length === 0) {
-                    throw new AppError(`学生 ID ${fields.studentId} 不存在`, 404);
-                }
-                if (studentCheck.rows[0].status !== 1) {
-                    throw new AppError(`学生 ${studentCheck.rows[0].name} 已被禁用`, 400);
-                }
-                updateFields.push(`student_id=$${paramCount++}`);
-                params.push(fields.studentId);
-            }
-
-            // 处理其他字段
-            if (fields.classDate) {
-                updateFields.push(`class_date=$${paramCount++}`);
-                params.push(fields.classDate);
-            }
-            if (fields.startTime) {
-                updateFields.push(`start_time=$${paramCount++}`);
-                params.push(fields.startTime);
-            }
-            if (fields.endTime) {
-                updateFields.push(`end_time=$${paramCount++}`);
-                params.push(fields.endTime);
-            }
-            if (fields.status) {
-                updateFields.push(`status=$${paramCount++}`);
-                params.push(fields.status);
-            }
-            if (fields.location !== undefined) {
-                updateFields.push(`location=$${paramCount++}`);
-                params.push(fields.location);
-            }
-            if (fields.familyParticipants !== undefined) {
-                updateFields.push(`family_participants=$${paramCount++}`);
-                params.push(fields.familyParticipants);
-            }
-            if (fields.transportFee !== undefined) {
-                updateFields.push(`transport_fee=$${paramCount++}`);
-                params.push(fields.transportFee);
-            }
-            if (fields.otherFee !== undefined) {
-                updateFields.push(`other_fee=$${paramCount++}`);
-                params.push(fields.otherFee);
-            }
-
-            // 添加更新时间
-            updateFields.push('updated_at=CURRENT_TIMESTAMP');
-
-            // 执行批量更新
-            params.push(scheduleIds);
-            const updateQuery = `
-                UPDATE course_arrangement
-                SET ${updateFields.join(', ')}
-                WHERE id = ANY($${paramCount})
-            `;
-
-            await db.query(updateQuery, params);
-
-            // 构建修改摘要
-            const fieldNames = {
-                teacherId: '教师',
-                studentId: '学生',
-                classDate: '日期',
-                startTime: '开始时间',
-                endTime: '结束时间',
-                status: '状态',
-                courseType: '课程类型',
-                location: '地点',
-                familyParticipants: '家长参与人数',
-                transportFee: '交通费',
-                otherFee: '其他费用'
-            };
-
-            const changedFields = Object.keys(fields)
-                .map(key => fieldNames[key] || key)
-                .join('、');
-
-            return {
-                type: 'text',
-                title: '修改成功',
-                data: {
-                    message: `已修改 ${scheduleIds.length} 条排课的${changedFields}`,
-                    scheduleIds,
-                    modifiedFields: Object.keys(fields)
                 }
             };
         }
@@ -1295,63 +1265,29 @@ async function executeDataTool(toolName, args, req) {
             }
         }
 
-        case 'update_schedule_fields': {
-            if (userType !== 'admin') throw new AppError('仅管理员可删除排课', 403);
-
-            const { scheduleIds, reason } = args;
-
-            if (!scheduleIds || scheduleIds.length === 0) {
-                throw new AppError('请提供要删除的排课ID', 400);
-            }
-
-            // 检查排课是否存在
-            const existingSchedules = await db.query(
-                `SELECT ca.id, ca.class_date, ca.start_time, t.name as teacher_name, s.name as student_name, st.name as course_type
-                 FROM course_arrangement ca
-                 JOIN teachers t ON ca.teacher_id = t.id
-                 JOIN students s ON ca.student_id = s.id
-                 JOIN schedule_types st ON ca.course_id = st.id
-                 WHERE ca.id = ANY($1)`,
-                [scheduleIds]
-            );
-
-            if (existingSchedules.rows.length === 0) {
-                throw new AppError('未找到指定的排课', 404);
-            }
-
-            if (existingSchedules.rows.length < scheduleIds.length) {
-                const foundIds = existingSchedules.rows.map(r => r.id);
-                const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
-                throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
-            }
-
-            // 执行删除
-            await db.query(
-                'DELETE FROM course_arrangement WHERE id = ANY($1)',
-                [scheduleIds]
-            );
-
-            // 构建删除摘要
-            const deletedList = existingSchedules.rows.map(row => {
-                const courseTypeCn = translateCourseType(row.course_type);
-                return `${row.class_date.toISOString().split('T')[0]} ${row.start_time} ${row.teacher_name}-${row.student_name} ${courseTypeCn}`;
-            });
-
-            return {
-                type: 'text',
-                title: '删除成功',
-                data: {
-                    message: `已删除 ${scheduleIds.length} 条排课`,
-                    scheduleIds,
-                    deletedSchedules: deletedList.slice(0, 5), // 最多显示5条
-                    reason: reason || '未提供'
-                }
-            };
-        }
-
         default:
             throw new AppError(`未知工具: ${toolName}`, 400);
     }
+}
+
+/**
+ * 工具名称 → 用户友好的进度消息
+ */
+function getToolProgressMessage(toolNames) {
+    const messages = {
+        query_teachers: '正在查询教师信息...',
+        query_students: '正在查询学生信息...',
+        query_schedules: '正在查询排课记录...',
+        query_schedule_stats: '正在查询排课统计...',
+        create_schedule_preview: '正在生成排课预览...',
+        preview_schedule_update: '正在生成修改预览...',
+        preview_schedule_deletion: '正在生成删除预览...',
+        confirm_schedule_creation: '正在创建排课...',
+        confirm_operation: '正在执行操作...',
+    };
+    const unique = [...new Set(toolNames)];
+    const msgs = unique.map(n => messages[n]).filter(Boolean);
+    return msgs.length > 0 ? msgs[0] : '正在处理数据...';
 }
 
 /**
@@ -1369,21 +1305,26 @@ const query = asyncHandler(async (req, res) => {
         throw new AppError('请输入问题', 400);
     }
 
+    // 输入长度验证（防止滥用 token 配额）
+    if (question.length > 2000) {
+        throw new AppError('问题长度不能超过 2000 个字符', 400);
+    }
+    if (history && Array.isArray(history) && history.length > 20) {
+        throw new AppError('对话历史不能超过 20 条消息', 400);
+    }
+
+    // SSE 模式设置响应头
+    const useStream = req.body.stream === true;
+
     const userType = req.user.userType;
 
-    console.log(`[AI Query] Question: ${question.substring(0, 200)}`);
-    console.log(`[AI Query] User: ${req.user.id}, Type: ${userType}, History: ${history ? history.length : 0} messages`);
 
     const tools = DATA_TOOLS[userType] || DATA_TOOLS.teacher;
 
-    // 计算本周四的日期和当前时间（东八区）
+    // 计算当前时间（东八区）
     const now = new Date();
     const today = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-    const dayOfWeek = today.getDay(); // 0=周日, 4=周四
-    const daysUntilThursday = (4 - dayOfWeek + 7) % 7;
-    const thisThursday = new Date(today);
-    thisThursday.setDate(today.getDate() + daysUntilThursday);
-    const thursdayStr = thisThursday.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dayOfWeek = today.getDay(); // 0=周日, 1=周一
 
     // 格式化当前完整时间（东八区）
     const currentDateTime = today.toLocaleString('zh-CN', {
@@ -1399,84 +1340,185 @@ const query = asyncHandler(async (req, res) => {
     const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
     const currentWeekDay = weekDays[today.getDay()];
 
+    // 计算本周和下周的具体日期范围（东八区）
+    // today 已经是东八区时间的 Date 对象，dayOfWeek 已在上方计算
+    const todayStr = today.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }); // YYYY-MM-DD
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 本周一的偏移（dayOfWeek: 0=周日）
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() + mondayOffset);
+    const mondayStr = thisMonday.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }); // 本周一 YYYY-MM-DD
+    const nextMonday = new Date(thisMonday);
+    nextMonday.setDate(thisMonday.getDate() + 7);
+    const nextSunday = new Date(nextMonday);
+    nextSunday.setDate(nextMonday.getDate() + 6);
+
+    // 生成下周每天的具体日期
+    const nextWeekDays = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(nextMonday);
+        d.setDate(nextMonday.getDate() + i);
+        const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        nextWeekDays.push(`${['周一','周二','周三','周四','周五','周六','周日'][i]}=${dateStr}`);
+    }
+    const nextWeekDateMap = nextWeekDays.join(' | ');
+
+    // 生成本周每天的具体日期
+    const thisWeekDays = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(thisMonday);
+        d.setDate(thisMonday.getDate() + i);
+        const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        thisWeekDays.push(`${['周一','周二','周三','周四','周五','周六','周日'][i]}=${dateStr}`);
+    }
+    const thisWeekDateMap = thisWeekDays.join(' | ');
+
+    // 动态加载课程类型和教师列表（用于系统提示，帮助 LLM 精确匹配）
+    let courseTypeListStr = '';
+    let teacherListStr = '';
+    try {
+        const [ctResult, tResult] = await Promise.all([
+            db.query('SELECT name, description FROM schedule_types ORDER BY id'),
+            db.query("SELECT name FROM teachers WHERE status=1 ORDER BY id")
+        ]);
+        courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
+        teacherListStr = tResult.rows.map(r => r.name).join('、');
+    } catch (_) { /* 静默失败，不影响主流程 */ }
+
     const systemPrompt = userType === 'admin'
-        ? `你是 Plenzo 课程管理系统的 AI 助手，主要功能是数据查询和智能排课。\n` +
-          `你使用的模型是 ${process.env.AI_MODEL || 'AI'}。\n` +
-          `\n你可以：\n` +
-          `1. 回答关于系统的一般性问题\n` +
-          `2. 查询教师、学生、课程等数据\n` +
-          `3. 帮助用户智能排课、修改和删除课程\n` +
-          `\n对于数据查询和排课操作，务必调用提供的工具。对于一般性对话，可以直接回答。\n` +
-          `\n【当前时间信息】\n` +
-          `- 当前时间：${currentDateTime}（${currentWeekDay}）\n` +
-          `- 时区：东八区（Asia/Shanghai, UTC+8）\n` +
-          `- 当前日期：${today.toISOString().split('T')[0]}\n` +
-          `- 本周四是：${thursdayStr}\n` +
-          `- 注意：所有日期计算都基于东八区时间\n` +
-          `- 注意：每周第一天为周一（周一到周日为一周）\n` +
-          `\n【连续对话】你可以参考之前的对话历史理解上下文，包括：\n` +
-          `- 用户提到的"他"、"那个"、"这个"等指代词\n` +
-          `- 之前查询过的教师、学生、课程等信息\n` +
-          `- 用户的后续追问或补充说明\n` +
-          `\n【修改排课】重要：修改操作需要用户确认，分两步：\n` +
-          `1. 先调用 query_schedules 按条件查排课 → 获取排课ID\n` +
-          `2. 如果要修改教师/学生，调用 query_teachers/query_students 查新人员 → 获取新ID\n` +
-          `3. 调用 preview_schedule_update 生成修改预览 → 获取 operationId\n` +
-          `4. 向用户展示预览，明确说明"请回复'确认'来执行修改"\n` +
-          `5. 用户确认后，调用 confirm_operation 执行修改\n` +
-          `   - 可修改字段：教师、学生、日期、时间、状态、课程类型、地点、家长参与人数、交通费、其他费用\n` +
-          `\n【删除排课】重要：删除操作需要用户确认，分两步：\n` +
-          `1. 先调用 query_schedules 查询要删除的排课 → 获取排课ID\n` +
-          `2. 调用 preview_schedule_deletion 生成删除预览 → 获取 operationId\n` +
-          `3. 向用户展示预览，明确说明"请回复'确认'来执行删除"\n` +
-          `4. 用户确认后，调用 confirm_operation 执行删除\n` +
-          `\n【智能排课】核心：从用户输入提取信息，结构化成排课方案，步骤：\n` +
-          `1. 信息提取与识别：\n` +
-          `   - 学生姓名（如：浩浩、宋林浩）\n` +
-          `   - 教师姓名（如：周耀华、高渊、叶老师）→ 调用 query_teachers 模糊搜索获取ID\n` +
-          `   - 日期时间（如：下周周一晚上、周六下午）→ 转换为具体日期和时间\n` +
-          `   - 课程类型（如：入户、评审、半程入户）→ 映射到系统课程类型\n` +
-          `   - 地点（如：新课堂、老课堂）\n` +
-          `   - 特殊信息（如：待定、看情况、参加人员、记录人等）\n` +
-          `2. 时间规则理解：\n` +
-          `   - "晚上" = 19:00-21:30（默认2.5小时）\n` +
-          `   - "下午" = 14:00-16:00（默认2小时，除非明确指定如"下午一点开始到14:30"）\n` +
-          `   - "上午" = 09:00-11:00（默认2小时）\n` +
-          `   - 如果用户明确指定时间段（如14:30-15:30），使用用户指定的时间\n` +
-          `3. 状态判断规则：\n` +
-          `   - 包含"待定"、"看情况"、"估计" → status: 'pending'（待确认）\n` +
-          `   - 其他情况 → status: 'confirmed'（已确认）\n` +
-          `4. 评审课程特殊处理：\n` +
-          `   - 评审课程可能涉及多个教师参加（如：侯老师、叶老师、金烨成）\n` +
-          `   - 识别"记录"角色（如：周耀华记录）→ 该教师为主要负责人，填入teacher_id\n` +
-          `   - 其他参加教师信息可写入备注或location字段\n` +
-          `5. 批量处理：\n` +
-          `   - 用户输入可能包含多条排课信息（按行或分号分隔）\n` +
-          `   - 逐条提取、结构化，合并成一个完整的排课方案\n` +
-          `   - 不要尝试优化或调整用户的安排，严格按用户提供的信息排课\n` +
-          `6. 调用 query_teachers 和 query_students 获取ID\n` +
-          `7. 调用 create_schedule_preview 生成唯一的预览方案 → 获取 previewId\n` +
-          `8. 展示预览，列出所有课程，明确说明"请回复'确认'来创建排课"\n` +
-          `9. 用户确认后，调用 confirm_schedule_creation 创建排课\n` +
-          `\n重要提醒：\n` +
-          `- 不要生成多个方案供用户选择，用户的输入就是唯一方案\n` +
-          `- 不要尝试"优化"用户的排课，严格按用户提供的信息执行\n` +
-          `- 如果信息不完整（缺少教师、学生、时间），向用户询问缺失信息\n` +
-          `\n如果工具调用失败，说明具体原因。`
-        : `你是 Plenzo 课程管理系统的 AI 助手，主要功能是数据查询。\n` +
-          `你使用的模型是 ${process.env.AI_MODEL || 'AI'}。\n` +
-          `用户是教师 (id=${req.user.id})。用中文简洁回答。\n` +
-          `\n你可以：\n` +
-          `1. 回答关于系统的一般性问题\n` +
+        ? `你是 Plenzo 课程管理系统 AI 助手，中文回答。\n` +
+          `\n# 当前时间\n` +
+          `${currentDateTime}（${currentWeekDay}），时区东八区(UTC+8)，每周第一天是周一\n` +
+          `今日：${todayStr}\n` +
+          `本周日期：${thisWeekDateMap}\n` +
+          `下周日期：${nextWeekDateMap}\n` +
+          `\n# 排课规则\n` +
+          `\n## 输入格式\n` +
+          `格式A 紧凑单条："下周四，19-22，[地点]，[学生]，[教师]，[课程类型]"\n` +
+          `格式B 批量列表（每行一条，括号内为补充信息）：\n` +
+          `  周一晚上 [学生昵称/姓名]入户（[教师姓名/昵称1]，[地点]）\n` +
+          `  周六下午 [学生昵称/姓名]评审（[教师姓名/昵称2]记录，[教师姓名/昵称3]估计参加，[教师姓名/昵称4]尽量去，下午暂定一点到三点，[地点]）\n` +
+          `括号内逐项识别：教师姓名 | "记录"紧跟教师名→评审/咨询记录负责人 | 地点 | 具体时间（覆盖默认值） | 其他文字→备注\n` +
+          `\n## 课程类型（数据库 name 字段，必须精确匹配）\n` +
+          (courseTypeListStr ? `${courseTypeListStr}\n` : '') +
+          `禁止使用近似名称（如"半程入户"不可写成"半次入户"）。\n` +
+          `\n## 已有教师（精确匹配姓名，不存在则询问用户）\n` +
+          (teacherListStr ? `${teacherListStr}\n` : '（暂无教师数据）\n') +
+          `\n## 学生姓名解析\n` +
+          `用户可能使用昵称（如"浩浩"）或姓名。排课前必须先通过 query_students 查询学生ID：\n` +
+          `- 用姓名查：query_students(name:"张三")\n` +
+          `- 用昵称查：query_students(nickname:"浩浩")\n` +
+          `- 不确定时同时查两个字段，根据返回结果匹配\n` +
+          `\n## 时间解析\n` +
+          `时段默认值：晚上=19:00-21:45 | 下午=14:00-17:00 | 上午=09:00-12:00\n` +
+          `时间格式："19-22"→19:00-22:00 | "15-18点"→15:00-18:00 | "一点到三点"→13:00-15:00 | 无时间→用默认值\n` +
+          `状态："待定"/"看情况"/"可能"→pending | 其他→confirmed\n` +
+          `\n## 评审/咨询课程（每个参与教师生成独立记录，使用相同时间和地点）\n` +
+          `教师名后有"记录"字样 → 课程类型为"评审记录"或"咨询记录"，该教师已包含评审/咨询，不再重复生成。\n` +
+          `其他参与教师各生成一条评审/咨询记录。\n` +
+          `示例输入：[学生昵称/姓名]评审（[教师姓名/昵称2]记录，[教师姓名/昵称3]估计参加，[教师姓名/昵称4]尽量去，下午一点到三点，[地点]）\n` +
+          `示例输出：①[教师姓名/昵称2]+评审记录 ②[教师姓名/昵称3]+评审 ③[教师姓名/昵称4]+评审\n` +
+          `\n# 操作流程\n` +
+          `\n## 查询\n` +
+          `直接调用查询工具，不需要预览确认。可用工具：\n` +
+          `- query_overview：总览统计\n` +
+          `- query_schedules：排课列表（支持按日期、教师、学生筛选）\n` +
+          `- query_teachers / query_students：教师/学生列表\n` +
+          `- query_schedule_stats：排课统计\n` +
+          `\n## 排课（预览→确认）\n` +
+          `日期必须从上方"本周日期"/"下周日期"映射表查表得出，禁止自行推算。\n` +
+          `批量排课逐条独立解析，不允许合并或跳过。\n` +
+          `1. query_teachers/query_students 获取ID\n` +
+          `2. 每条输入解析为独立 group，一次性提交：create_schedule_preview(groups:[...])\n` +
+          `3. 展示预览 → 用户确认 → confirm_schedule_creation(previewId)\n` +
+          `\n## 修改排课（预览→确认）\n` +
+          `1. query_schedules 查询 → 2. preview_schedule_update(scheduleIds, fields) 展示变更 → 3. 用户确认 → confirm_operation(operationId)\n` +
+          `\n## 删除排课（预览→确认）\n` +
+          `1. query_schedules 查询 → 2. preview_schedule_deletion(scheduleIds) 展示预览 → 3. 用户确认 → confirm_operation(operationId)\n` +
+          `\n# 回复格式\n` +
+          `文本简短（1-2句）。查询结果和预览表格按日期+时间升序，评审/咨询合并显示，记录老师排最后标注"（记录）"。\n` +
+          `\n# 规则\n` +
+          `严格按用户输入执行，不优化不调整。信息不完整时询问，不猜测。工具失败说明原因。\n` +
+          `所有写操作必须先预览再确认，禁止跳过。收到"确认"指令时直接调用 confirm 工具。\n` +
+          `支持多轮上下文。"他"/"那个"→指代之前的教师/学生/课程；追问可补充信息，例："取消[学生昵称/姓名]周四的课" → "改成周五" = 修改。`
+        : userType === 'student'
+        ? `你是 Plenzo 课程管理系统 AI 助手，用中文简洁回答。\n` +
+          `用户是学生 (id=${req.user.id})。\n` +
+          `\n当前时间：${currentDateTime}（${currentWeekDay}），时区东八区(UTC+8)，每周第一天是周一。今日：${todayStr}\n` +
+          `\n能力：\n` +
+          `1. 回答系统一般性问题\n` +
+          `2. 查询个人课程安排、学习统计等数据\n` +
+          `\n可用工具：\n` +
+          `- query_my_schedules：查询个人课表（支持按日期范围筛选）\n` +
+          `- query_my_statistics：查询个人学习统计\n` +
+          `- query_my_overview：查询个人总览\n` +
+          `\n规则：数据查询务必调用工具，一般性对话可直接回答。工具失败说明原因。支持多轮上下文。`
+        : `你是 Plenzo 课程管理系统 AI 助手，用中文简洁回答。\n` +
+          `用户是教师 (id=${req.user.id})。\n` +
+          `\n当前时间：${currentDateTime}（${currentWeekDay}），时区东八区(UTC+8)，每周第一天是周一。今日：${todayStr}\n` +
+          `\n能力：\n` +
+          `1. 回答系统一般性问题\n` +
           `2. 查询课程、学生等相关数据\n` +
-          `\n对于数据查询，务必调用提供的工具。对于一般性对话，可以直接回答。\n` +
-          `\n【当前时间信息】\n` +
-          `- 当前时间：${currentDateTime}（${currentWeekDay}）\n` +
-          `- 时区：东八区（Asia/Shanghai, UTC+8）\n` +
-          `- 当前日期：${today.toISOString().split('T')[0]}\n` +
-          `- 注意：所有日期计算都基于东八区时间\n` +
-          `- 注意：每周第一天为周一（周一到周日为一周）\n` +
-          `\n你可以参考之前的对话历史理解上下文。务必调用工具获取数据。如果工具调用失败，说明具体原因。`;
+          `\n可用工具：\n` +
+          `- query_my_schedules：查询个人课表（支持按日期范围筛选）\n` +
+          `- query_my_overview：查询个人总览\n` +
+          `- query_students：查询学生列表（支持按姓名/昵称搜索）\n` +
+          `\n规则：数据查询务必调用工具，一般性对话可直接回答。工具失败说明原因。支持多轮上下文。`;
+
+    // 直接处理确认操作（不依赖 LLM 调用工具，避免 LLM 只返回文本不调用工具的问题）
+    const confirmMatch = question.match(/确认创建排课.*previewId[:\s]+(\S+)/);
+    if (confirmMatch) {
+        const previewIdStr = confirmMatch[1];
+        const previewIds = previewIdStr.split(',').filter(Boolean);
+
+        const allInsertedIds = [];
+        for (const pid of previewIds) {
+            try {
+                const result = await executeDataTool('confirm_schedule_creation', { previewId: pid.trim() }, req);
+                if (result.data && result.data.scheduleIds) {
+                    allInsertedIds.push(...result.data.scheduleIds);
+                }
+            } catch (err) {
+                // skip failed preview
+            }
+        }
+
+        const answerText = allInsertedIds.length > 0
+            ? `成功创建 ${allInsertedIds.length} 条排课记录`
+            : '排课创建失败，请重试';
+
+        const responseData = {
+            type: 'text',
+            answer: answerText,
+            structuredData: { message: answerText, scheduleIds: allInsertedIds },
+            toolsUsed: ['confirm_schedule_creation']
+        };
+
+        if (useStream) {
+            res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
+            return res.end();
+        }
+        return res.json(standardResponse(true, responseData));
+    }
+
+    const confirmOpMatch = question.match(/确认执行操作.*operationId[:\s]+(\S+)/);
+    if (confirmOpMatch) {
+        const operationId = confirmOpMatch[1];
+        const result = await executeDataTool('confirm_operation', { operationId }, req);
+        const answerText = result.data.message || '操作执行成功';
+
+        const responseData = {
+            type: result.type || 'text',
+            answer: answerText,
+            structuredData: result.data,
+            toolsUsed: ['confirm_operation']
+        };
+
+        if (useStream) {
+            res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
+            return res.end();
+        }
+        return res.json(standardResponse(true, responseData));
+    }
 
     // 构建消息列表：系统提示 + 历史对话 + 当前问题
     const messages = [
@@ -1490,63 +1532,71 @@ const query = asyncHandler(async (req, res) => {
         messages.push(...recentHistory);
     }
 
-    // 添加当前问题
-    messages.push({ role: 'user', content: question });
+    // 添加当前问题（注入日期上下文，确保 AI 不会忽略系统提示中的日期映射）
+    const dateContext = `[日期参考] 今日：${todayStr}（${currentWeekDay}）| 本周：${thisWeekDateMap} | 下周：${nextWeekDateMap}\n\n`;
+    messages.push({ role: 'user', content: dateContext + question });
 
     const toolsUsed = [];
     const toolResults = [];
 
+    try {
+    // SSE 模式设置响应头（在 try 块内，确保错误能被正确处理）
+    if (useStream) {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        });
+    }
+
+    // SSE 辅助函数
+    const sendSSE = useStream ? (eventType, payload) => {
+        res.write(`data: ${JSON.stringify({ type: eventType, ...payload })}\n\n`);
+    } : () => {};
+
     // 第一轮：让 LLM 决定调用哪些工具
+    sendSSE('progress', { step: 'thinking', message: '正在分析您的问题...' });
     let llmResp = await aiService.chat(messages, { tools, toolChoice: 'auto' });
     let toolCalls = aiService.extractToolCalls(llmResp);
 
-    console.log(`[aiController] First round: toolCalls=${toolCalls.length}, tools=${toolCalls.map(t => t.function.name).join(',')}`);
-
-    // 循环执行工具调用（最多 6 轮，支持智能排课的多步操作）
+    // 循环执行工具调用（最多 12 轮，支持智能排课的多步操作）
     let rounds = 0;
     while (toolCalls.length > 0 && rounds < 12) {
         rounds++;
-        console.log(`[aiController] Round ${rounds}: processing ${toolCalls.length} tool calls`);
         messages.push(llmResp.choices[0].message);
 
-        for (const call of toolCalls) {
+        // 发送工具执行进度
+        const toolNames = toolCalls.map(t => t.function.name);
+        sendSSE('progress', { step: 'executing', message: getToolProgressMessage(toolNames) });
+
+        // 并行执行所有工具调用
+        const toolCallResults = await Promise.all(toolCalls.map(async (call) => {
             const name = call.function.name;
             let args = {};
             try { args = JSON.parse(call.function.arguments || '{}'); } catch (_) { /* noop */ }
             toolsUsed.push(name);
 
-            console.log(`[aiController] Executing tool: ${name}, args=${JSON.stringify(args)}`);
-
             try {
                 const result = await executeDataTool(name, args, req);
                 toolResults.push({ tool: name, args, result });
-
-                const resultStr = JSON.stringify(result).slice(0, 4000);
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: resultStr
-                });
-                console.log(`[aiController] Tool ${name} succeeded, type=${result.type}, dataSize=${JSON.stringify(result.data).length}`);
+                const resultStr = JSON.stringify(result);
+                const safeContent = resultStr.length > 4000
+                    ? resultStr.slice(0, 3990) + '...(已截断)'
+                    : resultStr;
+                return { role: 'tool', tool_call_id: call.id, content: safeContent };
             } catch (err) {
-                console.error(`[aiController] Tool ${name} failed:`, err.message);
-                const errorMsg = `工具执行失败: ${err.message}`;
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: errorMsg
-                });
+                return { role: 'tool', tool_call_id: call.id, content: `工具执行失败: ${err.message}` };
             }
-        }
+        }));
+        messages.push(...toolCallResults);
 
+        sendSSE('progress', { step: 'thinking', message: '正在整理结果...' });
         llmResp = await aiService.chat(messages, { tools, toolChoice: 'auto' });
         toolCalls = aiService.extractToolCalls(llmResp);
-        console.log(`[aiController] After round ${rounds}: next toolCalls=${toolCalls.length}`);
     }
 
     const answer = aiService.extractText(llmResp) || '抱歉，我暂时无法回答这个问题。';
-
-    console.log(`[aiController] Query completed: toolsUsed=${toolsUsed.join(',')}, resultCount=${toolResults.length}, answerLen=${answer.length}`);
 
     // 判断返回类型（基于工具结果）
     let responseType = 'text';
@@ -1558,14 +1608,66 @@ const query = asyncHandler(async (req, res) => {
             responseType = lastResult.type;
             structuredData = lastResult.data;
         }
+
+        // 合并多个 schedule_preview 结果（批量排课场景）
+        const previewResults = toolResults.filter(r => r.result.type === 'schedule_preview');
+        if (previewResults.length > 1) {
+            responseType = 'schedule_preview';
+            const allSchedules = [];
+            const previewIds = [];
+            let totalTeacher = '';
+            let totalStudent = '';
+            let totalCourseType = '';
+
+            for (const pr of previewResults) {
+                const d = pr.result.data;
+                if (d.schedules) allSchedules.push(...d.schedules);
+                if (d.previewId) previewIds.push(d.previewId);
+                if (d.teacher) totalTeacher = d.teacher;
+                if (d.student) totalStudent = d.student;
+                if (d.courseType) totalCourseType = d.courseType;
+            }
+
+            structuredData = {
+                previewId: previewIds.join(','),  // 多个 previewId 用逗号分隔
+                teacher: totalTeacher,
+                student: totalStudent,
+                courseType: totalCourseType,
+                totalCount: allSchedules.length,
+                schedules: allSchedules
+            };
+        }
     }
 
-    res.json(standardResponse(true, {
-        type: responseType,
-        answer,
-        structuredData,
-        toolsUsed
-    }));
+    if (useStream) {
+        sendSSE('progress', { step: 'done', message: '完成' });
+        res.write(`data: ${JSON.stringify({ type: 'result', data: { type: responseType, answer, structuredData, toolsUsed } })}\n\n`);
+        res.end();
+    } else {
+        res.json(standardResponse(true, {
+            type: responseType,
+            answer,
+            structuredData,
+            toolsUsed
+        }));
+    }
+
+    } catch (err) {
+        if (useStream && res.headersSent) {
+            // SSE 头已发送，通过 SSE 发送错误
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: err.message || '查询失败，请稍后重试' })}\n\n`);
+                res.end();
+            } catch (_) { try { res.end(); } catch (_) {} }
+        } else if (useStream) {
+            // SSE 头未发送，返回 JSON 错误
+            return res.status(err.statusCode || 500).json(
+                standardResponse(false, null, err.message || '查询失败')
+            );
+        } else {
+            throw err; // 非 SSE 模式交给 asyncHandler 处理
+        }
+    }
 });
 
 /**
@@ -1655,7 +1757,7 @@ const checkModel = asyncHandler(async (req, res) => {
     }
 
     try {
-        // 快速检测：只发送一个极简的请求来验证连接
+        // 快速检测：使用临时配置，避免修改全局 process.env（消除竞态条件）
         const testConfig = {
             enabled: true,
             provider: provider || 'custom',
@@ -1667,41 +1769,19 @@ const checkModel = asyncHandler(async (req, res) => {
             maxTokens: 20  // 20 token 足够返回简短响应
         };
 
-        // 保存原配置
-        const originalConfig = { ...aiService.getAIConfig() };
-
-        // 临时覆盖配置
-        process.env.AI_ENABLED = 'true';
-        process.env.AI_PROVIDER = testConfig.provider;
-        process.env.AI_PROTOCOL = testConfig.protocol;
-        process.env.AI_API_KEY = testConfig.apiKey;
-        process.env.AI_BASE_URL = testConfig.baseUrl;
-        process.env.AI_MODEL = testConfig.model;
-        process.env.AI_TIMEOUT = testConfig.timeout.toString();
-        process.env.AI_MAX_TOKENS = testConfig.maxTokens.toString();
-
-        // 发送极简测试请求
+        // 发送极简测试请求（通过 configOverride 传入临时配置）
         await aiService.chat([
             { role: 'user', content: 'test' }
-        ]);
-
-        // 恢复原配置
-        process.env.AI_ENABLED = originalConfig.enabled.toString();
-        process.env.AI_PROVIDER = originalConfig.provider;
-        process.env.AI_PROTOCOL = originalConfig.protocol;
-        process.env.AI_API_KEY = originalConfig.apiKey;
-        process.env.AI_BASE_URL = originalConfig.baseUrl;
-        process.env.AI_MODEL = originalConfig.model;
-        process.env.AI_TIMEOUT = originalConfig.timeout.toString();
-        process.env.AI_MAX_TOKENS = originalConfig.maxTokens.toString();
+        ], { configOverride: testConfig });
 
         res.json(standardResponse(true, {
             available: true
         }));
     } catch (error) {
+        console.error('[AI] 可用性检查失败:', error.message || error);
         res.json(standardResponse(true, {
             available: false,
-            error: error.message
+            error: '服务暂不可用'
         }));
     }
 });
@@ -1727,7 +1807,7 @@ const testModel = asyncHandler(async (req, res) => {
         throw new AppError('缺少必要的测试参数', 400);
     }
 
-    // 临时创建测试配置
+    // 使用临时配置（通过 configOverride 传入，避免修改全局 process.env）
     const testConfig = {
         enabled: true,
         provider: provider || 'custom',
@@ -1739,26 +1819,13 @@ const testModel = asyncHandler(async (req, res) => {
         maxTokens: 100  // 增加到 100 token，确保完整响应
     };
 
-    // 保存原配置
-    const originalConfig = { ...aiService.getAIConfig() };
-
     try {
-        // 临时覆盖配置（通过环境变量）
-        process.env.AI_ENABLED = 'true';
-        process.env.AI_PROVIDER = testConfig.provider;
-        process.env.AI_PROTOCOL = testConfig.protocol;
-        process.env.AI_API_KEY = testConfig.apiKey;
-        process.env.AI_BASE_URL = testConfig.baseUrl;
-        process.env.AI_MODEL = testConfig.model;
-        process.env.AI_TIMEOUT = testConfig.timeout.toString();
-        process.env.AI_MAX_TOKENS = testConfig.maxTokens.toString();
-
         const startTime = Date.now();
 
-        // 发送测试消息
+        // 发送测试消息（通过 configOverride 传入临时配置）
         const response = await aiService.chat([
             { role: 'user', content: '请简单回复"测试成功"' }
-        ]);
+        ], { configOverride: testConfig });
 
         const latency = Date.now() - startTime;
         const text = aiService.extractText(response);
@@ -1770,20 +1837,11 @@ const testModel = asyncHandler(async (req, res) => {
             response: text
         }));
     } catch (error) {
+        console.error('[AI] 模型测试失败:', error.message || error);
         res.json(standardResponse(false, {
             success: false,
-            error: error.message
+            error: 'AI 服务请求失败'
         }));
-    } finally {
-        // 恢复原配置
-        process.env.AI_ENABLED = originalConfig.enabled.toString();
-        process.env.AI_PROVIDER = originalConfig.provider;
-        process.env.AI_PROTOCOL = originalConfig.protocol;
-        process.env.AI_API_KEY = originalConfig.apiKey;
-        process.env.AI_BASE_URL = originalConfig.baseUrl;
-        process.env.AI_MODEL = originalConfig.model;
-        process.env.AI_TIMEOUT = originalConfig.timeout.toString();
-        process.env.AI_MAX_TOKENS = originalConfig.maxTokens.toString();
     }
 });
 

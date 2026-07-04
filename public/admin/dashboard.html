@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>管理员仪表盘 - Plenzo</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
@@ -14,7 +15,7 @@
     <link rel="stylesheet" href="/css/modules/admin-overview.css?v=2">
     <link rel="stylesheet" href="/css/modules/admin-desktop.css">
     <link rel="stylesheet" href="/css/modules/admin-ai-models.css">
-    <link rel="stylesheet" href="/css/modules/dashboard_mobile_fix.css">
+    <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
     <style>
         /* 全局样式 */
         :root {
@@ -699,6 +700,14 @@
                             <div class="form-group">
                                 <label for="userName">姓名</label>
                                 <input type="text" id="userName" required>
+                            </div>
+                            <div class="form-group" id="userNicknameGroup" style="display:none;">
+                                <label for="userNickname">昵称
+                                    <span class="material-icons-round help-icon"
+                                        style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
+                                        onclick="window.apiUtils.showToast('选填，不超过50个字符', 'info')">help_outline</span>
+                                </label>
+                                <input type="text" id="userNickname" maxlength="50" placeholder="选填">
                             </div>
                             <div class="form-group" id="userPermissionLevelGroup" style="display:block;">
                                 <label for="userPermissionLevel">权限级别
@@ -1593,20 +1602,17 @@
     <!-- 侧边栏遮罩层 -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-    <div class="dashboard-container">
-        <script src="/js/core/api-client.js"></script>
+    <script src="/js/core/api-client.js"></script>
         <script src="/js/utils/auth.js"></script>
         <script src="/js/utils/color-utils.js"></script>
         <script src="/js/utils/format.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
         <script src="/js/libs/html2canvas.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <script src="/js/modules/admin/stats-plugins.js"></script>
         <script src="/js/utils/schedule-date-labels.js"></script>
         <script src="/js/utils/date-range-utils.js"></script>
         <script src="/js/core/schedule-types-store.js"></script>
         <script src="/js/utils/i18n-utils.js"></script>
-        <script src="/js/utils/export-ui-manager.js"></script>
         <script src="/js/components/export-manager.js?v=1"></script>
         <script src="/js/components/export-dialog.js?v=20240121"></script>
         <script src="/js/components/weekly-view-export.js"></script>
@@ -1626,8 +1632,7 @@
         <script type="module" src="/js/modules/admin/feedback-manager.js"></script>
         <script src="/js/modules/admin/student-schedule-fees.js"></script>
         <script src="/js/modules/admin/ai-models-manager.js"></script>
-        <script src="/js/modules/shared/version-badge.js" defer></script>
-    </div>
+    <script src="/js/modules/shared/version-badge.js" defer></script>
     <!-- 费用管理弹窗 (与教师端同款增强版) -->
     <div id="adminFeeManagementModal" class="modal" style="display: none;">
         <div class="modal-overlay" id="adminFeeModalOverlay"></div>

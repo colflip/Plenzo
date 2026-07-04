@@ -33,8 +33,18 @@ const authController = {
      * @description 修改密码
      */
     changePassword: asyncHandler(async (req, res) => {
-        const { username, oldPassword, newPassword, userType } = req.body;
-        const result = await authService.changePassword(username, oldPassword, newPassword, userType);
+        const { oldPassword, newPassword, userType } = req.body;
+        // 从 JWT 中获取 username，防止越权修改他人密码
+        const username = req.user.userType === 'admin' ? (req.body.username || req.user.username) : req.user.username;
+        const targetUserType = userType || req.user.userType;
+
+        // 验证目标用户类型合法性
+        const validUserTypes = ['admin', 'teacher', 'student'];
+        if (!validUserTypes.includes(targetUserType)) {
+            return res.status(400).json({ message: '无效的用户类型' });
+        }
+
+        const result = await authService.changePassword(username, oldPassword, newPassword, targetUserType);
         res.json(result);
     })
 };

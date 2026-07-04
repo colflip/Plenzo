@@ -2,9 +2,10 @@
  * Student Statistics Module
  * Displays total learning count within a selected date range
  */
+import { generateDateRange } from '../shared/schedule-helpers.js';
 
-import { API_ENDPOINTS, STATUS_LABELS, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
-import { formatDateDisplay, handleApiError, showToast } from './utils.js';
+import { API_ENDPOINTS, STATUS_LABELS, getScheduleTypeLabel } from './constants.js';
+import { formatDateDisplay, handleApiError } from './utils.js';
 
 // 声明Chart为全局变量（由CDN加载）
 const Chart = window.Chart;
@@ -85,13 +86,13 @@ function setupEventListeners() {
 
     const exportBtn = document.getElementById('teachingExportBtn');
     if (exportBtn) {
-        // 统一样式为翠绿色
-        exportBtn.style.backgroundColor = '#10b981';
-        exportBtn.style.color = '#ffffff';
-
-        exportBtn.replaceWith(exportBtn.cloneNode(true)); // Remove old listeners
-        const newExportBtn = document.getElementById('teachingExportBtn');
-        newExportBtn.addEventListener('click', exportLearningData);
+        exportBtn.addEventListener('click', () => {
+            const startDate = document.getElementById('teachingStartDate')?.value;
+            const endDate = document.getElementById('teachingEndDate')?.value;
+            if (window.ExportDialog) {
+                window.ExportDialog.open({ startDate, endDate });
+            }
+        });
     }
 
     // Quick Query Buttons Logic
@@ -316,20 +317,7 @@ function getLegendColor(name) {
     return fallbackPalette[hash % fallbackPalette.length];
 }
 
-/**
- * Generate all dates in range
- */
-function generateDateRange(startDate, endDate) {
-    const dates = [];
-    const current = new Date(startDate);
-    const end = new Date(endDate);
-
-    while (current <= end) {
-        dates.push(current.toISOString().split('T')[0]);
-        current.setDate(current.getDate() + 1);
-    }
-    return dates;
-}
+// generateDateRange is imported from ../shared/schedule-helpers.js
 
 /**
  * Render daily learning chart
@@ -493,83 +481,4 @@ function renderDailyLearningChart(schedules) {
     });
 }
 
-/**
- * Export learning data via Independent Service (Direct Download)
- */
-async function exportLearningData() {
-    const startDate = document.getElementById('teachingStartDate')?.value;
-    const endDate = document.getElementById('teachingEndDate')?.value;
-    const exportBtn = document.getElementById('teachingExportBtn');
-
-    if (!startDate || !endDate) {
-        showToast('请先选择日期范围', 'error');
-        return;
-    }
-
-    const originalText = exportBtn ? exportBtn.innerHTML : '导出数据';
-    if (exportBtn) {
-        exportBtn.disabled = true;
-        if (window.SecurityUtils) {
-            window.SecurityUtils.safeSetHTML(exportBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>');
-        } else {
-            exportBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>';
-        }
-    }
-
-    try {
-        // 获取汇总数据 JSON (高级导出流程)
-        const response = await fetch(`${API_ENDPOINTS.DATA_SUMMARY}?startDate=${startDate}&endDate=${endDate}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorJson = await response.json().catch(() => ({}));
-            throw new Error(errorJson.message || errorJson.error || '导出失败');
-        }
-
-        const rawData = await response.json();
-
-        if (window.ExportManager && rawData) {
-            const EXPORT_TYPES = { TEACHER_SCHEDULE: 'teacher_schedule', STUDENT_SCHEDULE: 'student_schedule' };
-            const state = {
-                startDate: new Date(startDate),
-                endDate: new Date(endDate),
-                selectedType: EXPORT_TYPES.STUDENT_SCHEDULE
-            };
-
-            const studentName = document.getElementById('studentName')?.textContent || '学生';
-            const timestamp = new Date().getTime();
-            const fileName = `我的学习记录[${studentName}][${startDate}至${endDate}]_${timestamp}.xlsx`;
-
-            // 调用多 Sheet 转换逻辑 (由 export-manager.js 内部根据 student 角色处理后续)
-            const transformedData = window.ExportManager.transformExportData(
-                rawData,
-                null,
-                '全部老师',
-                'student',
-                state,
-                EXPORT_TYPES
-            );
-            await window.ExportManager.generateExcelFile(transformedData, fileName);
-            showToast('导出成功', 'success');
-        } else {
-            throw new Error('导出组件未加载或返回数据异常');
-        }
-
-    } catch (error) {
-        console.error('Export Error:', error);
-        showToast('导出失败: ' + error.message, 'error');
-    } finally {
-        if (exportBtn) {
-            if (window.SecurityUtils) {
-                window.SecurityUtils.safeSetHTML(exportBtn, originalText);
-            } else {
-                exportBtn.innerHTML = originalText;
-            }
-            exportBtn.disabled = false;
-        }
-    }
-}
 

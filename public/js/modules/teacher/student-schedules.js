@@ -2,6 +2,7 @@
 
 import { STATUS_LABELS } from '../student/constants.js';
 import { getScheduleTypeLabel } from './constants.js';
+import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,
@@ -504,9 +505,6 @@ function renderSchedulesGrid(weekDates, schedules, students = []) {
     }
 }
 
-function isMobileView() {
-    return window.innerWidth <= 768;
-}
 
 function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     const tbody = document.getElementById('ssWeeklyBody');

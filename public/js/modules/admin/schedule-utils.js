@@ -116,10 +116,10 @@ export function minutesToHHMM(min) {
 }
 
 export function computeSlotByStartMin(startMin) {
-    // <12:00 上午；12:00–18:29 下午；>=18:30 晚上；无法解析 -> unspecified
+    // <12:00 上午；12:00–17:59 下午；>=18:00 晚上；无法解析 -> unspecified
     if (!Number.isFinite(startMin)) return 'unspecified';
     if (startMin < 12 * 60) return 'morning';
-    if (startMin < (18 * 60 + 30)) return 'afternoon';
+    if (startMin < 18 * 60) return 'afternoon';
     return 'evening';
 }
 

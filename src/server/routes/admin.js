@@ -8,6 +8,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { validate, scheduleValidation, userValidation } = require('../middleware/validation');
+const { strictLimiter } = require('../middleware/rateLimit');
 const adminController = require('../controllers/adminController');
 const updateScheduleStatus = require('../jobs/updateScheduleStatus');
 
@@ -41,12 +42,8 @@ router.get('/statistics/overview', authMiddleware, adminOnly, adminController.ge
 router.get('/statistics/schedules', authMiddleware, adminOnly, adminController.getScheduleStats);
 router.get('/statistics/users', authMiddleware, adminOnly, adminController.getUserStats);
 
-// 数据导出路由
-router.get('/export/teachers', authMiddleware, adminOnly, adminController.exportTeacherData);
-router.get('/export/students', authMiddleware, adminOnly, adminController.exportStudentData);
-
-// 高级数据导出路由（支持多种导出类型和格式）
-router.get('/export-advanced', authMiddleware, adminOnly, adminController.advancedExport);
+// 高级数据导出路由（支持多种导出类型和格式，限流：每小时最多10次）
+router.get('/export-advanced', authMiddleware, adminOnly, strictLimiter, adminController.advancedExport);
 
 // 课程类型管理路由
 router.get('/schedule-types', authMiddleware, adminController.getScheduleTypes);

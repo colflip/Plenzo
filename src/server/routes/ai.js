@@ -8,7 +8,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
-const { teacherOrAdmin } = require('../middleware/role');
+const { teacherOrAdmin, anyAuthenticated } = require('../middleware/role');
 const aiController = require('../controllers/aiController');
 
 /**
@@ -50,7 +50,7 @@ router.get('/models', authMiddleware, teacherOrAdmin, aiController.getAvailableM
 // 获取当前模型的能力信息
 router.get('/capabilities', authMiddleware, aiController.getModelCapabilities);
 
-// 数据查询接口
-router.post('/query', authMiddleware, teacherOrAdmin, aiLimiter, aiController.query);
+// 数据查询接口（支持学生、教师、管理员）
+router.post('/query', authMiddleware, anyAuthenticated, aiLimiter, aiController.query);
 
 module.exports = router;

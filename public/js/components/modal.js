@@ -191,24 +191,56 @@ class ModalManager {
         const overlay = document.createElement('div');
         overlay.className = `modal-overlay modal-${size}`;
         overlay.style.zIndex = ++this.zIndex;
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        if (title) overlay.setAttribute('aria-label', title);
 
-        overlay.innerHTML = `
-            <div class="modal-container">
-                ${title ? `
-                    <div class="modal-header">
-                        <h3 class="modal-title">${title}</h3>
-                        ${closable ? '<button class="modal-close">×</button>' : ''}
-                    </div>
-                ` : ''}
-                <div class="modal-body">${content}</div>
-                ${showFooter ? `
-                    <div class="modal-footer">
-                        <button class="modal-btn modal-btn-secondary modal-cancel">${cancelText}</button>
-                        <button class="modal-btn modal-btn-primary modal-confirm">${confirmText}</button>
-                    </div>
-                ` : ''}
-            </div>
-        `;
+        // 安全构建 DOM，防止 XSS
+        const container = document.createElement('div');
+        container.className = 'modal-container';
+
+        if (title) {
+            const header = document.createElement('div');
+            header.className = 'modal-header';
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'modal-title';
+            titleEl.textContent = title;
+            header.appendChild(titleEl);
+            if (closable) {
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'modal-close';
+                closeBtn.textContent = '×';
+                closeBtn.setAttribute('aria-label', '关闭');
+                header.appendChild(closeBtn);
+            }
+            container.appendChild(header);
+        }
+
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        if (typeof content === 'string') {
+            body.innerHTML = content; // content 是开发者控制的 HTML 模板
+        } else if (content instanceof HTMLElement) {
+            body.appendChild(content);
+        }
+        container.appendChild(body);
+
+        if (showFooter) {
+            const footer = document.createElement('div');
+            footer.className = 'modal-footer';
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'modal-btn modal-btn-secondary modal-cancel';
+            cancelBtn.textContent = cancelText;
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'modal-btn modal-btn-primary modal-confirm';
+            confirmBtn.textContent = confirmText;
+            footer.appendChild(cancelBtn);
+            footer.appendChild(confirmBtn);
+            container.appendChild(footer);
+        }
+
+        overlay.innerHTML = '';
+        overlay.appendChild(container);
 
         // 绑定事件
         const closeBtn = overlay.querySelector('.modal-close');
@@ -308,9 +340,12 @@ class ModalManager {
      */
     confirm(message, options = {}) {
         return new Promise((resolve) => {
+            const p = document.createElement('p');
+            p.style.cssText = 'margin: 0; color: #666;';
+            p.textContent = message;
             this.create({
                 title: options.title || '确认',
-                content: `<p style="margin: 0; color: #666;">${message}</p>`,
+                content: p,
                 size: 'sm',
                 confirmText: options.confirmText || '确定',
                 cancelText: options.cancelText || '取消',
@@ -329,9 +364,12 @@ class ModalManager {
      */
     alert(message, options = {}) {
         return new Promise((resolve) => {
+            const p = document.createElement('p');
+            p.style.cssText = 'margin: 0; color: #666;';
+            p.textContent = message;
             this.create({
                 title: options.title || '提示',
-                content: `<p style="margin: 0; color: #666;">${message}</p>`,
+                content: p,
                 size: 'sm',
                 showFooter: true,
                 confirmText: '确定',

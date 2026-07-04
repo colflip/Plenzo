@@ -115,9 +115,16 @@ const errorHandler = (err, req, res, next) => {
 
 /**
  * 404 Not Found处理中间件
+ * 浏览器请求返回 HTML 页面，API 请求返回 JSON
  */
 const notFoundHandler = (req, res, next) => {
-    res.status(404).json(errorResponse(false, `路径 ${req.originalUrl} 不存在`));
+    // API 请求返回 JSON
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).json(errorResponse(false, '请求的资源不存在'));
+    }
+    // 浏览器请求返回 404 页面
+    const path = require('path');
+    res.status(404).sendFile(path.join(__dirname, '../../../public/404.html'));
 };
 
 /**

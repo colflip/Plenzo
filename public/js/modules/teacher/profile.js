@@ -21,6 +21,7 @@ const elements = {
     teacherRoleHeader: () => document.getElementById('teacherRole'),
     form: () => document.getElementById('profileForm'),
     nameInput: () => document.getElementById('profileNameInput'),
+    nicknameInput: () => document.getElementById('profileNicknameInput'),
     professionInput: () => document.getElementById('profileProfessionInput'),
     contactInput: () => document.getElementById('profileContactInput'),
     workLocationInput: () => document.getElementById('profileWorkLocationInput'),
@@ -141,6 +142,7 @@ function renderProfile(profile) {
     if (!profile) return;
     const {
         name = '教师',
+        nickname = '',
         profession = '',
         contact = '',
         work_location = '',
@@ -151,8 +153,8 @@ function renderProfile(profile) {
         student_ids
     } = profile;
 
-    setText(elements.summaryName(), name);
-    setText(elements.teacherNameHeader(), name);
+    setText(elements.summaryName(), nickname || name);
+    setText(elements.teacherNameHeader(), nickname || name);
 
     const avatar = elements.avatar();
     if (avatar && profile.id) {
@@ -169,6 +171,8 @@ function renderProfile(profile) {
 
     const nameInput = elements.nameInput();
     if (nameInput) nameInput.value = name;
+    const nicknameInput = elements.nicknameInput();
+    if (nicknameInput) nicknameInput.value = nickname ?? '';
     const professionInput = elements.professionInput();
     if (professionInput) professionInput.value = profession ?? '';
     const contactInput = elements.contactInput();
@@ -311,6 +315,7 @@ async function handlePasswordChange(event) {
 function toggleFormDisabled(disabled) {
     [
         elements.nameInput(),
+        elements.nicknameInput(),
         elements.professionInput(),
         elements.contactInput(),
         elements.workLocationInput(),
@@ -339,6 +344,7 @@ async function saveProfile() {
 
     const payload = {
         name: nameInput?.value?.trim() ?? '',
+        nickname: elements.nicknameInput()?.value?.trim() ?? '',
         profession: elements.professionInput()?.value?.trim() ?? '',
         contact: elements.contactInput()?.value?.trim() ?? '',
         work_location: elements.workLocationInput()?.value?.trim() ?? '',

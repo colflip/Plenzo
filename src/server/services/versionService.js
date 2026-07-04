@@ -3,7 +3,7 @@
  * Prefer GitHub repository metadata, then fall back to the local Git checkout.
  */
 
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const https = require('https');
 const path = require('path');
 
@@ -13,17 +13,20 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedMeta = null;
 let cachedAt = 0;
 
-function runGit(args) {
-    try {
-        return execFileSync('git', args, {
+/**
+ * 异步执行 git 命令，避免阻塞事件循环
+ */
+async function runGit(args) {
+    return new Promise((resolve) => {
+        execFile('git', args, {
             cwd: REPO_ROOT,
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'ignore'],
             timeout: 1500
-        }).trim();
-    } catch (error) {
-        return '';
-    }
+        }, (error, stdout) => {
+            resolve(error ? '' : (stdout || '').trim());
+        });
+    });
 }
 
 function normalizeGitHubRepo(value) {
@@ -37,14 +40,14 @@ function normalizeGitHubRepo(value) {
     return '';
 }
 
-function getGitHubRepo() {
+async function getGitHubRepo() {
     return normalizeGitHubRepo(process.env.GITHUB_REPOSITORY) ||
         normalizeGitHubRepo(
             process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG
                 ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}`
                 : ''
         ) ||
-        normalizeGitHubRepo(runGit(['config', '--get', 'remote.origin.url']));
+        normalizeGitHubRepo(await runGit(['config', '--get', 'remote.origin.url']));
 }
 
 function requestJson(url, headers = {}, timeoutMs = 2500) {
@@ -99,10 +102,10 @@ async function getGitHubMeta(repo) {
     };
 }
 
-function getLocalGitMeta(repo) {
-    const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || runGit(['log', '-1', '--format=%H']);
-    const shortSha = commitSha ? commitSha.slice(0, 7) : runGit(['log', '-1', '--format=%h']);
-    const updatedAt = runGit(['log', '-1', '--format=%cI']) || null;
+async function getLocalGitMeta(repo) {
+    const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || await runGit(['log', '-1', '--format=%H']);
+    const shortSha = commitSha ? commitSha.slice(0, 7) : await runGit(['log', '-1', '--format=%h']);
+    const updatedAt = await runGit(['log', '-1', '--format=%cI']) || null;
 
     return {
         updatedAt,
@@ -119,7 +122,7 @@ async function getVersionMeta() {
         return cachedMeta;
     }
 
-    const repo = getGitHubRepo();
+    const repo = await getGitHubRepo();
     let meta = null;
 
     try {
@@ -129,9 +132,9 @@ async function getVersionMeta() {
     }
 
     if (!meta) {
-        meta = getLocalGitMeta(repo);
+        meta = await getLocalGitMeta(repo);
     } else {
-        const localMeta = getLocalGitMeta(repo);
+        const localMeta = await getLocalGitMeta(repo);
         meta.commitSha = localMeta.commitSha;
         meta.shortSha = localMeta.shortSha;
     }

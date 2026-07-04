@@ -4,8 +4,8 @@
  * @module validators
  */
 
-const authValidator = require('./auth.validator');
-const scheduleValidator = require('./schedule.validator');
+const authValidator = require('./authValidator');
+const scheduleValidator = require('./scheduleValidator');
 
 module.exports = {
     // 认证验证

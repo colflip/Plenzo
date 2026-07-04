@@ -1,4 +1,5 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, EMPTY_STATES, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
+import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,
@@ -218,10 +219,6 @@ function renderSchedules(weekDates, schedules) {
     }
 }
 
-// 检测移动端视口
-function isMobileView() {
-    return window.innerWidth <= 768;
-}
 
 // 移动端2列7行表格渲染
 function renderMobileScheduleTable(weekDates, grouped) {
@@ -878,14 +875,7 @@ function updateWeekRangeLabel(weekDates) {
     setText(labelEl, formatWeekRangeText(weekDates[0], weekDates[weekDates.length - 1]));
 }
 
-function startOfWeek(date) {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
-}
+// startOfWeek is imported from ../shared/schedule-helpers.js
 
 
 // 处理状态修改 (for mobile view)

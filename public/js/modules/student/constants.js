@@ -7,7 +7,6 @@ export const API_ENDPOINTS = {
     AVAILABILITY: '/api/student/availability',
     SCHEDULES: '/api/student/schedules',
     STATISTICS: '/api/student/statistics',
-    DATA_SUMMARY: '/api/student/data-summary',
     OVERVIEW: '/api/student/overview',
     CONFIRM_SCHEDULE: '/api/student/confirm-schedule'
 };

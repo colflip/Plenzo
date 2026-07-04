@@ -3389,9 +3389,11 @@ tr:last-child td {
 
     /* 弹窗小屏幕优化 */
     .schedule-detail-header {
+        padding: 16px 20px;
+    }
 
-        /* 数据统计页面样式重构 */
-        .statistics-header {
+    /* 数据统计页面样式重构 */
+    .statistics-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -3932,8 +3934,6 @@ tr:last-child td {
                 transform: translateY(0);
             }
         }
-
-        padding: 16px 20px;
     }
 
     .schedule-detail-header h3 {
@@ -6724,6 +6724,11 @@ svg {
 }
 
 #usersTable .col-name {
+    width: 90px;
+    min-width: 90px;
+}
+
+#usersTable .col-nickname {
     width: 90px;
     min-width: 90px;
 }

@@ -23,6 +23,20 @@
 
 const { AppError } = require('../middleware/error');
 const axios = require('axios');
+const https = require('https');
+
+// 开发环境下跳过 TLS 验证（解决代理/MITM 导致的 TLS 错误）
+const isDev = process.env.NODE_ENV === 'development';
+const httpsAgent = isDev ? new https.Agent({
+    rejectUnauthorized: false,
+    keepAlive: false,           // 禁用连接池复用，避免连接被中间代理断开
+    timeout: 30000
+}) : undefined;
+const axiosInstance = axios.create({
+    httpsAgent,
+    // 禁用 axios 默认的 proxy 配置，避免干扰
+    proxy: false
+});
 
 // 各 provider 的默认配置（protocol 决定走哪套请求/响应格式）
 const PROVIDER_DEFAULTS = {
@@ -85,7 +99,7 @@ function getAIConfig() {
         baseUrl: process.env.AI_BASE_URL || defaults.baseUrl,
         model: process.env.AI_MODEL || defaults.model,
         timeout: parseInt(process.env.AI_TIMEOUT, 10) || 30000,
-        maxTokens: parseInt(process.env.AI_MAX_TOKENS, 10) || 2000
+        maxTokens: parseInt(process.env.AI_MAX_TOKENS, 10) || 8000
     };
 }
 
@@ -101,27 +115,31 @@ function isAvailable() {
  * 将 LLM HTTP 错误归一化为 AppError
  */
 function normalizeLLMError(err, statusCode) {
-    // axios 错误对象结构
+    // 提取 LLM API 返回的详细错误信息
+    const apiDetail = err.response?.data?.error?.message
+        || err.response?.data?.detail
+        || err.response?.data?.message;
+
     if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
         return new AppError('AI 请求超时，请稍后重试', 504);
     }
-    // 限流
+    if (err.code === 'ECONNRESET' || err.code === 'ERR_TLS_HANDSHAKE_TIMEOUT' ||
+        err.code === 'EPIPE' || err.message?.includes('TLS') || err.message?.includes('disconnected before secure')) {
+        return new AppError('AI 服务连接中断，请稍后重试', 502);
+    }
     if (statusCode === 429) {
         return new AppError('AI 请求过于频繁，请稍后重试', 429);
     }
-    // 鉴权失败
     if (statusCode === 401 || statusCode === 403) {
         return new AppError('AI 服务鉴权失败，请检查 API Key 配置', 503);
     }
-    // 路由不存在（多为 BASE_URL / 协议配置错误）
     if (statusCode === 404) {
-        return new AppError('AI 服务返回 404：请检查 AI_BASE_URL 与 AI_PROTOCOL 是否匹配该模型的协议', 502);
+        return new AppError('AI 服务返回 404：请检查 AI_BASE_URL 与 AI_PROTOCOL 是否匹配', 502);
     }
-    // 网络/服务不可用
-    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ENETUNREACH') {
         return new AppError('AI 服务暂时不可用，请稍后重试', 503);
     }
-    return new AppError(err?.message || 'AI 服务调用失败', statusCode || 502);
+    return new AppError(apiDetail || err?.message || 'AI 服务调用失败', statusCode || 502);
 }
 
 /* ============================================================
@@ -286,19 +304,18 @@ function buildEndpoint(baseUrl, protocol) {
  * @param {string} [options.toolChoice]  - 'auto' | 'none' | {type:'function',function:{name}}
  * @param {number} [options.maxTokens]
  * @param {number} [options.temperature]
+ * @param {Object} [options.configOverride] - 临时配置覆盖（用于模型测试，避免修改全局 process.env）
  * @returns {Promise<Object>} OpenAI 形状响应 JSON
  */
 async function chat(messages, options = {}) {
-    const cfg = getAIConfig();
-    if (!isAvailable()) {
+    // 如果提供了临时配置，使用它；否则从环境变量读取
+    const cfg = options.configOverride || getAIConfig();
+    if (!options.configOverride && !isAvailable()) {
         throw new AppError('AI 功能未启用或未配置', 503);
     }
 
     const endpoint = buildEndpoint(cfg.baseUrl, cfg.protocol);
     const hasTools = Array.isArray(options.tools) && options.tools.length > 0;
-    const promptLen = messages.reduce((s, m) => s + (typeof m.content === 'string' ? m.content.length : 0), 0);
-    console.log(`[AIService] chat 调用 provider=${cfg.provider} protocol=${cfg.protocol} model=${cfg.model} msgs=${messages.length} promptLen=${promptLen}`);
-
     let headers;
     let body;
 
@@ -342,25 +359,79 @@ async function chat(messages, options = {}) {
         };
     }
 
+    // 网络级重试：TLS/连接错误时用新连接重试（最多3次）
+    const MAX_RETRIES = 3;
     let resp;
-    try {
-        resp = await axios({
-            method: 'POST',
-            url: endpoint,
-            headers,
-            data: body,
-            timeout: cfg.timeout
-        });
-    } catch (err) {
-        const status = err.response?.status;
-        if (status) {
-            let detail = '';
-            try { detail = JSON.stringify(err.response.data).slice(0, 300); } catch (_) { /* noop */ }
-            console.error(`[AIService] HTTP ${status} @ ${endpoint}: ${detail}`);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // 每次重试创建新的 httpsAgent，强制新 TCP 连接
+            const freshAgent = isDev ? new https.Agent({
+                rejectUnauthorized: false,
+                keepAlive: false,
+                timeout: 30000
+            }) : undefined;
+            const freshAxios = axios.create({ httpsAgent: freshAgent, proxy: false });
+
+            resp = await freshAxios({
+                method: 'POST',
+                url: endpoint,
+                headers,
+                data: body,
+                timeout: cfg.timeout
+            });
+            break; // 成功，退出重试循环
+        } catch (err) {
+            const status = err.response?.status;
+            const isNetworkError = !status && (
+                err.code === 'ECONNRESET' ||
+                err.code === 'ECONNREFUSED' ||
+                err.code === 'ETIMEDOUT' ||
+                err.code === 'ENETUNREACH' ||
+                err.code === 'ERR_TLS_HANDSHAKE_TIMEOUT' ||
+                err.code === 'EPIPE' ||
+                err.message?.includes('TLS') ||
+                err.message?.includes('socket') ||
+                err.message?.includes('ECONNRESET') ||
+                err.message?.includes('disconnected before secure')
+            );
+
+            if (status) {
+                throw normalizeLLMError(err, status);
+            }
+
+            // 最后一次重试：用 Node.js 原生 fetch 保底（绕过 axios TLS 处理）
+            if (isNetworkError && attempt >= MAX_RETRIES) {
+                try {
+                    const controller = new AbortController();
+                    const fetchTimeout = setTimeout(() => controller.abort(), cfg.timeout);
+                    const fetchResp = await fetch(endpoint, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(body),
+                        signal: controller.signal
+                    });
+                    clearTimeout(fetchTimeout);
+                    if (!fetchResp.ok) {
+                        throw normalizeLLMError(new Error(`HTTP ${fetchResp.status}`), fetchResp.status);
+                    }
+                    resp = { data: await fetchResp.json() };
+                    break;
+                } catch (fetchErr) {
+                    if (fetchErr instanceof AppError) throw fetchErr;
+                    throw normalizeLLMError(fetchErr, fetchErr.status);
+                }
+            }
+
+            if (!isNetworkError) {
+                throw normalizeLLMError(err, status);
+            }
+
+            // 等待后重试（指数退避）
+            await new Promise(r => setTimeout(r, attempt * 1000));
         }
-        throw normalizeLLMError(err, status);
     }
 
+    if (!resp) throw new AppError('AI 服务调用失败，所有重试均未成功', 502);
     const raw = resp.data;
 
     // 翻译回 OpenAI 形状
@@ -393,7 +464,6 @@ async function chatJSON(messages, options = {}) {
     try {
         return JSON.parse(cleaned);
     } catch (err) {
-        console.error('[AIService] JSON 解析失败:', cleaned.slice(0, 200));
         throw new AppError('AI 返回内容无法解析为 JSON', 502);
     }
 }

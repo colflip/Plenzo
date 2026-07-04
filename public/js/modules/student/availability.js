@@ -1,4 +1,5 @@
 import { API_ENDPOINTS, TIME_SLOT_CONFIG, EMPTY_STATES } from './constants.js';
+import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,
@@ -152,10 +153,6 @@ function renderTable(weekDates, state) {
     }
 }
 
-// 检测移动端视口
-function isMobileView() {
-    return window.innerWidth <= 768;
-}
 
 // 移动端渲染：使用4列8行布局（与教师PC端一致）
 function renderMobileTable(weekDates, state) {
@@ -464,14 +461,7 @@ function showTimedFeedback(message, status) {
     }, 3000);
 }
 
-function getWeekStart(dateLike) {
-    const date = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
-    if (Number.isNaN(date.getTime())) return new Date();
-    const day = date.getDay() || 7;
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - (day - 1));
-    return date;
-}
+// getWeekStart is imported from ../shared/schedule-helpers.js
 
 export function refreshAvailability() {
     return loadAvailability(currentWeekStart);

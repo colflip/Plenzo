@@ -266,7 +266,6 @@ const FIELD_LABELS = {
     work_location: '工作地点',
     home_address: '家庭地址',
     visit_location: '入户地点',
-    visit_location: '入户地点',
     restriction: '限制',
     status: '状态'
 };
@@ -1106,6 +1105,18 @@ function getStatisticsActiveView() {
 }
 
 async function loadStatistics() {
+    // stats-logic.js 以 type="module" 加载，执行晚于 defer 脚本
+    // 若 StatsLogic 尚未就绪，等待其加载完成后再继续
+    if (!window.StatsLogic) {
+        await new Promise((resolve) => {
+            const check = setInterval(() => {
+                if (window.StatsLogic) { clearInterval(check); resolve(); }
+            }, 50);
+            // 最多等 3 秒，超时后继续（wrapper 会安全降级）
+            setTimeout(() => { clearInterval(check); resolve(); }, 3000);
+        });
+    }
+
     // 获取反馈元素
     const statsFeedback = document.getElementById('statisticsFeedback');
 
@@ -1589,9 +1600,55 @@ function renderScheduleTypeChart(data) {
     }
 }
 
+function renderTeacherTypeStackedChart(stackData, slotTarget) {
+    if (window.StatsLogic && typeof window.StatsLogic.renderTeacherTypeStackedChart === 'function') {
+        return window.StatsLogic.renderTeacherTypeStackedChart(stackData, slotTarget);
+    }
+}
 
+function renderStudentTypeStackedChart(stackData, slotTarget) {
+    if (window.StatsLogic && typeof window.StatsLogic.renderStudentTypeStackedChart === 'function') {
+        return window.StatsLogic.renderStudentTypeStackedChart(stackData, slotTarget);
+    }
+}
 
+function renderTeacherTypePerTeacherCharts(rows, dayLabels, selected) {
+    if (window.StatsLogic && typeof window.StatsLogic.renderTeacherTypePerTeacherCharts === 'function') {
+        return window.StatsLogic.renderTeacherTypePerTeacherCharts(rows, dayLabels, selected);
+    }
+}
 
+function renderStudentTypePerStudentCharts(rows, dayLabels, selected) {
+    if (typeof window.renderStudentTypePerStudentCharts === 'function') {
+        return window.renderStudentTypePerStudentCharts(rows, dayLabels, selected);
+    }
+}
+
+function setupTeacherChartsFilter(rows, dayLabels) {
+    if (typeof window.setupTeacherChartsFilter === 'function') {
+        return window.setupTeacherChartsFilter(rows, dayLabels);
+    }
+}
+
+function getSelectedTeacherForCharts() {
+    if (typeof window.getSelectedTeacherForCharts === 'function') {
+        return window.getSelectedTeacherForCharts();
+    }
+    return '';
+}
+
+function setupStudentChartsFilter(rows, dayLabels) {
+    if (typeof window.setupStudentChartsFilter === 'function') {
+        return window.setupStudentChartsFilter(rows, dayLabels);
+    }
+}
+
+function getSelectedStudentForCharts() {
+    if (typeof window.getSelectedStudentForCharts === 'function') {
+        return window.getSelectedStudentForCharts();
+    }
+    return '';
+}
 
 
 

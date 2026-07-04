@@ -147,6 +147,22 @@ async function runDatabaseMigrations() {
             console.log('数据库迁移完成：添加 feedbacks 表');
         }
 
+        // Migration: Add nickname column to teachers, students and administrators
+        const nicknameTables = ['teachers', 'students', 'administrators'];
+        for (const table of nicknameTables) {
+            const nicknameResult = await db.query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '${table}'
+                  AND column_name = 'nickname'
+            `);
+            if ((nicknameResult.rows || []).length === 0) {
+                await db.query(`ALTER TABLE ${table} ADD COLUMN nickname VARCHAR(50)`);
+                console.log(`[Migration] Added nickname column to ${table}`);
+            }
+        }
+
     } catch (error) {
         console.error('数据库迁移失败:', error);
         // 不要因为迁移失败而中断应用启动
