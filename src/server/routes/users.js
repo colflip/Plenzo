@@ -3,8 +3,8 @@ const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const db = require('../db/db');
 
-// 获取所有用户或根据类型过滤用户
-router.get('/', authMiddleware, async (req, res) => {
+// 获取所有用户或根据类型过滤用户（仅管理员）
+router.get('/', authMiddleware, adminOnly, async (req, res) => {
     try {
         const { type } = req.query;
         

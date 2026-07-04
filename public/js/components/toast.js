@@ -134,11 +134,21 @@ class ToastManager {
 
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.innerHTML = `
-            <span class="toast-icon">${icons[type] || icons.info}</span>
-            <span class="toast-message">${message}</span>
-            ${closable ? '<span class="toast-close">×</span>' : ''}
-        `;
+        // 使用 textContent 防止 XSS
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'toast-icon';
+        iconSpan.textContent = icons[type] || icons.info;
+        const msgSpan = document.createElement('span');
+        msgSpan.className = 'toast-message';
+        msgSpan.textContent = message;
+        toast.appendChild(iconSpan);
+        toast.appendChild(msgSpan);
+        if (closable) {
+            const closeSpan = document.createElement('span');
+            closeSpan.className = 'toast-close';
+            closeSpan.textContent = '×';
+            toast.appendChild(closeSpan);
+        }
 
         // 关闭按钮事件
         if (closable) {

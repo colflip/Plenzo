@@ -17,7 +17,8 @@ const securityHeaders = helmet({
                 "'self'",
                 "'unsafe-inline'",
                 "'unsafe-eval'",
-                'cdn.jsdelivr.net'
+                'cdn.jsdelivr.net',
+                'cdnjs.cloudflare.com'
             ],
             styleSrc: [
                 "'self'",
@@ -117,8 +118,8 @@ const corsOptions = {
             return callback(null, true);
         }
 
-        // 检查 Railway 域名后缀 (支持 example.up.railway.app)
-        if (origin.endsWith('.railway.app')) {
+        // 仅检查已知的 Railway 部署域名（非通配符）
+        if (process.env.RAILWAY_STATIC_URL && origin === process.env.RAILWAY_STATIC_URL) {
             return callback(null, true);
         }
 

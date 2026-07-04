@@ -7,35 +7,33 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
+const { studentOnly } = require('../middleware/role');
+const { strictLimiter } = require('../middleware/rateLimit');
 const studentController = require('../controllers/studentController');
 
 // 个人信息管理
-router.get('/profile', authMiddleware, studentController.getProfile);
-router.put('/profile', authMiddleware, studentController.updateProfile);
-router.put('/password', authMiddleware, studentController.changePassword);
+router.get('/profile', authMiddleware, studentOnly, studentController.getProfile);
+router.put('/profile', authMiddleware, studentOnly, studentController.updateProfile);
+router.put('/password', authMiddleware, studentOnly, studentController.changePassword);
 
 // 时间安排管理
-router.get('/availability', authMiddleware, studentController.getAvailability);
-router.post('/availability', authMiddleware, studentController.setAvailability);
-router.delete('/availability', authMiddleware, studentController.deleteAvailability);
+router.get('/availability', authMiddleware, studentOnly, studentController.getAvailability);
+router.post('/availability', authMiddleware, studentOnly, studentController.setAvailability);
+router.delete('/availability', authMiddleware, studentOnly, studentController.deleteAvailability);
 
 // 课程安排
-router.get('/schedules', authMiddleware, studentController.getSchedules);
+router.get('/schedules', authMiddleware, studentOnly, studentController.getSchedules);
 
 // 统计数据
-router.get('/statistics', authMiddleware, studentController.getStatistics);
+router.get('/statistics', authMiddleware, studentOnly, studentController.getStatistics);
 
 // 总览数据
-router.get('/overview', authMiddleware, studentController.getOverview);
+router.get('/overview', authMiddleware, studentOnly, studentController.getOverview);
 
-// 数据汇总
-router.get('/data-summary', authMiddleware, studentController.getDataSummary);
-
-// 导出功能
-router.get('/export', authMiddleware, studentController.exportMySchedules);
-router.get('/export-advanced', authMiddleware, studentController.advancedExport);
+// 导出功能（限流：每小时最多10次）
+router.get('/export-advanced', authMiddleware, studentOnly, strictLimiter, studentController.advancedExport);
 
 // 确认课程
-router.post('/confirm-schedule/:id', authMiddleware, studentController.confirmSchedule);
+router.post('/confirm-schedule/:id', authMiddleware, studentOnly, studentController.confirmSchedule);
 
 module.exports = router;

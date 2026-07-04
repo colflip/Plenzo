@@ -2,6 +2,7 @@
  * Teacher Teaching Display Section
  * Displays total teaching count within a selected date range
  */
+import { generateDateRange } from '../shared/schedule-helpers.js';
 
 let currentTeachingData = null;
 
@@ -172,69 +173,11 @@ function setupEventListeners() {
 
     const exportBtn = document.getElementById('teachingExportBtn');
     if (exportBtn) {
-        exportBtn.addEventListener('click', async () => {
+        exportBtn.addEventListener('click', () => {
             const startDate = document.getElementById('teachingStartDate')?.value;
             const endDate = document.getElementById('teachingEndDate')?.value;
-
-            if (!startDate || !endDate) {
-                alert('请先选择日期范围');
-                return;
-            }
-
-            const originalText = exportBtn.innerHTML;
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>'); } else { exportBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>导出中...</span>'; }
-            exportBtn.disabled = true;
-
-            try {
-                const response = await fetch(`/api/teacher/export-advanced?startDate=${startDate}&endDate=${endDate}`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorJson = await response.json().catch(() => ({}));
-                    throw new Error(errorJson.message || errorJson.error || '导出失败');
-                }
-
-                const result = await response.json();
-                if (!result.success || !result.data) {
-                    throw new Error(result.message || '获取导出数据失败');
-                }
-
-                // 借助通用 ExportManager 输出 Excel
-                if (window.ExportManager && result.data && result.data.data) {
-                    const EXPORT_TYPES = { TEACHER_SCHEDULE: 'teacher_schedule', STUDENT_SCHEDULE: 'student_schedule' };
-                    const state = {
-                        startDate: new Date(startDate),
-                        endDate: new Date(endDate),
-                        selectedType: EXPORT_TYPES.TEACHER_SCHEDULE
-                    };
-                    const teacherName = document.getElementById('teacherName')?.textContent || '教师';
-                    const timestamp = new Date().getTime();
-                    const fileName = `我的授课记录[${teacherName}][${startDate}至${endDate}]_${timestamp}.xlsx`;
-
-                    const transformedData = window.ExportManager.transformExportData(
-                        result.data.data,
-                        null,
-                        '全部学生',
-                        'teacher',
-                        state,
-                        EXPORT_TYPES
-                    );
-                    await window.ExportManager.generateExcelFile(transformedData, fileName);
-                    if (window.Toast) { window.Toast.show('导出成功', 'success'); } else { alert('导出成功'); }
-                } else {
-                    throw new Error('导出组件未加载或返回数据异常');
-                }
-
-            } catch (error) {
-                console.error('Export Error:', error);
-                if (window.Toast) { window.Toast.show('导出失败: ' + error.message, 'error'); } else { alert('导出失败: ' + error.message); }
-            } finally {
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, originalText); } else { exportBtn.innerHTML = originalText; }
-                exportBtn.disabled = false;
+            if (window.ExportDialog) {
+                window.ExportDialog.open({ startDate, endDate });
             }
         });
     }
@@ -385,7 +328,7 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
         if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
         const types = Object.keys(data.typeStats || {});
         if (types.length === 0) {
-            statsGrid.innerHTML = `
+            const emptyHtml = `
                 <div class="stat-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: none; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
                     <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
                         <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
@@ -396,6 +339,7 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
                     </div>
                 </div>
             `;
+            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, emptyHtml); } else { statsGrid.innerHTML = emptyHtml; }
         } else {
             const uiColors = [
                 { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
@@ -611,21 +555,7 @@ function getLegendColor(name) {
     return fallbackPalette[hash % fallbackPalette.length];
 }
 
-/**
- * Generate all dates in range
- */
-function generateDateRange(startDate, endDate) {
-    const dates = [];
-    const current = new Date(startDate);
-    const end = new Date(endDate);
-
-    while (current <= end) {
-        dates.push(current.toISOString().split('T')[0]);
-        current.setDate(current.getDate() + 1);
-    }
-
-    return dates;
-}
+// generateDateRange is imported from ../shared/schedule-helpers.js
 
 /**
  * Render daily teaching chart
@@ -961,40 +891,4 @@ function formatDateDisplay(dateStr) {
     const month = date.getMonth() + 1;
     const day = date.getDate();
     return `${year}年${month}月${day}日`;
-}
-
-/**
- * Export teaching data to CSV
- */
-function exportTeachingData() {
-    if (!currentTeachingData || !currentTeachingData.schedules || currentTeachingData.schedules.length === 0) {
-        alert('没有可导出的数据');
-        return;
-    }
-
-    const headers = ['日期', '时间段', '课程类型', '学生姓名', '上课地点', '状态'];
-    const rows = currentTeachingData.schedules.map(schedule => [
-        formatDateDisplay(schedule.date || schedule.lesson_date),
-        `${schedule.start_time} - ${schedule.end_time}`,
-        schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '--',
-        schedule.student_name || '--',
-        schedule.location || '--',
-        getStatusLabel(schedule.status)
-    ]);
-
-    const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.join(','))
-    ].join('\n');
-
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-
-    link.setAttribute('href', url);
-    link.setAttribute('download', `授课记录_${formatDate(new Date())}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
 }

@@ -4,7 +4,7 @@
  * @module middleware
  */
 
-const { authMiddleware, adminOnly: authAdminOnly, checkPermissionLevel } = require('./auth');
+const { authMiddleware, checkPermissionLevel } = require('./auth');
 const {
     ROLES,
     PERMISSION_LEVELS,

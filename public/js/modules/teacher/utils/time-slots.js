@@ -60,12 +60,12 @@ function getTimeSlotFromStartTime(startTime) {
     if (totalMinutes < 12 * 60) {
         return TIME_SLOTS.MORNING;
     }
-    // 下午: 12:00 - 19:00 (含12:00, 不含19:00)
-    else if (totalMinutes >= 12 * 60 && totalMinutes < 19 * 60) {
+    // 下午: 12:00 - 18:00 (含12:00, 不含18:00)
+    else if (totalMinutes < 18 * 60) {
         return TIME_SLOTS.AFTERNOON;
     }
-    // 晚上: 19:00 - 24:00 (含19:00)
-    else if (totalMinutes >= 19 * 60) {
+    // 晚上: 18:00 - 24:00 (含18:00)
+    else {
         return TIME_SLOTS.EVENING;
     }
 

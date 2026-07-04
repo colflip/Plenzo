@@ -1,14 +1,16 @@
 /**
  * 数据导出对话框模块
- * 提供灵活的导出配置界面，支持多种导出类型和文件格式
- * 
+ * 提供统一的导出配置界面，支持多种导出类型和文件格式
+ *
  * 导出类型：
- * 1. 老师信息数据 - 基本信息+统计数据
- * 2. 学生信息数据 - 基本信息+统计数据
- * 3. 指定时间段的老师授课记录 - 详细排课信息
- * 4. 指定时间段的学生排课记录 - 详细排课信息
- * 
- * 导出格式：Excel, CSV
+ * 1. teacher_info    - 老师信息数据（管理员）
+ * 2. student_info    - 学生信息数据（管理员）
+ * 3. schedule_data   - 排课数据合并导出（管理员，6 张工作表）
+ * 4. teacher_schedule - 教师自身授课记录（教师端）
+ * 5. teacher_homeroom - 班主任学生上课记录（教师端）
+ * 6. student_schedule - 学生排课记录（学生端）
+ *
+ * 导出格式：Excel
  */
 
 window.ExportDialog = (function () {
@@ -40,7 +42,8 @@ window.ExportDialog = (function () {
     const EXPORT_TYPES = {
         TEACHER_INFO: 'teacher_info',           // 老师信息数据
         STUDENT_INFO: 'student_info',           // 学生信息数据
-        TEACHER_SCHEDULE: 'teacher_schedule',   // 老师授课记录
+        TEACHER_SCHEDULE: 'teacher_schedule',   // 教师自身授课记录
+        TEACHER_HOMEROOM: 'teacher_homeroom',   // 班主任学生排课记录
         STUDENT_SCHEDULE: 'student_schedule',   // 学生排课记录
         SCHEDULE_DATA: 'schedule_data'          // 排课数据（教师+学生合并，6 工作表）
     };
@@ -69,12 +72,18 @@ window.ExportDialog = (function () {
             requiresDateRange: true,
             icon: 'event_note'
         },
-        // 以下两项仅供教师端 / 学生端使用（各自走专属路由），管理端已合并为 SCHEDULE_DATA
+        // 以下仅供教师端 / 学生端使用（各自走专属路由），管理端已合并为 SCHEDULE_DATA
         [EXPORT_TYPES.TEACHER_SCHEDULE]: {
-            label: '排课数据',
-            description: '导出指定时间范围内的排课数据（含汇总与统计）',
+            label: '我的授课记录',
+            description: '导出教师本人的排课数据（含汇总与统计）',
             requiresDateRange: true,
             icon: 'event_note'
+        },
+        [EXPORT_TYPES.TEACHER_HOMEROOM]: {
+            label: '学生上课记录',
+            description: '导出班主任绑定学生的排课数据（含汇总与统计）',
+            requiresDateRange: true,
+            icon: 'family_restroom'
         },
         [EXPORT_TYPES.STUDENT_SCHEDULE]: {
             label: '排课数据',
@@ -111,20 +120,8 @@ window.ExportDialog = (function () {
      * @param {string} typeKey - 类型英文标识 (如 review, review_online, visit, visit_online)
      * @returns {string} 标准化后的类型英文标识
      */
-    const normalizeTypeKey = (typeKey) => {
-        const lower = String(typeKey || '').toLowerCase().trim();
-        // 线上评审 → 评审
-        if (lower === 'review_online' || lower === 'online_review') return 'review';
-        // 线上入户 → 入户
-        if (lower === 'visit_online' || lower === 'online_visit') return 'visit';
-        // 线上咨询 → 咨询
-        if (lower === 'consultation_online' || lower === 'online_consultation' || lower === 'advisory_online' || lower === 'online_advisory') return 'consultation';
-        // 线上评审记录 → 评审记录
-        if (lower === 'review_record_online' || lower === 'online_review_record') return 'review_record';
-        // 线上咨询记录 → 咨询记录
-        if (lower === 'consultation_record_online' || lower === 'online_consultation_record') return 'consultation_record';
-        return lower;
-    };
+    // 复用 ExportManager 中的统一实现（export-manager.js 先于此文件加载）
+    const normalizeTypeKey = window.ExportManager?.normalizeTypeKey || ((typeKey) => String(typeKey || '').toLowerCase().trim());
 
     /**
      * 标准化类型中文描述
@@ -207,9 +204,6 @@ window.ExportDialog = (function () {
     /**
      * 绑定事件处理
      */
-    /**
-     * 绑定事件处理
-     */
     function bindEvents() {
         // 关闭按钮 (Header & Footer)
         document.querySelectorAll('.export-dialog-close, #exportDialogCancelBtn').forEach(btn => {
@@ -235,8 +229,8 @@ window.ExportDialog = (function () {
         // 日期输入变化
         const startInput = document.getElementById('exportStartDate');
         const endInput = document.getElementById('exportEndDate');
-        if (startInput) startInput.addEventListener('change', validateForm);
-        if (endInput) endInput.addEventListener('change', validateForm);
+        if (startInput) startInput.addEventListener('change', () => { validateForm(); refreshStudentListByDate(); });
+        if (endInput) endInput.addEventListener('change', () => { validateForm(); refreshStudentListByDate(); });
 
         // 导出按钮
         const exportBtn = document.getElementById('exportBtn');
@@ -292,7 +286,7 @@ window.ExportDialog = (function () {
         const filterSection = document.getElementById('exportFilterSection');
         const studentFilter = document.getElementById('exportStudentFilter');
         const teacherFilter = document.getElementById('exportTeacherFilter');
-        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.STUDENT_SCHEDULE || typeId === EXPORT_TYPES.SCHEDULE_DATA);
+        const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.TEACHER_HOMEROOM || typeId === EXPORT_TYPES.STUDENT_SCHEDULE || typeId === EXPORT_TYPES.SCHEDULE_DATA);
 
         // 显示筛选区域容器
         if (filterSection) {
@@ -323,9 +317,6 @@ window.ExportDialog = (function () {
         }
     }
 
-    /**
-     * 应用日期预设
-     */
     /**
      * 应用日期预设
      */
@@ -420,6 +411,18 @@ window.ExportDialog = (function () {
         });
 
         validateForm();
+        refreshStudentListByDate();
+    }
+
+    /**
+     * 日期变化后刷新学生列表（仅教师端）
+     */
+    function refreshStudentListByDate() {
+        const currentUser = getCurrentUser();
+        if (currentUser.userType !== 'teacher') return;
+        // 重置加载标记，下次打开筛选区或手动触发时重新加载
+        state.studentsLoaded = false;
+        loadStudentList();
     }
 
     /**
@@ -448,7 +451,8 @@ window.ExportDialog = (function () {
             list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             list.forEach(s => {
                 const name = s.name || s.username || '未知';
-                html += `<option value="${s.id}">${name}</option>`;
+                const safeName = String(name).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                html += `<option value="${s.id}">${safeName}</option>`;
             });
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSelect, html); } else { studentSelect.innerHTML = html; }
         };
@@ -476,7 +480,16 @@ window.ExportDialog = (function () {
         // 对于班主任，必须强制 Fetch 以获取最新的关联学生映射
         if (userType === 'teacher' || !cachedData || cachedData.length === 0) {
             try {
-                const apiPath = userType === 'teacher' ? '/teacher/associated-students' : '/admin/users/student';
+                let apiPath = userType === 'teacher' ? '/teacher/associated-students' : '/admin/users/student';
+
+                // 教师端：传入日期参数以查询有排课记录的学生
+                if (userType === 'teacher') {
+                    const sInput = document.getElementById('exportStartDate');
+                    const eInput = document.getElementById('exportEndDate');
+                    if (sInput?.value && eInput?.value) {
+                        apiPath += `?startDate=${sInput.value}&endDate=${eInput.value}`;
+                    }
+                }
 
                 const response = await window.apiUtils.get(apiPath);
                 const students = Array.isArray(response) ? response : (response.data || []);
@@ -519,7 +532,8 @@ window.ExportDialog = (function () {
             activeTeachers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             activeTeachers.forEach(t => {
                 const name = t.name || t.username || '未知';
-                html += `<option value="${t.id}">${name}</option>`;
+                const safeName = String(name).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                html += `<option value="${t.id}">${safeName}</option>`;
             });
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSelect, html); } else { teacherSelect.innerHTML = html; }
         };
@@ -648,53 +662,6 @@ window.ExportDialog = (function () {
             // 减少模拟过渡动画时间，提升响应感
             await new Promise(r => setTimeout(r, 300));
 
-            // 构建请求参数
-            const params = new URLSearchParams({
-                type: state.selectedType,
-                format: format
-            });
-
-            // 添加学生筛选
-            const studentSelect = document.getElementById('exportStudentSelect');
-            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE || state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) &&
-                studentSelect && studentSelect.value) {
-                params.append('student_id', studentSelect.value);
-            }
-
-            // 添加教师筛选
-            const teacherSelect = document.getElementById('exportTeacherSelect');
-            if ((state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE || state.selectedType === EXPORT_TYPES.STUDENT_SCHEDULE || state.selectedType === EXPORT_TYPES.SCHEDULE_DATA) &&
-                teacherSelect && teacherSelect.value) {
-                params.append('teacher_id', teacherSelect.value);
-                state.teacherName = teacherSelect.options[teacherSelect.selectedIndex].text;
-            } else {
-                state.teacherName = '全部老师';
-            }
-
-            if (typeConfig.requiresDateRange) {
-                if (!state.startDate || !state.endDate) {
-                    throw new Error('需要有效的导出日期范围');
-                }
-                const formatDateLocal = (d) => {
-                    const year = d.getFullYear();
-                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    return `${year}-${month}-${day}`;
-                };
-                const startDateStr = formatDateLocal(state.startDate);
-                const endDateStr = formatDateLocal(state.endDate);
-                // 兼容不同后端命名习惯 (camelCase 和 snake_case)
-                params.append('startDate', startDateStr);
-                params.append('endDate', endDateStr);
-                params.append('start_date', startDateStr);
-                params.append('end_date', endDateStr);
-            }
-
-            // 确保 type 也传对
-            params.append('type_id', state.selectedType || '');
-
-
-
             // 确保类型数据已加载
             if (window.ScheduleTypesStore) {
                 await window.ScheduleTypesStore.init();
@@ -703,35 +670,74 @@ window.ExportDialog = (function () {
             updateProgress(20, '正在加载数据...');
             await new Promise(r => setTimeout(r, 300));
 
-            // 调用导出 API
-            // 根据角色判断调用哪个接口
-            let apiUrl = `/admin/export-advanced?${params.toString()}`;
+            // 调用统一导出 API
             const currentUser = getCurrentUser();
             const userType = currentUser.userType || 'admin';
+            const token = (window.apiUtils && window.apiUtils.getAuthToken && window.apiUtils.getAuthToken()) || localStorage.getItem('token') || sessionStorage.getItem('tempToken');
+            const isInfoType = (state.selectedType === 'teacher_info' || state.selectedType === 'student_info');
 
-            if (userType === 'teacher') {
-                // 如果是教师导出教师排课记录，路由应指向 /teacher/student-schedules/export (apiUtils 会自动加 /api)
-                // 彻底移除 '/api' 前缀，防止产生 '/api/api/...' 的错误路径
-                if (state.selectedType === EXPORT_TYPES.TEACHER_SCHEDULE) {
-                    apiUrl = `/teacher/student-schedules/export?${params.toString()}`;
-                } else {
-                    // 使用 export-advanced 接口以获取多Sheet Excel文件
-                    apiUrl = `/teacher/export-advanced?download=true&${params.toString()}`;
-                }
-            } else if (userType === 'student') {
-                // 使用 export-advanced 接口以获取多Sheet Excel文件
-                apiUrl = `/student/export-advanced?download=true&${params.toString()}`;
-            }
-
-            // 对于文件下载，直接使用 fetch 获取 blob 响应
+            let fetchResponse;
             updateProgress(40, '正在请求数据...');
-            const token = localStorage.getItem('token') || sessionStorage.getItem('tempToken');
-            const fetchResponse = await fetch(`/api${apiUrl}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': token ? `Bearer ${token}` : ''
+
+            if (isInfoType) {
+                // 信息类导出 → POST /api/export/info
+                fetchResponse = await fetch('/api/export/info', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    },
+                    body: JSON.stringify({
+                        type: state.selectedType,
+                        format: format
+                    })
+                });
+            } else {
+                // 排课类导出 → POST /api/export/schedule
+                const scheduleBody = {
+                    startDate: undefined,
+                    endDate: undefined,
+                    exportType: state.selectedType === 'schedule_data' ? 'teacher_schedule' : state.selectedType
+                };
+
+                // 添加学生筛选
+                const studentSelect = document.getElementById('exportStudentSelect');
+                if (studentSelect && studentSelect.value) {
+                    scheduleBody.studentId = studentSelect.value;
                 }
-            });
+
+                // 添加教师筛选
+                const teacherSelect = document.getElementById('exportTeacherSelect');
+                if (teacherSelect && teacherSelect.value) {
+                    scheduleBody.teacherId = teacherSelect.value;
+                    state.teacherName = teacherSelect.options[teacherSelect.selectedIndex].text;
+                } else {
+                    state.teacherName = '全部老师';
+                }
+
+                if (typeConfig.requiresDateRange) {
+                    if (!state.startDate || !state.endDate) {
+                        throw new Error('需要有效的导出日期范围');
+                    }
+                    const formatDateLocal = (d) => {
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                    };
+                    scheduleBody.startDate = formatDateLocal(state.startDate);
+                    scheduleBody.endDate = formatDateLocal(state.endDate);
+                }
+
+                fetchResponse = await fetch('/api/export/schedule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    },
+                    body: JSON.stringify(scheduleBody)
+                });
+            }
 
             updateProgress(60, '正在生成文件...');
 
@@ -792,19 +798,19 @@ window.ExportDialog = (function () {
             const progressMsg = document.getElementById('exportProgressMsg');
             if (progressMsg) {
                 const errorMsg = error.message === '没有可导出的数据' ? '所选范围内无数据' : (error.message || '未知错误');
-                progressMsg.innerHTML = `
-                    <span style="color: #ef4444;">导出失败: ${errorMsg}</span>
-                    <button onclick="window.ExportDialog.retryExport()" style="
-                        margin-left: 12px;
-                        padding: 4px 12px;
-                        background: #10b981;
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 12px;
-                    ">重试</button>
-                `;
+                // 使用 textContent 防止 XSS
+                const wrapper = document.createElement('div');
+                const span = document.createElement('span');
+                span.style.color = '#ef4444';
+                span.textContent = `导出失败: ${errorMsg}`;
+                const retryBtn = document.createElement('button');
+                retryBtn.textContent = '重试';
+                retryBtn.style.cssText = 'margin-left: 12px; padding: 4px 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;';
+                retryBtn.onclick = () => window.ExportDialog.retryExport();
+                wrapper.appendChild(span);
+                wrapper.appendChild(retryBtn);
+                progressMsg.innerHTML = '';
+                progressMsg.appendChild(wrapper);
             }
             showToast(`导出失败: ${error.message}`, 'error');
             
@@ -858,9 +864,6 @@ window.ExportDialog = (function () {
 
     /**
      * 重置状态
-     */
-    /**
-     * 重置状态
      * @param {Object} options - 初始化选项 { startDate, endDate }
      */
     function resetState(options = {}) {
@@ -908,15 +911,17 @@ window.ExportDialog = (function () {
 
         const currentUser = getCurrentUser();
         
-        if (currentUser.userType === 'teacher' || currentUser.userType === 'student') {
-            // 针对班主任/学生，如果只有一个导出选项，侧边栏可能显得多余，但为了样式统一保留。
-            // 强制选中对应的单选项。
+        if (currentUser.userType === 'teacher') {
+            // 教师默认选中自身授课记录
             setTimeout(() => {
-                const type = currentUser.userType === 'teacher' ? 'teacher_schedule' : 'student_schedule';
-                const el = document.querySelector(`.export-type-item[data-type="${type}"]`);
-                if (el) {
-                    el.click();
-                }
+                const el = document.querySelector('.export-type-item[data-type="teacher_schedule"]');
+                if (el) el.click();
+            }, 50);
+        } else if (currentUser.userType === 'student') {
+            // 学生默认选中排课数据
+            setTimeout(() => {
+                const el = document.querySelector('.export-type-item[data-type="student_schedule"]');
+                if (el) el.click();
             }, 50);
         } else if (currentUser.userType === 'admin') {
             // 管理员默认选中排课数据
@@ -944,14 +949,15 @@ window.ExportDialog = (function () {
         
         let filteredTypes = Object.entries(EXPORT_TYPE_CONFIG);
         if (userType === 'teacher') {
-            // 班主任只保留排课数据导出（走教师专属路由）
-            filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.TEACHER_SCHEDULE);
+            // 教师可见：自身授课记录 + 班主任学生入户记录
+            filteredTypes = filteredTypes.filter(([id]) =>
+                id === EXPORT_TYPES.TEACHER_SCHEDULE || id === EXPORT_TYPES.TEACHER_HOMEROOM);
         } else if (userType === 'student') {
             filteredTypes = filteredTypes.filter(([id]) => id === EXPORT_TYPES.STUDENT_SCHEDULE);
         } else {
             // 管理端：信息类导出 + 合并后的排课数据；隐藏供教师/学生路由用的 schedule 别名项
             filteredTypes = filteredTypes.filter(([id]) =>
-                id !== EXPORT_TYPES.TEACHER_SCHEDULE && id !== EXPORT_TYPES.STUDENT_SCHEDULE);
+                id !== EXPORT_TYPES.TEACHER_SCHEDULE && id !== EXPORT_TYPES.TEACHER_HOMEROOM && id !== EXPORT_TYPES.STUDENT_SCHEDULE);
         }
         
         const html = `
@@ -1159,15 +1165,15 @@ window.ExportDialog = (function () {
             }
 
             .export-type-item .export-type-icon { font-size: 20px; }
-            .export-type-item .check-icon { 
-                font-size: 16px; 
-                margin-left: auto; 
-                opacity: 0; 
+            .export-type-item .check-icon {
+                font-size: 16px;
+                margin-left: auto;
+                opacity: 0;
                 transform: scale(0.5);
                 transition: all 0.2s;
             }
             .export-type-item.active .check-icon { opacity: 1; transform: scale(1); }
-            
+
             .export-type-label { font-size: 14px; font-weight: 500; }
 
             /* ========== 右侧主内容区 ========== */
@@ -1180,7 +1186,7 @@ window.ExportDialog = (function () {
             }
 
             .export-header {
-                padding: 24px 32px;
+                padding: 16px 24px;
                 border-bottom: 1px solid #f1f5f9;
                 display: flex;
                 justify-content: space-between;
@@ -1188,15 +1194,15 @@ window.ExportDialog = (function () {
             }
 
             .export-title-group h2 {
-                margin: 0 0 4px 0;
-                font-size: 18px;
+                margin: 0 0 2px 0;
+                font-size: 16px;
                 font-weight: 600;
                 color: #0f172a;
             }
 
             .export-title-group p {
                 margin: 0;
-                font-size: 13px;
+                font-size: 12px;
                 color: #64748b;
             }
 
@@ -1209,49 +1215,49 @@ window.ExportDialog = (function () {
 
             .export-body {
                 flex: 1;
-                padding: 32px;
+                padding: 16px 24px;
                 overflow-y: auto;
                 position: relative;
             }
 
             /* ========== 配置表单 ========== */
-            .config-section { margin-bottom: 24px; }
-            
+            .config-section { margin-bottom: 14px; }
+
             .section-label {
                 display: block;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 600;
                 color: #334155;
-                margin-bottom: 12px;
+                margin-bottom: 8px;
             }
 
             .date-input-group {
                 display: flex;
-                gap: 16px;
-                margin-bottom: 16px;
+                gap: 12px;
+                margin-bottom: 10px;
             }
 
             .input-wrapper { flex: 1; }
             .input-wrapper label {
                 display: block;
-                font-size: 12px;
+                font-size: 11px;
                 color: #64748b;
-                margin-bottom: 6px;
+                margin-bottom: 4px;
             }
 
-            .input-wrapper input, .student-select {
+            .input-wrapper input, .student-select, .teacher-select {
                 width: 100%;
-                padding: 10px 12px;
-                font-size: 14px;
+                padding: 7px 10px;
+                font-size: 13px;
                 border: 1px solid #cbd5e1;
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #1e293b;
                 background: #f8fafc;
                 transition: all 0.2s;
                 box-sizing: border-box;
             }
 
-            .input-wrapper input:focus, .student-select:focus {
+            .input-wrapper input:focus, .student-select:focus, .teacher-select:focus {
                 background: #fff;
                 border-color: #10b981;
                 outline: none;
@@ -1261,16 +1267,16 @@ window.ExportDialog = (function () {
             /* 快速选择 */
             .quick-select-group {
                 display: flex;
-                gap: 8px;
+                gap: 6px;
             }
 
             .export-preset-btn {
-                padding: 6px 14px;
-                font-size: 13px;
+                padding: 4px 12px;
+                font-size: 12px;
                 border: 1px solid #e2e8f0;
                 background: #fff;
                 color: #475569;
-                border-radius: 20px;
+                border-radius: 16px;
                 cursor: pointer;
                 transition: all 0.2s;
             }
@@ -1284,48 +1290,50 @@ window.ExportDialog = (function () {
             }
 
             .section-hint {
-                font-size: 12px;
+                font-size: 11px;
                 color: #94a3b8;
-                margin: 8px 0 0 0;
+                margin: 4px 0 0 0;
             }
+
+            /* 筛选项紧凑间距 */
+            .filter-row .filter-label { margin-bottom: 4px !important; font-size: 12px !important; }
+            .filter-select-group { gap: 12px !important; }
 
             /* ========== 底部操作栏 ========== */
             .export-footer {
-                padding: 20px 32px;
+                padding: 12px 24px;
                 border-top: 1px solid #f1f5f9;
                 display: flex;
                 justify-content: flex-end;
-                gap: 12px;
+                gap: 10px;
                 background: #fff;
             }
 
             .btn-cancel {
-                padding: 10px 20px;
+                padding: 7px 16px;
                 border: 1px solid #e2e8f0;
                 background: #fff;
                 color: #64748b;
-                border-radius: 8px;
-                font-size: 14px;
+                border-radius: 6px;
+                font-size: 13px;
                 font-weight: 500;
                 cursor: pointer;
                 transition: all 0.2s;
             }
             .btn-cancel:hover { background: #f8fafc; color: #334155; border-color: #cbd5e1; }
 
-
-
             .btn-export {
-                padding: 10px 24px;
+                padding: 7px 18px;
                 background: #059669;
                 color: white;
                 border: none;
-                border-radius: 8px;
-                font-size: 14px;
+                border-radius: 6px;
+                font-size: 13px;
                 font-weight: 500;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                gap: 6px;
                 transition: all 0.2s;
                 box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
             }
@@ -1351,14 +1359,14 @@ window.ExportDialog = (function () {
                 align-items: center;
                 justify-content: center;
                 z-index: 50;
-                border-radius: 0 0 16px 0; /* Corner match */
+                border-radius: 0 0 16px 0;
             }
 
             .loading-content { text-align: center; }
-            .spinner-box { margin-bottom: 20px; }
-            
+            .spinner-box { margin-bottom: 16px; }
+
             .export-spinner {
-                width: 40px; height: 40px;
+                width: 36px; height: 36px;
                 border: 3px solid #e2e8f0;
                 border-top-color: #10b981;
                 border-radius: 50%;
@@ -1367,20 +1375,20 @@ window.ExportDialog = (function () {
             }
 
             .loading-content h3 {
-                margin: 0 0 8px 0;
+                margin: 0 0 6px 0;
                 color: #1e293b;
-                font-size: 16px;
+                font-size: 15px;
             }
-            
+
             .loading-content p {
-                margin: 0 0 16px 0;
+                margin: 0 0 12px 0;
                 color: #64748b;
-                font-size: 13px;
+                font-size: 12px;
             }
 
             .progress-bar-bg {
-                width: 240px;
-                height: 6px;
+                width: 200px;
+                height: 5px;
                 background: #f1f5f9;
                 border-radius: 3px;
                 overflow: hidden;
@@ -1410,10 +1418,15 @@ window.ExportDialog = (function () {
         init,
         retryExport,
         isOpen: () => state.isOpen,
-        // 公开 applyPreset，供页面其它脚本调用以同步预设
+        /**
+         * 应用日期预设，同步导出对话框的日期范围
+         * @param {string} preset - 预设标识 (week, last-week, month, last-month, quarter, last-quarter)
+         */
         applyPreset: (preset) => {
-            // ensure dialog created
             try { init(); } catch (_) { }
+            if (state.isOpen && preset) {
+                setQuickSelectDate(preset);
+            }
         }
     };
 

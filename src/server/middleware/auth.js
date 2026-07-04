@@ -11,11 +11,19 @@ const jwt = require('jsonwebtoken');
  * @returns {string} JWT密钥
  */
 function getJwtSecret() {
-    return process.env.JWT_SECRET || 'dev-insecure-secret';
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret === 'your-secret-key-change-this-in-production') {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('致命错误: 生产环境未设置有效的 JWT_SECRET 环境变量');
+        }
+        console.warn('[AUTH] 警告: 使用默认 JWT 密钥，仅限开发环境');
+        return 'dev-insecure-secret';
+    }
+    return secret;
 }
 
-/** 离线开发模式标志 */
-const isOfflineDev = process.env.OFFLINE_DEV === 'true';
+/** 离线开发模式标志 — 仅在非生产环境生效 */
+const isOfflineDev = process.env.OFFLINE_DEV === 'true' && process.env.NODE_ENV !== 'production';
 
 /**
  * 认证中间件
@@ -59,29 +67,24 @@ const authMiddleware = async (req, res, next) => {
 };
 
 /**
- * 管理员权限检查
- * @description 仅允许管理员访问
- */
-const adminOnly = (req, res, next) => {
-    if (req.user.userType !== 'admin') {
-        return res.status(403).json({ message: '需要管理员权限' });
-    }
-    next();
-};
-
-/**
  * 权限级别检查
  * @description 检查用户权限级别是否满足要求
  * @param {number} level - 所需权限级别
  */
 const checkPermissionLevel = (level) => {
     return (req, res, next) => {
-        if (req.user.userType === 'admin' && req.user.permissionLevel > level) {
+        if (req.user.userType !== 'admin') {
+            return res.status(403).json({ message: '需要管理员权限' });
+        }
+        if (req.user.permissionLevel > level) {
             return res.status(403).json({ message: '权限不足' });
         }
         next();
     };
 };
+
+// adminOnly 统一从 role.js 导出，确保所有路由使用同一个实现
+const { adminOnly } = require('./role');
 
 module.exports = {
     authMiddleware,

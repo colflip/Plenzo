@@ -1,19 +1,14 @@
 const db = require('../db/db');
 const crypto = require('crypto');
+const SchemaHelper = require('../utils/schemaHelper');
 
 /**
  * Detects the correct date column name in the database.
+ * 委托给 SchemaHelper（带缓存），消除重复的 information_schema 查询。
  */
 async function detectDateColumn() {
-    const r = await db.query(`
-    SELECT column_name FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-  `);
-    const cols = new Set((r.rows || []).map(x => x.column_name));
-    if (cols.has('arr_date')) return 'arr_date';
-    if (cols.has('class_date')) return 'class_date';
-    if (cols.has('date')) return 'date';
-    return 'date';
+    // 无别名：返回裸列名如 "arr_date"
+    return await SchemaHelper.getDateExpr(null);
 }
 
 /**
@@ -43,8 +38,6 @@ async function updateScheduleStatus() {
     const runId = crypto.randomUUID();
     let updatedCount = 0;
     let batchNo = 0;
-
-    console.log(`[job:updateScheduleStatus] Starting run ${runId} at ${new Date().toISOString()}`);
 
     try {
         const dateCol = await detectDateColumn();
@@ -116,14 +109,16 @@ async function updateScheduleStatus() {
                 });
             });
 
-            console.log(`[job:updateScheduleStatus] Batch ${batchNo}: updated ${ids.length} records`);
+            console.log(`[job:updateScheduleStatus] 批次 ${batchNo}: 更新 ${ids.length} 条记录`);
         }
 
-        console.log(`[job:updateScheduleStatus] Completed. Total updated: ${updatedCount}`);
+        if (updatedCount > 0) {
+            console.log(`[job:updateScheduleStatus] 完成，共更新 ${updatedCount} 条记录`);
+        }
         return { success: true, updatedCount, runId };
 
     } catch (err) {
-        console.error('[job:updateScheduleStatus] Failed:', err);
+        console.error('[job:updateScheduleStatus] 执行失败:', err.message);
         // Optional: Alerting hook could go here
         return { success: false, error: err.message, runId };
     }

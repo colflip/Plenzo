@@ -1,3 +1,5 @@
+import { getWeekStart } from '../shared/schedule-helpers.js';
+
 const TIME_ZONE = 'Asia/Shanghai';
 
 export function assertElement(selectorOrElement) {
@@ -29,6 +31,14 @@ export function toISODate(dateLike) {
 }
 
 export function formatDateDisplay(dateLike) {
+    if (!dateLike) return '--';
+    // 直接解析日期字符串组件，避免时区偏移
+    const str = String(dateLike);
+    const parts = str.split('T')[0].split('-');
+    if (parts.length === 3) {
+        return `${parts[0]}年${parts[1]}月${parts[2]}日`;
+    }
+    // 降级：使用 Date 对象
     const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
     if (Number.isNaN(date.getTime())) return '--';
     const year = date.getFullYear();
@@ -56,17 +66,10 @@ export function formatTimeRange(start, end) {
     return `${safeStart} - ${safeEnd}`;
 }
 
-export function startOfWeek(dateLike) {
-    const date = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
-    if (Number.isNaN(date.getTime())) return null;
-    const day = date.getDay() || 7; // Sunday -> 7
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - (day - 1));
-    return date;
-}
+export { getWeekStart as startOfWeek } from '../shared/schedule-helpers.js';
 
 export function getWeekDates(baseDateLike) {
-    const start = startOfWeek(baseDateLike) || new Date();
+    const start = getWeekStart(baseDateLike) || new Date();
     return Array.from({ length: 7 }, (_, idx) => {
         const date = new Date(start);
         date.setDate(start.getDate() + idx);
@@ -199,3 +202,4 @@ export function showActionSheet(title, options, onSelect) {
         }, 300);
     }
 }
+

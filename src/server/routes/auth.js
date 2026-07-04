@@ -7,7 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { validate, adminOnly } = require('../middleware');
+const { validate, adminOnly, authMiddleware } = require('../middleware');
 const { loginSchema, registerSchema, changePasswordSchema } = require('../validators');
 
 /**
@@ -22,13 +22,13 @@ router.post('/login', validate(loginSchema), authController.login);
  * @description 用户注册 (仅管理员可用)
  * @access Private (Admin)
  */
-router.post('/register', validate(registerSchema), adminOnly, authController.register);
+router.post('/register', authMiddleware, adminOnly, validate(registerSchema), authController.register);
 
 /**
  * @route POST /api/auth/change-password
- * @description 修改密码
- * @access Public
+ * @description 修改密码（仅限已登录用户修改自己的密码）
+ * @access Private
  */
-router.post('/change-password', validate(changePasswordSchema), authController.changePassword);
+router.post('/change-password', authMiddleware, validate(changePasswordSchema), authController.changePassword);
 
 module.exports = router;

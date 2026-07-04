@@ -14,7 +14,8 @@ const MessageType = {
     DATA_TABLE: 'data_table',
     SCHEDULE_LIST: 'schedule_list',
     CHART_DATA: 'chart_data',
-    SCHEDULE_PREVIEW: 'schedule_preview'
+    SCHEDULE_PREVIEW: 'schedule_preview',
+    SCHEDULE_OPERATION_PREVIEW: 'schedule_operation_preview'
 };
 
 // 状态管理
@@ -46,15 +47,20 @@ const state = {
  */
 const QUICK_QUESTIONS = {
     admin: [
-        '系统总览数据',
-        '本月排课总数',
+        '本周排课总览',
+        '下周批量排课',
         '待确认的排课',
-        '按课程类型统计'
+        '按教师统计'
     ],
     teacher: [
-        '我的总览数据',
         '我本周的课表',
-        '我本月排了多少课'
+        '我的排课统计',
+        '待确认的课'
+    ],
+    student: [
+        '我本周的课表',
+        '我的课程统计',
+        '今日课程安排'
     ]
 };
 
@@ -605,7 +611,7 @@ function injectStyles() {
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: 35px 17px;
+        padding: 24px 16px;
         color: var(--ai-text-secondary);
         font-size: 14px;
         line-height: 1.5;
@@ -615,6 +621,41 @@ function injectStyles() {
         font-size: 41px;
         margin-bottom: 10px;
         opacity: 0.5;
+    }
+
+    .ai-tutorial {
+        text-align: left;
+        width: 100%;
+        max-width: 340px;
+    }
+
+    .ai-tutorial-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--ai-text-primary);
+        margin-bottom: 14px;
+        text-align: center;
+    }
+
+    .ai-tutorial-section {
+        margin-bottom: 10px;
+        padding: 8px 12px;
+        background: var(--ai-surface);
+        border: 1px solid var(--ai-border);
+        border-radius: 8px;
+    }
+
+    .ai-tutorial-section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ai-text-primary);
+        margin-bottom: 4px;
+    }
+
+    .ai-tutorial-section-content {
+        font-size: 12.5px;
+        color: var(--ai-text-secondary);
+        line-height: 1.7;
     }
 
     /* ========================================
@@ -667,6 +708,7 @@ function injectStyles() {
        ======================================== */
     .ai-typing {
         display: flex;
+        align-items: center;
         gap: 4px;
         padding: 10px 14px;
         align-self: flex-start;
@@ -676,7 +718,13 @@ function injectStyles() {
         border-bottom-left-radius: 4px;
     }
 
-    .ai-typing span {
+    .ai-typing .ai-typing-text {
+        font-size: 13px;
+        color: var(--ai-text-secondary);
+        margin-right: 4px;
+    }
+
+    .ai-typing span:not(.ai-typing-text) {
         width: 7px;
         height: 7px;
         border-radius: 50%;
@@ -684,11 +732,11 @@ function injectStyles() {
         animation: typing 1.4s infinite;
     }
 
-    .ai-typing span:nth-child(2) {
+    .ai-typing span:nth-child(3) {
         animation-delay: 0.2s;
     }
 
-    .ai-typing span:nth-child(3) {
+    .ai-typing span:nth-child(4) {
         animation-delay: 0.4s;
     }
 
@@ -1247,13 +1295,42 @@ function renderMessages() {
         const empty = document.createElement('div');
         empty.className = 'ai-empty';
         const isAdmin = state.userRole === 'admin';
-        const examples = isAdmin
-            ? '试试：「系统总览数据」「本月排课总数」「按课程类型统计」'
-            : '试试：「我的总览数据」「我本周的课表」';
+        const isTeacher = state.userRole === 'teacher';
+
+        let sections = [];
+        if (isAdmin) {
+            sections = [
+                { title: '排课', content: '周四，19-22，[地点]，[学生]，[教师]，入户<br>批量排课（每行一条）：<br>周一晚上 [学生]入户（[教师]，[地点]）<br>周二晚上 [学生]入户（[教师]，[地点]）' },
+                { title: '修改排课', content: '把[学生]周四的课改到周五晚上' },
+                { title: '删除排课', content: '取消[学生]下周一的课' },
+                { title: '查询', content: '本月排课总数 / 按教师统计 / 查[教师]的课表' }
+            ];
+        } else if (isTeacher) {
+            sections = [
+                { title: '查询课表', content: '我本周的课表 / 我下周的安排' },
+                { title: '查询统计', content: '我本月排了多少课 / 我的排课统计' },
+                { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
+            ];
+        } else {
+            sections = [
+                { title: '查询课表', content: '我本周的课表 / 今日课程安排' },
+                { title: '查询统计', content: '我的课程统计 / 按月查看课程' },
+                { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
+            ];
+        }
+
+        const sectionsHtml = sections.map(s =>
+            `<div class="ai-tutorial-section">
+                <div class="ai-tutorial-section-title">${s.title}</div>
+                <div class="ai-tutorial-section-content">${s.content}</div>
+            </div>`
+        ).join('');
+
         empty.innerHTML = `
-            <span class="icon">💬</span>
-            <div>我是你的 AI 助手，可以帮你查询和分析排课数据。</div>
-            <div style="margin-top: 8px; font-size: 13px;">${examples}</div>
+            <div class="ai-tutorial">
+                <div class="ai-tutorial-title">AI 助手使用指南</div>
+                ${sectionsHtml}
+            </div>
         `;
         el.appendChild(empty);
         return;
@@ -1333,24 +1410,52 @@ function renderMessage(msg, index) {
             return renderChartDataMessage(msg);
         case MessageType.SCHEDULE_PREVIEW:
             return renderSchedulePreviewMessage(msg);
+        case MessageType.SCHEDULE_OPERATION_PREVIEW:
+            return renderScheduleOperationPreviewMessage(msg);
         default:
             return renderTextMessage(msg);
     }
 }
 
 /**
- * 简单的 Markdown 渲染器
+ * HTML 转义（防 XSS）
+ */
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+/**
+ * 简单的 Markdown 渲染器（带 XSS 防护）
  */
 function renderMarkdown(text) {
-    if (!text || typeof text !== 'string') return text;
+    if (!text || typeof text !== 'string') return escapeHtml(text);
 
-    let html = text;
+    // 先提取代码块和行内代码，用占位符替换，避免被转义
+    const codeBlocks = [];
+    const inlineCodes = [];
 
-    // 代码块
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+    // 提取代码块
+    let html = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+        const idx = codeBlocks.length;
+        codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+        return `__CODE_BLOCK_${idx}__`;
+    });
 
-    // 行内代码
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 提取行内代码
+    html = html.replace(/`([^`]+)`/g, (match, code) => {
+        const idx = inlineCodes.length;
+        inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
+        return `__INLINE_CODE_${idx}__`;
+    });
+
+    // 转义 HTML 特殊字符（防止 XSS）
+    html = escapeHtml(html);
 
     // 标题
     html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
@@ -1370,11 +1475,19 @@ function renderMarkdown(text) {
     // 有序列表
     html = html.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
 
-    // 链接
+    // 链接（escapeHtml 已经转义了引号，需要还原链接部分）
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
     // 换行
     html = html.replace(/\n/g, '<br>');
+
+    // 还原代码块和行内代码
+    codeBlocks.forEach((block, idx) => {
+        html = html.replace(`__CODE_BLOCK_${idx}__`, block);
+    });
+    inlineCodes.forEach((code, idx) => {
+        html = html.replace(`__INLINE_CODE_${idx}__`, code);
+    });
 
     return html;
 }
@@ -1642,6 +1755,16 @@ function renderSchedulePreviewMessage(msg) {
         previewCard.className = 'ai-preview-card';
 
         // 预览头部
+        // 提取唯一的教师和学生
+        const uniqueTeachers = [...new Set(msg.data.schedules.map(s => s.teacher_name).filter(Boolean))];
+        const uniqueStudents = [...new Set(msg.data.schedules.map(s => s.student_name).filter(Boolean))];
+        const uniqueCourses = [...new Set(msg.data.schedules.map(s => getBaseCourseType(s.course_type_cn)).filter(Boolean))];
+
+        // 计算合并后的数量
+        const mergedSchedules = mergeSchedulesForDisplay(msg.data.schedules);
+        const displayCount = mergedSchedules.length;
+        const totalCount = msg.data.totalCount;
+
         const previewHeader = document.createElement('div');
         previewHeader.className = 'ai-preview-header';
         previewHeader.innerHTML = `
@@ -1650,16 +1773,16 @@ function renderSchedulePreviewMessage(msg) {
             </div>
             <div class="ai-preview-meta">
                 <div class="ai-preview-meta-item">
-                    教师：<strong>${msg.data.teacher}</strong>
+                    教师：<strong>${uniqueTeachers.join('、') || msg.data.teacher}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    学生：<strong>${msg.data.student}</strong>
+                    学生：<strong>${uniqueStudents.join('、') || msg.data.student}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    课程：<strong>${msg.data.courseType}</strong>
+                    课程：<strong>${uniqueCourses.join('、') || msg.data.courseType}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    共 <strong>${msg.data.totalCount}</strong> 节课
+                    共 <strong>${displayCount}</strong> 条记录${displayCount !== totalCount ? `（${totalCount}条课程已合并）` : ''}
                 </div>
             </div>
         `;
@@ -1675,7 +1798,7 @@ function renderSchedulePreviewMessage(msg) {
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
 
-        ['日期', '时间', '课程', '状态'].forEach(text => {
+        ['日期', '星期', '时间', '教师', '学生', '课程', '状态'].forEach(text => {
             const th = document.createElement('th');
             th.textContent = text;
             headerRow.appendChild(th);
@@ -1684,24 +1807,37 @@ function renderSchedulePreviewMessage(msg) {
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
-        msg.data.schedules.forEach(schedule => {
+        mergedSchedules.forEach(item => {
             const tr = document.createElement('tr');
 
             const tdDate = document.createElement('td');
-            tdDate.textContent = formatDate(schedule.class_date);
+            tdDate.textContent = formatDate(item.class_date);
             tr.appendChild(tdDate);
 
+            const tdDay = document.createElement('td');
+            tdDay.textContent = item.day_of_week || getDayOfWeekFromDate(item.class_date);
+            tr.appendChild(tdDay);
+
             const tdTime = document.createElement('td');
-            tdTime.textContent = `${schedule.start_time || '-'} - ${schedule.end_time || '-'}`;
+            tdTime.textContent = `${item.start_time || '-'} - ${item.end_time || '-'}`;
             tr.appendChild(tdTime);
 
+            const tdTeacher = document.createElement('td');
+            tdTeacher.textContent = item.teacher_display || '-';
+            tr.appendChild(tdTeacher);
+
+            const tdStudent = document.createElement('td');
+            tdStudent.textContent = item.student_name || '-';
+            tr.appendChild(tdStudent);
+
             const tdCourse = document.createElement('td');
-            tdCourse.textContent = schedule.course_type_cn || schedule.course_type || '-';
+            tdCourse.textContent = item.course_type_cn || '-';
             tr.appendChild(tdCourse);
 
             const tdStatus = document.createElement('td');
-            tdStatus.textContent = '预览';
-            tdStatus.style.color = 'var(--ai-primary)';
+            const statusText = item.status_cn || (item.status === 'pending' ? '待确认' : '已确认');
+            tdStatus.textContent = statusText;
+            tdStatus.style.color = item.status === 'pending' ? 'var(--ai-warning)' : 'var(--ai-success)';
             tdStatus.style.fontWeight = '600';
             tr.appendChild(tdStatus);
 
@@ -1724,6 +1860,151 @@ function renderSchedulePreviewMessage(msg) {
                 confirmBtn.disabled = true;
                 confirmBtn.textContent = '正在创建...';
                 state.inputEl.value = `确认创建排课，previewId: ${previewId}`;
+                onSend();
+            }
+        };
+        actions.appendChild(confirmBtn);
+        previewCard.appendChild(actions);
+
+        wrapper.appendChild(previewCard);
+    }
+
+    return wrapper;
+}
+
+/**
+ * 渲染排课操作预览消息（修改/删除预览）
+ */
+function renderScheduleOperationPreviewMessage(msg) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ai-msg assistant';
+
+    let textContent = msg.answer;
+    if (typeof textContent === 'object') {
+        if (textContent && textContent.answer) {
+            textContent = textContent.answer;
+        } else if (textContent && textContent.content) {
+            textContent = textContent.content;
+        } else {
+            textContent = null;
+        }
+    }
+
+    if (textContent) {
+        const bubble = document.createElement('div');
+        bubble.className = 'ai-msg-bubble';
+        bubble.innerHTML = renderMarkdown(textContent);
+        wrapper.appendChild(bubble);
+    }
+
+    const data = msg.data;
+    if (data && data.schedules && data.schedules.length > 0) {
+        const previewCard = document.createElement('div');
+        previewCard.className = 'ai-preview-card';
+
+        const isDelete = data.operationType === 'delete';
+        const icon = isDelete ? '🗑️' : '✏️';
+        const title = isDelete ? '删除预览' : '修改预览';
+
+        // 预览头部
+        const previewHeader = document.createElement('div');
+        previewHeader.className = 'ai-preview-header';
+        previewHeader.innerHTML = `
+            <div class="ai-preview-title">
+                ${icon} ${title}
+            </div>
+            <div class="ai-preview-meta">
+                <div class="ai-preview-meta-item">
+                    影响 <strong>${data.affectedCount}</strong> 条排课
+                </div>
+                ${data.message ? `<div class="ai-preview-meta-item">${data.message}</div>` : ''}
+                ${isDelete && data.reason ? `<div class="ai-preview-meta-item">原因：${data.reason}</div>` : ''}
+            </div>
+        `;
+        previewCard.appendChild(previewHeader);
+
+        // 如果是修改操作，显示变更详情
+        if (!isDelete && data.changes && data.changes.length > 0) {
+            const changesDiv = document.createElement('div');
+            changesDiv.style.cssText = 'padding: 8px 12px; background: var(--ai-primary-light); border-radius: 8px; margin: 8px 0; font-size: 13px;';
+            changesDiv.innerHTML = '<strong>变更内容：</strong><br>' +
+                data.changes.map(c => `• ${c.field} → ${c.newValue}`).join('<br>');
+            previewCard.appendChild(changesDiv);
+        }
+
+        // 排课列表表格
+        const tableContainer = document.createElement('div');
+        tableContainer.className = 'ai-data-table';
+        tableContainer.style.border = 'none';
+        tableContainer.style.borderRadius = '0';
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+
+        ['日期', '星期', '时间', '教师', '学生', '课程', '状态'].forEach(text => {
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        data.schedules.forEach(schedule => {
+            const tr = document.createElement('tr');
+
+            const tdDate = document.createElement('td');
+            tdDate.textContent = formatDate(schedule.class_date);
+            tr.appendChild(tdDate);
+
+            const tdDay = document.createElement('td');
+            tdDay.textContent = schedule.day_of_week || getDayOfWeekFromDate(schedule.class_date);
+            tr.appendChild(tdDay);
+
+            const tdTime = document.createElement('td');
+            tdTime.textContent = `${schedule.start_time || '-'} - ${schedule.end_time || '-'}`;
+            tr.appendChild(tdTime);
+
+            const tdTeacher = document.createElement('td');
+            tdTeacher.textContent = schedule.teacher_name || '-';
+            tr.appendChild(tdTeacher);
+
+            const tdStudent = document.createElement('td');
+            tdStudent.textContent = schedule.student_name || '-';
+            tr.appendChild(tdStudent);
+
+            const tdCourse = document.createElement('td');
+            tdCourse.textContent = schedule.course_type_cn || schedule.course_type || '-';
+            tr.appendChild(tdCourse);
+
+            const tdStatus = document.createElement('td');
+            const statusText = schedule.status_cn || translateStatus(schedule.status) || '-';
+            tdStatus.textContent = statusText;
+            tdStatus.style.color = getStatusColor(schedule.status);
+            tdStatus.style.fontWeight = '600';
+            tr.appendChild(tdStatus);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        tableContainer.appendChild(table);
+        previewCard.appendChild(tableContainer);
+
+        // 确认按钮
+        const actions = document.createElement('div');
+        actions.className = 'ai-preview-actions';
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = isDelete ? 'ai-btn-confirm' : 'ai-btn-confirm';
+        confirmBtn.style.cssText = isDelete ? 'background: #ef4444;' : '';
+        confirmBtn.textContent = isDelete ? '✓ 确认删除' : '✓ 确认修改';
+        confirmBtn.onclick = () => {
+            const operationId = data.operationId;
+            if (operationId) {
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = isDelete ? '正在删除...' : '正在修改...';
+                state.inputEl.value = `确认执行操作，operationId: ${operationId}`;
                 onSend();
             }
         };
@@ -1773,6 +2054,146 @@ function formatDate(dateStr) {
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function translateStatus(status) {
+    const mapping = {
+        'pending': '待确认',
+        'confirmed': '已确认',
+        'cancelled': '已取消',
+        'completed': '已完成',
+        'modified_away': '已改期'
+    };
+    return mapping[status] || status || '-';
+}
+
+function getDayOfWeekFromDate(dateStr) {
+    if (!dateStr) return '-';
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const d = new Date(dateStr + 'T00:00:00+08:00');
+    return days[d.getDay()];
+}
+
+/**
+ * 获取课程基础类型（去掉"记录"后缀）
+ * 评审记录 → 评审，咨询记录 → 咨询
+ */
+function getBaseCourseType(courseTypeCn) {
+    if (!courseTypeCn) return '';
+    return courseTypeCn.replace(/记录$/, '').trim();
+}
+
+/**
+ * 判断是否为可合并的课程类型（评审类、咨询类）
+ */
+function isMergeableType(courseTypeCn) {
+    const base = getBaseCourseType(courseTypeCn);
+    return base === '评审' || base === '咨询';
+}
+
+/**
+ * 合并同时间同地点的评审/咨询类课程
+ * 评审 + 评审记录 → 合并，咨询 + 咨询记录 → 合并
+ */
+function mergeSchedulesForDisplay(schedules) {
+    if (!schedules || schedules.length === 0) return [];
+
+    const MERGE_TYPES = new Set(['评审', '咨询']);
+    const groups = [];
+
+    for (const schedule of schedules) {
+        const courseTypeCn = schedule.course_type_cn || '';
+        const baseType = getBaseCourseType(courseTypeCn);
+        const timeSlot = `${schedule.start_time || ''}-${schedule.end_time || ''}`;
+        const location = (schedule.location || '').trim();
+        const isRecord = courseTypeCn.endsWith('记录');
+
+        if (MERGE_TYPES.has(baseType)) {
+            // 查找已有的同类型同时段同地址分组
+            const existing = groups.find(g =>
+                g.isMerged &&
+                g.baseType === baseType &&
+                g.timeSlot === timeSlot &&
+                g.class_date === schedule.class_date &&
+                g.location === location
+            );
+
+            if (existing) {
+                existing.schedules.push(schedule);
+                if (schedule.teacher_name) {
+                    const teacherEntry = { id: schedule.teacher_id || 0, name: schedule.teacher_name };
+                    if (isRecord) {
+                        if (!existing.recordTeachers.some(t => t.id === teacherEntry.id)) {
+                            existing.recordTeachers.push(teacherEntry);
+                        }
+                    } else {
+                        if (!existing.regularTeachers.some(t => t.id === teacherEntry.id)) {
+                            existing.regularTeachers.push(teacherEntry);
+                        }
+                    }
+                }
+            } else {
+                const teacherEntry = schedule.teacher_name ? { id: schedule.teacher_id || 0, name: schedule.teacher_name } : null;
+                groups.push({
+                    isMerged: true,
+                    baseType,
+                    timeSlot,
+                    class_date: schedule.class_date,
+                    location,
+                    schedules: [schedule],
+                    regularTeachers: (!isRecord && teacherEntry) ? [teacherEntry] : [],
+                    recordTeachers: (isRecord && teacherEntry) ? [teacherEntry] : []
+                });
+            }
+        } else {
+            groups.push({
+                isMerged: false,
+                schedule,
+                baseType,
+                timeSlot
+            });
+        }
+    }
+
+    // 转换为显示格式，按教师ID排序，记录老师排在最后并加"（记录）"标签
+    const result = groups.map(group => {
+        if (group.isMerged) {
+            const first = group.schedules[0];
+            // 按教师ID排序
+            const sortedRegular = [...group.regularTeachers].sort((a, b) => a.id - b.id);
+            const sortedRecord = [...group.recordTeachers].sort((a, b) => a.id - b.id);
+            const teacherParts = [
+                ...sortedRegular.map(t => t.name),
+                ...sortedRecord.map(t => `${t.name}（记录）`)
+            ];
+            return {
+                class_date: first.class_date,
+                day_of_week: first.day_of_week || getDayOfWeekFromDate(first.class_date),
+                start_time: first.start_time,
+                end_time: first.end_time,
+                teacher_display: teacherParts.join('、'),
+                student_name: first.student_name,
+                course_type_cn: group.baseType,
+                status: first.status,
+                status_cn: first.status_cn
+            };
+        } else {
+            const s = group.schedule;
+            return {
+                ...s,
+                teacher_display: s.teacher_name || '-'
+            };
+        }
+    });
+
+    // 按日期和时间排序
+    result.sort((a, b) => {
+        const keyA = `${a.class_date || ''} ${a.start_time || ''}`;
+        const keyB = `${b.class_date || ''} ${b.start_time || ''}`;
+        return keyA.localeCompare(keyB);
+    });
+
+    return result;
 }
 
 function getStatusColor(status) {
@@ -1871,15 +2292,31 @@ function clearSelectedImages() {
 }
 
 /**
- * 显示 typing 动画
+ * 显示 typing 动画（支持进度消息）
  */
-function showTyping() {
+function showTyping(message) {
+    hideTyping();
     const el = document.createElement('div');
     el.className = 'ai-typing';
     el.id = 'ai-typing-indicator';
-    el.innerHTML = '<span></span><span></span><span></span>';
+    const textSpan = document.createElement('span');
+    textSpan.className = 'ai-typing-text';
+    textSpan.textContent = message || '';
+    el.appendChild(textSpan);
+    el.appendChild(document.createElement('span'));
+    el.appendChild(document.createElement('span'));
+    el.appendChild(document.createElement('span'));
     state.messagesEl.appendChild(el);
     state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+}
+
+function updateTyping(message) {
+    const el = document.getElementById('ai-typing-indicator');
+    if (el) {
+        const textEl = el.querySelector('.ai-typing-text');
+        if (textEl) textEl.textContent = message;
+        state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+    }
 }
 
 function hideTyping() {
@@ -1999,15 +2436,14 @@ async function onSend() {
     // 创建 abort controller
     state.abortController = new AbortController();
 
-    showTyping();
+    showTyping('正在分析...');
 
     try {
         // 构建对话历史（支持图片）
         const conversationHistory = state.messages
-            .slice(-10)  // 只保留最近10轮对话
+            .slice(-10)
             .map(msg => {
                 if (msg.role === 'user' && msg.images && msg.images.length > 0) {
-                    // 多模态消息
                     return {
                         role: msg.role,
                         content: [
@@ -2019,7 +2455,6 @@ async function onSend() {
                         ]
                     };
                 } else {
-                    // 纯文本消息
                     return {
                         role: msg.role,
                         content: msg.role === 'user' ? msg.content : (msg.answer || msg.content || '')
@@ -2027,17 +2462,20 @@ async function onSend() {
                 }
             });
 
+        const requestBody = {
+            question: text || '请分析这些图片',
+            history: conversationHistory,
+            images: images.length > 0 ? images.map(img => img.dataUrl) : undefined,
+            stream: true
+        };
+
         const resp = await fetch('/api/ai/query', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${window.apiUtils?.getAuthToken?.() || localStorage.getItem('token') || sessionStorage.getItem('tempToken')}`
             },
-            body: JSON.stringify({
-                question: text || '请分析这些图片',
-                history: conversationHistory,
-                images: images.length > 0 ? images.map(img => img.dataUrl) : undefined
-            }),
+            body: JSON.stringify(requestBody),
             signal: state.abortController.signal
         });
 
@@ -2046,10 +2484,45 @@ async function onSend() {
             throw new Error(err.message || `HTTP ${resp.status}`);
         }
 
-        const result = await resp.json();
-        if (!result.success) throw new Error(result.message);
+        // SSE 流式读取
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let data = null;
 
-        const data = result.data;
+        function processSSELine(line) {
+            if (!line.startsWith('data: ')) return;
+            let event;
+            try {
+                event = JSON.parse(line.slice(6));
+            } catch (parseErr) {
+                console.warn('[AI] SSE 解析跳过:', line.slice(0, 100), parseErr.message);
+                return;
+            }
+            if (event.type === 'progress') {
+                updateTyping(event.message);
+                updateTitle(event.message);
+            } else if (event.type === 'result') {
+                data = event.data;
+            } else if (event.type === 'error') {
+                throw new Error(event.message);
+            }
+        }
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) processSSELine(line);
+        }
+
+        // 刷新解码器剩余字节 + 处理 buffer 中最后一行（可能无尾部换行）
+        buffer += decoder.decode();
+        if (buffer.trim()) processSSELine(buffer.trim());
+
+        if (!data) throw new Error('未收到 AI 响应');
 
         // 确保 answer 是字符串
         let answerText = data.answer;
@@ -2061,14 +2534,13 @@ async function onSend() {
             }
         }
 
-        // 构建 assistant 消息
         const assistantMsg = {
             role: 'assistant',
             type: data.type || MessageType.TEXT,
             answer: answerText,
             content: answerText,
-            data: data.data,
-            tools: data.tools
+            data: data.structuredData,
+            tools: data.toolsUsed
         };
 
         state.messages.push(assistantMsg);

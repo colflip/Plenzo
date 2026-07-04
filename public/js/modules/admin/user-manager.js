@@ -71,7 +71,14 @@ async function handleUserFormSubmit(e) {
             }
         }
 
-        if (mode === 'add') body.password = password;
+        // 创建时必须提供密码，编辑时可选择性修改密码
+        if (mode === 'add') {
+            if (!password) throw new Error('请填写密码');
+            body.password = password;
+        } else if (password) {
+            // 编辑模式下，如果填写了密码则更新
+            body.password = password;
+        }
 
         // Type-specific fields
         if (type === 'admin') {
@@ -99,7 +106,9 @@ async function handleUserFormSubmit(e) {
             const contactInput = document.getElementById('userContact');
             const homeAddressInput = document.getElementById('userHomeAddress');
             const statusSelect = document.getElementById('userStatus');
+            const nicknameInput = document.getElementById('userNickname');
 
+            if (nicknameInput && nicknameInput.value) body.nickname = nicknameInput.value.trim();
             if (contactInput && contactInput.value) body.contact = contactInput.value.trim();
             if (professionInput && professionInput.value) body.profession = professionInput.value.trim();
             if (homeAddressInput && homeAddressInput.value) body.home_address = homeAddressInput.value.trim();
@@ -123,6 +132,12 @@ async function handleUserFormSubmit(e) {
             }
         }
 
+        // Also handle nickname for admin type
+        if (type === 'admin') {
+            const nicknameInput = document.getElementById('userNickname');
+            if (nicknameInput && nicknameInput.value) body.nickname = nicknameInput.value.trim();
+        }
+
         // Conflict detection for edit
         if (mode === 'edit') {
             const snapJson = userForm.dataset.snapshot || '{}';
@@ -134,7 +149,7 @@ async function handleUserFormSubmit(e) {
             } catch (err) { latest = null; }
 
             if (latest) {
-                const conflictKeys = ['username', 'name', 'email', 'permission_level', 'profession', 'contact', 'work_location', 'home_address', 'visit_location'];
+                const conflictKeys = ['username', 'name', 'nickname', 'email', 'permission_level', 'profession', 'contact', 'work_location', 'home_address', 'visit_location'];
                 const changed = conflictKeys.some(k => String(latest[k] ?? '') !== String(snapshot[k] ?? ''));
                 if (changed) {
                     const proceed = confirm('检测到该用户已被其他人修改，是否仍继续保存您的更改？');
@@ -160,7 +175,7 @@ async function handleUserFormSubmit(e) {
                     loadUsers(type, { reset: true }); // refresh table
                     refreshFullUserCache(type);
                 }
-            } catch (e) {  }
+            } catch (e) { console.warn('[UserManager] 刷新用户缓存失败:', e.message); }
         } else {
             await withRetry((attempt, isFinal) => window.apiUtils.put(`/admin/users/${type}/${id}`, body, { suppressErrorToast: !isFinal }));
             closeUserFormModal();
@@ -627,7 +642,11 @@ export function showAddUserModal() {
     const statusSelect = document.getElementById('userStatus');
     if (statusSelect) statusSelect.value = '1';
 
-    document.getElementById('userPassword').required = true;
+    const passwordInput = document.getElementById('userPassword');
+    if (passwordInput) {
+        passwordInput.required = true;
+        passwordInput.placeholder = '';
+    }
 
     // 自动生成ID号
     generateNextUserId();
@@ -650,6 +669,7 @@ export function showEditUserModal(id, userType) {
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
     setVal('userUsername', user.username);
     setVal('userName', user.name);
+    setVal('userNickname', user.nickname);
 
     // 设置ID (允许修改)
     setVal('userId', user.id);
@@ -671,7 +691,13 @@ export function showEditUserModal(id, userType) {
     }
 
     document.getElementById('userType').value = userType;
-    document.getElementById('userPassword').required = false;
+    // 编辑模式下密码为可选项，留空表示不修改
+    const passwordInput = document.getElementById('userPassword');
+    if (passwordInput) {
+        passwordInput.value = '';
+        passwordInput.required = false;
+        passwordInput.placeholder = '留空表示不修改密码';
+    }
 
     const statusSelect = document.getElementById('userStatus');
     if (statusSelect && userType !== 'admin') statusSelect.value = String(user.status ?? 1);
@@ -792,13 +818,18 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
 
     const selectedIds = (selectedIdsStr || '').split(',').map(s => String(s).trim()).filter(Boolean);
 
+    // XSS 安全：转义用户数据
+    const esc = (window.SecurityUtils && window.SecurityUtils.escapeHtml) || function(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+    };
+
     let html = '';
     [...students].sort((a, b) => a.id - b.id).forEach(s => {
         const isChecked = selectedIds.includes(String(s.id)) ? 'checked' : '';
         html += `
             <label style="display: flex; align-items: flex-start; padding: 6px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 14px; width: 100%; box-sizing: border-box; mso-line-break: no-wrap; word-break: break-all;">
                 <input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked} style="flex-shrink: 0; margin: 2px 8px 0 0; width: 16px; height: 16px; min-width: 16px;">
-                <span style="flex: 1; min-width: 0;">${s.name || s.username} <span style="color: #94a3b8; font-size: 13px;">(ID: ${s.id})</span></span>
+                <span style="flex: 1; min-width: 0;">${esc(s.name || s.username)} <span style="color: #94a3b8; font-size: 13px;">(ID: ${s.id})</span></span>
             </label>
         `;
     });
@@ -830,11 +861,15 @@ function toggleContactFields(userType) {
         visit: document.getElementById('userVisitLocationGroup'),
         status: document.getElementById('userStatusGroup'),
         restriction: document.getElementById('userRestrictionGroup'),
-        studentIds: document.getElementById('userStudentIdsGroup')
+        studentIds: document.getElementById('userStudentIdsGroup'),
+        nickname: document.getElementById('userNicknameGroup')
     };
 
     // Hide all first
     Object.values(groups).forEach(g => { if (g) g.style.display = 'none'; });
+
+    // 昵称对所有角色可见
+    if (groups.nickname) groups.nickname.style.display = 'block';
 
     if (userType === 'admin') {
         if (groups.permission) groups.permission.style.display = 'block';

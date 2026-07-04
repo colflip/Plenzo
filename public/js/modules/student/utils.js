@@ -1,6 +1,7 @@
 /**
  * Student Dashboard Utility Functions
  */
+import { getWeekStart } from '../shared/schedule-helpers.js';
 
 /**
  * Format date to YYYY-MM-DD
@@ -15,13 +16,22 @@ export function formatDate(date) {
 
 /**
  * Format date for display (YYYY年MM月DD日)
+ * 使用 Asia/Shanghai 时区解析，避免 UTC 偏移问题
  */
 export function formatDateDisplay(dateStr) {
+    if (!dateStr) return '--';
+    // 直接解析日期字符串组件，避免时区偏移
+    const parts = String(dateStr).split('T')[0].split('-');
+    if (parts.length === 3) {
+        return `${parts[0]}年${parts[1]}月${parts[2]}日`;
+    }
+    // 降级：使用 Intl 格式化
     const date = new Date(dateStr);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}年${month}月${day}日`;
+    if (Number.isNaN(date.getTime())) return '--';
+    return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(date).replace(/\//g, '年').replace(/\//g, '月') + '日';
 }
 
 import { formatDateTimeDisplay as formatDateTimeDisplayCommon } from '../../utils/date-utils.js';
@@ -84,27 +94,17 @@ export function isPast(date) {
  * Show toast notification
  */
 export function showToast(message, type = 'info') {
-    // Simple toast implementation
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    toast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 12px 24px;
-        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-        color: white;
-        border-radius: 4px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        z-index: 100002;
-        animation: slideIn 0.3s ease-out;
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-        toast.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    if (window.Toast && typeof window.Toast.show === 'function') {
+        window.Toast.show(message, { type });
+    } else {
+        // Fallback if Toast component not loaded
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        toast.style.cssText = `position:fixed;top:20px;right:20px;padding:12px 24px;background:${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};color:white;border-radius:4px;z-index:100002;`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
 }
 
 /**
@@ -163,7 +163,7 @@ export function formatTimeRange(start, end) {
  * Convert date to ISO string (YYYY-MM-DD)
  */
 export function toISODate(dateLike) {
-    if (!dateLike) return '';
+    if (!dateLike) return null;
 
     // Ensure we have a Date object
     let date;
@@ -174,7 +174,7 @@ export function toISODate(dateLike) {
         date = new Date(dateLike);
     }
 
-    if (Number.isNaN(date.getTime())) return '';
+    if (Number.isNaN(date.getTime())) return null;
 
     // Standardize to Beijing Time (Asia/Shanghai) to avoid UTC offset issues
     // format "en-CA" returns "YYYY-MM-DD"
@@ -207,17 +207,10 @@ export function showInlineFeedback(el, message, status) {
     }
 }
 
-export function startOfWeek(dateLike) {
-    const date = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
-    if (Number.isNaN(date.getTime())) return null;
-    const day = date.getDay() || 7; // Sunday -> 7
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - (day - 1));
-    return date;
-}
+export { getWeekStart as startOfWeek } from '../shared/schedule-helpers.js';
 
 export function getWeekDates(baseDateLike) {
-    const start = startOfWeek(baseDateLike) || new Date();
+    const start = getWeekStart(baseDateLike) || new Date();
     return Array.from({ length: 7 }, (_, idx) => {
         const date = new Date(start);
         date.setDate(start.getDate() + idx);

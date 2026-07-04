@@ -23,8 +23,8 @@ const validate = (schema, property = 'body') => {
         if (error) {
             const errors = error.details.map(detail => ({
                 field: detail.path.join('.'),
-                message: detail.message,
-                value: detail.context.value
+                message: detail.message
+                // 不回显 value，防止泄露密码等敏感输入
             }));
 
             return res.status(400).json(
@@ -254,7 +254,9 @@ const userValidation = {
         home_address: Joi.string().max(200)
             .messages({ 'string.max': '家庭地址长度不能超过200个字符' }),
         visit_location: Joi.string().max(100)
-            .messages({ 'string.max': '入户地点长度不能超过100个字符' })
+            .messages({ 'string.max': '入户地点长度不能超过100个字符' }),
+        nickname: Joi.string().max(50).allow('', null).optional()
+            .messages({ 'string.max': '昵称长度不能超过50个字符' })
     })
         // 兼容旧客户端：如果传入 role 则重命名为 userType
         .rename('role', 'userType', { override: true, ignoreUndefined: true }),
@@ -316,6 +318,9 @@ const userValidation = {
                 'number.min': '排课限制不能小于0',
                 'number.max': '排课限制不能大于5'
             }),
+        // 昵称（所有角色可选）
+        nickname: Joi.string().max(50).allow('', null).optional()
+            .messages({ 'string.max': '昵称长度不能超过50个字符' }),
         // 修改用户ID时使用
         new_id: Joi.number().integer().positive()
             .messages({

@@ -21,11 +21,24 @@ const {
 
 const initScheduler = require('./jobs/scheduler');
 const runDatabaseMigrations = require('./db/migrations');
+const { warmup: dbWarmup } = require('./db/db');
 
 const app = express();
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
+
+// P0 安全检查：生产环境拒绝使用默认 JWT 密钥
+(function checkJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    const weakSecrets = ['your-secret-key-change-this-in-production', 'dev-insecure-secret', ''];
+    if (isProduction && (!secret || weakSecrets.includes(secret))) {
+        console.error('🚨 致命安全错误: 生产环境检测到弱或缺失的 JWT_SECRET！');
+        console.error('   请在 .env 中设置一个强随机密钥（至少 32 字符）');
+        console.error('   生成方法: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+        process.exit(1);
+    }
+})();
 
 app.use(securityHeaders);
 app.use(additionalSecurityHeaders);
@@ -40,13 +53,24 @@ if (process.env.NODE_ENV !== 'test') {
     const morganFormat = isProduction ? 'combined' : 'dev';
     app.use(morgan(morganFormat, {
         skip: (req, res) => {
-            return req.path === '/api/health' && res.statusCode === 200;
+            // 跳过健康检查
+            if (req.path === '/api/health' && res.statusCode === 200) return true;
+            // 开发环境跳过静态资源请求（css/js/svg/png/jpg/fonts/well-known）
+            if (!isProduction) {
+                const p = req.path;
+                if (p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/assets/') ||
+                    p.startsWith('/fonts/') || p.startsWith('/.well-known/') ||
+                    /\.(css|js|svg|png|jpg|jpeg|gif|woff2?|ttf|eot|map)(\?|$)/i.test(p)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }));
 }
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 app.use(express.static(path.join(__dirname, '../../public'), {
     maxAge: isProduction ? '1d' : '0',
@@ -61,6 +85,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/teacher', require('./routes/teacher'));
 app.use('/api/student', require('./routes/student'));
+app.use('/api/export', require('./routes/export'));
 app.use('/api/schedule', require('./routes/schedule'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/health', require('./routes/health'));
@@ -91,23 +116,25 @@ if (process.env.VERCEL) {
     module.exports = app;
 } else {
     app.listen(PORT, () => {
-        console.log(`=================================`);
-        console.log(`🚀 服务器已启动`);
-        console.log(`📂 环境: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`🔌 端口: ${PORT}`);
-        console.log(`🔒 安全中间件: 已启用`);
-        console.log(`=================================`);
+        console.log(``);
+        console.log(`🚀 Plenzo 服务已启动 | ${process.env.NODE_ENV || 'development'} | 端口 ${PORT}`);
+
+        // 预热数据库连接（减少首次请求的重试）
+        dbWarmup().then(() => {
+            console.log(`[DB] 连接预热成功`);
+        }).catch(err => {
+            console.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', err.message);
+        });
 
         // 运行数据库迁移（幂等，失败不阻断启动）
         runDatabaseMigrations().catch(err => {
-            console.error('❌ 数据库迁移启动失败:', err);
+            console.error('❌ 数据库迁移启动失败:', err.message);
         });
 
         try {
             initScheduler();
-            console.log('⏰ 定时任务调度器已运行');
         } catch (err) {
-            console.error('❌ 定时任务启动失败:', err);
+            console.error('❌ 定时任务启动失败:', err.message);
         }
     });
 }

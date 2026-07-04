@@ -1,6 +1,7 @@
 /**
  * 导出操作日志服务
- * 记录所有数据导出操作，便于审计和问题排查
+ * 记录所有端的导出操作，用于监控和分析
+ * 支持: admin, teacher, student, teacher_homeroom
  */
 
 class ExportLogService {
@@ -9,237 +10,188 @@ class ExportLogService {
     }
 
     /**
-     * 初始化导出日志表（首次运行）
+     * 确保表结构包含所需字段
+     * 兼容旧表结构，添加新字段
+     * 使用 Promise 缓存避免并发重复执行
      */
-    async initTable() {
-        try {
-            const query = `
-                CREATE TABLE IF NOT EXISTS export_logs (
-                    id SERIAL PRIMARY KEY,
-                    admin_id INTEGER,
-                    admin_name VARCHAR(255),
-                    export_type VARCHAR(50) NOT NULL,
-                    export_format VARCHAR(20) NOT NULL,
-                    start_date DATE,
-                    end_date DATE,
-                    record_count INTEGER DEFAULT 0,
-                    file_size BIGINT,
-                    file_name VARCHAR(255),
-                    status VARCHAR(20) NOT NULL,
-                    error_message TEXT,
-                    duration_ms INTEGER,
-                    ip_address VARCHAR(45),
-                    user_agent TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    INDEX idx_admin_id (admin_id),
-                    INDEX idx_created_at (created_at),
-                    INDEX idx_export_type (export_type)
-                );
-            `;
+    async ensureSchema() {
+        // 使用类级别的 Promise 缓存，避免并发执行
+        if (!ExportLogService._schemaCheckPromise) {
+            ExportLogService._schemaCheckPromise = this._doEnsureSchema();
+        }
+        return ExportLogService._schemaCheckPromise;
+    }
 
-            await this.db.query(query);
-            console.log('导出日志表已初始化');
+    async _doEnsureSchema() {
+        try {
+            // 合并所有列检查为单次查询，减少 DB 往返（11 次 → 1 次）
+            await this.db.query(`
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'user_type') THEN
+                        ALTER TABLE export_logs ADD COLUMN user_type VARCHAR(50);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'user_id') THEN
+                        ALTER TABLE export_logs ADD COLUMN user_id INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'start_date') THEN
+                        ALTER TABLE export_logs ADD COLUMN start_date DATE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'end_date') THEN
+                        ALTER TABLE export_logs ADD COLUMN end_date DATE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'record_count') THEN
+                        ALTER TABLE export_logs ADD COLUMN record_count INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'file_size') THEN
+                        ALTER TABLE export_logs ADD COLUMN file_size BIGINT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'duration_ms') THEN
+                        ALTER TABLE export_logs ADD COLUMN duration_ms INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'error_message') THEN
+                        ALTER TABLE export_logs ADD COLUMN error_message TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'student_id') THEN
+                        ALTER TABLE export_logs ADD COLUMN student_id INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'teacher_id') THEN
+                        ALTER TABLE export_logs ADD COLUMN teacher_id INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'file_name') THEN
+                        ALTER TABLE export_logs ADD COLUMN file_name VARCHAR(255);
+                    END IF;
+                END $$;
+
+                CREATE INDEX IF NOT EXISTS idx_export_logs_user ON export_logs(user_id, user_type);
+                CREATE INDEX IF NOT EXISTS idx_export_logs_exported_at ON export_logs(exported_at);
+            `);
+
         } catch (error) {
-            if (error.message.includes('already exists')) {
-                // 表已存在，不处理
-            } else {
-                console.error('初始化导出日志表失败:', error);
-                throw error;
-            }
+            console.warn('扩展导出日志表结构失败（非致命错误）:', error.message);
         }
     }
 
     /**
      * 记录导出开始
+     * @returns {number|null} logId - 日志ID，用于后续更新
      */
-    async logExportStart(adminId, adminName, exportType, exportFormat, options = {}) {
-        try {
-            const query = `
-                INSERT INTO export_logs (
-                    admin_id, admin_name, export_type, export_format,
-                    start_date, end_date, ip_address, user_agent, status
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'STARTED')
-                RETURNING id
-            `;
+    async logExportStart(details) {
+        const {
+            userId,
+            userType,
+            startDate,
+            endDate,
+            studentId,
+            teacherId,
+            exportType
+        } = details;
 
-            const result = await this.db.query(query, [
-                adminId,
-                adminName,
-                exportType,
-                exportFormat,
-                options.startDate || null,
-                options.endDate || null,
-                options.ipAddress || null,
-                options.userAgent || null
+        try {
+            // 确保表结构（使用类级别的 Promise 缓存）
+            await this.ensureSchema();
+
+            const result = await this.db.query(`
+                INSERT INTO export_logs (
+                    exported_by,
+                    user_id,
+                    user_type,
+                    export_type,
+                    start_date,
+                    end_date,
+                    student_id,
+                    teacher_id,
+                    status,
+                    exported_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'in_progress', NOW())
+                RETURNING id
+            `, [
+                userId || null,           // exported_by (兼容旧字段)
+                userId || null,           // user_id (新字段)
+                userType || 'unknown',    // user_type
+                exportType || 'advanced', // export_type
+                startDate || null,        // start_date
+                endDate || null,          // end_date
+                studentId || null,        // student_id
+                teacherId || null         // teacher_id
             ]);
 
-            return result.rows[0].id;
+            return result.rows[0]?.id;
         } catch (error) {
-            console.error('记录导出开始失败:', error);
-            throw error;
+            console.warn('记录导出开始日志失败（非致命错误）:', error.message);
+            return null;
         }
     }
 
     /**
-     * 记录导出完成
+     * 记录导出成功
      */
-    async logExportComplete(logId, recordCount, fileSize, fileName) {
+    async logExportSuccess(logId, details) {
+        if (!logId) return;
+
+        const {
+            recordCount,
+            fileSize,
+            fileName,
+            duration
+        } = details;
+
         try {
-            const query = `
-                UPDATE export_logs 
-                SET 
-                    status = 'COMPLETED',
+            await this.db.query(`
+                UPDATE export_logs
+                SET status = 'success',
                     record_count = $2,
                     file_size = $3,
                     file_name = $4,
-                    completed_at = CURRENT_TIMESTAMP,
-                    duration_ms = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) * 1000
+                    duration_ms = $5
                 WHERE id = $1
-            `;
-
-            await this.db.query(query, [logId, recordCount, fileSize, fileName]);
+            `, [logId, recordCount || 0, fileSize || 0, fileName || '', duration || 0]);
         } catch (error) {
-            console.error('记录导出完成失败:', error);
-            throw error;
+            console.warn('记录导出成功日志失败（非致命错误）:', error.message);
         }
     }
 
     /**
      * 记录导出失败
      */
-    async logExportFailure(logId, errorMessage) {
+    async logExportError(logId, errorMessage) {
+        if (!logId) return;
+
         try {
-            const query = `
-                UPDATE export_logs 
-                SET 
-                    status = 'FAILED',
-                    error_message = $2,
-                    completed_at = CURRENT_TIMESTAMP,
-                    duration_ms = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) * 1000
+            await this.db.query(`
+                UPDATE export_logs
+                SET status = 'failed',
+                    error_message = $2
                 WHERE id = $1
-            `;
-
-            await this.db.query(query, [logId, errorMessage]);
+            `, [logId, errorMessage || '未知错误']);
         } catch (error) {
-            console.error('记录导出失败失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 查询导出日志
-     */
-    async queryLogs(filters = {}) {
-        try {
-            let query = 'SELECT * FROM export_logs WHERE 1=1';
-            const params = [];
-            let paramCount = 1;
-
-            // 按管理员 ID 筛选
-            if (filters.adminId) {
-                query += ` AND admin_id = $${paramCount++}`;
-                params.push(filters.adminId);
-            }
-
-            // 按导出类型筛选
-            if (filters.exportType) {
-                query += ` AND export_type = $${paramCount++}`;
-                params.push(filters.exportType);
-            }
-
-            // 按状态筛选
-            if (filters.status) {
-                query += ` AND status = $${paramCount++}`;
-                params.push(filters.status);
-            }
-
-            // 按日期范围筛选
-            if (filters.startDate) {
-                query += ` AND created_at >= $${paramCount++}`;
-                params.push(filters.startDate);
-            }
-            if (filters.endDate) {
-                query += ` AND created_at <= $${paramCount++}`;
-                params.push(filters.endDate);
-            }
-
-            query += ' ORDER BY created_at DESC LIMIT 1000';
-
-            const result = await this.db.query(query, params);
-            return result.rows || [];
-        } catch (error) {
-            console.error('查询导出日志失败:', error);
-            throw error;
+            console.warn('记录导出失败日志失败（非致命错误）:', error.message);
         }
     }
 
     /**
      * 获取导出统计
      */
-    async getExportStats(days = 30) {
+    async getExportStats(userType, days = 7) {
         try {
-            const query = `
+            const result = await this.db.query(`
                 SELECT
-                    export_type,
-                    COUNT(*) as total_count,
-                    SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as success_count,
-                    SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failure_count,
-                    AVG(CASE WHEN status = 'COMPLETED' THEN duration_ms ELSE NULL END) as avg_duration_ms,
-                    SUM(CASE WHEN status = 'COMPLETED' THEN record_count ELSE 0 END) as total_records,
-                    SUM(CASE WHEN status = 'COMPLETED' THEN file_size ELSE 0 END) as total_file_size
+                    COUNT(*) as total_exports,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                    AVG(CASE WHEN status = 'success' THEN duration_ms END) as avg_duration_ms,
+                    AVG(CASE WHEN status = 'success' THEN record_count END) as avg_record_count,
+                    AVG(CASE WHEN status = 'success' THEN file_size END) as avg_file_size
                 FROM export_logs
-                WHERE created_at >= NOW() - INTERVAL '${days} days'
-                GROUP BY export_type
-                ORDER BY total_count DESC
-            `;
+                WHERE user_type = $1
+                AND exported_at >= NOW() - INTERVAL '1 day' * $2
+            `, [userType, parseInt(days, 10) || 7]);
 
-            const result = await this.db.query(query);
-            return result.rows || [];
+            return result.rows[0];
         } catch (error) {
-            console.error('获取导出统计失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 获取用户导出历史
-     */
-    async getUserExportHistory(adminId, limit = 100) {
-        try {
-            const query = `
-                SELECT 
-                    id, export_type, export_format, record_count, file_size,
-                    file_name, status, created_at, completed_at, duration_ms
-                FROM export_logs
-                WHERE admin_id = $1
-                ORDER BY created_at DESC
-                LIMIT $2
-            `;
-
-            const result = await this.db.query(query, [adminId, limit]);
-            return result.rows || [];
-        } catch (error) {
-            console.error('获取用户导出历史失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 清理过期日志（保留指定天数）
-     */
-    async cleanupOldLogs(daysToKeep = 90) {
-        try {
-            const query = `
-                DELETE FROM export_logs
-                WHERE created_at < NOW() - INTERVAL '${daysToKeep} days'
-            `;
-
-            const result = await this.db.query(query);
-            return result.rowCount;
-        } catch (error) {
-            console.error('清理过期日志失败:', error);
-            throw error;
+            console.warn('获取导出统计失败:', error.message);
+            return null;
         }
     }
 }

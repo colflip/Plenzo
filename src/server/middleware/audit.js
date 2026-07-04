@@ -16,15 +16,17 @@ const db = require('../db/db');
 async function recordAudit(req, { op, entityType, entityId, details = {} }) {
   try {
     const actorId = (req && req.user && req.user.id) ? req.user.id : null;
-    const payload = [op, entityType, entityId || null, actorId, details || {}];
+    const payload = [op, entityType, entityId || null, actorId, JSON.stringify(details || {})];
     await db.query(
       `INSERT INTO operation_logs (op, entity_type, entity_id, actor_id, details) 
        VALUES ($1, $2, $3, $4, $5)`,
       payload
     );
   } catch (err) {
-    // 表不存在或其他错误时不影响主流程
-    if (process.env.DEBUG_AUDIT === 'true') {
+    // 表不存在或其他错误时不影响主流程，但始终记录警告
+    if (err && err.message && err.message.includes('does not exist')) {
+      // operation_logs 表不存在，首次静默
+    } else {
       console.warn('记录审计日志失败:', err && err.message ? err.message : err);
     }
   }

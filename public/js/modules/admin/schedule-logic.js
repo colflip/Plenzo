@@ -330,7 +330,10 @@ export async function deleteSchedule(scheduleId) {
             try { if (window.WeeklyDataStore && WeeklyDataStore.schedules) WeeklyDataStore.schedules.clear(); } catch (_) { }
             loadSchedules();
         } catch (error) {
-            
+            console.error('[Schedule] 删除排课失败:', error);
+            if (window.apiUtils && window.apiUtils.showToast) {
+                window.apiUtils.showToast('删除排课失败：' + (error.message || '未知错误'), 'error');
+            }
         }
     }
 }
@@ -344,7 +347,10 @@ export async function confirmSchedule(scheduleId) {
         try { if (window.WeeklyDataStore && WeeklyDataStore.schedules) WeeklyDataStore.schedules.clear(); } catch (_) { }
         loadSchedules();
     } catch (error) {
-        
+        console.error('[Schedule] 确认排课失败:', error);
+        if (window.apiUtils && window.apiUtils.showToast) {
+            window.apiUtils.showToast('确认排课失败：' + (error.message || '未知错误'), 'error');
+        }
     }
 }
 
@@ -559,132 +565,6 @@ export async function loadScheduleFormOptions() {
         // 动态可用性检查函数 - 已在新版 schedule-manager.js 中由 updateTeacherStatusHints 代替
         const updateTeacherAvailability = async () => {
             return; // 彻底禁用旧逻辑，避免干扰新版 (Task Refinement)
-            const dateInput = document.getElementById('scheduleDate');
-            const startInput = document.getElementById('scheduleStartTime');
-            const endInput = document.getElementById('scheduleEndTime');
-
-            const dateVal = dateInput ? dateInput.value : '';
-            const startVal = startInput ? startInput.value : '';
-            const endVal = endInput ? endInput.value : '';
-
-            // Loading State - 先保存当前选中值，在异步完成后恢复
-            let preservedTeacherVal = '';
-            if (teacherSel) {
-                preservedTeacherVal = teacherSel.value; // 保存当前选中值
-                teacherSel.disabled = true;
-            }
-
-            try {
-                // 如果日期时间不完整，显示所有（默认状态，假设无限制）
-                if (!dateVal || !startVal || !endVal) {
-                    // Still render all, but need to clear loading
-                    renderTeacherOptions(new Set(), new Set(), preservedTeacherVal);
-                    return;
-                }
-
-                // 获取时间段的分钟数用于比较
-                const targetStart = hhmmToMinutes(startVal);
-                const targetEnd = hhmmToMinutes(endVal);
-                if (Number.isNaN(targetStart) || Number.isNaN(targetEnd)) {
-                    renderTeacherOptions(new Set(), new Set(), preservedTeacherVal);
-                    return;
-                }
-
-                // 计算时间段涵盖的时段 (Morning/Afternoon/Evening)
-                const checkSlots = { morning: false, afternoon: false, evening: false };
-                const mStart = 6 * 60;
-                const mEnd = 12 * 60;
-                const aEnd = 19 * 60;
-                const eEnd = 24 * 60;
-
-                if (!(targetEnd <= mStart || targetStart >= mEnd)) checkSlots.morning = true;
-                if (!(targetEnd <= mEnd || targetStart >= aEnd)) checkSlots.afternoon = true;
-                if (!(targetEnd <= aEnd || targetStart >= eEnd)) checkSlots.evening = true;
-
-                // 初始化缓存
-                if (!window.__availabilityCache) window.__availabilityCache = new Map();
-
-                let schedules, availabilityData;
-
-                // 检查缓存
-                if (window.__availabilityCache.has(dateVal)) {
-                    // Availability 配置很少变动，可以缓存；排课冲突需要实时检查
-                    availabilityData = window.__availabilityCache.get(dateVal);
-                    schedules = await window.apiUtils.get('/admin/schedules/grid', { start_date: dateVal, end_date: dateVal });
-                } else {
-                    // 并行获取排课冲突 和 教师可用性配置
-                    [schedules, availabilityData] = await Promise.all([
-                        window.apiUtils.get('/admin/schedules/grid', { start_date: dateVal, end_date: dateVal }),
-                        window.apiUtils.get('/admin/teacher-availability', { startDate: dateVal, endDate: dateVal })
-                    ]);
-                    // 写入缓存
-                    window.__availabilityCache.set(dateVal, availabilityData);
-                }
-
-                // 处理 availability mapping: TeacherID -> Record
-                const availabilityMap = {};
-                (Array.isArray(availabilityData) ? availabilityData : []).forEach(item => {
-                    availabilityMap[item.id] = item.availability || {};
-                });
-
-                // 处理 busy set (排课冲突)
-                const busyIds = new Set();
-                const form = document.getElementById('scheduleForm');
-                const currentId = form ? form.dataset.id : '';
-
-                (Array.isArray(schedules) ? schedules : []).forEach(s => {
-                    if (currentId && String(s.id) === String(currentId)) return;
-                    if (s.status === 'cancelled') return;
-                    if (!s.teacher_id) return;
-                    const sStart = hhmmToMinutes(sanitizeTimeString(s.start_time));
-                    const sEnd = hhmmToMinutes(sanitizeTimeString(s.end_time));
-                    if (Number.isFinite(sStart) && Number.isFinite(sEnd)) {
-                        if (!(sEnd <= targetStart || sStart >= targetEnd)) {
-                            busyIds.add(Number(s.teacher_id));
-                        }
-                    }
-                });
-
-                // 处理 unavailable set (restriction check)
-                const unavailableIds = new Set();
-                const allTeachers = window.__allTeachersCache || [];
-
-                allTeachers.forEach(t => {
-                    const tid = Number(t.id);
-                    const restriction = t.restriction ?? 1;
-
-                    if (restriction === 0) return; // Always available
-                    if (restriction === 1) { // Check availability
-                        const teacherAvail = availabilityMap[tid];
-                        let dayRecord = teacherAvail ? teacherAvail[dateVal] : null;
-
-                        if (!dayRecord && teacherAvail) {
-                            const dateKey = Object.keys(teacherAvail).find(k => k.startsWith(dateVal));
-                            dayRecord = dateKey ? teacherAvail[dateKey] : null;
-                        }
-
-                        if (!dayRecord) return; // Assume available
-
-                        let isOk = true;
-                        if (checkSlots.morning && dayRecord.morning === false) isOk = false;
-                        if (checkSlots.afternoon && dayRecord.afternoon === false) isOk = false;
-                        if (checkSlots.evening && dayRecord.evening === false) isOk = false;
-
-                        if (!isOk) unavailableIds.add(tid);
-                    }
-                });
-
-                renderTeacherOptions(busyIds, unavailableIds, preservedTeacherVal);
-
-            } catch (e) {
-                
-                renderTeacherOptions(new Set(), new Set(), preservedTeacherVal);
-            } finally {
-                if (teacherSel) {
-                    teacherSel.disabled = false;
-                    // Remove loading option if it persists? renderTeacherOptions rebuilds content, so usually gone.
-                }
-            }
         };
 
 
@@ -784,7 +664,7 @@ export async function loadScheduleFormOptions() {
                         ScheduleTypesStore.load(fetched);
                         types = ScheduleTypesStore.getAll();
                     }
-                } catch (error) {  }
+                } catch (error) { console.warn('[ScheduleForm] 加载课程类型失败:', error.message); }
             }
 
             if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
@@ -966,6 +846,11 @@ export function showScheduleSelector(items) {
     list.style.overflowY = 'auto';
     list.style.flex = '1';
 
+    // XSS 安全：转义用户数据
+    const esc = (window.SecurityUtils && window.SecurityUtils.escapeHtml) || function(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+    };
+
     items.forEach(item => {
         const row = document.createElement('div');
         row.style.padding = '12px';
@@ -989,12 +874,12 @@ export function showScheduleSelector(items) {
 
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="font-weight: 600; font-size: 15px;">${item.student_name || '未知学生'}</span>
-                <span style="font-size: 12px; color: #64748b;">${statusText}</span>
+                <span style="font-weight: 600; font-size: 15px;">${esc(item.student_name || '未知学生')}</span>
+                <span style="font-size: 12px; color: #64748b;">${esc(statusText)}</span>
             </div>
             <div style="font-size: 13px; color: #475569;">
-                <span style="display:inline-block; background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${typeName}</span>
-                <span style="margin-left: 8px;">${item.teacher_name || '未分配'}</span>
+                <span style="display:inline-block; background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${esc(typeName)}</span>
+                <span style="margin-left: 8px;">${esc(item.teacher_name || '未分配')}</span>
             </div>
         `;
 

@@ -8,6 +8,7 @@ import { initProfileSection } from './profile.js';
 import { initAvailabilitySection, refreshAvailability } from './availability.js';
 import { initSchedulesSection, refreshSchedules } from './schedules.js';
 import { initStatisticsSection, loadLearningStats } from './statistics.js';
+import * as aiAssistant from '../shared/ai-assistant-redesign.js';
 import {
     setupSidebarToggle,
     applyChartFontFromCSSVars,
@@ -47,6 +48,9 @@ async function initDashboard() {
     setupSidebarToggle({ storageKey: 'sidebarCollapsed' });
     setupLogout();
     setupModalClosures(['passwordChangeModal']);
+
+    // 初始化 AI 助手
+    aiAssistant.init({ role: 'student' });
 
     controller = createDashboardController({
         sectionInitializers: {

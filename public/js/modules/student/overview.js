@@ -435,12 +435,3 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     return card;
 }
-
-// Helper to get time slot ID (duplicated from utils to avoid import issues if not modularized)
-function getTimeSlotId(timeStr) {
-    if (!timeStr) return null;
-    const hour = parseInt(timeStr.split(':')[0], 10);
-    if (hour < 12) return 'morning';
-    if (hour < 18) return 'afternoon';
-    return 'evening';
-}

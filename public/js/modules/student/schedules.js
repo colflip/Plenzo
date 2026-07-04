@@ -1,4 +1,5 @@
 import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
+import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,
@@ -297,10 +298,6 @@ function groupSchedulesByDate(weekDates, schedules) {
     return grouped;
 }
 
-// 检测移动端视口
-function isMobileView() {
-    return window.innerWidth <= 768;
-}
 
 // 移动端2列7行表格渲染
 function renderMobileScheduleTable(weekDates, grouped) {

@@ -4,48 +4,9 @@
  */
 
 const db = require('../db/db');
-
-/**
- * 动态构建 course_arrangement 日期表达式
- * @description 兼容 arr_date/class_date/date 缺失场景，带缓存
- * @param {string} alias - 表别名
- * @returns {Promise<string>} SQL日期表达式
- */
-// 性能优化：缓存列信息和日期表达式（仿照教师端 initSchemaCache 模式）
-const __dateExprCache = {};
-const __schemaCache = { initialized: false, teacherHasStatus: false, studentHasStatus: false };
-
-async function initSchemaCache() {
-    if (__schemaCache.initialized) return;
-    try {
-        const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-        const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-        __schemaCache.teacherHasStatus = (tCols.rows || []).length > 0;
-        __schemaCache.studentHasStatus = (sCols.rows || []).length > 0;
-        __schemaCache.initialized = true;
-    } catch (_) {
-        __schemaCache.initialized = true;
-    }
-}
-
-async function getDateExpr(alias) {
-    const key = `expr_${alias || ''}`;
-    if (__dateExprCache[key]) return __dateExprCache[key];
-    const r = await db.query(`
-      SELECT column_name FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='course_arrangement'
-        AND column_name IN ('arr_date','class_date','date')
-    `);
-    const cols = new Set((r.rows || []).map(x => x.column_name));
-    const mk = (c) => alias ? `${alias}.${c}` : c;
-    const parts = [];
-    if (cols.has('arr_date')) parts.push(mk('arr_date'));
-    if (cols.has('class_date')) parts.push(mk('class_date'));
-    if (cols.has('date')) parts.push(mk('date'));
-    const expr = parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'CURRENT_DATE');
-    __dateExprCache[key] = expr;
-    return expr;
-}
+const { handleExportError } = require('../middleware/exportErrorHandler');
+const ExportLogService = require('../utils/exportLogService');
+const SchemaHelper = require('../utils/schemaHelper');
 
 const studentController = {
     /**
@@ -54,11 +15,15 @@ const studentController = {
      */
     async getProfile(req, res) {
         try {
-            // 动态选择是否返回 status 字段
+            // 动态选择是否返回 status 和 nickname 字段
             let selectCols = 'id, username, name, profession, contact, visit_location, home_address, last_login';
             try {
-                const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                if ((cols.rows || []).length > 0) {
+                const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name IN ('status', 'nickname')`);
+                const availableCols = new Set((cols.rows || []).map(r => r.column_name));
+                if (availableCols.has('nickname')) {
+                    selectCols += ', nickname';
+                }
+                if (availableCols.has('status')) {
                     selectCols += ', status';
                 }
             } catch (_) { }
@@ -84,11 +49,15 @@ const studentController = {
      */
     async updateProfile(req, res) {
         try {
-            const { name, profession, contact, visit_location, home_address, status } = req.body;
+            const { name, profession, contact, visit_location, home_address, status, nickname } = req.body;
 
             let sets = ['name = $1', 'profession = $2', 'contact = $3', 'visit_location = $4', 'home_address = $5'];
             let values = [name, profession, contact, visit_location, home_address];
             let vi = 6;
+            if (typeof nickname !== 'undefined') {
+                sets.push(`nickname = $${vi++}`);
+                values.push(nickname || null);
+            }
             if (typeof status !== 'undefined') {
                 const s = Number(status);
                 if (![-1, 0, 1].includes(s)) {
@@ -103,7 +72,7 @@ const studentController = {
                 `UPDATE students
                 SET ${sets.join(', ')}
                 WHERE id = $${vi}
-                RETURNING id, username, name, profession, contact, visit_location, home_address, status`,
+                RETURNING id, username, name, nickname, profession, contact, visit_location, home_address, status`,
                 values
             );
 
@@ -154,47 +123,14 @@ const studentController = {
         }
     },
 
-    // 导出学习记录
-    /**
-     * 导出学习记录为Excel文件
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     */
-    async exportMySchedules(req, res) {
-        try {
-            const studentId = req.user.id;
-            const studentName = req.user.name || req.user.username || '学生';
-            const { startDate, endDate } = req.query;
-
-            if (!startDate || !endDate) {
-                return res.status(400).json({ success: false, error: '缺少起止日期参数' });
-            }
-
-            const AdvancedExportService = require('../utils/advancedExportService');
-            const exportService = new AdvancedExportService(db);
-
-            // 返回原始行数据供前端生成 Excel
-            const exportData = await exportService.exportStudentSchedule(startDate, endDate, { student_id: studentId });
-            const filename = `学生学习记录_${startDate}_${endDate}.xlsx`;
-
-            res.json({
-                success: true,
-                data: exportData,
-                filename: filename,
-                format: 'excel',
-                recordCount: exportData.length
-            });
-
-        } catch (error) {
-            console.error('Export error:', error);
-            res.status(error.status || 500).json({ success: false, error: error.message || '导出失败' });
-        }
-    },
-
     /**
      * 高级导出（供直接获取多Sheet Excel文件）
      */
     async advancedExport(req, res) {
+        let logId = null;
+        const startTime = Date.now();
+        const logService = new ExportLogService(db);
+
         try {
             const studentId = req.user.id;
             const { startDate, endDate } = req.query;
@@ -204,39 +140,89 @@ const studentController = {
                 return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
             }
 
-            const AdvancedExportService = require('../utils/advancedExportService');
-            const excelGenerator = require('../services/excelGeneratorService');
-            const exportService = new AdvancedExportService(db);
-
-            // 使用新的多Sheet导出方法
-            const exportResult = await exportService.generateExportData(
-                'student_schedule',
-                startDate,
-                endDate,
-                { student_id: studentId, user_name: req.user.name || req.user.username }
-            );
-
-            // 如果前端需要直接下载Excel文件
-            if (req.query.download === 'true') {
-                return await excelGenerator.sendExcelResponse(res, exportResult.data, exportResult.filename);
+            // 验证日期格式
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(startDate) || !dateRegex.test(endDate) ||
+                new Date(startDate).toString() === 'Invalid Date' ||
+                new Date(endDate).toString() === 'Invalid Date') {
+                return res.status(400).json(standardResponse(false, null, '日期格式无效，请使用 YYYY-MM-DD 格式'));
             }
 
-            // 返回JSON数据供前端处理
-            const responseData = {
-                data: exportResult.data,
-                filename: exportResult.filename,
-                format: exportResult.format,
-                recordCount: Object.values(exportResult.data).reduce(
-                    (sum, sheet) => sum + (Array.isArray(sheet) ? sheet.length : 0),
-                    0
-                )
-            };
+            // 记录导出开始
+            try {
+                logId = await logService.logExportStart({
+                    userId: studentId,
+                    userType: 'student',
+                    startDate,
+                    endDate,
+                    studentId: studentId,
+                    exportType: 'student_schedule'
+                });
+            } catch (logError) {
+                console.warn('记录导出开始日志失败:', logError.message);
+            }
 
-            res.json(standardResponse(true, responseData, '学生数据导出成功'));
+            // 1. 查询原始数据（只查询当前学生的数据）
+            const AdvancedExportService = require('../services/advancedExportService');
+            const exportService = new AdvancedExportService(db);
+            const rawData = await exportService.queryStudentSchedule(startDate, endDate, {
+                student_id: studentId
+            });
+
+            if (!rawData || rawData.length === 0) {
+                return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
+            }
+
+            // 2. 使用统一服务生成完整的多Sheet数据
+            const UnifiedExportService = require('../services/unifiedExportService');
+            const unifiedService = new UnifiedExportService();
+            const exportResult = await unifiedService.generateCompleteExport(rawData, {
+                startDate,
+                endDate,
+                userType: 'student',
+                userId: studentId,
+                studentId: studentId,
+                studentName: req.user.name || req.user.username
+            });
+
+            // 3. 使用 excelGeneratorService 生成 Excel 文件
+            const excelGeneratorService = require('../services/excelGeneratorService');
+            const excelResult = await excelGeneratorService.generateMultiSheetExcel(
+                exportResult.sheets,
+                exportResult.filename
+            );
+
+            // 记录导出成功
+            if (logId) {
+                try {
+                    await logService.logExportSuccess(logId, {
+                        recordCount: rawData.length,
+                        fileSize: excelResult.buffer.length,
+                        fileName: excelResult.filename,
+                        duration: Date.now() - startTime
+                    });
+                } catch (logError) {
+                    console.warn('记录导出成功日志失败:', logError.message);
+                }
+            }
+
+            // 4. 直接发送文件流
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
+            res.setHeader('Content-Length', excelResult.buffer.length);
+            return res.end(excelResult.buffer);
+
         } catch (error) {
-            console.error('Student Advanced Export Error:', error);
-            const { standardResponse } = require('../middleware/validation');
-            res.status(500).json(standardResponse(false, null, error.message || '导出失败'));
+            // 记录导出失败
+            if (logId) {
+                try {
+                    await logService.logExportError(logId, error.message);
+                } catch (logError) {
+                    console.warn('记录导出错误日志失败:', logError.message);
+                }
+            }
+
+            return handleExportError(error, req, res);
         }
     },
 
@@ -301,7 +287,7 @@ const studentController = {
             res.json({ message: '时间安排更新成功', updateCount, insertCount });
         } catch (error) {
             console.error('[setAvailability] 错误:', error);
-            res.status(500).json({ message: '服务器错误', error: error.message });
+            res.status(500).json({ message: '服务器错误' });
         }
     },
 
@@ -372,11 +358,9 @@ const studentController = {
         try {
             const { startDate, endDate, status } = req.query;
 
-            // 初始化 Schema 缓存（仅首次有开销，之后直接命中缓存）
-            await initSchemaCache();
-            const dateExpr = await getDateExpr('ca');
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
             let query = `
-                SELECT 
+                SELECT
                     ca.id,
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
@@ -395,9 +379,8 @@ const studentController = {
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            // 使用缓存的 Schema 信息过滤停用账号（不再每次查询 information_schema）
-            if (__schemaCache.teacherHasStatus) query += ` AND t.status = 1`;
-            if (__schemaCache.studentHasStatus) query += ` AND s.status = 1`;
+            if (await SchemaHelper.hasColumn('teachers', 'status')) query += ` AND t.status = 1`;
+            if (await SchemaHelper.hasColumn('students', 'status')) query += ` AND s.status = 1`;
 
             const values = [req.user.id, startDate, endDate];
 
@@ -434,7 +417,7 @@ const studentController = {
                 return res.status(400).json({ message: '请提供日期范围' });
             }
 
-            const dateExpr = await getDateExpr('ca');
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
 
             // 三个查询相互独立，使用 Promise.all 并行执行，
             // 减少 Neon serverless 多次往返带来的累计延迟
@@ -544,7 +527,7 @@ const studentController = {
             const yearStartStr = formatDate(firstDayOfYear);
             const yearEndStr = formatDate(lastDayOfYear);
 
-            const dateExpr = await getDateExpr('ca');
+            const dateExpr = await SchemaHelper.getDateExpr('ca');
 
             // Unified Query for all 6 metrics
             // Time-based: pending, confirmed, completed (exclude cancelled)
@@ -611,48 +594,6 @@ const studentController = {
      * @param {string} req.query.startDate - 开始日期
      * @param {string} req.query.endDate - 结束日期
      */
-    async getDataSummary(req, res) {
-        try {
-            const { startDate, endDate } = req.query;
-
-            const dateExpr = await getDateExpr('ca');
-            const result = await db.query(`
-                SELECT 
-                    ca.id,
-                    ca.id as schedule_id,
-                    (${dateExpr})::text AS date,
-                    ca.start_time, ca.end_time, ca.status,
-                    ca.location,
-                    t.name as teacher_name,
-                    sty.name as type_name,
-                    sty.description as type_desc,
-                    ca.adjustment_type AS is_temp,
-                    ca.course_id,
-                    ca.teacher_id,
-                    ca.student_id,
-                    ca.transport_fee,
-                    ca.other_fee,
-                    ca.student_comment,
-                    ca.teacher_comment,
-                    ca.created_at,
-                    ca.updated_at,
-                    ca.last_auto_update
-                FROM course_arrangement ca
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
-                ORDER BY date, ca.start_time
-            `, [req.user.id, startDate, endDate]);
-
-            res.json(result.rows);
-        } catch (error) {
-            console.error('获取数据汇总错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
-    },
-
     /**
      * 确认课程
      * @description 学生确认指定课程，更新状态为已确认
@@ -701,8 +642,8 @@ const studentController = {
                 return res.status(400).json({ message: '请提供当前密码和新密码' });
             }
 
-            if (newPassword.length < 1) {
-                return res.status(400).json({ message: '新密码不能为空' });
+            if (newPassword.length < 6) {
+                return res.status(400).json({ message: '新密码长度不能少于6位' });
             }
 
             // 获取当前密码哈希

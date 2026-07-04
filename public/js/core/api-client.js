@@ -53,14 +53,21 @@ class ApiUtils {
      * 标准化API请求
      */
     async request(url, options = {}) {
+        const isFormData = options.body instanceof FormData;
+        const { headers: customHeaders, ...restOptions } = options;
         const config = {
             method: 'GET',
-            headers: this.getHeaders(options.headers),
-            ...options
+            ...restOptions,
+            headers: this.getHeaders(customHeaders)
         };
 
+        // FormData 不设置 Content-Type，让浏览器自动设置 boundary
+        if (isFormData) {
+            delete config.headers['Content-Type'];
+        }
+
         // 如果有body数据且不是FormData，转换为JSON
-        if (config.body && !(config.body instanceof FormData)) {
+        if (config.body && !isFormData) {
             config.body = JSON.stringify(config.body);
         }
 
@@ -183,7 +190,7 @@ class ApiUtils {
      */
     handleError(error, showToast = true, suppressConsole = true) {
         if (!suppressConsole) {
-
+            console.error(`[API Error] ${error.endpoint || ''}: ${error.message}`, error);
         }
 
         if (showToast) {

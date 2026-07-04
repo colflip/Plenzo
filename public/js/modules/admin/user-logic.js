@@ -137,7 +137,7 @@ export function showAddUserModal() {
     if (window.UserManager) window.UserManager.showAddUserModal();
 }
 export function showEditUserModal(id, userType) {
-    if (window.UserManager) window.UserManager.showEditUserModal(userType, id);
+    if (window.UserManager) window.UserManager.showEditUserModal(id, userType);
 }
 export function closeUserFormModal() {
     if (window.UserManager) window.UserManager.closeUserFormModal();

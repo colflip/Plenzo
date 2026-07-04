@@ -7,6 +7,42 @@ function isCountableSchedule(row) {
     return !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);
 }
 
+/**
+ * 给颜色值添加透明度
+ * @param {string} color - 颜色值（hex 或 rgb/rgba）
+ * @param {number} alpha - 透明度 0-1
+ * @returns {string} rgba 颜色字符串
+ */
+function mapTypeLabel(t) {
+    return (window.i18nUtils && typeof window.i18nUtils.getTypeLabelLocalized === 'function')
+        ? window.i18nUtils.getTypeLabelLocalized(t, 'zh-CN')
+        : (String(t || '').trim() || '未分类');
+}
+
+function addAlpha(color, alpha) {
+    const c = String(color || '').trim();
+    if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) {
+        let r, g, b;
+        if (c.length === 4) {
+            r = parseInt(c[1] + c[1], 16);
+            g = parseInt(c[2] + c[2], 16);
+            b = parseInt(c[3] + c[3], 16);
+        } else {
+            r = parseInt(c.slice(1, 3), 16);
+            g = parseInt(c.slice(3, 5), 16);
+            b = parseInt(c.slice(5, 7), 16);
+        }
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    if (/^rgba?\(/i.test(c)) {
+        return c.replace(/rgba?\(([^)]+)\)/i, (m, inner) => {
+            const parts = inner.split(',').map(s => s.trim());
+            const [r, g, b] = parts;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        });
+    }
+    return c;
+}
 
 /**
  * 将 getUserStats API 返回的数据转换为 Chart.js 堆叠柱状图格式
@@ -60,32 +96,6 @@ export function convertUserStatsToStackData(stats, limit = 15) {
     return { labels, datasets };
 }
 
-export function getDefaultSchedules() {
-    // 生成一些默认的排课数据
-    const types = ['入户', '试教', '评审', '心理咨询', '线上辅导'];
-    const teachers = ['张老师', '李老师', '王老师'];
-    const students = ['学生A', '学生B', '学生C'];
-
-    const schedules = [];
-    const now = new Date();
-
-    for (let i = 0; i < 30; i++) {
-        const date = new Date(now);
-        date.setDate(date.getDate() - Math.floor(Math.random() * 30));
-
-        schedules.push({
-            id: i + 1,
-            date: toISODate(date),
-            teacher_name: teachers[Math.floor(Math.random() * teachers.length)],
-            student_name: students[Math.floor(Math.random() * students.length)],
-            schedule_type: types[Math.floor(Math.random() * types.length)],
-            schedule_types: types[Math.floor(Math.random() * types.length)]
-        });
-    }
-
-    return schedules;
-}
-
 // --- 统一图表视觉常量 ---
 // 浅色现代 tooltip，与卡片设计语言一致
 const MODERN_TOOLTIP = {
@@ -131,12 +141,6 @@ function padStackToBottom(stackData, targetSlots) {
     };
 }
 
-// 容器高度交由 CSS（.chart-box aspect-ratio）控制，保持三图正方形等大。
-// 保留函数签名以兼容调用点，但不再强制内联高度。
-function sizeSummaryChartBox(_canvasEl, _slots) {
-    /* no-op: 高度由 CSS aspect-ratio 决定 */
-}
-
 // 绘制学生参与统计图表
 // slotTarget：与教师汇总图对齐的共享槽位数（人数少的一方补空沉底）
 export function renderStudentTypeStackedChart(stackData, slotTarget) {
@@ -147,35 +151,10 @@ export function renderStudentTypeStackedChart(stackData, slotTarget) {
     if (prev) try { prev.destroy(); } catch (_) { }
     const ctx = el.getContext('2d');
 
-    const addAlpha = (color, alpha) => {
-        const c = String(color || '').trim();
-        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) {
-            let r, g, b;
-            if (c.length === 4) {
-                r = parseInt(c[1] + c[1], 16);
-                g = parseInt(c[2] + c[2], 16);
-                b = parseInt(c[3] + c[3], 16);
-            } else {
-                r = parseInt(c.slice(1, 3), 16);
-                g = parseInt(c.slice(3, 5), 16);
-                b = parseInt(c.slice(5, 7), 16);
-            }
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        }
-        if (/^rgba?\(/i.test(c)) {
-            return c.replace(/rgba?\(([^)]+)\)/i, (m, inner) => {
-                const parts = inner.split(',').map(s => s.trim());
-                const [r, g, b] = parts;
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            });
-        }
-        return c;
-    };
 
     // 与另一汇总图按较多人数对齐：人数少则前部补空沉底
     const target = Math.max(Number(slotTarget) || 0, (stackData.labels || []).length);
     stackData = padStackToBottom(stackData, target);
-    sizeSummaryChartBox(el, target);
 
     const datasets = stackData.datasets.map((ds) => ({
         ...ds,
@@ -293,11 +272,6 @@ export function buildTeacherTypeStack(schedules) {
         return getDefaultTeacherStack();
     }
 
-    function mapTypeLabel(t) {
-        return (window.i18nUtils && typeof window.i18nUtils.getTypeLabelLocalized === 'function')
-            ? window.i18nUtils.getTypeLabelLocalized(t, 'zh-CN')
-            : (String(t || '').trim() || '未分类');
-    }
     const teacherOrder = [];
     const typeOrder = [];
     const map = new Map();
@@ -364,11 +338,6 @@ export function buildStudentTypeStack(schedules, students = []) {
         return getDefaultStudentStack();
     }
 
-    function mapTypeLabel(t) {
-        return (window.i18nUtils && typeof window.i18nUtils.getTypeLabelLocalized === 'function')
-            ? window.i18nUtils.getTypeLabelLocalized(t, 'zh-CN')
-            : (String(t || '').trim() || '未分类');
-    }
     // 构建学生ID到姓名的映射
     const idToName = new Map();
     students.forEach(s => idToName.set(String(s.id), s.name));
@@ -500,35 +469,10 @@ export function renderTeacherTypeStackedChart(stackData, slotTarget) {
     if (prev) try { prev.destroy(); } catch (_) { }
     const ctx = el.getContext('2d');
 
-    const addAlpha = (color, alpha) => {
-        const c = String(color || '').trim();
-        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) {
-            let r, g, b;
-            if (c.length === 4) {
-                r = parseInt(c[1] + c[1], 16);
-                g = parseInt(c[2] + c[2], 16);
-                b = parseInt(c[3] + c[3], 16);
-            } else {
-                r = parseInt(c.slice(1, 3), 16);
-                g = parseInt(c.slice(3, 5), 16);
-                b = parseInt(c.slice(5, 7), 16);
-            }
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        }
-        if (/^rgba?\(/i.test(c)) {
-            return c.replace(/rgba?\(([^)]+)\)/i, (m, inner) => {
-                const parts = inner.split(',').map(s => s.trim());
-                const [r, g, b] = parts;
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            });
-        }
-        return c;
-    };
 
     // 与另一汇总图按较多人数对齐：人数少则前部补空沉底
     const target = Math.max(Number(slotTarget) || 0, (stackData.labels || []).length);
     stackData = padStackToBottom(stackData, target);
-    sizeSummaryChartBox(el, target);
 
     const datasets = stackData.datasets.map((ds) => ({
         ...ds,
@@ -639,30 +583,6 @@ export function renderScheduleTypeChart(data) {
     if (prev) try { prev.destroy(); } catch (_) { }
     const ctx = el.getContext('2d');
 
-    const addAlpha = (color, alpha) => {
-        const c = String(color || '').trim();
-        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) {
-            let r, g, b;
-            if (c.length === 4) {
-                r = parseInt(c[1] + c[1], 16);
-                g = parseInt(c[2] + c[2], 16);
-                b = parseInt(c[3] + c[3], 16);
-            } else {
-                r = parseInt(c.slice(1, 3), 16);
-                g = parseInt(c.slice(3, 5), 16);
-                b = parseInt(c.slice(5, 7), 16);
-            }
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        }
-        if (/^rgba?\(/i.test(c)) {
-            return c.replace(/rgba?\(([^)]+)\)/i, (m, inner) => {
-                const parts = inner.split(',').map(s => s.trim());
-                const [r, g, b] = parts;
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            });
-        }
-        return c;
-    };
 
     const normalizedData = Array.isArray(data) ? data : (data?.scheduleTypeDistribution || []);
     // 从大到小排列，未分类永远置于最后
@@ -1130,11 +1050,6 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
     // 仅移除之前生成的每位教师的 chart 卡片，保留顶部的汇总卡片（如 all-teachers-daily-card）
     container.querySelectorAll('.teacher-chart').forEach(n => n.remove());
 
-    function mapTypeLabel(t) {
-        return (window.i18nUtils && typeof window.i18nUtils.getTypeLabelLocalized === 'function')
-            ? window.i18nUtils.getTypeLabelLocalized(t, 'zh-CN')
-            : (String(t || '').trim() || '未分类');
-    }
 
     // 汇总全局类型顺序，保证不同教师图颜色一致
     const typeCounts = new Map();
@@ -1294,7 +1209,6 @@ export function renderTeacherScheduleChart(data) {
 // Global exposure for backward compatibility
 window.StatsLogic = {
     convertUserStatsToStackData,
-    getDefaultSchedules,
     renderStudentTypeStackedChart,
     buildTeacherTypeStack,
     buildStudentTypeStack,
@@ -1308,23 +1222,6 @@ window.StatsLogic = {
     renderTeacherTypePerTeacherCharts,
     renderTeacherScheduleChart
 };
-
-// Also expose generic helpers directly to window for legacy inline calls
-window.getLegendColor = getLegendColor;
-window.__StatsUtils = { buildTeacherTypeStack, buildStudentTypeStack };
-window.convertUserStatsToStackData = convertUserStatsToStackData;
-window.getDefaultSchedules = getDefaultSchedules;
-window.renderStudentTypeStackedChart = renderStudentTypeStackedChart;
-window.buildTeacherTypeStack = buildTeacherTypeStack;
-window.buildStudentTypeStack = buildStudentTypeStack;
-window.renderTeacherTypeStackedChart = renderTeacherTypeStackedChart;
-window.renderStudentParticipationChart = renderStudentParticipationChart;
-window.computeSummarySlotTarget = computeSummarySlotTarget;
-window.renderScheduleTypeChart = renderScheduleTypeChart;
-window.renderAllTeachersScheduleBarChart = renderAllTeachersScheduleBarChart;
-window.aggregateCountsByDate = aggregateCountsByDate;
-window.renderTeacherTypePerTeacherCharts = renderTeacherTypePerTeacherCharts;
-window.renderTeacherScheduleChart = renderTeacherScheduleChart;
 
 // --- Extracted from legacy-adapter.js ---
 export function getSelectedTeacherForCharts() {
@@ -1452,17 +1349,6 @@ export function setupStatsTooltip(scheduleRows, titleId, tooltipId) {
     if (!titleEl || !tooltipEl) return;
 
     // 辅助函数：映射课程类型标签
-    const mapTypeLabel = (t) => {
-        const raw = String(t || '').trim();
-        if (!raw) return '未分类';
-        const num = Number(raw);
-        const isId = !isNaN(num) && /^\d+$/.test(raw);
-        if (isId && window.ScheduleTypesStore && typeof window.ScheduleTypesStore.getById === 'function') {
-            const found = window.ScheduleTypesStore.getById(num);
-            if (found) return found.description || found.name || String(num);
-        }
-        return raw;
-    };
 
     // 计算整个日期范围的课程类型汇总统计
     const typeCountMap = new Map();
@@ -1643,17 +1529,6 @@ export function setupStudentSummaryChartTitleTooltip(scheduleRows) {
     if (!titleEl || !tooltipEl) return;
 
     // 辅助函数：映射课程类型标签
-    const mapTypeLabel = (t) => {
-        const raw = String(t || '').trim();
-        if (!raw) return '未分类';
-        const num = Number(raw);
-        const isId = !isNaN(num) && /^\d+$/.test(raw);
-        if (isId && window.ScheduleTypesStore && typeof window.ScheduleTypesStore.getById === 'function') {
-            const found = window.ScheduleTypesStore.getById(num);
-            if (found) return found.description || found.name || String(num);
-        }
-        return raw;
-    };
 
     // 计算整个日期范围的课程类型汇总统计
     const typeCountMap = new Map();
@@ -1718,11 +1593,6 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
     // 仅移除之前生成的每位学生的 chart 卡片，保留顶部的汇总卡片
     container.querySelectorAll('.student-chart').forEach(n => n.remove());
 
-    function mapTypeLabel(t) {
-        return (window.i18nUtils && typeof window.i18nUtils.getTypeLabelLocalized === 'function')
-            ? window.i18nUtils.getTypeLabelLocalized(t, 'zh-CN')
-            : (String(t || '').trim() || '未分类');
-    }
 
     // 汇总全局类型顺序，保证不同学生图颜色一致
     const typeCounts = new Map();
@@ -1839,7 +1709,7 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
 // 快速导出功能相关代码已删除
 
 // 已移除：downloadExcelFile 和 createAndDownloadExcel 函数
-// 这些函数已被 export-ui-manager.js 中的 ExportUIManager 取代
+// Excel 导出已迁移至后端 UnifiedExportService，前端通过 ExportDialog 调用
 
 // Global exposure
 window.setupTeacherChartsFilter = setupTeacherChartsFilter;

@@ -36,7 +36,14 @@ function getTable(userType) {
  * @private
  */
 function getJwtSecret() {
-    return process.env.JWT_SECRET || 'dev-insecure-secret';
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret === 'your-secret-key-change-this-in-production') {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('致命错误: 生产环境未设置有效的 JWT_SECRET 环境变量');
+        }
+        return 'dev-insecure-secret';
+    }
+    return secret;
 }
 
 /**
@@ -222,7 +229,13 @@ class AuthService {
         let placeholderIdx = 4;
 
         if (additionalInfo) {
+            // 白名单校验列名，防止 SQL 注入
+            const ALLOWED_COLUMNS = ['phone', 'email', 'contact', 'home_address', 'gender', 'grade', 'notes', 'permission_level', 'nickname'];
             for (const [key, value] of Object.entries(additionalInfo)) {
+                if (!ALLOWED_COLUMNS.includes(key)) {
+                    console.warn(`[AuthService] 忽略不在白名单中的列名: ${key}`);
+                    continue;
+                }
                 columns.push(key);
                 values.push(value);
             }

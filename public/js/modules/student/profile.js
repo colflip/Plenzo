@@ -208,7 +208,7 @@ function updateProfileDisplay(data) {
     // Update summary card
     const profileName = document.getElementById('profileSummaryTitle');
     if (profileName) {
-        profileName.textContent = data.name || '学生';
+        profileName.textContent = data.nickname || data.name || '学生';
     }
 
     // Update avatar with user ID
@@ -220,6 +220,7 @@ function updateProfileDisplay(data) {
     // Update form fields
     const fields = {
         'profileNameInput': data.name,
+        'profileNicknameInput': data.nickname,
         'profileProfessionInput': data.profession,
         'profileContactInput': data.contact,
         'profileWorkLocationInput': data.visit_location || data.work_location,
@@ -243,6 +244,7 @@ function updateProfileDisplay(data) {
 function toggleFormFields(disabled) {
     const fields = [
         'profileNameInput',
+        'profileNicknameInput',
         'profileProfessionInput',
         'profileContactInput',
         'profileWorkLocationInput',
@@ -288,6 +290,7 @@ async function handleProfileSubmit(event) {
     }
 
     const nameInput = document.getElementById('profileNameInput');
+    const nicknameInput = document.getElementById('profileNicknameInput');
     const professionInput = document.getElementById('profileProfessionInput');
     const contactInput = document.getElementById('profileContactInput');
     const workLocationInput = document.getElementById('profileWorkLocationInput');
@@ -302,6 +305,7 @@ async function handleProfileSubmit(event) {
 
     const payload = {
         name: name,
+        nickname: nicknameInput?.value?.trim() || '',
         profession: professionInput?.value?.trim() || '',
         contact: contactInput?.value?.trim() || '',
         visit_location: workLocationInput?.value?.trim() || '',
