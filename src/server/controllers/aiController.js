@@ -87,6 +87,174 @@ function addHours(timeStr, hours) {
 }
 
 /**
+ * 计算东八区的完整日期上下文（今天、本周/下周每天的具体日期映射）。
+ * 抽为模块级函数，供 query 主流程与 resolve_datetime 工具共用，避免逻辑重复与漂移。
+ * @returns {Object} { todayStr, currentWeekDay, currentDateTime, thisWeek, nextWeek, thisWeekDateMap, nextWeekDateMap }
+ */
+function computeDateContext() {
+    const now = new Date();
+    const today = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const dayOfWeek = today.getDay(); // 0=周日, 1=周一
+    const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+    const currentDateTime = today.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
+    const currentWeekDay = weekDays[dayOfWeek];
+    const todayStr = today.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() + mondayOffset);
+    const nextMonday = new Date(thisMonday);
+    nextMonday.setDate(thisMonday.getDate() + 7);
+
+    const cnDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const buildWeek = (monday) => {
+        const map = {};
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            map[cnDays[i]] = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        }
+        return map;
+    };
+
+    const thisWeek = buildWeek(thisMonday);
+    const nextWeek = buildWeek(nextMonday);
+    const fmt = (m) => Object.entries(m).map(([k, v]) => `${k}=${v}`).join(' | ');
+
+    return {
+        todayStr, currentWeekDay, currentDateTime,
+        thisWeek, nextWeek,
+        thisWeekDateMap: fmt(thisWeek),
+        nextWeekDateMap: fmt(nextWeek)
+    };
+}
+
+/**
+ * 默认时段（可覆盖）：晚上/下午/上午 → 起止时间
+ */
+const DEFAULT_PERIODS = {
+    上午: { startTime: '09:00:00', endTime: '12:00:00' },
+    下午: { startTime: '14:00:00', endTime: '17:00:00' },
+    晚上: { startTime: '19:00:00', endTime: '21:45:00' }
+};
+
+/**
+ * 把「几点」的中文/数字解析为 HH:MM:SS。支持 "19" / "19:30" / "7点" / "一点" / "一" / "14:00:00"。
+ * @param {string|number} raw - 时间表述
+ * @param {string} [period] - 时段上下文（'上午'/'下午'/'晚上'），用于 12 小时制归一化：
+ *                            下午/晚上的 1~11 点补 +12（如"下午一点"→13:00），上午保持原样。
+ * @returns {string|null}
+ */
+function parseClock(raw, period) {
+    if (raw === null || raw === undefined) return null;
+    let s = String(raw).trim();
+    if (!s) return null;
+
+    // 根据时段把 12 小时制的小时数归一到 24 小时制
+    const applyPeriod = (h) => {
+        if ((period === '下午' || period === '晚上') && h >= 1 && h <= 11) return h + 12;
+        return h;
+    };
+
+    // 已是 HH:MM 或 HH:MM:SS（视为 24 小时制，不再归一）
+    let m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+        const h = Math.min(23, parseInt(m[1], 10));
+        return `${String(h).padStart(2, '0')}:${m[2]}:${m[3] || '00'}`;
+    }
+
+    const cnNum = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12 };
+    // 中文数字 / 数字 + 可选「点」+ 可选「半」——「点」不再强制（支持区间里的裸数字"一""三"）
+    m = s.match(/^([一二两三四五六七八九十]+|\d{1,2})\s*点?(半)?$/);
+    if (m) {
+        let h = /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : cnNum[m[1]];
+        if (h === undefined) return null;
+        h = applyPeriod(h);
+        h = Math.min(23, h);
+        const min = m[2] ? '30' : '00';
+        return `${String(h).padStart(2, '0')}:${min}:00`;
+    }
+    return null;
+}
+
+/**
+ * 【确定性时间解析】把自然语言排课时间描述解析为精确的 date / startTime / endTime。
+ * 由后端代码计算，模型不再自行推算日期（批量排课头号错误源）。
+ *
+ * @param {string} text - 如 "下周四晚上"、"周六下午一点到三点"、"周一晚上19-22"
+ * @returns {Object} { date, startTime, endTime, dayOfWeek, matched, warnings }
+ */
+function resolveDateTime(text) {
+    const ctx = computeDateContext();
+    const warnings = [];
+    const src = String(text || '').trim();
+
+    // 1) 解析星期 + 本周/下周
+    const dayMap = { 一: '周一', 二: '周二', 三: '周三', 四: '周四', 五: '周五', 六: '周六', 日: '周日', 天: '周日' };
+    let targetWeek = ctx.thisWeek;
+    let weekLabel = '本周';
+    if (/下\s*周|下\s*个?\s*星期|下\s*礼拜/.test(src)) { targetWeek = ctx.nextWeek; weekLabel = '下周'; }
+    else if (/本\s*周|这\s*周|这\s*个?\s*星期|本\s*礼拜/.test(src)) { targetWeek = ctx.thisWeek; weekLabel = '本周'; }
+
+    let date = null;
+    let dayCn = null;
+    const dm = src.match(/(周|星期|礼拜)\s*([一二三四五六日天])/);
+    if (dm) {
+        dayCn = dayMap[dm[2]];
+        date = targetWeek[dayCn] || null;
+    } else if (/今天|今日/.test(src)) {
+        date = ctx.todayStr; dayCn = ctx.currentWeekDay;
+    } else if (/明天|明日/.test(src)) {
+        // 今天 + 1
+        const d = new Date(ctx.todayStr + 'T00:00:00+08:00');
+        d.setDate(d.getDate() + 1);
+        date = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        dayCn = getDayOfWeek(date);
+    }
+    if (!date) warnings.push('未能识别具体日期，请提供"周几"或"本周/下周"');
+
+    // 2) 解析时段 + 具体时间
+    let period = null;
+    if (/晚上|晚间|夜里/.test(src)) period = '晚上';
+    else if (/下午|午后/.test(src)) period = '下午';
+    else if (/上午|早上|早晨/.test(src)) period = '上午';
+
+    let startTime = null, endTime = null;
+    // 显式区间："19-22" / "15-18点" / "一点到三点" / "一点-三点" / "14:30-15:30"
+    // 传入 period 做 12→24 小时归一（"下午一点到三点"→13:00-15:00），24 小时制表述不受影响。
+    // 分隔符前允许可选「点」，覆盖"一点-三点"/"一点到三点"等混合写法。
+    const rangeMatch = src.match(/([0-9一二两三四五六七八九十]{1,3}(?::\d{2})?)\s*点?\s*(?:[-~]|到|至)\s*([0-9一二两三四五六七八九十]{1,3}(?::\d{2})?)\s*点?/);
+    if (rangeMatch) {
+        startTime = parseClock(rangeMatch[1], period);
+        endTime = parseClock(rangeMatch[2], period);
+    }
+    if ((!startTime || !endTime) && period) {
+        const p = DEFAULT_PERIODS[period];
+        startTime = startTime || p.startTime;
+        endTime = endTime || p.endTime;
+    }
+    if (!startTime || !endTime) {
+        warnings.push('未能识别具体时间，请提供时段（上午/下午/晚上）或起止时间');
+    }
+
+    return {
+        date,
+        dayOfWeek: dayCn,
+        weekLabel,
+        period,
+        startTime,
+        endTime,
+        matched: !!(date && startTime && endTime),
+        warnings
+    };
+}
+
+/**
  * 排课预览临时存储（内存）
  * 生产环境应使用 Redis
  */
@@ -201,6 +369,22 @@ const DATA_TOOLS = {
                         endDate: { type: 'string', description: 'YYYY-MM-DD' }
                     },
                     required: ['dimension']
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'resolve_datetime',
+                description: '【排课第一步·强烈推荐】把自然语言时间描述精确解析为 date/startTime/endTime。' +
+                    '例如 "下周四晚上"、"周六下午一点到三点"、"周一晚上19-22"。' +
+                    '禁止自行推算日期，一律调用此工具获取精确日期时间，再传给 create_schedule_preview。',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        text: { type: 'string', description: '自然语言时间描述，如 "下周四晚上"、"周六下午一点到三点"' }
+                    },
+                    required: ['text']
                 }
             }
         },
@@ -749,6 +933,26 @@ async function executeDataTool(toolName, args, req) {
             };
         }
 
+        case 'resolve_datetime': {
+            if (userType !== 'admin') throw new AppError('仅管理员可解析排课时间', 403);
+            const parsed = resolveDateTime(args.text || '');
+            const note = parsed.warnings && parsed.warnings.length > 0 ? parsed.warnings.join('；') : '';
+            return {
+                type: 'data_table',
+                title: '时间解析',
+                data: {
+                    input: args.text || '',
+                    resolved: parsed.matched,
+                    date: parsed.date,
+                    dayOfWeek: parsed.dayOfWeek,
+                    weekLabel: parsed.weekLabel,
+                    startTime: parsed.startTime,
+                    endTime: parsed.endTime,
+                    note: note || (parsed.matched ? '' : '解析不完整，请向用户确认缺失信息，不要臆造')
+                }
+            };
+        }
+
         case 'find_available_slots': {
             if (userType !== 'admin') throw new AppError('仅管理员可查找时段', 403);
 
@@ -1271,6 +1475,90 @@ async function executeDataTool(toolName, args, req) {
 }
 
 /**
+ * 将工具结果安全序列化为发给 LLM 的字符串。
+ * 超长时不做字符硬截断（会破坏 JSON 且切断数据），改为按条数裁剪 + 明确标注省略数量，
+ * 保证模型拿到的仍是合法可解析的 JSON，且知道数据被裁剪过。
+ */
+function summarizeToolResult(result, maxLen = 4000) {
+    let str = JSON.stringify(result);
+    if (str.length <= maxLen) return str;
+
+    const cloned = JSON.parse(JSON.stringify(result));
+    const data = cloned.data;
+
+    // 找到结果中的数组字段（schedules / slots / 或 data 本身为数组），逐步裁剪条数
+    const arrayHolders = [];
+    if (Array.isArray(data)) {
+        arrayHolders.push({ get: () => cloned.data, set: v => { cloned.data = v; } });
+    } else if (data && typeof data === 'object') {
+        for (const key of ['schedules', 'slots']) {
+            if (Array.isArray(data[key])) {
+                arrayHolders.push({ get: () => cloned.data[key], set: v => { cloned.data[key] = v; }, key });
+            }
+        }
+    }
+
+    for (const holder of arrayHolders) {
+        const arr = holder.get();
+        const original = arr.length;
+        let kept = original;
+        while (kept > 1) {
+            kept = Math.floor(kept * 0.7);
+            holder.set(arr.slice(0, kept));
+            cloned._truncated = { field: holder.key || 'data', total: original, shown: kept, note: `共 ${original} 条，仅展示前 ${kept} 条，其余已省略` };
+            str = JSON.stringify(cloned);
+            if (str.length <= maxLen) return str;
+        }
+    }
+
+    // 兜底：仍超长则整体标注（极少发生）
+    return JSON.stringify({ type: cloned.type, title: cloned.title, _truncated: { note: '结果过大，已省略详情' } });
+}
+
+/** 模型能力缓存：{ mtimeMs, models } */
+let _modelsCache = null;
+
+/**
+ * 解析「当前模型」的能力（vision / tools / reasoning）。
+ * - 已知模型（ai-models.json 有记录）：返回其声明能力。
+ * - 未知/自定义模型（无记录）：默认假设支持 tools（多数 OpenAI 兼容网关支持），
+ *   vision/reasoning 保守为 false。真正的工具格式异常在调用处优雅降级。
+ * @param {string} modelId
+ * @returns {{vision:boolean, tools:boolean, reasoning:boolean, known:boolean}}
+ */
+function isWeakModel(modelId) {
+    // 启发式：小型/flash/lite 类模型对复杂中文多步推理不稳定，批量排课需提示用户可切换更强模型。
+    const id = String(modelId || '').toLowerCase();
+    if (/large|medium|opus|sonnet|deepseek-v4/.test(id)) return false;
+    return /small|flash|lite|mini|tiny|1\.5/.test(id);
+}
+
+function resolveModelCapabilities(modelId) {
+    const fallback = { vision: false, tools: true, reasoning: false, _known: false, _weak: isWeakModel(modelId) };
+    if (!modelId) return fallback;
+    try {
+        const modelsFilePath = path.join(__dirname, '../data/ai-models.json');
+        const stat = fs.statSync(modelsFilePath);
+        if (!_modelsCache || _modelsCache.mtimeMs !== stat.mtimeMs) {
+            _modelsCache = { mtimeMs: stat.mtimeMs, models: JSON.parse(fs.readFileSync(modelsFilePath, 'utf8')) };
+        }
+        for (const models of Object.values(_modelsCache.models)) {
+            const m = models.find(x => x.id === modelId);
+            if (m && m.capabilities) {
+                return {
+                    vision: !!m.capabilities.vision,
+                    tools: !!m.capabilities.tools,
+                    reasoning: !!m.capabilities.reasoning,
+                    _known: true,
+                    _weak: isWeakModel(modelId)
+                };
+            }
+        }
+    } catch (_) { /* 读文件失败则走 fallback */ }
+    return fallback;
+}
+
+/**
  * 工具名称 → 用户友好的进度消息
  */
 function getToolProgressMessage(toolNames) {
@@ -1300,13 +1588,17 @@ const query = asyncHandler(async (req, res) => {
         throw new AppError('AI 功能未启用，请在服务端配置 AI_API_KEY 并设置 AI_ENABLED=true', 503);
     }
 
-    const { question, history } = req.body;
-    if (!question || !question.trim()) {
+    const { question, history, action, images } = req.body;
+
+    // action 为确认类敏感操作（创建/修改/删除排课的二次确认），走独立字段，不依赖自然语言文本
+    const isAction = action && typeof action === 'object' && typeof action.type === 'string';
+
+    if (!isAction && (!question || !question.trim())) {
         throw new AppError('请输入问题', 400);
     }
 
     // 输入长度验证（防止滥用 token 配额）
-    if (question.length > 2000) {
+    if (question && question.length > 2000) {
         throw new AppError('问题长度不能超过 2000 个字符', 400);
     }
     if (history && Array.isArray(history) && history.length > 20) {
@@ -1318,59 +1610,21 @@ const query = asyncHandler(async (req, res) => {
 
     const userType = req.user.userType;
 
+    // 结构化日志：便于线上定位「没调工具/调错工具/截断/解析失败」哪一环
+    const logPrefix = `[AI][${userType}#${req.user.id}]`;
+    const log = (...args) => console.log(logPrefix, ...args);
+    log(isAction
+        ? `action=${action.type}`
+        : `question="${(question || '').slice(0, 120).replace(/\n/g, ' ')}" history=${Array.isArray(history) ? history.length : 0} images=${Array.isArray(images) ? images.length : 0}`);
+
 
     const tools = DATA_TOOLS[userType] || DATA_TOOLS.teacher;
 
-    // 计算当前时间（东八区）
-    const now = new Date();
-    const today = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-    const dayOfWeek = today.getDay(); // 0=周日, 1=周一
-
-    // 格式化当前完整时间（东八区）
-    const currentDateTime = today.toLocaleString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
-    const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    const currentWeekDay = weekDays[today.getDay()];
-
-    // 计算本周和下周的具体日期范围（东八区）
-    // today 已经是东八区时间的 Date 对象，dayOfWeek 已在上方计算
-    const todayStr = today.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }); // YYYY-MM-DD
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 本周一的偏移（dayOfWeek: 0=周日）
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() + mondayOffset);
-    const mondayStr = thisMonday.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }); // 本周一 YYYY-MM-DD
-    const nextMonday = new Date(thisMonday);
-    nextMonday.setDate(thisMonday.getDate() + 7);
-    const nextSunday = new Date(nextMonday);
-    nextSunday.setDate(nextMonday.getDate() + 6);
-
-    // 生成下周每天的具体日期
-    const nextWeekDays = [];
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(nextMonday);
-        d.setDate(nextMonday.getDate() + i);
-        const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
-        nextWeekDays.push(`${['周一','周二','周三','周四','周五','周六','周日'][i]}=${dateStr}`);
-    }
-    const nextWeekDateMap = nextWeekDays.join(' | ');
-
-    // 生成本周每天的具体日期
-    const thisWeekDays = [];
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(thisMonday);
-        d.setDate(thisMonday.getDate() + i);
-        const dateStr = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
-        thisWeekDays.push(`${['周一','周二','周三','周四','周五','周六','周日'][i]}=${dateStr}`);
-    }
-    const thisWeekDateMap = thisWeekDays.join(' | ');
+    // 计算当前时间上下文（东八区）——统一走 computeDateContext，与 resolve_datetime 工具同源
+    const {
+        currentDateTime, currentWeekDay, todayStr,
+        thisWeekDateMap, nextWeekDateMap
+    } = computeDateContext();
 
     // 动态加载课程类型和教师列表（用于系统提示，帮助 LLM 精确匹配）
     let courseTypeListStr = '';
@@ -1385,61 +1639,75 @@ const query = asyncHandler(async (req, res) => {
     } catch (_) { /* 静默失败，不影响主流程 */ }
 
     const systemPrompt = userType === 'admin'
-        ? `你是 Plenzo 课程管理系统 AI 助手，中文回答。\n` +
-          `\n# 当前时间\n` +
-          `${currentDateTime}（${currentWeekDay}），时区东八区(UTC+8)，每周第一天是周一\n` +
+        ? `你是 Plenzo 课程管理系统的排课助手，全程用中文、简洁作答。你的职责是理解管理员的自然语言，调用工具完成查询与排课，绝不臆造数据。\n` +
+          `\n============================\n` +
+          `# 1. 当前时间（东八区 UTC+8，每周第一天是周一）\n` +
+          `============================\n` +
+          `现在：${currentDateTime}（${currentWeekDay}）\n` +
           `今日：${todayStr}\n` +
-          `本周日期：${thisWeekDateMap}\n` +
-          `下周日期：${nextWeekDateMap}\n` +
-          `\n# 排课规则\n` +
-          `\n## 输入格式\n` +
-          `格式A 紧凑单条："下周四，19-22，[地点]，[学生]，[教师]，[课程类型]"\n` +
-          `格式B 批量列表（每行一条，括号内为补充信息）：\n` +
-          `  周一晚上 [学生昵称/姓名]入户（[教师姓名/昵称1]，[地点]）\n` +
-          `  周六下午 [学生昵称/姓名]评审（[教师姓名/昵称2]记录，[教师姓名/昵称3]估计参加，[教师姓名/昵称4]尽量去，下午暂定一点到三点，[地点]）\n` +
-          `括号内逐项识别：教师姓名 | "记录"紧跟教师名→评审/咨询记录负责人 | 地点 | 具体时间（覆盖默认值） | 其他文字→备注\n` +
-          `\n## 课程类型（数据库 name 字段，必须精确匹配）\n` +
-          (courseTypeListStr ? `${courseTypeListStr}\n` : '') +
-          `禁止使用近似名称（如"半程入户"不可写成"半次入户"）。\n` +
-          `\n## 已有教师（精确匹配姓名，不存在则询问用户）\n` +
+          `本周：${thisWeekDateMap}\n` +
+          `下周：${nextWeekDateMap}\n` +
+          `\n============================\n` +
+          `# 2. 铁律（违反会导致错误，务必遵守）\n` +
+          `============================\n` +
+          `R1. 【日期时间】绝不自己心算日期。凡涉及"周几/下周/晚上/几点"等表述，一律调用 resolve_datetime(text:"原始表述") 让系统算出精确 date/startTime/endTime，再使用其返回值。\n` +
+          `R2. 【人员ID】排课/改课前，必须先用 query_students / query_teachers 查到真实 ID。查不到就停下来询问用户，禁止编造 ID 或姓名。\n` +
+          `R3. 【课程类型】只能使用下方课程类型清单里的 name 字段，必须精确匹配，禁止近似名（如"半程入户"不可写成"半次入户"）。\n` +
+          `R4. 【写操作两步走】创建/修改/删除必须先生成预览，由用户点击确认按钮执行。你只负责生成预览；不要在文本里要求用户"回复确认"，确认由界面按钮完成。\n` +
+          `R5. 【忠实执行】严格按用户输入排课，不擅自优化、增减、合并或跳过任何一条。信息缺失就询问，不猜测。\n` +
+          `\n============================\n` +
+          `# 3. 课程类型清单（name 字段，精确匹配）\n` +
+          `============================\n` +
+          (courseTypeListStr ? `${courseTypeListStr}\n` : '（暂无课程类型数据）\n') +
+          `\n============================\n` +
+          `# 4. 已有教师（精确匹配姓名，不存在则询问）\n` +
+          `============================\n` +
           (teacherListStr ? `${teacherListStr}\n` : '（暂无教师数据）\n') +
-          `\n## 学生姓名解析\n` +
-          `用户可能使用昵称（如"浩浩"）或姓名。排课前必须先通过 query_students 查询学生ID：\n` +
-          `- 用姓名查：query_students(name:"张三")\n` +
-          `- 用昵称查：query_students(nickname:"浩浩")\n` +
-          `- 不确定时同时查两个字段，根据返回结果匹配\n` +
-          `\n## 时间解析\n` +
-          `时段默认值：晚上=19:00-21:45 | 下午=14:00-17:00 | 上午=09:00-12:00\n` +
-          `时间格式："19-22"→19:00-22:00 | "15-18点"→15:00-18:00 | "一点到三点"→13:00-15:00 | 无时间→用默认值\n` +
-          `状态："待定"/"看情况"/"可能"→pending | 其他→confirmed\n` +
-          `\n## 评审/咨询课程（每个参与教师生成独立记录，使用相同时间和地点）\n` +
-          `教师名后有"记录"字样 → 课程类型为"评审记录"或"咨询记录"，该教师已包含评审/咨询，不再重复生成。\n` +
-          `其他参与教师各生成一条评审/咨询记录。\n` +
-          `示例输入：[学生昵称/姓名]评审（[教师姓名/昵称2]记录，[教师姓名/昵称3]估计参加，[教师姓名/昵称4]尽量去，下午一点到三点，[地点]）\n` +
-          `示例输出：①[教师姓名/昵称2]+评审记录 ②[教师姓名/昵称3]+评审 ③[教师姓名/昵称4]+评审\n` +
-          `\n# 操作流程\n` +
-          `\n## 查询\n` +
-          `直接调用查询工具，不需要预览确认。可用工具：\n` +
-          `- query_overview：总览统计\n` +
-          `- query_schedules：排课列表（支持按日期、教师、学生筛选）\n` +
-          `- query_teachers / query_students：教师/学生列表\n` +
-          `- query_schedule_stats：排课统计\n` +
-          `\n## 排课（预览→确认）\n` +
-          `日期必须从上方"本周日期"/"下周日期"映射表查表得出，禁止自行推算。\n` +
-          `批量排课逐条独立解析，不允许合并或跳过。\n` +
-          `1. query_teachers/query_students 获取ID\n` +
-          `2. 每条输入解析为独立 group，一次性提交：create_schedule_preview(groups:[...])\n` +
-          `3. 展示预览 → 用户确认 → confirm_schedule_creation(previewId)\n` +
-          `\n## 修改排课（预览→确认）\n` +
-          `1. query_schedules 查询 → 2. preview_schedule_update(scheduleIds, fields) 展示变更 → 3. 用户确认 → confirm_operation(operationId)\n` +
-          `\n## 删除排课（预览→确认）\n` +
-          `1. query_schedules 查询 → 2. preview_schedule_deletion(scheduleIds) 展示预览 → 3. 用户确认 → confirm_operation(operationId)\n` +
-          `\n# 回复格式\n` +
-          `文本简短（1-2句）。查询结果和预览表格按日期+时间升序，评审/咨询合并显示，记录老师排最后标注"（记录）"。\n` +
-          `\n# 规则\n` +
-          `严格按用户输入执行，不优化不调整。信息不完整时询问，不猜测。工具失败说明原因。\n` +
-          `所有写操作必须先预览再确认，禁止跳过。收到"确认"指令时直接调用 confirm 工具。\n` +
-          `支持多轮上下文。"他"/"那个"→指代之前的教师/学生/课程；追问可补充信息，例："取消[学生昵称/姓名]周四的课" → "改成周五" = 修改。`
+          `\n============================\n` +
+          `# 5. 工具清单\n` +
+          `============================\n` +
+          `查询类（直接调用，无需确认）：\n` +
+          `· query_overview 总览 · query_schedules 排课列表 · query_teachers/query_students 教师/学生 · query_schedule_stats 统计\n` +
+          `辅助类：\n` +
+          `· resolve_datetime 把自然语言时间→精确日期时间（排课前必用）\n` +
+          `· find_available_slots 查空闲时段\n` +
+          `写操作类（生成预览，界面按钮确认）：\n` +
+          `· create_schedule_preview 排课预览 · preview_schedule_update 改课预览 · preview_schedule_deletion 删课预览\n` +
+          `\n============================\n` +
+          `# 6. 排课流程（预览）\n` +
+          `============================\n` +
+          `输入格式A 单条："下周四，19-22，[地点]，[学生]，[教师]，[课程类型]"\n` +
+          `输入格式B 批量（每行一条，括号内补充）："周一晚上 [学生]入户（[教师]，[地点]）"\n` +
+          `处理步骤：\n` +
+          `(1) 逐条拆分输入（批量时每行一条，不合并不跳过）。\n` +
+          `(2) 对每条的时间表述调用 resolve_datetime 得到精确日期时间。\n` +
+          `(3) 用 query_students / query_teachers 把昵称/姓名换成真实 ID。\n` +
+          `(4) 把所有条目组装成 groups 数组，一次性调用 create_schedule_preview(groups:[...])。\n` +
+          `(5) 系统返回预览表格，交由用户点击"确认创建排课"按钮执行。\n` +
+          `状态判定："待定/看情况/可能"→pending，其余→confirmed。\n` +
+          `\n【正例】输入"下周一晚上 浩浩入户（周老师，新课堂）"：\n` +
+          `  → resolve_datetime("下周一晚上") 得 date=下周一, 19:00:00-21:45:00\n` +
+          `  → query_students(nickname:"浩浩") 得 studentId；query_teachers(name:"周老师") 得 teacherId\n` +
+          `  → create_schedule_preview(groups:[{teacherId, studentId, courseType:"visit", location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
+          `【反例】不要直接写 create_schedule_preview 而跳过 resolve_datetime 或 query_students —— 会导致日期错、学生错。\n` +
+          `\n============================\n` +
+          `# 7. 评审/咨询课程（多教师，同时间同地点各生成一条记录）\n` +
+          `============================\n` +
+          `规则：教师名后紧跟"记录"二字 → 该教师课程类型为"评审记录"/"咨询记录"（review_record/consultation_record），且不再额外生成普通评审；其余参与教师各生成一条普通"评审"/"咨询"。\n` +
+          `【正例】输入"浩浩评审（周老师记录，高老师参加，金老师尽量去，下午一点到三点，新课堂）"：\n` +
+          `  → resolve_datetime("下午一点到三点") 得 13:00:00-15:00:00\n` +
+          `  → 生成三条 group，同日期同时间同地点：①周老师+review_record ②高老师+review ③金老师+review\n` +
+          `【反例】不要给"周老师记录"既生成 review 又生成 review_record（重复）。\n` +
+          `\n============================\n` +
+          `# 8. 改课 / 删课流程\n` +
+          `============================\n` +
+          `改课：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
+          `删课：query_schedules 查到目标 → preview_schedule_deletion(scheduleIds) → 用户按钮确认。\n` +
+          `\n============================\n` +
+          `# 9. 回复格式\n` +
+          `============================\n` +
+          `文本简短（1-2 句），不要长篇解释。表格数据由系统渲染，你无需在文本里重复罗列。\n` +
+          `支持多轮上下文："他/那个"指代前文的教师/学生/课程；追问可补充信息（如先"取消浩浩周四的课"再"改成周五"=改期）。`
         : userType === 'student'
         ? `你是 Plenzo 课程管理系统 AI 助手，用中文简洁回答。\n` +
           `用户是学生 (id=${req.user.id})。\n` +
@@ -1464,35 +1732,85 @@ const query = asyncHandler(async (req, res) => {
           `- query_students：查询学生列表（支持按姓名/昵称搜索）\n` +
           `\n规则：数据查询务必调用工具，一般性对话可直接回答。工具失败说明原因。支持多轮上下文。`;
 
-    // 直接处理确认操作（不依赖 LLM 调用工具，避免 LLM 只返回文本不调用工具的问题）
-    const confirmMatch = question.match(/确认创建排课.*previewId[:\s]+(\S+)/);
-    if (confirmMatch) {
-        const previewIdStr = confirmMatch[1];
-        const previewIds = previewIdStr.split(',').filter(Boolean);
+    /* ============================================================
+     * 确认类操作：独立 action 字段（不依赖 LLM，不再正则匹配自然语言）
+     * 前端确认按钮发送 { action: { type, previewId | operationId } }
+     * 兼容旧版：仍保留对 "确认创建排课 previewId: xxx" 文本的正则识别
+     * ============================================================ */
 
+    // 统一的确认创建处理
+    const handleConfirmCreate = async (previewIdStr) => {
+        const previewIds = String(previewIdStr).split(',').map(s => s.trim()).filter(Boolean);
         const allInsertedIds = [];
         for (const pid of previewIds) {
             try {
-                const result = await executeDataTool('confirm_schedule_creation', { previewId: pid.trim() }, req);
+                const result = await executeDataTool('confirm_schedule_creation', { previewId: pid }, req);
                 if (result.data && result.data.scheduleIds) {
                     allInsertedIds.push(...result.data.scheduleIds);
                 }
             } catch (err) {
-                // skip failed preview
+                console.warn('[AI][confirm_create] previewId 执行失败:', pid, err.message);
             }
         }
-
         const answerText = allInsertedIds.length > 0
             ? `成功创建 ${allInsertedIds.length} 条排课记录`
-            : '排课创建失败，请重试';
-
-        const responseData = {
+            : '排课创建失败，预览可能已过期，请重新生成';
+        return {
             type: 'text',
             answer: answerText,
             structuredData: { message: answerText, scheduleIds: allInsertedIds },
             toolsUsed: ['confirm_schedule_creation']
         };
+    };
 
+    // 统一的确认操作（修改/删除）处理
+    const handleConfirmOperation = async (operationId) => {
+        const result = await executeDataTool('confirm_operation', { operationId }, req);
+        const answerText = result.data.message || '操作执行成功';
+        return {
+            type: result.type || 'text',
+            answer: answerText,
+            structuredData: result.data,
+            toolsUsed: ['confirm_operation']
+        };
+    };
+
+    // 优先走结构化 action 字段
+    if (action && action.type) {
+        console.log('[AI][query] action:', action.type, 'user:', req.user.id, req.user.userType);
+        try {
+            let responseData;
+            if (action.type === 'confirm_create' && action.previewId) {
+                responseData = await handleConfirmCreate(action.previewId);
+            } else if (action.type === 'confirm_operation' && action.operationId) {
+                responseData = await handleConfirmOperation(action.operationId);
+            } else {
+                throw new AppError('无效的确认操作参数', 400);
+            }
+            if (useStream) {
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'X-Accel-Buffering': 'no'
+                });
+                res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
+                return res.end();
+            }
+            return res.json(standardResponse(true, responseData));
+        } catch (err) {
+            if (useStream && res.headersSent) {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: err.message || '确认操作失败' })}\n\n`);
+                return res.end();
+            }
+            throw err;
+        }
+    }
+
+    // 兼容旧版：正则识别自然语言确认（question 为空的 action 请求不会走到这里）
+    const confirmMatch = question && question.match(/确认创建排课.*previewId[:\s]+(\S+)/);
+    if (confirmMatch) {
+        const responseData = await handleConfirmCreate(confirmMatch[1]);
         if (useStream) {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
@@ -1500,19 +1818,9 @@ const query = asyncHandler(async (req, res) => {
         return res.json(standardResponse(true, responseData));
     }
 
-    const confirmOpMatch = question.match(/确认执行操作.*operationId[:\s]+(\S+)/);
+    const confirmOpMatch = question && question.match(/确认执行操作.*operationId[:\s]+(\S+)/);
     if (confirmOpMatch) {
-        const operationId = confirmOpMatch[1];
-        const result = await executeDataTool('confirm_operation', { operationId }, req);
-        const answerText = result.data.message || '操作执行成功';
-
-        const responseData = {
-            type: result.type || 'text',
-            answer: answerText,
-            structuredData: result.data,
-            toolsUsed: ['confirm_operation']
-        };
-
+        const responseData = await handleConfirmOperation(confirmOpMatch[1]);
         if (useStream) {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
@@ -1532,9 +1840,34 @@ const query = asyncHandler(async (req, res) => {
         messages.push(...recentHistory);
     }
 
+    // 模型能力：提前计算，供多模态 content 构造与后续工具分流共用
+    const currentModel = aiService.getAIConfig().model;
+    const caps = resolveModelCapabilities(currentModel);
+
+    // 校验并规整当前轮图片（仅 data URL / http(s)），最多 5 张
+    const rawImages = Array.isArray(images) ? images.filter(u => typeof u === 'string' && /^(data:image\/|https?:\/\/)/.test(u)).slice(0, 5) : [];
+    const hasImages = rawImages.length > 0;
+
     // 添加当前问题（注入日期上下文，确保 AI 不会忽略系统提示中的日期映射）
     const dateContext = `[日期参考] 今日：${todayStr}（${currentWeekDay}）| 本周：${thisWeekDateMap} | 下周：${nextWeekDateMap}\n\n`;
-    messages.push({ role: 'user', content: dateContext + question });
+    const questionText = dateContext + (question || '请分析这些图片');
+
+    if (hasImages && caps.vision) {
+        // 多模态：当前轮构造 OpenAI 形状的 content 块数组（aiService 内部会按协议翻译）
+        messages.push({
+            role: 'user',
+            content: [
+                { type: 'text', text: questionText },
+                ...rawImages.map(url => ({ type: 'image_url', image_url: { url } }))
+            ]
+        });
+    } else {
+        if (hasImages && !caps.vision) {
+            // 收到图片但模型不支持：明确告知，不静默丢弃
+            messages[0].content += `\n\n【提示】用户上传了图片，但当前模型不支持图像理解，请说明需在系统设置切换到支持图像（vision）的模型。`;
+        }
+        messages.push({ role: 'user', content: questionText });
+    }
 
     const toolsUsed = [];
     const toolResults = [];
@@ -1555,20 +1888,34 @@ const query = asyncHandler(async (req, res) => {
         res.write(`data: ${JSON.stringify({ type: eventType, ...payload })}\n\n`);
     } : () => {};
 
+    // 模型能力自适应：不支持 function-calling 的模型不传 tools，走纯问答降级，
+    // 避免给它发工具定义导致返回乱掉（用户可在前台自由切换模型，含无工具能力的弱模型）。
+    // currentModel / caps 已在上方消息构造处计算。
+    const toolsEnabled = caps.tools !== false;
+    log(`model=${currentModel} toolsEnabled=${toolsEnabled} known=${caps._known} vision=${caps.vision} images=${rawImages.length}`);
+
+    const chatTools = toolsEnabled ? tools : undefined;
+    if (!toolsEnabled) {
+        // 明确告知模型当前不具备工具能力，只做一般性问答，避免它假装能排课
+        messages[0].content += `\n\n【降级提示】当前模型不支持工具调用，你只能进行一般性问答，无法查询数据或排课。若用户要求排课或查数据，请说明需在系统设置中切换到支持工具的模型（如 Mistral Large / DeepSeek V4）。`;
+    }
+
     // 第一轮：让 LLM 决定调用哪些工具
     sendSSE('progress', { step: 'thinking', message: '正在分析您的问题...' });
-    let llmResp = await aiService.chat(messages, { tools, toolChoice: 'auto' });
-    let toolCalls = aiService.extractToolCalls(llmResp);
+    let llmResp = await aiService.chat(messages, chatTools ? { tools: chatTools, toolChoice: 'auto' } : {});
+    let toolCalls = toolsEnabled ? aiService.extractToolCalls(llmResp) : [];
 
     // 循环执行工具调用（最多 12 轮，支持智能排课的多步操作）
     let rounds = 0;
-    while (toolCalls.length > 0 && rounds < 12) {
+    while (toolsEnabled && toolCalls.length > 0 && rounds < 12) {
         rounds++;
         messages.push(llmResp.choices[0].message);
 
         // 发送工具执行进度
         const toolNames = toolCalls.map(t => t.function.name);
         sendSSE('progress', { step: 'executing', message: getToolProgressMessage(toolNames) });
+
+        log(`round ${rounds} tools: ${toolNames.join(', ')}`);
 
         // 并行执行所有工具调用
         const toolCallResults = await Promise.all(toolCalls.map(async (call) => {
@@ -1580,23 +1927,31 @@ const query = asyncHandler(async (req, res) => {
             try {
                 const result = await executeDataTool(name, args, req);
                 toolResults.push({ tool: name, args, result });
-                const resultStr = JSON.stringify(result);
-                const safeContent = resultStr.length > 4000
-                    ? resultStr.slice(0, 3990) + '...(已截断)'
-                    : resultStr;
-                return { role: 'tool', tool_call_id: call.id, content: safeContent };
+                // 超长结果做「结构化摘要」而非字符硬切，保证回传给模型的 JSON 仍合法可解析
+                return { role: 'tool', tool_call_id: call.id, content: summarizeToolResult(result) };
             } catch (err) {
+                log(`round ${rounds} tool "${name}" FAILED: ${err.message}`);
                 return { role: 'tool', tool_call_id: call.id, content: `工具执行失败: ${err.message}` };
             }
         }));
         messages.push(...toolCallResults);
 
         sendSSE('progress', { step: 'thinking', message: '正在整理结果...' });
-        llmResp = await aiService.chat(messages, { tools, toolChoice: 'auto' });
+        llmResp = await aiService.chat(messages, { tools: chatTools, toolChoice: 'auto' });
         toolCalls = aiService.extractToolCalls(llmResp);
     }
 
-    const answer = aiService.extractText(llmResp) || '抱歉，我暂时无法回答这个问题。';
+    let answer = aiService.extractText(llmResp) || '抱歉，我暂时无法回答这个问题。';
+    log(`done: rounds=${rounds} toolsUsed=[${toolsUsed.join(',')}] answerLen=${answer.length}`);
+
+    // 阶段3.3：批量排课 + 弱模型时，附带切换建议（后端兜底逻辑照常执行，不阻塞）。
+    // 判定「批量」：输入含多行排课，或本轮生成了多个预览分组。
+    const looksLikeBatch = !isAction && typeof question === 'string' &&
+        (question.split('\n').filter(l => l.trim()).length >= 3 ||
+         toolResults.filter(r => r.result.type === 'schedule_preview').length > 1);
+    if (looksLikeBatch && caps._weak) {
+        answer += `\n\n（提示：批量排课较复杂，当前模型能力有限，如遇解析不准可在系统设置切换到更强模型，如 Mistral Large / DeepSeek V4，获得更稳定结果。）`;
+    }
 
     // 判断返回类型（基于工具结果）
     let responseType = 'text';
@@ -1914,5 +2269,14 @@ module.exports = {
     checkModel,
     testModel,
     getAvailableModels,
-    getModelCapabilities
+    getModelCapabilities,
+    // 内部纯函数导出（仅供单元测试使用）
+    _test: {
+        computeDateContext,
+        resolveDateTime,
+        parseClock,
+        summarizeToolResult,
+        isWeakModel,
+        resolveModelCapabilities
+    }
 };
