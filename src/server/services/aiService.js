@@ -232,7 +232,30 @@ function toAnthropicMessages(messages) {
         }
 
         // user
-        out.push({ role: 'user', content: m.content || '' });
+        if (Array.isArray(m.content)) {
+            // 多模态：OpenAI 形状的 content 块数组（text / image_url）→ Anthropic 块（text / image）
+            const blocks = [];
+            for (const part of m.content) {
+                if (!part || typeof part !== 'object') continue;
+                if (part.type === 'text') {
+                    blocks.push({ type: 'text', text: part.text || '' });
+                } else if (part.type === 'image_url') {
+                    const url = part.image_url?.url || '';
+                    const dataMatch = url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+                    if (dataMatch) {
+                        blocks.push({
+                            type: 'image',
+                            source: { type: 'base64', media_type: dataMatch[1], data: dataMatch[2] }
+                        });
+                    } else if (/^https?:\/\//.test(url)) {
+                        blocks.push({ type: 'image', source: { type: 'url', url } });
+                    }
+                }
+            }
+            out.push({ role: 'user', content: blocks.length > 0 ? blocks : '' });
+        } else {
+            out.push({ role: 'user', content: m.content || '' });
+        }
     }
 
     return { system: system || undefined, messages: out };
@@ -491,5 +514,9 @@ module.exports = {
     extractText,
     extractToolCalls,
     buildEndpoint,
-    PROVIDER_DEFAULTS
+    PROVIDER_DEFAULTS,
+    // 供单元测试使用的协议翻译内部函数
+    toAnthropicMessages,
+    toAnthropicTools,
+    fromAnthropicResponse
 };
