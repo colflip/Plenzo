@@ -1158,7 +1158,7 @@ function buildPanel() {
     overlay.querySelector('#ai-clear-btn').addEventListener('click', clearHistory);
     overlay.querySelector('#ai-minimize-btn').addEventListener('click', minimize);
     overlay.querySelector('#ai-close-btn').addEventListener('click', closeCompletely);
-    state.sendBtnEl.addEventListener('click', onSend);
+    state.sendBtnEl.addEventListener('click', () => onSend());
     state.stopBtnEl.addEventListener('click', stopQuery);
 
     // 图片上传事件
@@ -1859,8 +1859,7 @@ function renderSchedulePreviewMessage(msg) {
             if (previewId) {
                 confirmBtn.disabled = true;
                 confirmBtn.textContent = '正在创建...';
-                state.inputEl.value = `确认创建排课，previewId: ${previewId}`;
-                onSend();
+                onSend({ type: 'confirm_create', previewId, label: '已确认，开始创建本次排课' });
             }
         };
         actions.appendChild(confirmBtn);
@@ -2004,8 +2003,7 @@ function renderScheduleOperationPreviewMessage(msg) {
             if (operationId) {
                 confirmBtn.disabled = true;
                 confirmBtn.textContent = isDelete ? '正在删除...' : '正在修改...';
-                state.inputEl.value = `确认执行操作，operationId: ${operationId}`;
-                onSend();
+                onSend({ type: 'confirm_operation', operationId, label: isDelete ? '已确认删除' : '已确认修改' });
             }
         };
         actions.appendChild(confirmBtn);
@@ -2384,11 +2382,16 @@ function updateTitle(text) {
 /**
  * 发送消息
  */
-async function onSend() {
-    const text = state.inputEl.value.trim();
-    if ((!text && state.selectedImages.length === 0) || state.loading) return;
+async function onSend(action) {
+    // action 为确认类操作（创建/修改/删除排课的二次确认），走独立字段，不依赖自然语言文本
+    // 只认可白名单内的 type，避免 DOM 事件对象（其 .type='click'）被误判为 action
+    const isAction = action && typeof action === 'object' &&
+        (action.type === 'confirm_create' || action.type === 'confirm_operation');
+    const text = isAction ? '' : state.inputEl.value.trim();
+    if (state.loading) return;
+    if (!isAction && !text && state.selectedImages.length === 0) return;
 
-    // 添加到输入历史记录
+    // 添加到输入历史记录（仅普通文本输入）
     if (text && state.inputHistory[state.inputHistory.length - 1] !== text) {
         state.inputHistory.push(text);
         // 限制历史记录数量为50条
@@ -2402,7 +2405,7 @@ async function onSend() {
 
     // 构建用户消息内容
     let userContent = text;
-    const images = [...state.selectedImages];  // 复制图片数组
+    const images = isAction ? [] : [...state.selectedImages];  // 复制图片数组
 
     // 如果有图片，构建多模态消息
     if (images.length > 0) {
@@ -2412,12 +2415,19 @@ async function onSend() {
         };
     }
 
-    // 添加用户消息
-    state.messages.push({
-        role: 'user',
-        content: text,
-        images: images.length > 0 ? images : undefined
-    });
+    // 添加用户消息气泡：普通输入显示文本/图片；确认类操作显示确认提示文本
+    if (isAction) {
+        state.messages.push({
+            role: 'user',
+            content: action.label || '已确认'
+        });
+    } else {
+        state.messages.push({
+            role: 'user',
+            content: text,
+            images: images.length > 0 ? images : undefined
+        });
+    }
 
     state.inputEl.value = '';
     state.inputEl.style.height = 'auto';
@@ -2439,8 +2449,10 @@ async function onSend() {
     showTyping('正在分析...');
 
     try {
-        // 构建对话历史（支持图片）
-        const conversationHistory = state.messages
+        // 构建对话历史：排除当前轮刚 push 的用户消息（普通问题或确认气泡），避免重复。
+        // 普通轮的文本由后端 question 注入；确认轮由 requestBody.action 注入，气泡仅用于展示。
+        const historySource = state.messages.slice(0, -1);
+        const conversationHistory = historySource
             .slice(-10)
             .map(msg => {
                 if (msg.role === 'user' && msg.images && msg.images.length > 0) {
@@ -2463,11 +2475,18 @@ async function onSend() {
             });
 
         const requestBody = {
-            question: text || '请分析这些图片',
             history: conversationHistory,
-            images: images.length > 0 ? images.map(img => img.dataUrl) : undefined,
             stream: true
         };
+        if (isAction) {
+            // 二次确认操作：走独立 action 字段，后端直接执行，不进 LLM
+            requestBody.action = action;
+        } else {
+            requestBody.question = text || '请分析这些图片';
+            if (images.length > 0) {
+                requestBody.images = images.map(img => img.dataUrl);
+            }
+        }
 
         const resp = await fetch('/api/ai/query', {
             method: 'POST',
