@@ -52,6 +52,8 @@ coverage/
 .nyc_output/
 tests/
 jest.config.js
+src/server/__test__/
+
 
 # ============================================
 # Temporary Files
