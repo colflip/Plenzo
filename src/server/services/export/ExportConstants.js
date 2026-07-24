@@ -46,7 +46,10 @@ const TYPE_NORMALIZATION = {
     '线上试教': '试教',
     '线上集体活动': '集体活动',
     '半次入户': '半次入户',
-    '评审记录': '评审记录'
+    '评审记录': '评审记录',
+    '咨询记录': '咨询记录',
+    '（线上）评审记录': '评审记录',
+    '（线上）咨询记录': '咨询记录'
 };
 
 // 类型名称映射：数据库 name → 中文显示名（不能机器翻译，必须与数据库定义一致）
@@ -76,6 +79,13 @@ const TYPE_DISPLAY_MAP = {
     'online_review': '（线上）评审',
     'online_advisory': '（线上）咨询',
     'online_consultation': '（线上）咨询',
+    // 英文线上记录标识 → 中文（线上）记录格式
+    'review_record_online': '（线上）评审记录',
+    'advisory_record_online': '（线上）咨询记录',
+    'consultation_record_online': '（线上）咨询记录',
+    'online_review_record': '（线上）评审记录',
+    'online_advisory_record': '（线上）咨询记录',
+    'online_consultation_record': '（线上）咨询记录',
     // 中文已有名称 → 保持不变
     '入户': '入户',
     '试教': '试教',
