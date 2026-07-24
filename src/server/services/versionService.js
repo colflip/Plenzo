@@ -32,10 +32,14 @@ async function runGit(args) {
 function normalizeGitHubRepo(value) {
     if (!value) return '';
     const text = String(value).trim();
-    if (/^[^/\s]+\/[^/\s]+$/.test(text)) return text;
 
-    const httpsMatch = text.match(/github\.com[:/]([^/\s]+)\/([^/\s.]+)(?:\.git)?/i);
-    if (httpsMatch) return `${httpsMatch[1]}/${httpsMatch[2]}`;
+    // 优先从 github.com URL / SSH 地址提取 owner/repo（去掉 .git 后缀）
+    // 例如 git@github.com:colflip/Plenzo.git、https://github.com/colflip/Plenzo
+    const ghMatch = text.match(/github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+    if (ghMatch) return `${ghMatch[1]}/${ghMatch[2]}`;
+
+    // 回退：纯 owner/repo 形式（排除含协议/主机/SSH 的字符串）
+    if (/^[^/\s:@]+\/[^/\s:@]+$/.test(text)) return text.replace(/\.git$/, '');
 
     return '';
 }
