@@ -280,7 +280,7 @@ class RichTextFormatter {
                     actualLines.push([{ text: teacherText + sep, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
                 }
             } else {
-                // 非合并单条：标记合进文本，作为一个 run
+                // 非合并单条：标记为独立上标 run（与合并组一致，字号统一）
                 const it = group[0];
                 const dtDisp = it.isRecord
                     ? RichTextFormatter.getFoldedDisplayType(it.s)
@@ -291,14 +291,13 @@ class RichTextFormatter {
                 const courseText = isSingleStudent
                     ? `${dtDisp}(${ts})：${teacherDisp}`
                     : `[${it.s.student_name || ''}]${dtDisp}(${ts})：${teacherDisp}`;
-                const fullText = it.marker ? it.marker + courseText : courseText;
-                actualLines.push([{
-                    text: fullText,
-                    colorType,
-                    dim: false,
-                    isSuperscript: false,
-                    startsLine: true
-                }, timeSortKey]);
+                // 标记（+/~）拆为独立上标 run 承载换行，文本 run 紧随
+                if (it.marker) {
+                    actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: true }, timeSortKey]);
+                    actualLines.push([{ text: courseText, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
+                } else {
+                    actualLines.push([{ text: courseText, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                }
             }
         }
 
