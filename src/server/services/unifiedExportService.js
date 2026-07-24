@@ -413,6 +413,8 @@ class UnifiedExportService {
      */
     _generateTeacherSummaryFromStats(mergedStats, options) {
         const { startDate, endDate } = options;
+        // 问询列中 [] 内展示导出所选的学生（指定学生则列出姓名，全体则为“全体学生”）
+        const studentLabel = options.studentLabel || '全体学生';
 
         // 应用转换公式
         const processedStats = mergedStats.map(stat => {
@@ -433,7 +435,7 @@ class UnifiedExportService {
                 }
             });
             const inquiryText = typeTexts.length > 0
-                ? `${namePrefix}老师好！${startDate} 至 ${endDate}期间，您在[${name}]处入户等相关数据为 ：${typeTexts.join('、')}。请问是否正确？`
+                ? `${namePrefix}老师好！${startDate} 至 ${endDate}期间，您在[${studentLabel}]处入户等相关数据为 ：${typeTexts.join('、')}。请问是否正确？`
                 : '';
 
             return {
@@ -485,25 +487,10 @@ class UnifiedExportService {
             return StatsAggregator.applyConversionFormula(stat, startDate, endDate);
         });
 
-        // 构建课程类型统计文本（用于问询列）
-        const typeOrder = ['试教', '入户', '评审', '集体活动', '咨询'];
-
+        // 学生上课汇总表不含“问询”列（仅第2工作表“教师授课汇总”需要）
         const summary = processedStats.map(stat => {
-            const name = stat['姓名'];
-            const namePrefix = name ? name.charAt(0) : '';
-            const typeTexts = [];
-            typeOrder.forEach(type => {
-                const count = stat[type] || 0;
-                if (count > 0) {
-                    typeTexts.push(`${count}次${type}`);
-                }
-            });
-            const inquiryText = typeTexts.length > 0
-                ? `${namePrefix}同学好！${startDate} 至 ${endDate}期间，您在[${name}]处入户等相关数据为 ：${typeTexts.join('、')}。请问是否正确？`
-                : '';
-
             return {
-                '学生姓名': name,
+                '学生姓名': stat['姓名'],
                 '试教': stat['试教'] === 0 ? '/' : stat['试教'],
                 '入户': stat['入户'] === 0 ? '/' : stat['入户'],
                 '评审': stat['评审'] === 0 ? '/' : stat['评审'],
@@ -511,7 +498,6 @@ class UnifiedExportService {
                 '咨询': stat['咨询'] === 0 ? '/' : stat['咨询'],
                 '汇总': stat['汇总'] || '/',
                 '核对': '未核对',
-                '问询': inquiryText,
                 '备注': ''
             };
         });
@@ -522,12 +508,6 @@ class UnifiedExportService {
         // 最后一行核对列显示祝福语
         if (summary.length > 0) {
             summary[summary.length - 1]['核对'] = 'Good Luck！🎉';
-        }
-
-        // 教师端（非班主任）和学生端不显示问询列
-        const userType = options.userType || 'admin';
-        if (userType === 'teacher' || userType === 'student') {
-            summary.forEach(row => delete row['问询']);
         }
 
         // 过滤空列
