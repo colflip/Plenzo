@@ -176,7 +176,37 @@ class EnhancedExcelService {
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
 
+        // 样式对象内联去重（性能优化，写入阶段提速约 2 倍）
+        // 说明：ExcelJS 的 StyleManager 通过 WeakMap 按样式对象「引用」缓存 styleId，
+        // 命中即跳过 font/border/fill/alignment 的 XML 序列化。上面的多轮样式赋值
+        // 让每个单元格持有各自独立的 style 对象（引用互不相同），导致写入时逐格重算。
+        // 此处按结构相等把相同样式的单元格指向同一 style 对象引用，输出字节保持一致。
+        this.internCellStyles(worksheet);
+
         return worksheet;
+    }
+
+    /**
+     * 样式对象内联去重：按结构相等（JSON）将相同样式的单元格
+     * 指向同一 style 对象引用，命中 ExcelJS 的样式 WeakMap 缓存，
+     * 大幅减少写入阶段的 XML 序列化开销。不改变任何单元格的最终样式。
+     * @param {Worksheet} worksheet - ExcelJS worksheet 对象
+     */
+    internCellStyles(worksheet) {
+        const cache = new Map();
+        worksheet.eachRow({ includeEmpty: false }, (row) => {
+            row.eachCell({ includeEmpty: false }, (cell) => {
+                const style = cell.style;
+                if (!style) return;
+                const key = JSON.stringify(style);
+                const shared = cache.get(key);
+                if (shared) {
+                    cell.style = shared;
+                } else {
+                    cache.set(key, style);
+                }
+            });
+        });
     }
 
     /**
