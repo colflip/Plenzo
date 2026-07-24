@@ -19,11 +19,24 @@ class RichTextFormatter {
      * @returns {string} 中文显示名
      */
     static getDisplayTypeName(schedule) {
+        let name;
         if (schedule.type_desc) {
-            return schedule.type_desc;
+            name = schedule.type_desc;
+        } else {
+            const rawName = schedule.type_name || '';
+            name = TYPE_DISPLAY_MAP[rawName] || rawName;
         }
-        const rawName = schedule.type_name || '';
-        return TYPE_DISPLAY_MAP[rawName] || rawName;
+        // 统一“线上”前缀为半角括号
+        return RichTextFormatter.normalizeOnlineParens(name);
+    }
+
+    /**
+     * 将“（线上）”统一规格化为半角“(线上)”
+     * @param {string} text
+     * @returns {string}
+     */
+    static _halfWidthOnline(text) {
+        return String(text || '').replace(/（线上）/g, '(线上)');
     }
 
     /**
@@ -59,14 +72,23 @@ class RichTextFormatter {
     }
 
     /**
+     * 将"（线上）"前缀规格化为半角括号（统一输出为 (线上)）
+     * @param {string} name
+     * @returns {string}
+     */
+    static normalizeOnlineParens(name) {
+        return String(name || '').replace(/（线上）/g, '(线上)');
+    }
+
+    /**
      * 获取归一化显示类型（用于分组键）
-     * 保留"（线上）"前缀，折叠"记录"后缀；全角化括号
-     * 评审记录 → 评审, (线上)评审 → （线上）评审, 评审 → 评审
+     * 保留"(线上)"前缀（半角），折叠"记录"后缀
+     * 评审记录 → 评审, （线上）评审 → (线上)评审, 评审 → 评审
      */
     static getFoldedDisplayType(schedule) {
         let dt = RichTextFormatter.getDisplayTypeName(schedule);
-        // 全角化半角括号
-        dt = dt.replace(/\(/g, '（').replace(/\)/g, '）');
+        // 统一线上前缀为半角括号
+        dt = RichTextFormatter.normalizeOnlineParens(dt);
         // 折叠"记录"后缀（但保留线上前缀）
         dt = dt.replace(/记录$/, '');
         return dt;
@@ -98,7 +120,8 @@ class RichTextFormatter {
      * 核心规则：
      *   计划列 = adj ∈ {0, null} 的课（含 cancelled/modified_away，dim 渲染）
      *   实际列 = status ∉ {cancelled, deleted, modified_away} 的课
-     *   评审/咨询 合并键 = (归一化显示类型, 标记, 时段, 地点)，按老师各自 dim
+     *   评审/咨询 合并键 = (归一化显示类型, 时段, 地点, 学生)，不含状态/标记
+     *   合并行内每位老师各自 dim；标记（+/~）作为上标跟随各自老师
      *
      * @param {Array} schedules - 课程列表（已剔除 deleted，保留 cancelled/modified_away）
      * @param {boolean} isSingleStudent - 是否为单学生模式
@@ -132,17 +155,18 @@ class RichTextFormatter {
         const actualLines = [];
         let hasColoredCourse = false;
 
-        // ── 计划列：合并键 = (归一化显示类型, 标记, 时段, 地点) ──
+        // ── 计划列：合并键 = (归一化显示类型, 时段, 地点, 学生) ──
         const planGroups = new Map();
         for (const it of planItems) {
             const ts = RichTextFormatter._timeSlot(it.s);
             const loc = String(it.s.location || '').trim();
-            const key = `${it.dt}|${it.marker}|${ts}|${loc}`;
+            const sid = it.s.student_id != null ? it.s.student_id : (it.s.student_name || '');
+            const key = `${it.dt}|${ts}|${loc}|${sid}`;
             if (!planGroups.has(key)) planGroups.set(key, []);
             planGroups.get(key).push(it);
         }
         for (const [key, group] of planGroups) {
-            const [dt, , ts] = key.split('|');
+            const [dt, ts] = key.split('|');
             const colorType = RichTextFormatter.getColorType(dt);
             if (colorType !== 'black') hasColoredCourse = true;
             const timeSortKey = RichTextFormatter._timeSortKey(ts);
@@ -199,58 +223,61 @@ class RichTextFormatter {
             }
         }
 
-        // ── 实际列：合并键 = (归一化显示类型, 标记, 时段, 地点) ──
+        // ── 实际列：合并键 = (归一化显示类型, 时段, 地点, 学生) ──
+        // 方案甲：合并组内每位老师带自己的 +/~ 上标（标记跟老师走）
         const actualGroups = new Map();
         for (const it of actualItems) {
             const ts = RichTextFormatter._timeSlot(it.s);
             const loc = String(it.s.location || '').trim();
-            const key = `${it.dt}|${it.marker}|${ts}|${loc}`;
+            const sid = it.s.student_id != null ? it.s.student_id : (it.s.student_name || '');
+            const key = `${it.dt}|${ts}|${loc}|${sid}`;
             if (!actualGroups.has(key)) actualGroups.set(key, []);
             actualGroups.get(key).push(it);
         }
         for (const [key, group] of actualGroups) {
-            const [dt, marker, ts] = key.split('|');
+            const [dt, ts] = key.split('|');
             const colorType = RichTextFormatter.getColorType(dt);
             if (colorType !== 'black') hasColoredCourse = true;
             const timeSortKey = RichTextFormatter._timeSortKey(ts);
 
             const isMergedGroup = group.length > 1 && RichTextFormatter.isMergeable(dt);
 
-            // 合并组：标记为独立上标 run（rich text 正确显示）；非合并组：标记合进文本
-            if (isMergedGroup && marker) {
-                actualLines.push([{
-                    text: marker,
-                    colorType,
-                    dim: false,
-                    isSuperscript: true,
-                    startsLine: true
-                }, timeSortKey]);
-            }
-
             if (isMergedGroup) {
-                const base = dt.replace(/[（(]线上[）)]/, '');
+                // 老师按 id 排序（记录类排在后面）
                 const regular = group.filter(it => !it.isRecord)
                     .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
                 const records = group.filter(it => it.isRecord)
                     .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
                 const all = [...regular, ...records];
 
+                // 组内标记是否一致且非空 → 提为整行前导上标（免去每位老师前重复）
+                const firstMarker = all[0].marker;
+                const uniformMarker = firstMarker !== '' &&
+                    all.every(it => it.marker === firstMarker);
+
+                // 整行前导上标（uniform 时）：先于前缀，且承载换行
+                if (uniformMarker) {
+                    actualLines.push([{ text: firstMarker, colorType, dim: false, isSuperscript: true, startsLine: true }, timeSortKey]);
+                }
+
                 const sn = all[0].s.student_name;
                 const prefixText = isSingleStudent
                     ? `${dt}(${ts})：`
                     : `[${sn}]${dt}(${ts})：`;
-                actualLines.push([{ text: prefixText, colorType, dim: false, isSuperscript: false, startsLine: !marker }, timeSortKey]);
+                // uniform 时上标已承载换行，前缀不再换行
+                actualLines.push([{ text: prefixText, colorType, dim: false, isSuperscript: false, startsLine: !uniformMarker }, timeSortKey]);
 
                 for (let i = 0; i < all.length; i++) {
                     const it = all[i];
+                    // 非 uniform：该老师有 +/~ 则先插入上标 run（跟老师走，不换行）
+                    if (!uniformMarker && it.marker) {
+                        actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
+                    }
                     const teacherText = it.isRecord
                         ? `${it.s.teacher_name || ''}（记录）`
                         : (it.s.teacher_name || '');
-                    if (i < all.length - 1) {
-                        actualLines.push([{ text: teacherText + '，', colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
-                    } else {
-                        actualLines.push([{ text: teacherText, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
-                    }
+                    const sep = i < all.length - 1 ? '，' : '';
+                    actualLines.push([{ text: teacherText + sep, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
                 }
             } else {
                 // 非合并单条：标记合进文本，作为一个 run
@@ -264,7 +291,7 @@ class RichTextFormatter {
                 const courseText = isSingleStudent
                     ? `${dtDisp}(${ts})：${teacherDisp}`
                     : `[${it.s.student_name || ''}]${dtDisp}(${ts})：${teacherDisp}`;
-                const fullText = marker ? marker + courseText : courseText;
+                const fullText = it.marker ? it.marker + courseText : courseText;
                 actualLines.push([{
                     text: fullText,
                     colorType,
@@ -284,6 +311,30 @@ class RichTextFormatter {
             actualParts: actualLines.map(e => e[0]),
             hasColoredCourse
         };
+    }
+
+    /**
+     * 按 startsLine 将 textParts 切分为“逻辑行”数组
+     * 每个逻辑行是一个 parts 子数组，其首段 startsLine 归一化为 false
+     * （单行内首段是 index 0 不触发换行）
+     * @param {Array} parts - 文本片段数组
+     * @returns {Array<Array>} 逻辑行数组，每行为 parts 子数组
+     */
+    static splitPartsIntoRows(parts) {
+        if (!parts || parts.length === 0) return [];
+        const rows = [];
+        let current = null;
+        parts.forEach((p, i) => {
+            if (i === 0 || p.startsLine) {
+                // 新行起点：首段 startsLine 归一化为 false
+                current = [];
+                rows.push(current);
+                current.push(Object.assign({}, p, { startsLine: false }));
+            } else {
+                current.push(p);
+            }
+        });
+        return rows;
     }
 
     /**

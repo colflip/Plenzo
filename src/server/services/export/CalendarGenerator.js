@@ -225,12 +225,22 @@ class CalendarGenerator {
             // 获取当天的课程
             const daySchedules = groupedByDate.get(dateStr) || [];
 
-            // 按时间段分组（已按时间排序）
-            const timeSlotGroups = DataTransformer.groupByTimeSlot(daySchedules);
+            if (daySchedules.length > 0) {
+                // 整天生成一次：计划/实际各自独立成列
+                const { planParts, actualParts, hasColoredCourse } =
+                    RichTextFormatter.generateCourseText(daySchedules, isSingleStudent);
 
-            // 如果当天有课程，生成多行（每个时间段一行）
-            if (timeSlotGroups.length > 0) {
-                timeSlotGroups.forEach((group, index) => {
+                // 按逻辑行切分——两列互不关联，各自从上到下填充
+                const planRows = RichTextFormatter.splitPartsIntoRows(planParts);
+                const actualRows = RichTextFormatter.splitPartsIntoRows(actualParts);
+
+                // 行数取两列最大值（至少 1 行）；缺失的一侧写入 '/'
+                const rowCount = Math.max(planRows.length, actualRows.length, 1);
+
+                for (let index = 0; index < rowCount; index++) {
+                    const planRowParts = planRows[index] || [];
+                    const actualRowParts = actualRows[index] || [];
+
                     const row = {
                         '日期': dateStr,
                         '星期': weekStr,
@@ -242,25 +252,19 @@ class CalendarGenerator {
                         // 内部标记字段
                         '_weekNumber': weekNumber,
                         '_isSunday': isSunday,
-                        '_isRedRow': false,
-                        '_planTextParts': [],
-                        '_actualTextParts': []
+                        '_isRedRow': hasColoredCourse,
+                        '_planTextParts': planRowParts,
+                        '_actualTextParts': actualRowParts
                     };
 
-                    // 生成计划和实际的课程文本（同一时间段内合并、排序）
-                    const { planParts, actualParts, hasColoredCourse } =
-                        RichTextFormatter.generateCourseText(group.schedules, isSingleStudent);
-
-                    row._planTextParts = planParts;
-                    row._actualTextParts = actualParts;
-                    row._isRedRow = hasColoredCourse;
-
-                    // 将 textParts 转换为纯文本（用于Excel）
-                    row['计划安排'] = RichTextFormatter.textPartsToPlainText(planParts);
-                    row['实际安排'] = RichTextFormatter.textPartsToPlainText(actualParts);
+                    // 空值写入 '/'（渲染层遇 '/' 走普通单元格）
+                    const planText = RichTextFormatter.textPartsToPlainText(planRowParts);
+                    const actualText = RichTextFormatter.textPartsToPlainText(actualRowParts);
+                    row['计划安排'] = planText || '/';
+                    row['实际安排'] = actualText || '/';
 
                     calendarData.push(row);
-                });
+                }
             } else {
                 // 没有课程的日期也要显示（空行）
                 calendarData.push({
