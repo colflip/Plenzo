@@ -25,6 +25,13 @@ const { warmup: dbWarmup } = require('./db/db');
 
 const app = express();
 
+// 信任代理层：Vercel/Render 等平台将应用置于单层反向代理之后，
+// 真实客户端 IP 位于 X-Forwarded-For / Forwarded 头中。
+// 设为 1（仅信任一层代理）而非 true，避免客户端伪造转发头绕过限流。
+// 这同时修复 express-rate-limit 的 ERR_ERL_FORWARDED_HEADER 校验错误，
+// 并使 req.ip 返回真实客户端 IP（loginLimiter/strictLimiter/apiLimiter 依赖此值）。
+app.set('trust proxy', 1);
+
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
 
