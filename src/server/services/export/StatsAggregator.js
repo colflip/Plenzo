@@ -24,6 +24,7 @@ class StatsAggregator {
             if (!stats.has(teacherName)) {
                 stats.set(teacherName, {
                     '姓名': teacherName,
+                    _id: row.teacher_id != null ? row.teacher_id : 999999,
                     '试教': 0,
                     '入户': 0,
                     '半次入户': 0,
@@ -60,10 +61,12 @@ class StatsAggregator {
             }
         });
 
-        // 应用计算公式并生成汇总文本
-        const result = Array.from(stats.values()).map(stat => {
-            return StatsAggregator.applyConversionFormula(stat, startDate, endDate);
-        });
+        // 按 id 升序排序，再应用计算公式并生成汇总文本
+        const result = Array.from(stats.values())
+            .sort((a, b) => a._id - b._id)
+            .map(stat => {
+                return StatsAggregator.applyConversionFormula(stat, startDate, endDate);
+            });
 
         return result;
     }
@@ -85,6 +88,7 @@ class StatsAggregator {
             if (!stats.has(studentName)) {
                 stats.set(studentName, {
                     '姓名': studentName,
+                    _id: row.student_id != null ? row.student_id : 999999,
                     '试教': 0,
                     '入户': 0,
                     '半次入户': 0,
@@ -121,10 +125,12 @@ class StatsAggregator {
             }
         });
 
-        // 应用计算公式并生成汇总文本
-        const result = Array.from(stats.values()).map(stat => {
-            return StatsAggregator.applyConversionFormula(stat, startDate, endDate);
-        });
+        // 按 id 升序排序，再应用计算公式并生成汇总文本
+        const result = Array.from(stats.values())
+            .sort((a, b) => a._id - b._id)
+            .map(stat => {
+                return StatsAggregator.applyConversionFormula(stat, startDate, endDate);
+            });
 
         return result;
     }
