@@ -116,6 +116,14 @@ const exportController = {
             }
 
             // ===== 7. 生成多 Sheet 数据 =====
+            // 解析选择的学生/教师名称：仅在指定了具体筛选时才使用真实姓名，
+            // 否则保持为 null（文件名回退为“全部学生”/“全部教师”）。
+            const distinctStudentNames = [...new Set(rawData.map(r => r.student_name).filter(Boolean))];
+            const selectedStudentName = studentId ? (distinctStudentNames.join('、') || null) : null;
+            const selectedTeacherName = teacherId ? (rawData[0]?.teacher_name || null) : null;
+            // 问询列的学生标签：指定学生时列出学生姓名，否则为“全体学生”
+            const studentLabel = studentId ? (distinctStudentNames.join('，') || '全体学生') : '全体学生';
+
             const unifiedService = new UnifiedExportService();
             const exportResult = await unifiedService.generateCompleteExport(rawData, {
                 startDate,
@@ -125,8 +133,9 @@ const exportController = {
                 userName,
                 teacherId,
                 studentId,
-                studentName: rawData[0]?.student_name || '全部学生',
-                teacherName: rawData[0]?.teacher_name || null
+                studentName: selectedStudentName,
+                teacherName: selectedTeacherName,
+                studentLabel
             });
 
             // ===== 8. 生成 Excel 二进制 =====
