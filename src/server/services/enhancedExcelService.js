@@ -337,7 +337,6 @@ class EnhancedExcelService {
     applyRichTextFormat(textParts) {
         const richText = [];
 
-        // 过滤并验证 - 防止 null/undefined text
         const validParts = (textParts || []).filter(part =>
             part && typeof part.text === 'string' && part.text.trim() !== ''
         );
@@ -347,16 +346,15 @@ class EnhancedExcelService {
         }
 
         validParts.forEach((part, index) => {
-            // 通过 RichTextFormatter.getTextColor 获取颜色
             const color = RichTextFormatter.getTextColor(part);
-            const isCancelledOrAdjusted = part.isCancelled || part.isAdjusted;
+            const isDim = part.dim || part.isCancelled || part.isAdjusted;
 
             // 基础字体配置
             const font = {
                 name: '宋体',
                 size: part.isSuperscript ? 7 : 11,
                 color: { argb: color },
-                italic: isCancelledOrAdjusted || false
+                italic: isDim || false
             };
 
             // 上标
@@ -364,18 +362,18 @@ class EnhancedExcelService {
                 font.vertAlign = 'superscript';
             }
 
-            richText.push({
-                text: String(part.text).trim(),
-                font
-            });
-
-            // 添加换行分隔符（除了最后一个，上标后面不换行）
-            if (index < validParts.length - 1 && !part.isSuperscript) {
+            // 换行：由 startsLine 决定（第一 run 跳过前导换行）
+            if (index > 0 && part.startsLine) {
                 richText.push({
                     text: '\n',
                     font: { name: '宋体', size: 11, color: { argb: RICH_TEXT_COLORS.BLACK } }
                 });
             }
+
+            richText.push({
+                text: String(part.text).trim(),
+                font
+            });
         });
 
         return richText;
