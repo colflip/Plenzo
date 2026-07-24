@@ -179,8 +179,7 @@ LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN schedule_types st ON ca.course_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
-  AND ca.status NOT IN ('cancelled', 'deleted')
-        `;
+  AND ca.status <> 'deleted'`;
 
         const values = [startDate, endDate];
 
@@ -239,7 +238,7 @@ LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN schedule_types st ON ca.course_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
-  AND ca.status NOT IN ('cancelled', 'deleted')
+  AND ca.status <> 'deleted'
         `;
 
         const values = [startDate, endDate];
