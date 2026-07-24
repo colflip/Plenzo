@@ -2,15 +2,18 @@
     const BADGE_ID = 'appVersionBadge';
 
     function formatUpdatedAt(value) {
-        if (!value) return '未知';
+        if (!value) return '';
         const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return '未知';
-        return new Intl.DateTimeFormat('zh-CN', {
+        if (Number.isNaN(date.getTime())) return '';
+        // 紧凑日期：YYYYMMDD（东八区）
+        const parts = new Intl.DateTimeFormat('zh-CN', {
             timeZone: 'Asia/Shanghai',
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
-        }).format(date).replace(/\//g, '-');
+        }).formatToParts(date);
+        const get = (type) => (parts.find(p => p.type === type) || {}).value || '';
+        return `${get('year')}${get('month')}${get('day')}`;
     }
 
     function ensureBadge() {
@@ -24,7 +27,7 @@
         badge.target = '_blank';
         badge.rel = 'noopener noreferrer';
         badge.setAttribute('aria-label', '系统版本');
-        badge.textContent = '系统版本 加载中';
+        badge.textContent = '';
         document.body.appendChild(badge);
         return badge;
     }
@@ -68,9 +71,11 @@
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const meta = await response.json();
-            const updatedText = formatUpdatedAt(meta.updatedAt);
-            const suffix = meta.shortSha ? ` · ${meta.shortSha}` : '';
-            badge.textContent = `系统版本 ${updatedText}${suffix}`;
+            const dateText = formatUpdatedAt(meta.updatedAt);
+            const sha = meta.shortSha || '';
+            // 显示格式：shortSha,YYYYMMDD（缺失项自动省略）
+            const label = [sha, dateText].filter(Boolean).join(',');
+            badge.textContent = label || '版本未知';
             badge.title = meta.source === 'github'
                 ? '来自 GitHub 仓库版本信息'
                 : '来自本地 Git 最近提交时间';
@@ -81,7 +86,7 @@
                 badge.removeAttribute('href');
             }
         } catch (error) {
-            badge.textContent = '系统版本 暂不可用';
+            badge.textContent = '版本未知';
             badge.title = '无法获取系统版本信息';
             badge.removeAttribute('href');
         }
