@@ -214,8 +214,10 @@ class RichTextFormatter {
             if (colorType !== 'black') hasColoredCourse = true;
             const timeSortKey = RichTextFormatter._timeSortKey(ts);
 
-            // 标记（~/+）为上标，startsLine=true 开新行
-            if (marker) {
+            const isMergedGroup = group.length > 1 && RichTextFormatter.isMergeable(dt);
+
+            // 合并组：标记为独立上标 run（rich text 正确显示）；非合并组：标记合进文本
+            if (isMergedGroup && marker) {
                 actualLines.push([{
                     text: marker,
                     colorType,
@@ -225,7 +227,7 @@ class RichTextFormatter {
                 }, timeSortKey]);
             }
 
-            if (group.length > 1 && RichTextFormatter.isMergeable(dt)) {
+            if (isMergedGroup) {
                 const base = dt.replace(/[（(]线上[）)]/, '');
                 const regular = group.filter(it => !it.isRecord)
                     .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
@@ -251,22 +253,24 @@ class RichTextFormatter {
                     }
                 }
             } else {
+                // 非合并单条：标记合进文本，作为一个 run
                 const it = group[0];
                 const dtDisp = it.isRecord
-                    ? RichTextFormatter.getFoldedDisplayType(it.s)  // "评审记录" → "评审"
+                    ? RichTextFormatter.getFoldedDisplayType(it.s)
                     : RichTextFormatter.getDisplayTypeName(it.s);
                 const teacherDisp = it.isRecord
                     ? `${it.s.teacher_name || ''}（记录）`
                     : (it.s.teacher_name || '');
-                const text = isSingleStudent
+                const courseText = isSingleStudent
                     ? `${dtDisp}(${ts})：${teacherDisp}`
                     : `[${it.s.student_name || ''}]${dtDisp}(${ts})：${teacherDisp}`;
+                const fullText = marker ? marker + courseText : courseText;
                 actualLines.push([{
-                    text,
+                    text: fullText,
                     colorType,
                     dim: false,
                     isSuperscript: false,
-                    startsLine: !marker
+                    startsLine: true
                 }, timeSortKey]);
             }
         }
