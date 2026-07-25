@@ -68,8 +68,10 @@ async function translateCourseType(type) {
  */
 function getDayOfWeek(dateStr) {
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    const d = new Date(dateStr + 'T00:00:00+08:00');
-    return days[d.getDay()];
+    // 用 UTC 分量做纯日历运算，避免进程时区（Vercel/Render 默认 UTC）把
+    // "上海零点(+08:00)" 算回前一天而使星期整体 -1。
+    const [y, m, d] = String(dateStr).split('-').map(Number);
+    return days[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
 }
 
 /**
@@ -93,31 +95,37 @@ function addHours(timeStr, hours) {
  */
 function computeDateContext() {
     const now = new Date();
-    const today = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-    const dayOfWeek = today.getDay(); // 0=周日, 1=周一
-    const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-
-    const currentDateTime = today.toLocaleString('zh-CN', {
+    // 先取上海时区的“今天”字符串（正确的 YYYY-MM-DD），再基于它做纯日历运算。
+    // 关键：不要 new Date(now.toLocaleString(...)) —— 那会把上海钟点数按进程本地时区
+    // 二次解析，在 UTC 进程 + 上海晚上(>=16点)时整周日期会 +1 天。
+    const todayStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+    const currentDateTime = now.toLocaleString('zh-CN', {
         timeZone: 'Asia/Shanghai',
         year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     });
+
+    const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const cnDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+    // 用 UTC 锚定当天，纯日历加减不受进程时区影响
+    const [y, m, d] = todayStr.split('-').map(Number);
+    const base = new Date(Date.UTC(y, m - 1, d));
+    const dayOfWeek = base.getUTCDay(); // 0=周日, 1=周一
     const currentWeekDay = weekDays[dayOfWeek];
-    const todayStr = today.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() + mondayOffset);
+    const thisMonday = new Date(base);
+    thisMonday.setUTCDate(base.getUTCDate() + mondayOffset);
     const nextMonday = new Date(thisMonday);
-    nextMonday.setDate(thisMonday.getDate() + 7);
+    nextMonday.setUTCDate(thisMonday.getUTCDate() + 7);
 
-    const cnDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     const buildWeek = (monday) => {
         const map = {};
         for (let i = 0; i < 7; i++) {
-            const d = new Date(monday);
-            d.setDate(monday.getDate() + i);
-            map[cnDays[i]] = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+            const dd = new Date(monday);
+            dd.setUTCDate(monday.getUTCDate() + i);
+            map[cnDays[i]] = dd.toISOString().slice(0, 10);
         }
         return map;
     };
@@ -1652,7 +1660,7 @@ const query = asyncHandler(async (req, res) => {
           `============================\n` +
           `R1. 【日期时间】绝不自己心算日期。凡涉及"周几/下周/晚上/几点"等表述，一律调用 resolve_datetime(text:"原始表述") 让系统算出精确 date/startTime/endTime，再使用其返回值。\n` +
           `R2. 【人员ID】排课/改课前，必须先用 query_students / query_teachers 查到真实 ID。查不到就停下来询问用户，禁止编造 ID 或姓名。\n` +
-          `R3. 【课程类型】只能使用下方课程类型清单里的 name 字段，必须精确匹配，禁止近似名（如"半程入户"不可写成"半次入户"）。\n` +
+          `R3. 【课程类型】只能使用下方课程类型清单里的 name 字段，必须精确匹配，禁止臆造近似名（如清单里是"半次入户"，就不要写成"半程入户"）。\n` +
           `R4. 【写操作两步走】创建/修改/删除必须先生成预览，由用户点击确认按钮执行。你只负责生成预览；不要在文本里要求用户"回复确认"，确认由界面按钮完成。\n` +
           `R5. 【忠实执行】严格按用户输入排课，不擅自优化、增减、合并或跳过任何一条。信息缺失就询问，不猜测。\n` +
           `\n============================\n` +
@@ -2273,6 +2281,7 @@ module.exports = {
     // 内部纯函数导出（仅供单元测试使用）
     _test: {
         computeDateContext,
+        getDayOfWeek,
         resolveDateTime,
         parseClock,
         summarizeToolResult,
