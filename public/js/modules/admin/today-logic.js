@@ -29,6 +29,20 @@ async function loadTodaySchedules() {
     }
 }
 
+function setupTodaySchedulesRefresh() {
+    const refreshBtn = document.getElementById('refreshTodaySchedulesBtn');
+    if (!refreshBtn || refreshBtn.dataset.todaySchedulesBound === 'true') return;
+
+    refreshBtn.dataset.todaySchedulesBound = 'true';
+    refreshBtn.addEventListener('click', () => loadTodaySchedules());
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupTodaySchedulesRefresh, { once: true });
+} else {
+    setupTodaySchedulesRefresh();
+}
+
 // 渲染今日排课列表
 
 function renderTodaySchedules(schedules) {
@@ -138,7 +152,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     // 智能选择主要课程类型（出现次数最多的）
     const typeCountMap = new Map();
     items.forEach(item => {
-        const type = item.schedule_type_name || item.type_name || item.schedule_types || '未知课程';
+        const type = item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || '未知课程';
         typeCountMap.set(type, (typeCountMap.get(type) || 0) + 1);
     });
 
@@ -235,7 +249,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     items.forEach(item => {
         const tid = item.teacher_id || 0;
         const tname = item.teacher_name || '未分配';
-        const ttype = item.schedule_type_name || item.type_name || item.schedule_types || '未知课程';
+        const ttype = item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || '未知课程';
 
         if (!teacherMap.has(tid)) {
             teacherMap.set(tid, { id: tid, name: tname, type: ttype });
@@ -244,7 +258,10 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     // 按ID排序，咨询记录/评审记录类型排在最后
     const sortedTeachers = Array.from(teacherMap.values()).sort((a, b) => {
-        const isRecord = (t) => t.type.includes('评审记录') || t.type.includes('咨询记录');
+        const isRecord = (type) => {
+            const normalizedType = String(type || '');
+            return normalizedType.includes('评审记录') || normalizedType.includes('咨询记录');
+        };
         const rA = isRecord(a.type);
         const rB = isRecord(b.type);
         if (rA && !rB) return 1;

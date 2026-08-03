@@ -502,8 +502,9 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 }
             });
 
-            // 构建课程类型文本的辅助函数
-            const buildTypeTexts = (items) => {
+            // 构建课程类型文本及标识分段。
+            // 多人同课程全员标记一致时，标识放到课程名前；单人或部分人员带标识时，跟随老师名称。
+            const buildTypeParts = (items) => {
                 const allTypes = items.map(r => r._typeName || '');
                 const typeGroups = {};
 
@@ -525,6 +526,13 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
                 const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
 
+                const markerOf = item => {
+                    const adjustmentType = item.is_temp ?? item.adjustment_type;
+                    if (adjustmentType == 1) return '⁺';
+                    if (adjustmentType == 2 || String(item.status || '').toLowerCase() === 'modified_away') return '~';
+                    return '';
+                };
+
                 const typeTexts = [];
                 Object.keys(typeGroups)
                     .sort((a, b) => {
@@ -544,37 +552,34 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                             return idA - idB;
                         });
 
+                        const firstMarker = markerOf(typeItems[0]);
+                        const uniformMarker = !isPlanList && typeItems.length > 1 && firstMarker &&
+                            typeItems.every(item => markerOf(item) === firstMarker);
                         const teacherContents = typeItems.map(item => {
                             const tName = item.teacher_name || item.name || '-';
                             const isRecord = item._typeName && item._typeName.includes('记录');
-                            return isRecord ? `${tName}（记录）` : tName;
+                            const teacherName = isRecord ? `${tName}（记录）` : tName;
+                            const marker = !isPlanList && !uniformMarker ? markerOf(item) : '';
+                            return `${marker}${teacherName}`;
                         });
 
                         const uniqueTeacherContents = [...new Set(teacherContents)];
-                        typeTexts.push(`${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
+                        const courseMarker = uniformMarker ? firstMarker : '';
+                        typeTexts.push(`${courseMarker}${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
                     });
 
                 return typeTexts;
             };
 
-            // 构建前缀
-            let namePrefix = '';
-            const hasTemp = cell.items.some(r => (r.is_temp ?? r.adjustment_type) == 1);
-            const hasAdj = cell.items.some(r => (r.is_temp ?? r.adjustment_type) == 2 || r.status === 'modified_away');
-            if (hasTemp && hasAdj) namePrefix = '⁺~';
-            else if (hasTemp) namePrefix = '⁺';
-            else if (hasAdj) namePrefix = '~';
-
             const pfxClean = shouldShowStudent ? `[${displayName}]` : '';
-            const pfxNormal = shouldShowStudent ? `${namePrefix}[${displayName}]` : (namePrefix || '');
 
             // 构建文本片段数组（用于 rich text）
             const textParts = [];
 
             // 正常课程
             if (normalItems.length > 0) {
-                const normalTypeTexts = buildTypeTexts(normalItems);
-                const prefix = isPlanList ? pfxClean : pfxNormal;
+                const normalTypeTexts = buildTypeParts(normalItems);
+                const prefix = pfxClean;
                 const isRed = normalItems.some(r => r._isReviewOrConsultation);
                 textParts.push({
                     text: `${prefix}${normalTypeTexts.join('；')}`,
@@ -586,7 +591,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
             // 已取消课程
             if (cancelledItems.length > 0) {
-                const cancelledTypeTexts = buildTypeTexts(cancelledItems);
+                const cancelledTypeTexts = buildTypeParts(cancelledItems);
                 const isRed = cancelledItems.some(r => r._isReviewOrConsultation);
                 if (isPlanList) {
                     // 计划列：不显示"已取消"包裹，正常文本但斜体+降色
@@ -599,7 +604,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                     });
                 } else {
                     // 实际列：保持"已取消[...]"包裹
-                    const pfxCancel = shouldShowStudent ? `${namePrefix === '⁺' ? '' : namePrefix}[${displayName}]已取消[` : `${namePrefix === '⁺' ? '' : namePrefix}已取消[`;
+                    const pfxCancel = shouldShowStudent ? `[${displayName}]已取消[` : '已取消[';
                     textParts.push({
                         text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
                         isCancelled: true,
@@ -611,7 +616,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
             // 调走/已调整课程
             if (modifiedAwayItems.length > 0) {
-                const modifiedAwayTypeTexts = buildTypeTexts(modifiedAwayItems);
+                const modifiedAwayTypeTexts = buildTypeParts(modifiedAwayItems);
                 const isRed = modifiedAwayItems.some(r => r._isReviewOrConsultation);
                 if (isPlanList) {
                     // 计划列：显示已调整课程，不带"调走"包裹，斜体+降色
@@ -624,7 +629,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                     });
                 } else {
                     // 实际列：保持"调走[...]"包裹
-                    const pfxModified = shouldShowStudent ? `${namePrefix}[${displayName}]调走[` : `${namePrefix}调走[`;
+                    const pfxModified = shouldShowStudent ? `[${displayName}]调走[` : '调走[';
                     textParts.push({
                         text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
                         isCancelled: false,
