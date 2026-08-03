@@ -113,13 +113,7 @@ const studentController = {
             })));
         } catch (error) {
             console.error('获取时间安排错误:', error);
-            const code = error?.sourceError?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT');
-            if (isNeonTimeout) {
-                return res.json([]);
-            }
-            res.status(500).json({ message: '服务器错误' });
+            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
 

@@ -24,7 +24,6 @@
   "scripts": {
     "start": "node src/server/app.js",
     "dev": "nodemon src/server/app.js",
-    "dev:offline": "OFFLINE_DEV=true PORT=5174 node src/server/app.js",
     "test": "jest",
     "test:unit": "jest --passWithNoTests",
     "test:integration": "jest --testPathPattern 'tests/(integration|performance)/'",

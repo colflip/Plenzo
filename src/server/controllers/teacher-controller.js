@@ -325,13 +325,7 @@ const teacherController = {
             res.json(result.rows.map(mapRowToAvailability));
         } catch (error) {
             console.error('获取时间安排错误:', error);
-            const code = error?.sourceError?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT');
-            if (isNeonTimeout) {
-                return res.json([]);
-            }
-            res.status(500).json({ message: '服务器错误' });
+            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
 
@@ -1037,47 +1031,6 @@ const teacherController = {
             const { startDate, endDate } = req.query;
             const limit = Math.min(1000, Number(req.query.limit) || 0) || null;
             const offset = Number(req.query.offset) || 0;
-
-            // 离线开发模式：返回示例数据
-            if (process.env.OFFLINE_DEV === 'true') {
-                const today = new Date().toISOString().split('T')[0];
-                const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-                return res.json([
-                    {
-                        id: 1,
-                        date: today,
-                        start_time: '09:00',
-                        end_time: '10:00',
-                        status: 'pending',
-                        teacher_id: req.user.id,
-                        location: '教室 A',
-                        student_name: '学生甲',
-                        schedule_type: '试听'
-                    },
-                    {
-                        id: 2,
-                        date: today,
-                        start_time: '14:00',
-                        end_time: '15:00',
-                        status: 'confirmed',
-                        teacher_id: req.user.id,
-                        location: '教室 B',
-                        student_name: '学生乙',
-                        schedule_type: '正式课'
-                    },
-                    {
-                        id: 3,
-                        date: tomorrow,
-                        start_time: '10:00',
-                        end_time: '11:00',
-                        status: 'completed',
-                        teacher_id: req.user.id,
-                        location: '教室 C',
-                        student_name: '学生丙',
-                        schedule_type: '试听'
-                    }
-                ]);
-            }
 
             const dateExpr = await SchemaHelper.getDateExpr('ca');
 

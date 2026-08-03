@@ -22,29 +22,12 @@ function getJwtSecret() {
     return secret;
 }
 
-/** 离线开发模式标志 — 仅在非生产环境生效 */
-const isOfflineDev = process.env.OFFLINE_DEV === 'true' && process.env.NODE_ENV !== 'production';
-
 /**
  * 认证中间件
- * @description 验证JWT令牌，在离线开发模式下模拟用户
+ * @description 验证 JWT 令牌并注入真实用户身份
  */
 const authMiddleware = async (req, res, next) => {
     try {
-        // 离线开发模式：跳过鉴权，模拟用户
-        if (isOfflineDev) {
-            // 根据请求路径确定模拟的用户类型
-            const fullPath = req.baseUrl + req.path;
-            if (fullPath && (fullPath.includes('/teacher') || req.path.includes('/teacher'))) {
-                // 模拟教师用户
-                req.user = { id: 40, userType: 'teacher', permissionLevel: 2 };
-            } else {
-                // 模拟管理员用户
-                req.user = { id: 1, userType: 'admin', permissionLevel: 1 };
-            }
-            return next();
-        }
-
         const authHeader = req.headers.authorization;
         if (!authHeader) {
             return res.status(401).json({ message: '未提供认证令牌' });

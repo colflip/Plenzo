@@ -116,12 +116,6 @@ const adminController = {
                 }
             } catch (_) { }
 
-            if (process.env.OFFLINE_DEV === 'true') {
-                const now = new Date();
-                const mock = { id: Number(id), username: 'mock', name: '模拟用户', last_login: now, created_at: now };
-                return res.json(standardResponse(true, mock, '获取用户成功(离线)'));
-            }
-
             const result = await db.query(`SELECT ${selectColumns} FROM ${table} WHERE id = $1`, [id]);
             const rows = (result && result.rows) ? result.rows : [];
             if (!rows[0]) {
@@ -151,11 +145,6 @@ const adminController = {
                     break;
                 default:
                     return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 开发离线模式：直接返回模拟创建结果
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.status(201).json({ id: id || Date.now(), username, name, email, ...additionalInfo });
             }
 
             // 基础字段校验
@@ -311,11 +300,6 @@ const adminController = {
                     break;
                 default:
                     return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 开发离线模式：跳过数据库更新，直接返回成功
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json({ id, username, name, email, ...additionalInfo });
             }
 
             // 如果更新管理员权限级别，确保合法(1-3)
@@ -508,11 +492,6 @@ const adminController = {
                     return res.status(400).json({ message: '无效的用户类型' });
             }
 
-            // 离线开发模式：直接返回成功，避免数据库外键约束
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, null, '用户删除成功 (离线模式)'));
-            }
-
             // 对教师/学生删除前进行外键检查，必要时支持级联删除
             if (userType === 'teacher' || userType === 'student') {
                 const refCol = userType === 'teacher' ? 'teacher_id' : 'student_id';
@@ -640,14 +619,7 @@ const adminController = {
             res.json(result.rows || []);
         } catch (error) {
             console.error('获取排课列表错误:', error);
-            const code = error?.sourceError?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT');
-            if (isNeonTimeout) {
-                console.warn('获取排课列表时发生网络超时，返回空数组');
-                return res.json([]);
-            }
-            res.status(500).json({ message: '服务器错误' });
+            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
 
@@ -694,15 +666,6 @@ const adminController = {
     // 网格视图：返回逐条排课记录，供前端按学生×日期进行精准渲染
     async getSchedulesGrid(req, res) {
         try {
-            // 离线开发模式：返回示例行，确保前端渲染不被阻塞
-            if (process.env.OFFLINE_DEV === 'true') {
-                const tzOffset = 8 * 60 * 60 * 1000;
-                const today = new Date(Date.now() + tzOffset).toISOString().split('T')[0];
-                return res.json([
-                    { id: 70, student_id: 201, student_name: '李同学', teacher_id: 101, teacher_name: '张老师', schedule_type: '入户', schedule_types: '入户', date: today, start_time: '09:00', end_time: '10:30', location: '第一教室', status: 'confirmed' }
-                ]);
-            }
-
             const { start_date, end_date, status, type_id, course_id, teacher_id } = req.query;
             // 兼容前端传递的 course_id 或 type_id 参数名
             const effectiveTypeId = type_id || course_id;
@@ -782,14 +745,7 @@ const adminController = {
             res.json(safeRows);
         } catch (error) {
             console.error('获取网格排课错误:', error);
-            const code = error?.sourceError?.code || error?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT') || msg.includes('timeout');
-            
-            if (isNeonTimeout) {
-                return res.json([]);
-            }
-            res.status(500).json(standardResponse(false, [], '服务器获取网格数据失败'));
+            res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
@@ -1052,12 +1008,6 @@ const adminController = {
                 resolve_strategy,
                 is_temp
             } = req.body;
-
-            // 离线开发模式：直接返回模拟ID，避免数据库操作
-            if (process.env.OFFLINE_DEV === 'true') {
-                const mockId = Math.floor(100000 + Math.random() * 900000);
-                return res.status(201).json({ id: mockId });
-            }
 
             // 使用统一事务封装，支持 pool client 与 serverless 回退
             let createdScheduleId = null;
@@ -1372,11 +1322,6 @@ const adminController = {
             const { id } = req.params;
             const { adminConfirmed } = req.body;
 
-            // 离线开发模式：跳过数据库操作，直接返回成功，避免外键约束错误
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json({ message: '离线开发模式下已确认（模拟）' });
-            }
-
             // 适配新结构：更新 course_arrangement 状态，并维护更新时间
             // 注意：数据库schema中不包含notes字段，避免引用不存在的列
             await db.query(
@@ -1400,16 +1345,6 @@ const adminController = {
      */
     async getOverviewStats(req, res) {
         try {
-            // 开发离线模式：返回示例统计数据
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json({
-                    teacher_count: 1,
-                    student_count: 1,
-                    monthly_schedules: 0,
-                    pending_count: 0,
-                    total_schedules: 0
-                });
-            }
             // 获取总览数据
             const caDateExpr = await SchemaHelper.getDateExpr('');
             const stats = await db.query(`
@@ -1441,31 +1376,13 @@ const adminController = {
 
             res.json(rows[0]);
         } catch (error) {
-            // 如果是 Neon 连接超时或 fetch 失败，则返回安全的默认统计，避免阻塞仪表盘
-            const code = error?.sourceError?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed');
-            if (isNeonTimeout) {
-                console.warn('获取总览统计时发生网络超时，返回默认统计');
-                return res.json({
-                    teacher_count: 0,
-                    student_count: 0,
-                    monthly_schedules: 0,
-                    pending_count: 0,
-                    total_schedules: 0
-                });
-            }
             console.error('获取总览统计错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
 
     async getScheduleStats(req, res) {
         try {
-            // 离线开发模式：返回空数组避免阻塞仪表盘
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json([]);
-            }
             let { startDate, endDate } = req.query;
 
             // 验证和设置默认日期
@@ -1500,14 +1417,7 @@ const adminController = {
             res.json(result.rows);
         } catch (error) {
             console.error('获取排课统计错误:', error);
-            const code = error?.sourceError?.code;
-            const msg = String(error?.message || '');
-            const isNeonTimeout = code === 'UND_ERR_CONNECT_TIMEOUT' || msg.includes('fetch failed') || msg.includes('ETIMEDOUT');
-            if (isNeonTimeout) {
-                // Neon 连接超时或网络失败时返回空数据以保证仪表盘可用
-                return res.json([]);
-            }
-            res.status(500).json({ message: '服务器错误' });
+            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
 
@@ -1870,31 +1780,11 @@ const adminController = {
      */
     async getScheduleTypes(req, res) {
         try {
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, [
-                    { id: 1, name: 'primary', description: '基础课程' },
-                    { id: 2, name: 'advanced', description: '进阶课程' }
-                ], '获取课程类型成功(离线)'));
-            }
-
             const result = await db.query('SELECT * FROM schedule_types ORDER BY id ASC');
             res.json(standardResponse(true, result.rows || [], '获取课程类型成功'));
         } catch (error) {
             console.error('获取课程类型错误:', error);
-
-            // 弹性降级逻辑：如果是数据库连接类错误，返回 200 配空数组和警告，防止前端初始化崩溃
-            const errMsg = String(error.message || '');
-            const isDbError = errMsg.includes('fetch failed') ||
-                errMsg.includes('ECONNRESET') ||
-                errMsg.includes('NeonDbError') ||
-                errMsg.includes('socket disconnected');
-
-            if (isDbError) {
-                console.warn('[Resilience] 数据库连接异常，启用静默降级');
-                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
-            }
-
-            res.status(500).json(standardResponse(false, null, '服务器错误'));
+            res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
@@ -1906,10 +1796,6 @@ const adminController = {
             const { name, description } = req.body;
             if (!name) {
                 return res.status(400).json({ message: '课程类型名称不能为空' });
-            }
-
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.status(201).json(standardResponse(true, { id: Date.now(), name, description }, '创建成功(离线)'));
             }
 
             // 检查名称重复
@@ -1942,10 +1828,6 @@ const adminController = {
                 return res.status(400).json({ message: '课程类型名称不能为空' });
             }
 
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, { id: Number(id), name, description }, '更新成功(离线)'));
-            }
-
             // 检查名称重复（排除自身）
             const existing = await db.query('SELECT id FROM schedule_types WHERE name = $1 AND id <> $2', [name, id]);
             if ((existing.rows || []).length > 0) {
@@ -1976,10 +1858,6 @@ const adminController = {
         try {
             const { id } = req.params;
 
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, null, '删除成功(离线)'));
-            }
-
             // 检查是否有排课引用
             const refCheck = await db.query('SELECT COUNT(*) as count FROM course_arrangement WHERE course_id = $1', [id]);
             const count = Number(refCheck.rows[0].count);
@@ -2005,29 +1883,11 @@ const adminController = {
      */
     async getHolidays(req, res) {
         try {
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, [], '获取节假日成功(离线)'));
-            }
-
             const result = await db.query('SELECT * FROM holidays ORDER BY year ASC, start_date ASC');
             res.json(standardResponse(true, result.rows || [], '获取节假日成功'));
         } catch (error) {
             console.error('获取节假日错误:', error);
-
-            const errMsg = String(error.message || '');
-            const isDbError = errMsg.includes('fetch failed') ||
-                errMsg.includes('ECONNRESET') ||
-                errMsg.includes('NeonDbError') ||
-                errMsg.includes('socket disconnected') ||
-                errMsg.includes('does not exist') ||
-                error.code === '42P01';
-
-            if (isDbError) {
-                console.warn('[Resilience] 数据库连接异常或表未就绪，节假日启用静默降级');
-                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
-            }
-
-            res.status(500).json(standardResponse(false, null, '服务器错误'));
+            res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
@@ -2039,10 +1899,6 @@ const adminController = {
             const { year, type, label, start_date, end_date } = req.body;
             if (!year || !type || !label || !start_date || !end_date) {
                 return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
-            }
-
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.status(201).json(standardResponse(true, { id: Date.now(), year, type, label, start_date, end_date }, '创建成功(离线)'));
             }
 
             const result = await db.query(
@@ -2069,10 +1925,6 @@ const adminController = {
                 return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
             }
 
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, { id: Number(id), year, type, label, start_date, end_date }, '更新成功(离线)'));
-            }
-
             const result = await db.query(
                 'UPDATE holidays SET year = $1, type = $2, label = $3, start_date = $4, end_date = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING *',
                 [year, type, label, start_date, end_date, id]
@@ -2097,10 +1949,6 @@ const adminController = {
         try {
             const { id } = req.params;
 
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, null, '删除成功(离线)'));
-            }
-
             const result = await db.query('DELETE FROM holidays WHERE id = $1 RETURNING id', [id]);
             if (result.rows.length === 0) {
                 return res.status(404).json({ message: '节假日记录不存在' });
@@ -2122,10 +1970,6 @@ const adminController = {
             const { items } = req.body;
             if (!Array.isArray(items) || items.length === 0) {
                 return res.status(400).json({ message: '同步数据不能为空' });
-            }
-
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, { count: items.length }, '同步成功(离线)'));
             }
 
             const years = [...new Set(items.map(i => i.year).filter(Boolean))];
@@ -2155,10 +1999,6 @@ const adminController = {
      */
     async syncHolidaysFromAPI(req, res) {
         try {
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, [], '同步成功(离线，无数据写入)'));
-            }
-
             const years = Array.isArray(req.body && req.body.years) && req.body.years.length
                 ? req.body.years
                 : [2025, 2026, 2027];
@@ -2323,9 +2163,6 @@ const adminController = {
      */
     async listFeedbacks(req, res) {
         try {
-            if (process.env.OFFLINE_DEV === 'true') {
-                return res.json(standardResponse(true, [], '获取反馈成功(离线)'));
-            }
             const result = await db.query(
                 `SELECT id, type, priority, title, description, status,
                         submitter_id, submitter_role, submitter_name,
@@ -2336,12 +2173,7 @@ const adminController = {
             res.json(standardResponse(true, result.rows || [], '获取反馈成功'));
         } catch (error) {
             console.error('获取反馈错误:', error);
-            const msg = String(error.message || '');
-            if (msg.includes('does not exist') || error.code === '42P01' ||
-                msg.includes('NeonDbError') || msg.includes('fetch failed')) {
-                return res.json(standardResponse(true, [], '数据库暂时不可用，已启用离线降级模式'));
-            }
-            res.status(500).json(standardResponse(false, null, '服务器错误'));
+            res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
