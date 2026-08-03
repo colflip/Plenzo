@@ -27,7 +27,6 @@
     "test": "jest",
     "test:unit": "jest --passWithNoTests",
     "test:integration": "jest --testPathPattern 'tests/(integration|performance)/'",
-    "test:e2e": "playwright test",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:visual:chromium": "BROWSER=chromium backstop test",
