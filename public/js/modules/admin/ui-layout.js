@@ -3,22 +3,67 @@
  * 处理页面的导航和区块切换逻辑
  */
 
+const ADMIN_ROUTE_BASE = '/admin/dashboard';
+const DEFAULT_SECTION = 'overview';
+
+function normalizePath(pathname) {
+    return pathname.replace(/\.html(?=\/|$)/, '').replace(/\/$/, '') || '/';
+}
+
+function isValidSection(sectionId) {
+    if (!sectionId || !document.getElementById(sectionId)) return false;
+    return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
+}
+
+function sectionFromLocation() {
+    const pathname = normalizePath(window.location.pathname);
+    if (pathname === ADMIN_ROUTE_BASE) return DEFAULT_SECTION;
+    if (!pathname.startsWith(`${ADMIN_ROUTE_BASE}/`)) return null;
+    return decodeURIComponent(pathname.slice(ADMIN_ROUTE_BASE.length + 1));
+}
+
+function routeForSection(sectionId) {
+    return sectionId === DEFAULT_SECTION
+        ? ADMIN_ROUTE_BASE
+        : `${ADMIN_ROUTE_BASE}/${encodeURIComponent(sectionId)}`;
+}
+
+function showInvalidRouteFeedback() {
+    showToast('页面路径无效，已返回总览。', 'warning');
+}
+
+function activateFromLocation({ replace = false, showFeedback = false } = {}) {
+    const requestedSection = sectionFromLocation();
+    const sectionId = isValidSection(requestedSection) ? requestedSection : DEFAULT_SECTION;
+    if (showFeedback && sectionId !== requestedSection) showInvalidRouteFeedback();
+    if ((replace || sectionId !== requestedSection) && window.history) {
+        window.history.replaceState({ sectionId }, '', routeForSection(sectionId));
+    }
+    showSection(sectionId);
+}
+
 // 设置导航
 export function setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
+        const section = item.dataset.section;
+        if (section) item.href = routeForSection(section);
         item.addEventListener('click', (e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
             e.preventDefault();
             // 使用 currentTarget 确保点击图标/文字也能正确读到 data-section
-            const section = e.currentTarget.dataset.section;
-            if (section) {
-                // 数据加载由 showSection 统一在切换可见区后触发（非阻塞）。
-                // 关键：此处不要 await 任何数据请求，否则区块还是 display:none 时
-                // 就会卡在网络请求上，导致“点击没反应/要等很久才跳转”，且会重复加载。
-                showSection(section);
+            const targetSection = e.currentTarget.dataset.section;
+            if (!isValidSection(targetSection)) return;
+            if (window.history) {
+                window.history.pushState({ sectionId: targetSection }, '', routeForSection(targetSection));
             }
+            // 数据加载由 showSection 统一在切换可见区后触发（非阻塞）。
+            showSection(targetSection);
         });
     });
+
+    window.addEventListener('popstate', () => activateFromLocation({ showFeedback: true }));
+    activateFromLocation({ replace: true, showFeedback: true });
 
     const logoutBtn = document.getElementById('logout');
     if (logoutBtn) {
@@ -132,6 +177,7 @@ export function showSection(sectionId) {
     switch (sectionId) {
         case 'overview':
             if (window.loadOverviewStats) window.loadOverviewStats();
+            if (window.loadTodaySchedules) window.loadTodaySchedules();
             setHeaderTitle('管理员总览');
             break;
         case 'users':

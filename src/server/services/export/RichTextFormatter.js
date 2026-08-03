@@ -121,7 +121,7 @@ class RichTextFormatter {
      *   计划列 = adj ∈ {0, null} 的课（含 cancelled/modified_away，dim 渲染）
      *   实际列 = status ∉ {cancelled, deleted, modified_away} 的课
      *   评审/咨询 合并键 = (归一化显示类型, 时段, 地点, 学生)，不含状态/标记
-     *   合并行内每位老师各自 dim；标记（+/~）作为上标跟随各自老师
+     *   多人合并行若标记全员一致则提到课程前；单人或部分人员有标记时跟随对应老师
      *
      * @param {Array} schedules - 课程列表（已剔除 deleted，保留 cancelled/modified_away）
      * @param {boolean} isSingleStudent - 是否为单学生模式
@@ -255,17 +255,20 @@ class RichTextFormatter {
                 const uniformMarker = firstMarker !== '' &&
                     all.every(it => it.marker === firstMarker);
 
-                // 整行前导上标（uniform 时）：先于前缀，且承载换行
-                if (uniformMarker) {
-                    actualLines.push([{ text: firstMarker, colorType, dim: false, isSuperscript: true, startsLine: true }, timeSortKey]);
-                }
-
                 const sn = all[0].s.student_name;
-                const prefixText = isSingleStudent
-                    ? `${dt}(${ts})：`
-                    : `[${sn}]${dt}(${ts})：`;
-                // uniform 时上标已承载换行，前缀不再换行
-                actualLines.push([{ text: prefixText, colorType, dim: false, isSuperscript: false, startsLine: !uniformMarker }, timeSortKey]);
+                const studentPrefix = isSingleStudent ? '' : `[${sn}]`;
+                const coursePrefix = `${dt}(${ts})：`;
+
+                if (uniformMarker) {
+                    // 标识位于课程名前；全学生模式仍先显示 [学生]，避免把标识误解为学生标识。
+                    if (studentPrefix) {
+                        actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                    }
+                    actualLines.push([{ text: firstMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
+                    actualLines.push([{ text: coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
+                } else {
+                    actualLines.push([{ text: studentPrefix + coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                }
 
                 for (let i = 0; i < all.length; i++) {
                     const it = all[i];
@@ -288,16 +291,15 @@ class RichTextFormatter {
                 const teacherDisp = it.isRecord
                     ? `${it.s.teacher_name || ''}（记录）`
                     : (it.s.teacher_name || '');
-                const courseText = isSingleStudent
-                    ? `${dtDisp}(${ts})：${teacherDisp}`
-                    : `[${it.s.student_name || ''}]${dtDisp}(${ts})：${teacherDisp}`;
-                // 标记（+/~）拆为独立上标 run 承载换行，文本 run 紧随
+                const coursePrefix = isSingleStudent
+                    ? `${dtDisp}(${ts})：`
+                    : `[${it.s.student_name || ''}]${dtDisp}(${ts})：`;
+                // 单人课程的标记跟随老师：课程前缀先承载换行，标记紧邻老师名称。
+                actualLines.push([{ text: coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
                 if (it.marker) {
-                    actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: true }, timeSortKey]);
-                    actualLines.push([{ text: courseText, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
-                } else {
-                    actualLines.push([{ text: courseText, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                    actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
                 }
+                actualLines.push([{ text: teacherDisp, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
             }
         }
 
