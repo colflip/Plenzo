@@ -17,7 +17,7 @@ import { escapeHtml, safeSetHTML } from '../../core/security.js';
 
 
 // 导入时间槽工具函数
-import { getTimeSlotFromStartTime } from './utils/time-slots.js';
+import { getTimeSlotFromStartTime } from './time-slots.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];

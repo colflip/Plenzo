@@ -3,7 +3,7 @@
  * 负责数据标准化、类型归一化、格式转换等辅助功能
  */
 
-const { TYPE_NORMALIZATION, NON_COUNTABLE_STATUSES } = require('./ExportConstants');
+const { TYPE_NORMALIZATION, NON_COUNTABLE_STATUSES } = require('./export-constants');
 
 class DataTransformer {
     /**

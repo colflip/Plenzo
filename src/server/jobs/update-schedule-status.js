@@ -1,6 +1,6 @@
 const db = require('../db/db');
 const crypto = require('crypto');
-const SchemaHelper = require('../utils/schemaHelper');
+const SchemaHelper = require('../utils/schema-helper');
 
 /**
  * Detects the correct date column name in the database.

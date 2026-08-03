@@ -8,9 +8,9 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { validate, scheduleValidation, userValidation } = require('../middleware/validation');
-const { strictLimiter } = require('../middleware/rateLimit');
-const adminController = require('../controllers/adminController');
-const updateScheduleStatus = require('../jobs/updateScheduleStatus');
+const { strictLimiter } = require('../middleware/rate-limit');
+const adminController = require('../controllers/admin-controller');
+const updateScheduleStatus = require('../jobs/update-schedule-status');
 
 // 用户管理路由
 router.get('/users/:userType', authMiddleware, adminOnly, adminController.getUsers);

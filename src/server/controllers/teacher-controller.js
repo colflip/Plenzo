@@ -1,9 +1,9 @@
 const db = require('../db/db');
-const AdvancedExportService = require('../services/advancedExportService');
-const excelGenerator = require('../services/excelGeneratorService');
+const AdvancedExportService = require('../services/advanced-export-service');
+const excelGenerator = require('../services/excel-generator-service');
 const { standardResponse } = require('../middleware/validation');
-const { handleExportError, ExportError } = require('../middleware/exportErrorHandler');
-const ExportLogService = require('../utils/exportLogService');
+const { handleExportError, ExportError } = require('../middleware/export-error-handler');
+const ExportLogService = require('../utils/export-log-service');
 
 const SLOT_COLUMNS = Object.freeze({
     morning: 'morning_available',
@@ -104,7 +104,7 @@ function mapRowToAvailability(row) {
     };
 }
 
-const SchemaHelper = require('../utils/schemaHelper');
+const SchemaHelper = require('../utils/schema-helper');
 
 const teacherController = {
     // 获取个人信息
@@ -253,7 +253,7 @@ const teacherController = {
             }
 
             // 2. 使用统一服务生成完整的多Sheet数据
-            const UnifiedExportService = require('../services/unifiedExportService');
+            const UnifiedExportService = require('../services/unified-export-service');
             const unifiedService = new UnifiedExportService();
             const exportResult = await unifiedService.generateCompleteExport(rawData, {
                 startDate,
@@ -266,7 +266,7 @@ const teacherController = {
             });
 
             // 3. 使用 excelGeneratorService 生成 Excel 文件
-            const excelGeneratorService = require('../services/excelGeneratorService');
+            const excelGeneratorService = require('../services/excel-generator-service');
             const excelResult = await excelGeneratorService.generateMultiSheetExcel(
                 exportResult.sheets,
                 exportResult.filename
@@ -1697,7 +1697,7 @@ const teacherController = {
             }
 
             // 6. 使用统一服务生成完整的多Sheet数据
-            const UnifiedExportService = require('../services/unifiedExportService');
+            const UnifiedExportService = require('../services/unified-export-service');
             const unifiedService = new UnifiedExportService();
             const exportResult = await unifiedService.generateCompleteExport(formattedData, {
                 startDate,
@@ -1711,7 +1711,7 @@ const teacherController = {
             });
 
             // 7. 生成 Excel 文件
-            const excelGeneratorService = require('../services/excelGeneratorService');
+            const excelGeneratorService = require('../services/excel-generator-service');
             const excelResult = await excelGeneratorService.generateMultiSheetExcel(
                 exportResult.sheets,
                 exportResult.filename

@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { getVersionMeta } = require('../services/versionService');
+const { getVersionMeta } = require('../services/version-service');
 
 router.get('/version', async (req, res, next) => {
     try {

@@ -8,8 +8,8 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOnly, anyAuthenticated } = require('../middleware/role');
-const { strictLimiter } = require('../middleware/rateLimit');
-const teacherController = require('../controllers/teacherController');
+const { strictLimiter } = require('../middleware/rate-limit');
+const teacherController = require('../controllers/teacher-controller');
 
 // 个人信息管理
 router.get('/profile', authMiddleware, teacherOnly, teacherController.getProfile);

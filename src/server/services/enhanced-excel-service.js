@@ -8,8 +8,8 @@
  */
 
 const ExcelJS = require('exceljs');
-const { RICH_TEXT_COLORS } = require('./export/ExportConstants');
-const RichTextFormatter = require('./export/RichTextFormatter');
+const { RICH_TEXT_COLORS } = require('./export/export-constants');
+const RichTextFormatter = require('./export/rich-text-formatter');
 
 // ============================================================
 // 预定义样式常量 — 避免在循环中重复创建对象
@@ -697,7 +697,7 @@ class EnhancedExcelService {
      */
     formatStatus(status) {
         // 统一使用 sharedUtils.STATUS_MAP 作为权威来源
-        const { getStatusLabel } = require('../utils/sharedUtils');
+        const { getStatusLabel } = require('../utils/shared-utils');
         return getStatusLabel(status);
     }
 
@@ -712,7 +712,7 @@ class EnhancedExcelService {
      * 生成时间戳（委托给 sharedUtils 消除重复）
      */
     getTimestamp() {
-        const { getTimestamp } = require('../utils/sharedUtils');
+        const { getTimestamp } = require('../utils/shared-utils');
         return getTimestamp();
     }
 }

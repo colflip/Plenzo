@@ -7,7 +7,7 @@
  *   - startsLine: true → 渲染器在本 run 前插入换行（第一 run 跳过）
  */
 
-const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS } = require('./ExportConstants');
+const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS } = require('./export-constants');
 
 class RichTextFormatter {
     /**

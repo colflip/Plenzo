@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const scheduleController = require('../controllers/scheduleController');
+const scheduleController = require('../controllers/schedule-controller');
 const { authMiddleware, adminOnly } = require('../middleware');
 const { validate, scheduleValidation } = require('../middleware');
 

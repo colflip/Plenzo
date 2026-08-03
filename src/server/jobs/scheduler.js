@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const updateScheduleStatus = require('./updateScheduleStatus');
+const updateScheduleStatus = require('./update-schedule-status');
 
 /**
  * Initializes all background jobs.

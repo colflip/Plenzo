@@ -4,7 +4,7 @@
  * 基于 ExcelJS，支持 Rich Text 格式
  */
 
-const enhancedExcel = require('./enhancedExcelService');
+const enhancedExcel = require('./enhanced-excel-service');
 
 class ExcelGeneratorService {
     /**

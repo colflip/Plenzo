@@ -3,10 +3,10 @@
  * 负责生成日期范围、计算费用、生成每日排课明细
  */
 
-const { WEEKDAYS } = require('./ExportConstants');
-const DataTransformer = require('./DataTransformer');
-const RichTextFormatter = require('./RichTextFormatter');
-const PermissionFilter = require('./PermissionFilter');
+const { WEEKDAYS } = require('./export-constants');
+const DataTransformer = require('./data-transformer');
+const RichTextFormatter = require('./rich-text-formatter');
+const PermissionFilter = require('./permission-filter');
 
 class CalendarGenerator {
     /**

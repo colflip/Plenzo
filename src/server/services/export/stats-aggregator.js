@@ -3,8 +3,8 @@
  * 负责教师和学生的统计汇总、统计表生成
  */
 
-const DataTransformer = require('./DataTransformer');
-const PermissionFilter = require('./PermissionFilter');
+const DataTransformer = require('./data-transformer');
+const PermissionFilter = require('./permission-filter');
 
 class StatsAggregator {
     /**

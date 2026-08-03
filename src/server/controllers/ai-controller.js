@@ -6,11 +6,11 @@
 
 const { standardResponse } = require('../middleware/validation');
 const { AppError, asyncHandler } = require('../middleware/error');
-const aiService = require('../services/aiService');
+const aiService = require('../services/ai-service');
 const db = require('../db/db');
-const scheduleService = require('../services/scheduleService');
-const { getPresetModels } = require('../services/presetModels');
-const aiConfigManager = require('../services/aiConfigManager');
+const scheduleService = require('../services/schedule-service');
+const { getPresetModels } = require('../services/preset-models');
+const aiConfigManager = require('../services/ai-config-manager');
 const fs = require('fs');
 const path = require('path');
 
@@ -29,7 +29,7 @@ const getStatus = (req, res) => {
 /**
  * 状态的中英文映射（统一使用 sharedUtils.STATUS_MAP 作为权威来源）
  */
-const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus } = require('../utils/sharedUtils');
+const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus } = require('../utils/shared-utils');
 
 /**
  * 课程类型映射缓存
