@@ -1,43 +1,24 @@
-# ============================================
 # Dependencies
-# ============================================
 node_modules/
 
-# ============================================
-# Environment Variables
-# ============================================
+# Environment and local secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
-# ============================================
-# IDE & Editor
-# ============================================
+# Local assistant project data (keep locally; never commit)
+.workbuddy/
+.claude/
+CLAUDE.md
+
+# IDE and editor state
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# ============================================
-# Build & Distribution
-# ============================================
-dist/
-build/
-
-# ============================================
-# Logs
-# ============================================
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-server.log
-plenzo-server.log
-
-# ============================================
-# OS Generated Files
-# ============================================
+# OS metadata
 .DS_Store
 ._*
 .Spotlight-V100
@@ -45,57 +26,64 @@ plenzo-server.log
 ehthumbs.db
 Thumbs.db
 
-# ============================================
-# Testing & Coverage
-# ============================================
+# Build and deployment output
+dist/
+build/
+.vercel/
+
+# Tests and test tooling (local only; not required for production deployment)
+tests/
+src/server/**/__tests__/
+e2e/
+jest.config.js
+playwright.config.js
 coverage/
 .nyc_output/
-tests/
-jest.config.js
-src/server/__test__/
+playwright-report/
+test-results/
+blob-report/
+backstop_data/
 
+# Documentation and repository maintenance files (local only)
+docs/
+CHANGELOG.md
+CONTRIBUTING.md
+.github/
 
-# ============================================
-# Temporary Files
-# ============================================
+# Local maintenance scripts
+scripts/
+
+# Database reference and manual migration files
+# Runtime migrations are implemented in src/server/db/migrations.js and remain tracked.
+src/server/db/schema.sql
+src/server/db/migrations/
+
+# Logs and runtime state
+*.log
+logs/
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Caches and temporary files
+.cache/
+.eslintcache
 *.tmp
 *.temp
 *.backup
-.cache/
 
-# ============================================
-# Generated Files
-# ============================================
+# Generated exports and reports
+outputs/
 *.xlsx
 *-report.json
 
-# ============================================
-# Backups & Archives
-# ============================================
-backups/
+# Local archives and backups
 _archive/
+backups/
 
-# ============================================
-# Local Dev Files (不跟踪)
-# ============================================
-.claude/
-CLAUDE.md
-CHANGELOG.md
-CONTRIBUTING.md
-docs/
-scripts/
-
-# ============================================
-# Database Dev Files (本地保留)
-# ============================================
-src/server/db/schema.sql
-src/server/db/migrations/
-src/server/db/check-timezone.js
-src/server/db/test-connection.js
-
-# ============================================
-# Temporary Test/Debug Scripts (根目录)
-# ============================================
+# Root-level ad-hoc diagnostics
 /test-*.js
 /debug-*.js
 /check-*.js
