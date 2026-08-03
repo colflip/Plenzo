@@ -5,10 +5,10 @@
  */
 
 import { initOverviewSection, loadOverview } from './overview.js';
-import { initProfileSection } from './profile.js';
+import { initProfileSection, loadProfile } from './profile.js';
 import { initAvailabilitySection, refreshAvailability } from './availability.js';
 import { initSchedulesSection, refreshSchedules } from './schedules.js';
-import { initStatisticsSection, loadTeachingCount } from './statistics.js';
+import { initStatisticsSection, loadTeachingCount, loadTeachingSummary } from './statistics.js';
 import { initStudentSchedulesSection, refreshStudentSchedules } from './student-schedules.js';
 import {
     setupSidebarToggle,
@@ -66,14 +66,59 @@ async function initDashboard() {
         },
         sectionRefreshers: {
             overview: loadOverview,
+            profile: loadProfile,
             availability: refreshAvailability,
             schedules: refreshSchedules,
             'teaching-display': loadTeachingCount,
             'student-schedules': refreshStudentSchedules,
         },
+        routeBase: '/teacher/dashboard',
     });
-    controller.init();
-    await controller.activate('overview');
+    await controller.init();
+    setupDataSyncSubscriptions();
+}
+
+function refreshVisibleSection(sectionId, refresher) {
+    const section = document.getElementById(sectionId);
+    if (section?.classList.contains('active')) {
+        Promise.resolve(refresher()).catch(() => {});
+    }
+}
+
+function setupDataSyncSubscriptions() {
+    if (!window.eventBus || window.__teacherSyncSubscriptionsBound) return;
+    window.__teacherSyncSubscriptionsBound = true;
+
+    const scheduleEvents = [
+        window.EVENTS?.SCHEDULE_CREATED || 'schedule:created',
+        window.EVENTS?.SCHEDULE_UPDATED || 'schedule:updated',
+        window.EVENTS?.SCHEDULE_DELETED || 'schedule:deleted',
+        window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged'
+    ];
+    scheduleEvents.forEach(eventName => {
+        window.eventBus.on(eventName, () => {
+            refreshVisibleSection('overview', loadOverview);
+            refreshVisibleSection('schedules', refreshSchedules);
+            refreshVisibleSection('teaching-display', async () => {
+                await Promise.allSettled([loadTeachingCount(), loadTeachingSummary()]);
+            });
+            refreshVisibleSection('student-schedules', refreshStudentSchedules);
+        });
+    });
+
+    window.eventBus.on(window.EVENTS?.SCHEDULE_TYPE_CHANGED || 'scheduleType:changed', () => {
+        refreshVisibleSection('schedules', refreshSchedules);
+        refreshVisibleSection('teaching-display', async () => {
+            await Promise.allSettled([loadTeachingCount(), loadTeachingSummary()]);
+        });
+        refreshVisibleSection('student-schedules', refreshStudentSchedules);
+    });
+
+    window.eventBus.on(window.EVENTS?.PROFILE_UPDATED || 'profile:updated', detail => {
+        if (detail?.role && detail.role !== 'teacher') return;
+        const userData = updateUserName({ elementId: 'teacherName', fallback: '教师' });
+        toggleClassMasterNav(userData);
+    });
 }
 
 function toggleClassMasterNav(userData) {

@@ -106,14 +106,38 @@ async function getGitHubMeta(repo) {
     };
 }
 
+/**
+ * 解析部署版本号（shortSha），按部署平台依次兜底：
+ *   Vercel  →  Render  →  本地 git  →  构建时间戳
+ * 这样 Vercel / Render / 本地 dev / docker 均能量化出稳定版本号。
+ */
+function resolveCommitSha() {
+    const fromEnv =
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.RENDER_GIT_COMMIT ||
+        process.env.RENDER_GIT_COMMIT_SHA ||
+        process.env.RENDER_DEPLOY_ID;
+    if (fromEnv) return fromEnv;
+    return null;
+}
+
+function resolveBuildTimestamp() {
+    const raw = process.env.BUILD_TIMESTAMP || process.env.BUILD_TIME;
+    if (raw) return String(raw);
+    return new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+}
+
 async function getLocalGitMeta(repo) {
-    const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || await runGit(['log', '-1', '--format=%H']);
-    const shortSha = commitSha ? commitSha.slice(0, 7) : await runGit(['log', '-1', '--format=%h']);
+    const envSha = resolveCommitSha();
+    const commitSha = envSha || await runGit(['log', '-1', '--format=%H']);
+    let shortSha = commitSha ? commitSha.slice(0, 7) : await runGit(['log', '-1', '--format=%h']);
+    // 兜底：无任何 git/环境变量可用时，用构建时间戳保证版本号非空且每次构建不同。
+    if (!shortSha) shortSha = `b${resolveBuildTimestamp().slice(-7)}`;
     const updatedAt = await runGit(['log', '-1', '--format=%cI']) || null;
 
     return {
         updatedAt,
-        source: updatedAt ? 'git' : 'unknown',
+        source: updatedAt ? 'git' : 'build',
         repo,
         repoUrl: repo ? `https://github.com/${repo}` : '',
         commitSha: commitSha || '',

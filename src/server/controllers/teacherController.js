@@ -529,6 +529,128 @@ const teacherController = {
         }
     },
 
+    // R2（选项 B）：原子保存教师空闲时段。
+    // 单个事务内 upsert 提及的 updates、DELETE 提及的 removals；
+    // 范围内未提及的已有记录一律保留（与现有两段式行为一致，不误删管理员代设记录）。
+    async replaceAvailability(req, res) {
+        try {
+            const body = req.body || {};
+            const updates = Array.isArray(body.updates) ? body.updates : [];
+            const removals = Array.isArray(body.removals) ? body.removals : [];
+
+            if (!updates.length && !removals.length) {
+                return res.status(400).json({ message: '缺少需要保存的时间安排' });
+            }
+
+            let insertCount = 0;
+            let updateCount = 0;
+            let deleteCount = 0;
+
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+
+                // 1) upsert 提及的 update 项
+                for (const item of updates) {
+                    const date = item && item.date;
+                    const slots = item && item.slots;
+                    if (!date || !isValidDateString(date)) {
+                        throw new Error(`无效的日期格式: ${date}`);
+                    }
+                    const nextValues = {
+                        morning: Number(slots && slots.morning) || 0,
+                        afternoon: Number(slots && slots.afternoon) || 0,
+                        evening: Number(slots && slots.evening) || 0
+                    };
+                    const existing = await q(
+                        `SELECT id, morning_available, afternoon_available, evening_available
+                         FROM teacher_daily_availability
+                         WHERE teacher_id = $1 AND date = $2
+                         LIMIT 1`,
+                        [req.user.id, date]
+                    );
+                    const currentRow = existing.rows[0] || null;
+                    const hasChange = !currentRow ||
+                        Number(currentRow.morning_available) !== nextValues.morning ||
+                        Number(currentRow.afternoon_available) !== nextValues.afternoon ||
+                        Number(currentRow.evening_available) !== nextValues.evening;
+                    if (!hasChange) continue;
+                    if (currentRow) {
+                        await q(
+                            `UPDATE teacher_daily_availability
+                             SET morning_available = $3,
+                                 afternoon_available = $4,
+                                 evening_available = $5,
+                                 updated_at = CURRENT_TIMESTAMP
+                             WHERE teacher_id = $1 AND date = $2`,
+                            [req.user.id, date, nextValues.morning, nextValues.afternoon, nextValues.evening]
+                        );
+                        updateCount++;
+                    } else {
+                        await q(
+                            `INSERT INTO teacher_daily_availability
+                                 (teacher_id, date, morning_available, afternoon_available, evening_available, start_time, end_time, created_at, updated_at)
+                             VALUES ($1, $2, $3, $4, $5, '00:00:00', '23:59:59', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                            [req.user.id, date, nextValues.morning, nextValues.afternoon, nextValues.evening]
+                        );
+                        insertCount++;
+                    }
+                }
+
+                // 2) DELETE 提及的 removal 项（removeAll 或单个 slot 置 0）
+                for (const op of removals) {
+                    if (!op || !op.date || !isValidDateString(op.date)) {
+                        throw new Error(`无效的日期格式: ${op.date}`);
+                    }
+                    if (op.removeAll) {
+                        const del = await q(
+                            `DELETE FROM teacher_daily_availability
+                             WHERE teacher_id = $1 AND date = $2`,
+                            [req.user.id, op.date]
+                        );
+                        deleteCount += del.rowCount || 0;
+                        continue;
+                    }
+                    const slot = normalizeSlotKey(op.timeSlot || op.slot || op.time_slot);
+                    if (!slot) continue;
+                    const column = SLOT_COLUMNS[slot];
+                    const updated = await q(
+                        `UPDATE teacher_daily_availability
+                         SET ${column} = 0,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE teacher_id = $1 AND date = $2
+                         RETURNING morning_available, afternoon_available, evening_available`,
+                        [req.user.id, op.date]
+                    );
+                    if (updated.rowCount === 0) continue;
+                    const row = updated.rows[0];
+                    const allZero = ['morning_available', 'afternoon_available', 'evening_available']
+                        .every(key => Number(row[key]) === 0);
+                    if (allZero) {
+                        const del = await q(
+                            `DELETE FROM teacher_daily_availability
+                             WHERE teacher_id = $1 AND date = $2`,
+                            [req.user.id, op.date]
+                        );
+                        if (del.rowCount) deleteCount += del.rowCount;
+                        else updateCount += 1;
+                    } else {
+                        updateCount += 1;
+                    }
+                }
+            });
+
+            res.json({
+                message: '时间安排已保存',
+                insertCount,
+                updateCount,
+                deleteCount
+            });
+        } catch (error) {
+            console.error('原子保存时间安排错误:', error);
+            res.status(500).json({ message: '服务器错误' });
+        }
+    },
+
     // 获取课程安排
     async getSchedules(req, res) {
         try {

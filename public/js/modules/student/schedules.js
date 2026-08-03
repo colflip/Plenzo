@@ -232,20 +232,12 @@ export async function loadSchedules(baseDate, showLoading = true) {
         const startDate = toISODate(weekDates[0]);
         const endDate = toISODate(weekDates[weekDates.length - 1]);
 
-        const response = await fetch(
-            `${API_ENDPOINTS.SCHEDULES}?startDate=${startDate}&endDate=${endDate}${window.studentShowPlan ? '&show_plan=true' : ''}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error('获取课程安排失败');
-        }
-
-        const schedules = await response.json();
+        const endpoint = String(API_ENDPOINTS.SCHEDULES).replace(/^\/api/, '');
+        const schedules = await window.apiUtils.get(endpoint, {
+            startDate,
+            endDate,
+            ...(window.studentShowPlan ? { show_plan: 'true' } : {})
+        });
         cachedSchedules = Array.isArray(schedules) ? schedules : [];
         if (requestId !== scheduleLoadSeq) return;
         renderSchedules(weekDates, cachedSchedules);
@@ -763,19 +755,16 @@ function buildScheduleCard(group) {
 
 async function handleConfirmSchedule(scheduleId) {
     try {
-        const response = await fetch(`${API_ENDPOINTS.CONFIRM_SCHEDULE}/${scheduleId}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('确认课程失败');
-        }
+        const endpoint = `${String(API_ENDPOINTS.CONFIRM_SCHEDULE).replace(/^\/api/, '')}/${scheduleId}`;
+        await window.apiUtils.post(endpoint, {});
 
         showInlineFeedback(elements.feedback(), '课程确认成功', 'success');
-        loadSchedules(currentWeekStart);
+        await loadSchedules(currentWeekStart);
+        window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
+            id: scheduleId,
+            status: 'confirmed',
+            role: 'student'
+        });
     } catch (error) {
         handleApiError(error, '确认课程失败');
     }

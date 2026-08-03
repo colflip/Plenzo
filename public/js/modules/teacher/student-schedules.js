@@ -151,6 +151,11 @@ async function updateScheduleStatus(id, newStatus) {
     if (response && response.error) {
         throw new Error(response.message || '更新失败');
     }
+    window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
+        id,
+        status: newStatus,
+        role: 'teacher'
+    });
     return response;
 }
 

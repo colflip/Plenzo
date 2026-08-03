@@ -1,5 +1,10 @@
 import { API_ENDPOINTS } from './constants.js';
 import { showToast, handleApiError, setText, formatDateTimeDisplay } from './utils.js';
+import { updateSessionUserData } from '../shared/dashboard-kit.js';
+
+function apiPath(endpoint) {
+    return String(endpoint || '').replace(/^\/api/, '');
+}
 
 let profileData = null;
 let isEditing = false;
@@ -157,23 +162,10 @@ async function handlePasswordChange(event) {
             throw new Error('新密码不能与当前密码相同');
         }
 
-        // Call API
-        const response = await fetch(API_ENDPOINTS.PASSWORD_CHANGE || '/student/password', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-                currentPassword: currentPassword,
-                newPassword: newPassword
-            })
+        await window.apiUtils.put(apiPath(API_ENDPOINTS.PASSWORD_CHANGE || '/api/student/password'), {
+            currentPassword: currentPassword,
+            newPassword: newPassword
         });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || '密码修改失败');
-        }
 
         showToast('密码修改成功', 'success');
         closePasswordModalFn();
@@ -185,17 +177,7 @@ async function handlePasswordChange(event) {
 
 export async function loadProfile() {
     try {
-        const response = await fetch(API_ENDPOINTS.PROFILE, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('获取个人信息失败');
-        }
-
-        const data = await response.json();
+        const data = await window.apiUtils.get(apiPath(API_ENDPOINTS.PROFILE));
         profileData = data;
 
         updateProfileDisplay(data);
@@ -313,24 +295,16 @@ async function handleProfileSubmit(event) {
     };
 
     try {
-        const response = await fetch(API_ENDPOINTS.PROFILE, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify(payload)
-        });
+        const updatedData = await window.apiUtils.put(apiPath(API_ENDPOINTS.PROFILE), payload);
+        profileData = { ...profileData, ...payload, ...updatedData };
 
-        if (!response.ok) {
-            throw new Error('更新个人信息失败');
-        }
-
-        const updatedData = await response.json();
-        profileData = { ...profileData, ...updatedData };
-
-        showToast('个人信息更新成功', 'success');
+        updateSessionUserData(profileData);
         updateProfileDisplay(profileData);
+        window.eventBus?.emit(window.EVENTS?.PROFILE_UPDATED || 'profile:updated', {
+            profile: { id: profileData.id, name: profileData.name, nickname: profileData.nickname },
+            role: 'student'
+        });
+        showToast('个人信息更新成功', 'success');
         isEditing = false;
         toggleFormFields(true);
         toggleButtons(false);

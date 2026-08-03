@@ -1,4 +1,6 @@
 import { API_ENDPOINTS, TIME_SLOT_CONFIG, EMPTY_STATES } from './constants.js';
+
+let availabilityLoadSeq = 0;
 import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
@@ -55,6 +57,7 @@ function bindEvents() {
 }
 
 export async function loadAvailability(baseDate, showLoading = true) {
+    const requestId = ++availabilityLoadSeq;
     const weekStart = getWeekStart(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -78,31 +81,26 @@ export async function loadAvailability(baseDate, showLoading = true) {
         const startDate = toISODate(weekDates[0]);
         const endDate = toISODate(weekDates[weekDates.length - 1]);
 
-        const response = await fetch(
-            `${API_ENDPOINTS.AVAILABILITY}?startDate=${startDate}&endDate=${endDate}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error('获取时间安排失败');
-        }
-
-        const data = await response.json();
+        const endpoint = String(API_ENDPOINTS.AVAILABILITY).replace(/^\/api/, '');
+        const data = await window.apiUtils.get(endpoint, { startDate, endDate });
+        if (requestId !== availabilityLoadSeq) return;
 
         availabilityState = buildStateFromResponse(weekDates, data);
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
+        const saveBtn = elements.saveBtn();
+        if (saveBtn) saveBtn.disabled = false;
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
-        
-        availabilityState = buildStateFromResponse(weekDates, []);
-        originalState = cloneState(availabilityState);
-        renderTable(weekDates, availabilityState);
-        showInlineFeedback(elements.feedback(), '暂时无法获取最新的时间安排，已显示默认空白表格，请稍后重试', 'error');
+        if (requestId !== availabilityLoadSeq) return;
+        // 加载失败：渲染明确错误态，禁止编辑，避免空白可编辑表格误导用户（R3）。
+        const container = document.querySelector('#availability .schedule-unified-card') || document.querySelector('#availability');
+        if (container) {
+            renderAvailabilityErrorState(container, currentWeekStart, '空闲时段加载失败，暂时无法编辑。请点击重试。');
+        }
+        const saveBtn = elements.saveBtn();
+        if (saveBtn) saveBtn.disabled = true;
+        showInlineFeedback(elements.feedback(), '空闲时段加载失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
         if (showLoading && tableContainer && window.hideTableLoading) {
@@ -151,6 +149,57 @@ function renderTable(weekDates, state) {
         renderHeader(weekDates);
         renderBody(weekDates, state);
     }
+}
+
+// R3：空闲时段加载失败时的明确错误态（横幅 + 重试 + 禁用编辑）。
+function renderAvailabilityErrorState(container, weekStart, message) {
+    clearChildren(container);
+
+    const banner = createElement('div', 'availability-error-banner');
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = [
+        'display:flex',
+        'flex-direction:column',
+        'align-items:center',
+        'justify-content:center',
+        'gap:12px',
+        'padding:32px 16px',
+        'margin:16px 0',
+        'border:1px dashed #f0a9a9',
+        'border-radius:12px',
+        'background:#fff5f5',
+        'color:#b42318',
+        'text-align:center'
+    ].join(';');
+
+    const icon = createElement('div', 'availability-error-icon');
+    icon.textContent = '⚠️';
+    icon.style.cssText = 'font-size:28px;';
+
+    const text = createElement('div', 'availability-error-text');
+    text.textContent = message;
+
+    const retry = createElement('button', 'btn-retry-availability');
+    retry.type = 'button';
+    retry.id = 'availabilityRetryBtn';
+    retry.textContent = '重试';
+    retry.style.cssText = [
+        'padding:8px 18px',
+        'border:none',
+        'border-radius:8px',
+        'background:#b42318',
+        'color:#fff',
+        'font-weight:600',
+        'cursor:pointer'
+    ].join(';');
+    retry.addEventListener('click', () => {
+        loadAvailability(weekStart, true);
+    });
+
+    banner.appendChild(icon);
+    banner.appendChild(text);
+    banner.appendChild(retry);
+    container.appendChild(banner);
 }
 
 
@@ -397,20 +446,14 @@ async function saveAvailability() {
             actionButton.textContent = '保存中...';
         }
 
-        const response = await fetch(API_ENDPOINTS.AVAILABILITY, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({ availabilityList })
+        const endpoint = String(API_ENDPOINTS.AVAILABILITY).replace(/^\/api/, '');
+        await window.apiUtils.post(endpoint, { availabilityList });
+        // Rebuild the baseline from the server instead of trusting the edited client state.
+        await loadAvailability(currentWeekStart, false);
+        window.eventBus?.emit(window.EVENTS?.AVAILABILITY_UPDATED || 'availability:updated', {
+            role: 'student',
+            weekStart: toISODate(currentWeekStart)
         });
-
-        if (!response.ok) {
-            throw new Error('保存时间安排失败');
-        }
-
-        originalState = cloneState(availabilityState);
         showTimedFeedback('时间安排已保存', 'success');
     } catch (error) {
         let errorMsg = '保存失败，请稍后重试';

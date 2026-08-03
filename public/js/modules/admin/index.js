@@ -6,7 +6,6 @@
 import * as UserManager from './user-manager.js';
 import * as ScheduleManager from './schedule-manager.js';
 import * as UIHelper from './ui-helper.js';
-import { StatisticsManager } from './statistics.js';
 import * as Overview from './overview.js';
 import * as UILayout from './ui-layout.js';
 import * as ScheduleUtils from './schedule-utils.js';
@@ -18,7 +17,6 @@ import * as aiAssistant from '../shared/ai-assistant-redesign.js';
 window.UserManager = UserManager;
 window.ScheduleManager = ScheduleManager;
 window.UIHelper = UIHelper;
-window.StatisticsManager = StatisticsManager;
 window.Overview = Overview;
 window.UILayout = UILayout;
 window.ScheduleUtils = ScheduleUtils;
@@ -71,6 +69,46 @@ const globalExports = {
 
 Object.assign(window, globalExports);
 
+function refreshAdminSection(sectionId, refresher) {
+    const section = document.getElementById(sectionId);
+    if (section?.classList.contains('active')) {
+        Promise.resolve(refresher()).catch(() => {});
+    }
+}
+
+function setupDataSyncSubscriptions() {
+    if (!window.eventBus || window.__adminSyncSubscriptionsBound) return;
+    window.__adminSyncSubscriptionsBound = true;
+
+    const scheduleEvents = [
+        window.EVENTS?.SCHEDULE_CREATED || 'schedule:created',
+        window.EVENTS?.SCHEDULE_UPDATED || 'schedule:updated',
+        window.EVENTS?.SCHEDULE_DELETED || 'schedule:deleted',
+        window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged'
+    ];
+    scheduleEvents.forEach(eventName => {
+        window.eventBus.on(eventName, () => {
+            refreshAdminSection('overview', Overview.loadOverviewStats);
+            refreshAdminSection('schedule', () => ScheduleManager.loadSchedules(true, false));
+            refreshAdminSection('statistics', () => window.loadStatistics?.());
+        });
+    });
+
+    window.eventBus.on(window.EVENTS?.USER_CHANGED || 'user:changed', detail => {
+        if (detail?.action === 'invalidate') return;
+        refreshAdminSection('overview', Overview.loadOverviewStats);
+        const activeType = window.__usersState?.type || detail?.type;
+        if (activeType && detail?.type === activeType) {
+            refreshAdminSection('users', () => UserManager.loadUsers(activeType, { reset: true }));
+        }
+    });
+
+    window.eventBus.on(window.EVENTS?.SCHEDULE_TYPE_CHANGED || 'scheduleType:changed', () => {
+        refreshAdminSection('schedule', () => ScheduleManager.loadSchedules(false, false));
+        refreshAdminSection('statistics', () => window.loadStatistics?.());
+    });
+}
+
 // Initialize Listeners
 document.addEventListener('DOMContentLoaded', () => {
     UserManager.setupUserEventListeners();
@@ -79,11 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
     HolidayManager.setupHolidayEventListeners();
     FeedbackManager.setupFeedbackEventListeners();
 
-    // Init Statistics
-    StatisticsManager.init();
-
     // Init AI Assistant (右下角悬浮按钮)
     aiAssistant.init({ role: 'admin' });
+    setupDataSyncSubscriptions();
 
     // Init AI Models Manager
     if (typeof initAIModelsManager === 'function') {

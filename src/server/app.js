@@ -99,17 +99,87 @@ app.use('/api/health', require('./routes/health'));
 app.use('/api/meta', require('./routes/meta'));
 app.use('/api/ai', require('./routes/ai'));
 
+const dashboardPages = {
+    admin: path.join(__dirname, '../../public/admin/dashboard.html'),
+    teacher: path.join(__dirname, '../../public/teacher/dashboard.html'),
+    student: path.join(__dirname, '../../public/student/dashboard.html')
+};
+
+const dashboardSections = {
+    admin: new Set(['overview', 'users', 'availability-mgmt', 'schedule', 'statistics', 'system-settings']),
+    teacher: new Set(['overview', 'profile', 'availability', 'schedules', 'teaching-display', 'student-schedules']),
+    student: new Set(['overview', 'profile', 'availability', 'schedules', 'teaching-display'])
+};
+
+// 静态资源版本化：给 HTML 中本地 /js、/css、/assets 引用注入 ?v=<shortSha>，
+// 并令 HTML 本身 no-cache，确保部署后用户立即拿到新模块（详见 outputs/risk-improvement-plan.md R1）。
+const fs = require('fs');
+const { injectAssetVersion } = require('./utils/assetVersion');
+const { getVersionMeta } = require('./services/versionService');
+
+let cachedVersionMeta = null;
+async function getAssetVersion() {
+    if (!cachedVersionMeta) {
+        try {
+            cachedVersionMeta = await getVersionMeta();
+        } catch (_) {
+            cachedVersionMeta = { shortSha: 'dev' };
+        }
+    }
+    return cachedVersionMeta.shortSha || 'dev';
+}
+
+const versionedHtmlCache = new Map(); // filePath -> { version, html }
+
+async function sendVersionedDashboard(res, filePath) {
+    const version = await getAssetVersion();
+    let entry = versionedHtmlCache.get(filePath);
+    if (!entry || entry.version !== version) {
+        const raw = await fs.promises.readFile(filePath, 'utf8');
+        entry = { version, html: injectAssetVersion(raw, version) };
+        versionedHtmlCache.set(filePath, entry);
+    }
+    res.set('Cache-Control', 'no-cache');
+    res.send(entry.html);
+}
+
+function serveDashboardSection(role) {
+    return async (req, res, next) => {
+        if (!dashboardSections[role].has(req.params.section)) return next();
+        try {
+            await sendVersionedDashboard(res, dashboardPages[role]);
+        } catch (err) {
+            console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+            res.sendFile(dashboardPages[role]);
+        }
+    };
+}
+
+// 仪表盘菜单使用路径驱动的区块路由。服务端仅对已登记的菜单路径返回同一壳层，
+// 由前端按 pathname 激活对应页面，以便刷新、深链接和浏览器前进/后退均可用。
 app.get(['/admin/dashboard', '/admin/dashboard.html', '/admin/'], (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/admin/dashboard.html'));
+    sendVersionedDashboard(res, dashboardPages.admin).catch(err => {
+        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        res.sendFile(dashboardPages.admin);
+    });
 });
+app.get(['/admin/dashboard/:section', '/admin/dashboard.html/:section'], serveDashboardSection('admin'));
 
 app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/teacher/dashboard.html'));
+    sendVersionedDashboard(res, dashboardPages.teacher).catch(err => {
+        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        res.sendFile(dashboardPages.teacher);
+    });
 });
+app.get(['/teacher/dashboard/:section', '/teacher/dashboard.html/:section'], serveDashboardSection('teacher'));
 
 app.get(['/student/dashboard', '/student/dashboard.html', '/student/'], (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/student/dashboard.html'));
+    sendVersionedDashboard(res, dashboardPages.student).catch(err => {
+        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        res.sendFile(dashboardPages.student);
+    });
 });
+app.get(['/student/dashboard/:section', '/student/dashboard.html/:section'], serveDashboardSection('student'));
 
 app.use(notFoundHandler);
 

@@ -1,5 +1,6 @@
 import { getStatusLabel } from './constants.js';
 import { formatDateTimeDisplay, setText } from './utils.js';
+import { updateSessionUserData } from '../shared/dashboard-kit.js';
 
 const STATUS_TEXT_MAP = Object.freeze({
     '1': '正常',
@@ -124,7 +125,7 @@ function bindPasswordModalActions() {
     }
 }
 
-async function loadProfile() {
+export async function loadProfile() {
     try {
         const profile = await window.apiUtils.get('/teacher/profile');
         cachedProfile = profile;
@@ -359,14 +360,19 @@ async function saveProfile() {
             ...payload,
             ...updated
         };
-        window.apiUtils.showSuccessToast('个人信息更新成功');
+        updateSessionUserData(cachedProfile);
         renderProfile(cachedProfile);
+        window.eventBus?.emit(window.EVENTS?.PROFILE_UPDATED || 'profile:updated', {
+            profile: { id: cachedProfile.id, name: cachedProfile.name, nickname: cachedProfile.nickname },
+            role: 'teacher'
+        });
+        window.apiUtils.showSuccessToast('个人信息更新成功');
     } catch (error) {
-        
         window.apiUtils.showErrorToast(error);
-    } finally {
-        disableEditMode(false);
+        // Keep edit mode and user input so the user can correct and retry.
+        return;
     }
+    disableEditMode(false);
 }
 
 // ============ 学生管理功能 ============

@@ -1427,6 +1427,11 @@ export async function updateScheduleStatus(id, newStatus) {
         }
         optimisticUpdate(id, { status: newStatus });
         if (row) row.classList.remove('optimistic-loading');
+        window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
+            id,
+            status: newStatus,
+            role: 'admin'
+        });
 
         window.apiUtils.showSuccessToast('状态已更新');
     } catch (err) {
@@ -1494,6 +1499,11 @@ export async function deleteSchedule(id) {
             // 如果定位失败，执行无动画的周视图重绘
             await loadSchedules(false, false);
         }
+        window.eventBus?.emit(window.EVENTS?.SCHEDULE_DELETED || 'schedule:deleted', {
+            id,
+            studentId,
+            dateKey
+        });
     } catch (err) {
         // 回滚UI
         rollbackOperation(backup, 'delete');
@@ -1864,6 +1874,10 @@ export async function setupScheduleEventListeners() {
             const btn = document.getElementById('scheduleFormSubmit');
             const mode = form.dataset.mode;
             const id = form.dataset.id;
+            let snapshot = {};
+            try { snapshot = JSON.parse(form.dataset.snapshot || '{}'); } catch (_) { snapshot = {}; }
+            const oldStudentId = snapshot.student_id || snapshot.student_ids?.[0] || null;
+            const oldDateKey = snapshot.date || snapshot.class_date || null;
 
             const teacherId = form.querySelector('#scheduleTeacher').value || null;
             const studentId = form.querySelector('#scheduleStudent').value;
@@ -1984,10 +1998,26 @@ export async function setupScheduleEventListeners() {
 
                 if (finalStudentId && finalDateKey) {
                     await refreshCell(finalStudentId, finalDateKey);
+                    // Editing a schedule can move it. Refresh the old location as well.
+                    if (mode === 'edit' && oldStudentId && oldDateKey &&
+                        (String(oldStudentId) !== String(finalStudentId) || oldDateKey !== finalDateKey)) {
+                        await refreshCell(oldStudentId, oldDateKey);
+                    }
                 } else {
                     // 如果定位失败，退回到局部刷新策略（不触发全局 Loading 动画）
                     await loadSchedules(true, false);
                 }
+                const eventName = mode === 'add'
+                    ? (window.EVENTS?.SCHEDULE_CREATED || 'schedule:created')
+                    : (window.EVENTS?.SCHEDULE_UPDATED || 'schedule:updated');
+                window.eventBus?.emit(eventName, {
+                    id,
+                    studentId: finalStudentId,
+                    dateKey: finalDateKey,
+                    oldStudentId,
+                    oldDateKey
+                });
+                window.apiUtils?.showSuccessToast(mode === 'add' ? '排课添加成功' : '排课更新成功');
             } catch (err) {
 
 

@@ -108,20 +108,8 @@ export function appendUserRow(type, user) {
 // 分页加载用户列表，支持搜索与虚拟滚动
 // 全量更新本地用户缓存（用于导出等功能）
 export async function refreshFullUserCache(type) {
-    if (!window.apiUtils) return;
-    if (!type) {
-        refreshFullUserCache('student');
-        refreshFullUserCache('teacher');
-        return;
-    }
-    const storageKey = type === 'student' ? 'cached_students_full' : 'cached_teachers_full';
-    try {
-        // 
-        const response = await window.apiUtils.get(`/admin/users/${type}`);
-        const list = Array.isArray(response) ? response : (response.data || []);
-        localStorage.setItem(storageKey, JSON.stringify(list));
-    } catch (e) {
-        
+    if (window.UserManager?.refreshFullUserCache) {
+        return window.UserManager.refreshFullUserCache(type);
     }
 }
 

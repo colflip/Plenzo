@@ -20,6 +20,8 @@ router.put('/password', authMiddleware, teacherOnly, teacherController.changePas
 router.get('/availability', authMiddleware, teacherOnly, teacherController.getAvailability);
 router.post('/availability', authMiddleware, teacherOnly, teacherController.setAvailability);
 router.delete('/availability', authMiddleware, teacherOnly, teacherController.deleteAvailability);
+// R2（选项 B）：原子保存。单事务内 upsert 提及项 + DELETE 提及项，未提及保留。
+router.put('/availability', authMiddleware, teacherOnly, teacherController.replaceAvailability);
 
 // 课程安排
 router.get('/schedules', authMiddleware, teacherOnly, teacherController.getSchedules);

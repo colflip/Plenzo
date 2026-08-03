@@ -14,6 +14,7 @@ let currentWeekStart = null;
 let availabilityState = new Map();
 let originalState = new Map();
 let pendingFeedbackTimeout = null;
+let availabilityLoadSeq = 0;
 
 const elements = {
     header: () => document.getElementById('weeklyHeaderAvail'),
@@ -44,6 +45,7 @@ function bindEvents() {
 }
 
 export async function loadAvailability(baseDate, showLoading = true) {
+    const requestId = ++availabilityLoadSeq;
     const weekStart = getWeekStart(baseDate);
     currentWeekStart = weekStart;
     const weekDates = getWeekDates(weekStart);
@@ -70,17 +72,24 @@ export async function loadAvailability(baseDate, showLoading = true) {
             startDate,
             endDate
         });
+        if (requestId !== availabilityLoadSeq) return;
 
         availabilityState = buildStateFromResponse(weekDates, response);
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
+        const saveBtn = elements.saveBtn();
+        if (saveBtn) saveBtn.disabled = false;
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
-        
-        availabilityState = buildStateFromResponse(weekDates, []);
-        originalState = cloneState(availabilityState);
-        renderTable(weekDates, availabilityState);
-        showInlineFeedback(elements.feedback(), '暂时无法获取最新的时间安排，已显示默认空白表格，请稍后重试', 'error');
+        if (requestId !== availabilityLoadSeq) return;
+        // 加载失败：渲染明确错误态，禁止编辑，避免空白可编辑表格误导用户（R3）。
+        const container = document.querySelector('#availability .schedule-unified-card') || document.querySelector('#availability');
+        if (container) {
+            renderAvailabilityErrorState(container, currentWeekStart, '空闲时段加载失败，暂时无法编辑。请点击重试。');
+        }
+        const saveBtn = elements.saveBtn();
+        if (saveBtn) saveBtn.disabled = true;
+        showInlineFeedback(elements.feedback(), '空闲时段加载失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
         if (showLoading && tableContainer && window.hideTableLoading) {
@@ -131,6 +140,57 @@ function renderTable(weekDates, state) {
         renderHeader(weekDates);
         renderBody(weekDates, state);
     }
+}
+
+// R3：空闲时段加载失败时的明确错误态（横幅 + 重试 + 禁用编辑）。
+function renderAvailabilityErrorState(container, weekStart, message) {
+    clearChildren(container);
+
+    const banner = createElement('div', 'availability-error-banner');
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = [
+        'display:flex',
+        'flex-direction:column',
+        'align-items:center',
+        'justify-content:center',
+        'gap:12px',
+        'padding:32px 16px',
+        'margin:16px 0',
+        'border:1px dashed #f0a9a9',
+        'border-radius:12px',
+        'background:#fff5f5',
+        'color:#b42318',
+        'text-align:center'
+    ].join(';');
+
+    const icon = createElement('div', 'availability-error-icon');
+    icon.textContent = '⚠️';
+    icon.style.cssText = 'font-size:28px;';
+
+    const text = createElement('div', 'availability-error-text');
+    text.textContent = message;
+
+    const retry = createElement('button', 'btn-retry-availability');
+    retry.type = 'button';
+    retry.id = 'availabilityRetryBtn';
+    retry.textContent = '重试';
+    retry.style.cssText = [
+        'padding:8px 18px',
+        'border:none',
+        'border-radius:8px',
+        'background:#b42318',
+        'color:#fff',
+        'font-weight:600',
+        'cursor:pointer'
+    ].join(';');
+    retry.addEventListener('click', () => {
+        loadAvailability(weekStart, true);
+    });
+
+    banner.appendChild(icon);
+    banner.appendChild(text);
+    banner.appendChild(retry);
+    container.appendChild(banner);
 }
 
 
@@ -445,14 +505,14 @@ async function submitAvailabilityPayload(payload) {
             return;
         }
 
-        if (updates.length > 0) {
-            await window.apiUtils.post('/teacher/availability', { availabilityList: updates });
-        }
-        if (removals.length > 0) {
-            await window.apiUtils.delete('/teacher/availability', { body: { records: removals } });
-        }
+        // R2（选项 B）：单次原子 PUT，单事务内 upsert 提及项 + DELETE 提及项，未提及保留。
+        await window.apiUtils.put('/teacher/availability', { updates, removals });
 
-        originalState = cloneState(availabilityState);
+        await loadAvailability(currentWeekStart, false);
+        window.eventBus?.emit(window.EVENTS?.AVAILABILITY_UPDATED || 'availability:updated', {
+            role: 'teacher',
+            weekStart: toISODate(currentWeekStart)
+        });
         showTimedFeedback('时间安排已保存', 'success');
     } catch (error) {
         
