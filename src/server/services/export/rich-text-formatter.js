@@ -8,6 +8,7 @@
  */
 
 const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS } = require('./export-constants');
+const ScheduleMarkerPolicy = require('../../../../public/js/utils/schedule-marker-policy');
 
 class RichTextFormatter {
     /**
@@ -121,7 +122,8 @@ class RichTextFormatter {
      *   计划列 = adj ∈ {0, null} 的课（含 cancelled/modified_away，dim 渲染）
      *   实际列 = status ∉ {cancelled, deleted, modified_away} 的课
      *   评审/咨询 合并键 = (归一化显示类型, 时段, 地点, 学生)，不含状态/标记
-     *   多人合并行若标记全员一致则提到课程前；单人或部分人员有标记时跟随对应老师
+     *   单人标记放课程前；多人全员有标记时多数标记放课程前（并列时 ~ 优先），少数标记跟老师
+     *   多人中存在无标记成员时，已有标记全部跟随对应老师
      *
      * @param {Array} schedules - 课程列表（已剔除 deleted，保留 cancelled/modified_away）
      * @param {boolean} isSingleStudent - 是否为单学生模式
@@ -248,33 +250,45 @@ class RichTextFormatter {
                     .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
                 const records = group.filter(it => it.isRecord)
                     .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
-                const all = [...regular, ...records];
+                const all = [...regular, ...records].filter((it, index, array) => {
+                    const teacherId = it.s.teacher_id || '';
+                    const teacherName = it.s.teacher_name || '';
+                    const key = `${teacherId}|${teacherName}|${it.isRecord}|${it.marker}`;
+                    return array.findIndex(candidate => {
+                        const candidateId = candidate.s.teacher_id || '';
+                        const candidateName = candidate.s.teacher_name || '';
+                        return `${candidateId}|${candidateName}|${candidate.isRecord}|${candidate.marker}` === key;
+                    }) === index;
+                });
 
-                // 组内标记是否一致且非空 → 提为整行前导上标（免去每位老师前重复）
-                const firstMarker = all[0].marker;
-                const uniformMarker = firstMarker !== '' &&
-                    all.every(it => it.marker === firstMarker);
+                const markerPlacement = ScheduleMarkerPolicy.resolve(
+                    all.map(it => it.marker)
+                );
+                const { courseMarker, teacherMarkers } = markerPlacement;
 
                 const sn = all[0].s.student_name;
                 const studentPrefix = isSingleStudent ? '' : `[${sn}]`;
                 const coursePrefix = `${dt}(${ts})：`;
 
-                if (uniformMarker) {
-                    // 标识位于课程名前；全学生模式仍先显示 [学生]，避免把标识误解为学生标识。
-                    if (studentPrefix) {
-                        actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
-                    }
-                    actualLines.push([{ text: firstMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
-                    actualLines.push([{ text: coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
-                } else {
-                    actualLines.push([{ text: studentPrefix + coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                if (studentPrefix) {
+                    actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
                 }
+                if (courseMarker) {
+                    actualLines.push([{ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
+                }
+                actualLines.push([{
+                    text: coursePrefix,
+                    colorType,
+                    dim: false,
+                    isSuperscript: false,
+                    startsLine: !studentPrefix && !courseMarker
+                }, timeSortKey]);
 
                 for (let i = 0; i < all.length; i++) {
                     const it = all[i];
-                    // 非 uniform：该老师有 +/~ 则先插入上标 run（跟老师走，不换行）
-                    if (!uniformMarker && it.marker) {
-                        actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
+                    const teacherMarker = teacherMarkers[i];
+                    if (teacherMarker) {
+                        actualLines.push([{ text: teacherMarker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
                     }
                     const teacherText = it.isRecord
                         ? `${it.s.teacher_name || ''}（记录）`
@@ -283,7 +297,6 @@ class RichTextFormatter {
                     actualLines.push([{ text: teacherText + sep, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
                 }
             } else {
-                // 非合并单条：标记为独立上标 run（与合并组一致，字号统一）
                 const it = group[0];
                 const dtDisp = it.isRecord
                     ? RichTextFormatter.getFoldedDisplayType(it.s)
@@ -291,15 +304,25 @@ class RichTextFormatter {
                 const teacherDisp = it.isRecord
                     ? `${it.s.teacher_name || ''}（记录）`
                     : (it.s.teacher_name || '');
-                const coursePrefix = isSingleStudent
-                    ? `${dtDisp}(${ts})：`
-                    : `[${it.s.student_name || ''}]${dtDisp}(${ts})：`;
-                // 单人课程的标记跟随老师：课程前缀先承载换行，标记紧邻老师名称。
-                actualLines.push([{ text: coursePrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
-                if (it.marker) {
-                    actualLines.push([{ text: it.marker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
+                const studentPrefix = isSingleStudent
+                    ? ''
+                    : `[${it.s.student_name || ''}]`;
+                const coursePrefix = `${dtDisp}(${ts})：`;
+                const { courseMarker } = ScheduleMarkerPolicy.resolve([it.marker]);
+
+                if (studentPrefix) {
+                    actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
                 }
-                actualLines.push([{ text: teacherDisp, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
+                if (courseMarker) {
+                    actualLines.push([{ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
+                }
+                actualLines.push([{
+                    text: coursePrefix + teacherDisp,
+                    colorType,
+                    dim: false,
+                    isSuperscript: false,
+                    startsLine: !studentPrefix && !courseMarker
+                }, timeSortKey]);
             }
         }
 
