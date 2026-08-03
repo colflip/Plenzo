@@ -502,8 +502,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 }
             });
 
-            // 构建课程类型文本及标识分段。
-            // 多人同课程全员标记一致时，标识放到课程名前；单人或部分人员带标识时，跟随老师名称。
+            // 构建课程类型文本及标识分段，具体位置由共享策略统一判定。
             const buildTypeParts = (items) => {
                 const allTypes = items.map(r => r._typeName || '');
                 const typeGroups = {};
@@ -552,20 +551,32 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                             return idA - idB;
                         });
 
-                        const firstMarker = markerOf(typeItems[0]);
-                        const uniformMarker = !isPlanList && typeItems.length > 1 && firstMarker &&
-                            typeItems.every(item => markerOf(item) === firstMarker);
-                        const teacherContents = typeItems.map(item => {
+                        const displayItems = typeItems.filter((item, index, array) => {
+                            const teacherId = item.teacher_id || item.id || item['教师ID'] || '';
+                            const teacherName = item.teacher_name || item.name || '-';
+                            const isRecord = item._typeName && item._typeName.includes('记录');
+                            const marker = markerOf(item);
+                            const key = `${teacherId}|${teacherName}|${isRecord}|${marker}`;
+                            return array.findIndex(candidate => {
+                                const candidateId = candidate.teacher_id || candidate.id || candidate['教师ID'] || '';
+                                const candidateName = candidate.teacher_name || candidate.name || '-';
+                                const candidateIsRecord = candidate._typeName && candidate._typeName.includes('记录');
+                                return `${candidateId}|${candidateName}|${candidateIsRecord}|${markerOf(candidate)}` === key;
+                            }) === index;
+                        });
+                        const itemMarkers = isPlanList
+                            ? displayItems.map(() => '')
+                            : displayItems.map(markerOf);
+                        const markerPlacement = window.ScheduleMarkerPolicy.resolve(itemMarkers);
+                        const teacherContents = displayItems.map((item, index) => {
                             const tName = item.teacher_name || item.name || '-';
                             const isRecord = item._typeName && item._typeName.includes('记录');
                             const teacherName = isRecord ? `${tName}（记录）` : tName;
-                            const marker = !isPlanList && !uniformMarker ? markerOf(item) : '';
+                            const marker = markerPlacement.teacherMarkers[index] === '+' ? '⁺' : markerPlacement.teacherMarkers[index];
                             return `${marker}${teacherName}`;
                         });
-
-                        const uniqueTeacherContents = [...new Set(teacherContents)];
-                        const courseMarker = uniformMarker ? firstMarker : '';
-                        typeTexts.push(`${courseMarker}${mType}${cell.timeStr}：${uniqueTeacherContents.join('，')}`);
+                        const courseMarker = markerPlacement.courseMarker === '+' ? '⁺' : markerPlacement.courseMarker;
+                        typeTexts.push(`${courseMarker}${mType}${cell.timeStr}：${teacherContents.join('，')}`);
                     });
 
                 return typeTexts;

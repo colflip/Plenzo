@@ -97,7 +97,13 @@
         maxWaitMs = maxWaitMs || 10000;
         const start = Date.now();
         while (Date.now() - start < maxWaitMs) {
-            if (window.html2canvas && window.ExportManager && typeof window.ExportManager.transformExportData === 'function') {
+            if (
+                window.html2canvas &&
+                window.ExportManager &&
+                typeof window.ExportManager.transformExportData === 'function' &&
+                window.ScheduleMarkerPolicy &&
+                typeof window.ScheduleMarkerPolicy.tokenizeDisplayText === 'function'
+            ) {
                 return true;
             }
             await new Promise(r => setTimeout(r, 200));
@@ -120,6 +126,8 @@
                 if (window.apiUtils) window.apiUtils.showToast('截图组件 html2canvas 加载失败，请刷新页面重试', 'error');
             } else if (!window.ExportManager) {
                 if (window.apiUtils) window.apiUtils.showToast('导出组件 ExportManager 加载失败，请刷新页面重试', 'error');
+            } else if (!window.ScheduleMarkerPolicy) {
+                if (window.apiUtils) window.apiUtils.showToast('导出标识组件加载失败，请刷新页面重试', 'error');
             } else {
                 if (window.apiUtils) window.apiUtils.showToast('导出组件加载中，请稍后再试', 'warning');
             }
@@ -537,6 +545,24 @@
         });
     }
 
+    function appendTextWithMarkerSuperscripts(parent, text, color, italic) {
+        const tokens = window.ScheduleMarkerPolicy.tokenizeDisplayText(text);
+        tokens.forEach(token => {
+            const element = document.createElement(token.isMarker ? 'sup' : 'span');
+            element.textContent = token.text;
+            element.style.color = color;
+            if (italic) element.style.fontStyle = 'italic';
+            if (token.isMarker) {
+                element.dataset.scheduleMarker = token.text;
+                element.style.fontSize = '7pt';
+                element.style.lineHeight = '0';
+                element.style.verticalAlign = 'super';
+                element.style.fontStyle = 'normal';
+            }
+            parent.appendChild(element);
+        });
+    }
+
     function renderTextParts(td, parts) {
         const S = WEEKLY_VIEW_STYLE;
         td.style.color = S.defaultText;
@@ -547,17 +573,13 @@
                 sep.textContent = '；';
                 td.appendChild(sep);
             }
-            const span = document.createElement('span');
             let color = S.defaultText;
             let italic = false;
             if (p.isCancelled) { color = S.cancelledText; italic = true; }
             else if (p.isModifiedAway) { color = S.modifiedAwayText; italic = true; }
             else if (p.isPlanDimmed) { italic = true; color = p.isRed ? '#FF8080' : S.cancelledText; }
             else if (p.isRed) { color = S.reviewText; }
-            span.style.color = color;
-            if (italic) span.style.fontStyle = 'italic';
-            span.textContent = p.text;
-            td.appendChild(span);
+            appendTextWithMarkerSuperscripts(td, p.text, color, italic);
         });
     }
 
