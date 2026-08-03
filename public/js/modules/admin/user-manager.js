@@ -165,6 +165,7 @@ async function handleUserFormSubmit(e) {
             closeUserFormModal();
             appendUserRow(type, newUser);
             refreshLocalCache(type, newUser);
+            invalidateUserCaches(type, newUser?.id);
             logOperation('createUser', 'success', { type, username });
             if (window.apiUtils) window.apiUtils.showSuccessToast('用户已添加');
 
@@ -172,17 +173,28 @@ async function handleUserFormSubmit(e) {
             try {
                 const confirmItem = await withRetry(() => window.apiUtils.get(`/admin/users/${type}/${newUser.id}`));
                 if (confirmItem) {
-                    loadUsers(type, { reset: true }); // refresh table
-                    refreshFullUserCache(type);
+                    await Promise.allSettled([
+                        loadUsers(type, { reset: true }),
+                        refreshFullUserCache(type)
+                    ]);
+                    window.eventBus?.emit(window.EVENTS?.USER_CHANGED || 'user:changed', {
+                        action: 'create', type, userId: newUser.id
+                    });
                 }
             } catch (e) { console.warn('[UserManager] 刷新用户缓存失败:', e.message); }
         } else {
             await withRetry((attempt, isFinal) => window.apiUtils.put(`/admin/users/${type}/${id}`, body, { suppressErrorToast: !isFinal }));
+            invalidateUserCaches(type, id);
             closeUserFormModal();
             logOperation('updateUser', 'success', { type, id });
             if (window.apiUtils) window.apiUtils.showSuccessToast('保存成功');
-            loadUsers(type, { reset: true });
-            refreshFullUserCache(type);
+            await Promise.allSettled([
+                loadUsers(type, { reset: true }),
+                refreshFullUserCache(type)
+            ]);
+            window.eventBus?.emit(window.EVENTS?.USER_CHANGED || 'user:changed', {
+                action: 'update', type, userId: id
+            });
         }
 
     } catch (err) {
@@ -204,9 +216,25 @@ function refreshLocalCache(type, newUser) {
     window.__usersCache[type] = list.concat(newUser);
 }
 
+function invalidateUserCaches(type, userId = null) {
+    window.__usersCache = window.__usersCache || {};
+    window.__usersCache[type] = null;
+    const storageKey = `cached_${type}s_full`;
+    try { localStorage.removeItem(storageKey); } catch (_) { }
+    if (window.WeeklyDataStore) {
+        if (type === 'student') window.WeeklyDataStore.students = { list: [], loadedAt: 0 };
+        if (type === 'teacher') window.WeeklyDataStore.teachers = { list: [], loadedAt: 0 };
+    }
+    window.eventBus?.emit(window.EVENTS?.USER_CHANGED || 'user:changed', {
+        action: 'invalidate', type, userId
+    });
+}
+
 export async function loadUsers(type, opts = {}) {
+    const requestedType = type || window.__usersState?.type || 'teacher';
+    let requestGuard = null;
     try {
-        const initialType = type || 'teacher';
+        const initialType = requestedType;
         window.__usersState = window.__usersState || {
             type: initialType,
             page: 1,
@@ -221,6 +249,7 @@ export async function loadUsers(type, opts = {}) {
             state.type = type;
             state.page = 1;
             state.hasMore = true;
+            state.loading = false;
             const tbody = document.getElementById('usersTableBody');
             if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
             window.__usersCache = window.__usersCache || {};
@@ -238,6 +267,7 @@ export async function loadUsers(type, opts = {}) {
         if (opts.reset) {
             state.page = 1;
             state.hasMore = true;
+            state.loading = false;
             const tbody = document.getElementById('usersTableBody');
             if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
             window.__usersCache = window.__usersCache || {};
@@ -312,13 +342,20 @@ export async function loadUsers(type, opts = {}) {
             showTableLoading(tableContainer, loadingText);
         }
 
-        // 4. 设置加载状态
+        // 4. 设置加载状态，并固定本次请求的资源快照。
+        // 切换角色/重置列表会提升序号，旧响应不能再覆盖新列表。
+        const requestType = state.type;
+        const requestPage = state.page;
+        requestGuard = window.syncGuards?.nextRequest(`admin:users:list:${requestType}`);
         state.loading = true;
 
-        const data = await window.apiUtils.get(`/admin/users/${state.type}`, {
-            page: state.page,
+        const data = await window.apiUtils.get(`/admin/users/${requestType}`, {
+            page: requestPage,
             size: state.pageSize
         });
+
+        if (requestGuard && !requestGuard.isCurrent()) return;
+        if (state.type !== requestType || (opts.append && state.page !== requestPage)) return;
 
         const users = Array.isArray(data) ? data : (data.users || data.data || data.results || []);
 
@@ -338,7 +375,7 @@ export async function loadUsers(type, opts = {}) {
         }
 
         // 对教师数据按ID升序排序
-        if (state.type === 'teacher') {
+        if (requestType === 'teacher') {
             users.sort((a, b) => {
                 const idA = parseInt(a.id) || 0;
                 const idB = parseInt(b.id) || 0;
@@ -346,12 +383,12 @@ export async function loadUsers(type, opts = {}) {
             });
         }
 
-        users.forEach(u => appendUserRow(state.type, u));
+        users.forEach(u => appendUserRow(requestType, u));
 
         // Cache update
         window.__usersCache = window.__usersCache || {};
-        const list = window.__usersCache[state.type] || [];
-        window.__usersCache[state.type] = list.concat(users);
+        const list = window.__usersCache[requestType] || [];
+        window.__usersCache[requestType] = list.concat(users);
 
         if (users.length < state.pageSize) {
             state.hasMore = false;
@@ -363,8 +400,9 @@ export async function loadUsers(type, opts = {}) {
         setupSentinel(state, tbody);
 
     } catch (err) {
-        
+        if (requestGuard && !requestGuard.isCurrent()) return;
         const state = window.__usersState || {};
+        if (state.type && state.type !== requestedType) return;
         state.loading = false;
         const tableContainer = document.querySelector('#users.dashboard-section .table-container');
         hideTableLoading(tableContainer);
@@ -895,10 +933,13 @@ export async function deleteUser(userType, userId) {
     if (!confirm('确定要删除该用户吗？')) return;
     try {
         await window.apiUtils.delete(`/admin/users/${userType}/${userId}`);
+        invalidateUserCaches(userType, userId);
         logOperation('deleteUser', 'success', { type: userType, id: userId });
+        await Promise.allSettled([
+            loadUsers(userType, { reset: true }),
+            refreshFullUserCache(userType)
+        ]);
         if (window.apiUtils) window.apiUtils.showSuccessToast('删除成功');
-        loadUsers(userType, { reset: true });
-        refreshFullUserCache(userType);
     } catch (err) {
         
         if (window.apiUtils) window.apiUtils.showToast('删除失败', 'error');

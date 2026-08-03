@@ -10,7 +10,8 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
 export let availabilityState = {
     currentDate: new Date(),
-    initialized: false
+    initialized: false,
+    loadSeq: 0
 };
 
 export function initTeacherAvailability() {
@@ -50,6 +51,7 @@ export function initTeacherAvailability() {
 }
 
 export async function loadAvailability() {
+    const requestId = ++availabilityState.loadSeq;
     const tableBody = document.getElementById('availabilityBody');
     const weekRangeSpan = document.getElementById('avWeekRange');
     const tableContainer = document.querySelector('#availability .weekly-table-container');
@@ -105,9 +107,11 @@ export async function loadAvailability() {
         });
 
         // 检查响应数据格式
+        if (requestId !== availabilityState.loadSeq) return;
         const teachers = Array.isArray(data) ? data : (data?.data || []);
         renderAvailabilityBody(teachers, dates);
     } catch (error) {
+        if (requestId !== availabilityState.loadSeq) return;
         const errorMessage = error.message || '加载失败，请重试';
         const errorHtml = `<tr><td colspan="8" class="error-cell" style="text-align: center; padding: 40px 0; color: #dc2626;">
             <div style="margin-bottom: 12px;">⚠️ ${errorMessage}</div>
@@ -301,7 +305,11 @@ window.saveAvailabilityChanges = async function () {
 
     try {
         const btn = document.getElementById('saveAvailabilityBtn');
-        if (btn) btn.textContent = '保存中...';
+        if (btn) {
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            btn.textContent = '保存中...';
+        }
 
         const updates = [];
         for (const [key, state] of changesSnapshot.entries()) {
@@ -317,6 +325,11 @@ window.saveAvailabilityChanges = async function () {
 
         await window.apiUtils.post('/admin/teacher-availability', { updates });
 
+        await loadAvailability();
+        window.eventBus?.emit(window.EVENTS?.AVAILABILITY_UPDATED || 'availability:updated', {
+            role: 'teacher',
+            scope: 'admin'
+        });
         window.apiUtils.showToast('时间安排已保存', 'success');
 
         for (const [key, state] of changesSnapshot.entries()) {
@@ -353,7 +366,11 @@ window.saveAvailabilityChanges = async function () {
         window.apiUtils.showToast('保存失败: ' + e.message, 'error');
     } finally {
         const btn = document.getElementById('saveAvailabilityBtn');
-        if (btn) btn.textContent = '保存更改';
+        if (btn) {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = '保存更改';
+        }
     }
 };
 

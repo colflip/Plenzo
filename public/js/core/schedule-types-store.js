@@ -47,10 +47,9 @@
                 const result = await window.apiUtils.getSilent('/admin/schedule-types');
                 const types = Array.isArray(result) ? result : (result.data || []);
 
-                if (types.length > 0) {
-                    this.updateData(types);
-                    this.saveToCache();
-                }
+                // Empty is also a valid authoritative result (for example after deleting the last type).
+                this.updateData(types);
+                this.saveToCache();
             } catch (error) {
                 throw error;
             }
@@ -114,8 +113,12 @@
                 const obj = JSON.parse(txt);
                 if (!obj || !Array.isArray(obj.list)) return false;
 
-                // 检查 TTL (可选，这里假设类型不经常变，过期也先用着)
-                // if (Date.now() - obj.loadedAt > this.ttlMs) return false;
+                // 过期缓存不能继续作为权威数据；init() 会随即从服务端刷新。
+                const loadedAt = Number(obj.loadedAt);
+                if (!Number.isFinite(loadedAt) || Date.now() - loadedAt > this.ttlMs) {
+                    localStorage.removeItem(this.cacheKey);
+                    return false;
+                }
 
                 this.updateData(obj.list);
                 return true;

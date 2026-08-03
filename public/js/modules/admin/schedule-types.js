@@ -1,6 +1,18 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
+function syncScheduleTypesStore(types, detail = {}) {
+    const store = window.ScheduleTypesStore;
+    if (store) {
+        store.updateData(types);
+        store.saveToCache();
+    }
+    window.eventBus?.emit(window.EVENTS?.SCHEDULE_TYPE_CHANGED || 'scheduleType:changed', {
+        ...detail,
+        types: Array.isArray(types) ? [...types] : []
+    });
+}
+
 // Schedule Types Logic
 
 
@@ -27,6 +39,7 @@ export async function loadScheduleTypes() {
     try {
         const result = await window.apiUtils.get('/admin/schedule-types');
         const types = Array.isArray(result) ? result : (result.data || []);
+        syncScheduleTypesStore(types, { action: 'refresh' });
         renderScheduleTypesTable(types);
     } catch (error) {
         
@@ -118,8 +131,8 @@ export async function handleDeleteScheduleType(id) {
 
     try {
         await window.apiUtils.delete(`/admin/schedule-types/${id}`);
+        await loadScheduleTypes();
         if (window.apiUtils) window.apiUtils.showSuccessToast('删除成功');
-        loadScheduleTypes(); // 重新加载列表
     } catch (error) {
         
         if (window.apiUtils) window.apiUtils.showToast(error.message || '删除失败', 'error');
@@ -171,13 +184,15 @@ export function setupScheduleTypeListeners() {
             try {
                 if (mode === 'add') {
                     await window.apiUtils.post('/admin/schedule-types', { name, description });
-                    if (window.apiUtils) window.apiUtils.showSuccessToast('添加成功');
                 } else {
                     await window.apiUtils.put(`/admin/schedule-types/${id}`, { name, description });
-                    if (window.apiUtils) window.apiUtils.showSuccessToast('更新成功');
                 }
+                // The list response is authoritative and refreshes both the table and shared cache.
+                await loadScheduleTypes();
                 closeScheduleTypeFormModal();
-                loadScheduleTypes();
+                if (window.apiUtils) {
+                    window.apiUtils.showSuccessToast(mode === 'add' ? '添加成功' : '更新成功');
+                }
             } catch (error) {
                 
                 if (window.apiUtils) {

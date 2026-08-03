@@ -187,6 +187,21 @@ export function setupModalClosures(modalIds = []) {
  *  - fallback: userData 缺失时的默认昵称
  *  返回解析出来的 userData (供调用方做额外特殊处理)
  */
+export function updateSessionUserData(profile, allowedFields = ['name', 'nickname']) {
+    if (!profile || typeof profile !== 'object') return null;
+    let current = {};
+    try {
+        current = JSON.parse(localStorage.getItem('userData') || '{}');
+    } catch (_) {
+        current = {};
+    }
+    allowedFields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(profile, field)) current[field] = profile[field];
+    });
+    localStorage.setItem('userData', JSON.stringify(current));
+    return current;
+}
+
 export function updateUserName(opts) {
     const { elementId, roleLabel, withRoleSuffix = false, fallback = '用户' } = opts;
     const userDataStr = localStorage.getItem('userData');
@@ -222,7 +237,9 @@ export function updateUserName(opts) {
  *  - titleSelector?:      string                                     直接传 selector，优先级高于 titleElementId
  *  - onSectionShown?:     (sectionId) => void                        section DOM 切换完毕后的副作用钩子
  *  - onError?:            (err, sectionId) => void
- * @returns {{ activate: (sectionId: string) => Promise<void>, init: () => void }}
+ *  - routeBase?:          string                                     仪表盘基础路径，如 '/teacher/dashboard'
+ *  - fallbackSection?:    string                                     基础路径默认区块，默认 'overview'
+ * @returns {{ activate: (sectionId: string) => Promise<void>, init: () => Promise<void> }}
  */
 export function createDashboardController(cfg) {
     const {
@@ -233,6 +250,8 @@ export function createDashboardController(cfg) {
         titleSelector = null,
         onSectionShown = null,
         onError = null,
+        routeBase = null,
+        fallbackSection = 'overview',
     } = cfg;
 
     const initialized = new Set();
@@ -284,18 +303,84 @@ export function createDashboardController(cfg) {
         }
     }
 
-    function init() {
+    function normalizeRouteBase(value) {
+        if (!value) return null;
+        const normalized = value.replace(/\.html(?=\/|$)/, '').replace(/\/$/, '');
+        return normalized || '/';
+    }
+
+    function getSectionFromPath() {
+        if (!routeBase) return fallbackSection;
+        const base = normalizeRouteBase(routeBase);
+        const pathname = window.location.pathname.replace(/\.html(?=\/|$)/, '').replace(/\/$/, '');
+        if (pathname === base) return fallbackSection;
+        if (!pathname.startsWith(`${base}/`)) return null;
+        return decodeURIComponent(pathname.slice(base.length + 1));
+    }
+
+    function updateRoute(sectionId, replace = false) {
+        if (!routeBase || !window.history) return;
+        const base = normalizeRouteBase(routeBase);
+        const targetPath = sectionId === fallbackSection ? base : `${base}/${encodeURIComponent(sectionId)}`;
+        const currentPath = window.location.pathname.replace(/\.html(?=\/|$)/, '').replace(/\/$/, '');
+        if (currentPath === targetPath) return;
+        const method = replace ? 'replaceState' : 'pushState';
+        window.history[method]({ sectionId }, '', `${targetPath}${window.location.search}${window.location.hash}`);
+    }
+
+    function showInvalidRouteFeedback() {
+        const message = '页面路径无效，已返回总览。';
+        if (window.toastManager && typeof window.toastManager.warning === 'function') {
+            window.toastManager.warning(message);
+        } else if (typeof window.showToast === 'function') {
+            window.showToast(message, 'warning');
+        }
+    }
+
+    function isValidSection(sectionId) {
+        if (!sectionId || !document.getElementById(sectionId)) return false;
+        return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
+    }
+
+    async function activateRouteSection(sectionId, { replace = false, showFeedback = false } = {}) {
+        const validSection = isValidSection(sectionId) ? sectionId : fallbackSection;
+        if (showFeedback && validSection !== sectionId) showInvalidRouteFeedback();
+        updateRoute(validSection, replace || validSection !== sectionId);
+        await activate(validSection);
+    }
+
+    async function init() {
         document.querySelectorAll('.nav-item').forEach(item => {
             const sectionId = item.dataset.section;
             if (!sectionId) return;
+            if (routeBase) {
+                const base = normalizeRouteBase(routeBase);
+                item.href = sectionId === fallbackSection ? base : `${base}/${encodeURIComponent(sectionId)}`;
+            }
             item.addEventListener('click', (e) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                 e.preventDefault();
-                activate(sectionId).catch(err => {
+                activateRouteSection(sectionId).catch(err => {
                     if (typeof onError === 'function') onError(err, sectionId);
                 });
             });
         });
+
+        if (routeBase) {
+            window.addEventListener('popstate', () => {
+                const sectionId = getSectionFromPath();
+                activateRouteSection(sectionId, { replace: !isValidSection(sectionId), showFeedback: !isValidSection(sectionId) }).catch(err => {
+                    if (typeof onError === 'function') onError(err, sectionId);
+                });
+            });
+        }
+
+        const initialSection = getSectionFromPath();
+        await activateRouteSection(initialSection, {
+            replace: !isValidSection(initialSection),
+            showFeedback: !isValidSection(initialSection),
+        });
     }
 
-    return { activate, init };
+    return { activate: activateRouteSection, init };
 }

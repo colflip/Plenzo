@@ -8,7 +8,8 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
 const studentAvailabilityState = {
     currentDate: new Date(),
-    initialized: false
+    initialized: false,
+    loadSeq: 0
 };
 
 
@@ -43,6 +44,7 @@ window.initStudentAvailability = function () {
 };
 
 async function loadStudentAvailability() {
+    const requestId = ++studentAvailabilityState.loadSeq;
     const tableBody = document.getElementById('studentAvailabilityBody');
     const weekRangeSpan = document.getElementById('avStudentWeekRange');
     const tableContainer = document.querySelector('#student-availability .weekly-table-container');
@@ -90,43 +92,17 @@ async function loadStudentAvailability() {
             suppressErrorToast: true,
             suppressConsole: true
         });
+        if (requestId !== studentAvailabilityState.loadSeq) return;
         renderStudentAvailabilityBody(data, dates);
     } catch (error) {
-        // Fallback: Load students from WeeklyDataStore or User Cache
-
-        // Fallback: Load students from WeeklyDataStore or User Cache
-        try {
-            let students = [];
-            if (window.WeeklyDataStore && window.WeeklyDataStore.getStudents) {
-                try {
-                    students = await window.WeeklyDataStore.getStudents();
-                } catch (e) {  }
-            }
-
-            if ((!students || students.length === 0) && window.apiUtils) {
-                // Try fetching students directly if store failed
-                const resp = await window.apiUtils.get('/admin/users/student');
-                students = Array.isArray(resp) ? resp : (resp.data || []);
-            }
-
-            if (students && students.length > 0) {
-                // Initialize empty availability for fallback
-                const fallbackData = students.map(s => ({
-                    id: s.id,
-                    name: s.name,
-                    availability: {} // Empty availability
-                }));
-
-                renderStudentAvailabilityBody(fallbackData, dates);
-                // Optionally show a toast that we are in fallback mode
-                // if (window.apiUtils) window.apiUtils.showToast('无法获取详细时间安排，仅显示学生列表', 'info');
-            } else {
-                throw new Error('No students found in fallback');
-            }
-        } catch (fallbackError) {
-            
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'); } else { tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败，请重试</td></tr>'; }
+        if (requestId !== studentAvailabilityState.loadSeq) return;
+        // Availability request failure must not be represented as an all-empty schedule.
+        if (window.SecurityUtils) {
+            window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>');
+        } else {
+            tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>';
         }
+        window.apiUtils?.showToast(error.message || '学生空闲时段加载失败', 'error');
     } finally {
         // 隐藏加载动画
         hideTableLoading(tableContainer);
@@ -302,7 +278,11 @@ window.saveStudentAvailabilityChanges = async function () {
 
     try {
         const btn = document.getElementById('saveStudentAvailabilityBtn');
-        if (btn) btn.textContent = '保存中...';
+        if (btn) {
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            btn.textContent = '保存中...';
+        }
 
         const updates = [];
         for (const [key, state] of changesSnapshot.entries()) {
@@ -318,6 +298,11 @@ window.saveStudentAvailabilityChanges = async function () {
 
         await window.apiUtils.post('/admin/student-availability', { updates });
 
+        await loadStudentAvailability();
+        window.eventBus?.emit(window.EVENTS?.AVAILABILITY_UPDATED || 'availability:updated', {
+            role: 'student',
+            scope: 'admin'
+        });
         window.apiUtils.showToast('学生时间安排已保存', 'success');
 
         for (const [key, state] of changesSnapshot.entries()) {
@@ -354,7 +339,11 @@ window.saveStudentAvailabilityChanges = async function () {
         window.apiUtils.showToast('保存失败: ' + e.message, 'error');
     } finally {
         const btn = document.getElementById('saveStudentAvailabilityBtn');
-        if (btn) btn.textContent = '保存更改';
+        if (btn) {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = '保存更改';
+        }
     }
 };
 

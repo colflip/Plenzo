@@ -105,6 +105,12 @@ const EVENTS = {
     USER_CREATED: 'user:created',
     USER_UPDATED: 'user:updated',
     USER_DELETED: 'user:deleted',
+    USER_CHANGED: 'user:changed',
+
+    // 课程类型、资料和空闲时段
+    SCHEDULE_TYPE_CHANGED: 'scheduleType:changed',
+    PROFILE_UPDATED: 'profile:updated',
+    AVAILABILITY_UPDATED: 'availability:updated',
 
     // UI相关
     MODAL_OPEN: 'modal:open',
@@ -124,6 +130,11 @@ const eventBus = new EventBus();
 
 // 挂载到全局
 if (typeof window !== 'undefined') {
-    window.eventBus = eventBus;
-    window.EVENTS = EVENTS;
+    // Keep one instance even when a dashboard accidentally loads this script twice.
+    window.eventBus = window.eventBus || eventBus;
+    window.EVENTS = Object.assign(window.EVENTS || {}, EVENTS);
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { EventBus, EVENTS };
 }
