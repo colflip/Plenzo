@@ -8,7 +8,7 @@
  */
 
 const db = require('../db/db');
-const scheduleService = require('./scheduleService');
+const scheduleService = require('./schedule-service');
 
 /**
  * 允许查询的表白名单

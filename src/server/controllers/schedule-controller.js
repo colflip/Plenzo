@@ -4,7 +4,7 @@
  * @module controllers/scheduleController
  */
 
-const scheduleService = require('../services/scheduleService');
+const scheduleService = require('../services/schedule-service');
 const { asyncHandler } = require('../middleware/error');
 
 const scheduleController = {

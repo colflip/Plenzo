@@ -4,8 +4,8 @@
  * 为管理员、教师、学生三端提供统一的导出接口
  */
 
-const enhancedExcel = require('./enhancedExcelService');
-const { ExportError } = require('../middleware/exportErrorHandler');
+const enhancedExcel = require('./enhanced-excel-service');
+const { ExportError } = require('../middleware/export-error-handler');
 
 // 导入模块化组件
 const {
@@ -14,11 +14,11 @@ const {
     CACHE_CONFIG,
     EXPORT_LIMITS,
     BATCH_CONFIG
-} = require('./export/ExportConstants');
-const DataTransformer = require('./export/DataTransformer');
-const CalendarGenerator = require('./export/CalendarGenerator');
-const StatsAggregator = require('./export/StatsAggregator');
-const PermissionFilter = require('./export/PermissionFilter');
+} = require('./export/export-constants');
+const DataTransformer = require('./export/data-transformer');
+const CalendarGenerator = require('./export/calendar-generator');
+const StatsAggregator = require('./export/stats-aggregator');
+const PermissionFilter = require('./export/permission-filter');
 
 class UnifiedExportService {
     constructor() {

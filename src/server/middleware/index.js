@@ -35,7 +35,7 @@ const {
     loginLimiter,
     apiLimiter,
     strictLimiter
-} = require('./rateLimit');
+} = require('./rate-limit');
 const {
     securityHeaders,
     additionalSecurityHeaders,

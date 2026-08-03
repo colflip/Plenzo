@@ -4,7 +4,7 @@
  * @module controllers/authController
  */
 
-const authService = require('../services/authService');
+const authService = require('../services/auth-service');
 const { asyncHandler } = require('../middleware');
 
 const authController = {

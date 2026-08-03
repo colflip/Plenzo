@@ -4,9 +4,9 @@
  */
 
 const db = require('../db/db');
-const { handleExportError } = require('../middleware/exportErrorHandler');
-const ExportLogService = require('../utils/exportLogService');
-const SchemaHelper = require('../utils/schemaHelper');
+const { handleExportError } = require('../middleware/export-error-handler');
+const ExportLogService = require('../utils/export-log-service');
+const SchemaHelper = require('../utils/schema-helper');
 
 const studentController = {
     /**
@@ -163,7 +163,7 @@ const studentController = {
             }
 
             // 1. 查询原始数据（只查询当前学生的数据）
-            const AdvancedExportService = require('../services/advancedExportService');
+            const AdvancedExportService = require('../services/advanced-export-service');
             const exportService = new AdvancedExportService(db);
             const rawData = await exportService.queryStudentSchedule(startDate, endDate, {
                 student_id: studentId
@@ -174,7 +174,7 @@ const studentController = {
             }
 
             // 2. 使用统一服务生成完整的多Sheet数据
-            const UnifiedExportService = require('../services/unifiedExportService');
+            const UnifiedExportService = require('../services/unified-export-service');
             const unifiedService = new UnifiedExportService();
             const exportResult = await unifiedService.generateCompleteExport(rawData, {
                 startDate,
@@ -186,7 +186,7 @@ const studentController = {
             });
 
             // 3. 使用 excelGeneratorService 生成 Excel 文件
-            const excelGeneratorService = require('../services/excelGeneratorService');
+            const excelGeneratorService = require('../services/excel-generator-service');
             const excelResult = await excelGeneratorService.generateMultiSheetExcel(
                 exportResult.sheets,
                 exportResult.filename

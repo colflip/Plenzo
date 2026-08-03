@@ -9,7 +9,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOrAdmin, anyAuthenticated } = require('../middleware/role');
-const aiController = require('../controllers/aiController');
+const aiController = require('../controllers/ai-controller');
 
 /**
  * AI 专用速率限制
