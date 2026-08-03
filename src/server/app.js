@@ -112,7 +112,7 @@ const dashboardSections = {
 };
 
 // 静态资源版本化：给 HTML 中本地 /js、/css、/assets 引用注入 ?v=<shortSha>，
-// 并令 HTML 本身 no-cache，确保部署后用户立即拿到新模块（详见 outputs/risk-improvement-plan.md R1）。
+// 并令 HTML 本身 no-cache，确保部署后用户立即拿到新模块。
 const fs = require('fs');
 const { injectAssetVersion } = require('./utils/asset-version');
 const { getVersionMeta } = require('./services/version-service');

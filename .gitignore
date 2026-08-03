@@ -4,7 +4,7 @@ node_modules/
 # Environment and local secrets
 .env
 .env.*
-!.env.example
+.env.example
 
 # Local assistant project data (keep locally; never commit)
 .workbuddy/
@@ -46,6 +46,8 @@ backstop_data/
 
 # Documentation and repository maintenance files (local only)
 docs/
+README.md
+LICENSE
 CHANGELOG.md
 CONTRIBUTING.md
 .github/
