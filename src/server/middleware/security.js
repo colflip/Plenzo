@@ -94,8 +94,8 @@ const additionalSecurityHeaders = (req, res, next) => {
 const corsOptions = {
     origin: (origin, callback) => {
         // 解析环境变量中的额外允许域名
-        const envOrigins = process.env.ALLOWED_ORIGINS 
-            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+        const envOrigins = process.env.ALLOWED_ORIGINS
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
             : [];
 
         const allowedOrigins = [
@@ -108,7 +108,7 @@ const corsOptions = {
             ...envOrigins
         ];
 
-        // 开发环境或同源请求（如Postman）
+        // 开发环境或同源请求（无 Origin，如 Postman/服务器端/同站模块脚本）
         if (process.env.NODE_ENV === 'development' || !origin) {
             return callback(null, true);
         }
@@ -121,6 +121,25 @@ const corsOptions = {
         // 仅检查已知的 Railway 部署域名（非通配符）
         if (process.env.RAILWAY_STATIC_URL && origin === process.env.RAILWAY_STATIC_URL) {
             return callback(null, true);
+        }
+
+        // 同站放行：浏览器加载同站 ES module / 静态资源时仍会带 Origin 头，
+        // 若该 Origin 的 host:port 与服务器实际监听一致（或均为 localhost/127.0.0.1 任意端口），
+        // 视为同源，避免生产环境误将同站资源请求拒为 500（真实根因：
+        // 之前只允许白名单域名，导致运行端口的 127.0.0.1 同源请求被 CORS 拦截成 500，
+        // 进而 entry.js 等模块脚本无法加载，仪表盘不初始化）。
+        try {
+            const originUrl = new URL(origin);
+            const host = process.env.HOST || 'localhost';
+            const port = String(process.env.PORT || 3001);
+            const sameHost = originUrl.hostname === host || originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1';
+            const samePort = originUrl.port === port || originUrl.port === '';
+            const isLocal = (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1');
+            if (sameHost && (samePort || isLocal)) {
+                return callback(null, true);
+            }
+        } catch (_) {
+            // 非法 origin 字符串，落到下面的拒绝分支
         }
 
         callback(new Error('不允许的CORS请求'));
