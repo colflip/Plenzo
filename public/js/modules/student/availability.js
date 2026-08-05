@@ -1,7 +1,7 @@
 import { API_ENDPOINTS, TIME_SLOT_CONFIG, EMPTY_STATES } from './constants.js';
 
 let availabilityLoadSeq = 0;
-import { isMobileView } from '../shared/schedule-helpers.js';
+import { getWeekStart, isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,

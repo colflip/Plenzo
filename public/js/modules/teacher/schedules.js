@@ -1,4 +1,4 @@
-import { DEFAULT_LOCATION_PLACEHOLDER, EMPTY_STATES, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
+import { DEFAULT_LOCATION_PLACEHOLDER, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
 import { isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
@@ -10,7 +10,8 @@ import {
     setText,
     showInlineFeedback,
     toISODate,
-    showActionSheet
+    showActionSheet,
+    startOfWeek
 } from './utils.js';
 import { escapeHtml, safeSetHTML } from '../../core/security.js';
 
@@ -53,9 +54,8 @@ function syncShowPlanButton() {
     const text = document.getElementById('teacherShowPlanBtnText');
     if (text) text.textContent = window.teacherShowPlan ? '隐藏全部安排' : '显示全部安排';
     if (btn) {
-        btn.classList.toggle('fee-active', window.teacherShowPlan);
-        btn.style.backgroundColor = '#2ECC71';
-        btn.style.color = 'white';
+        btn.classList.toggle('schedule-toggle-active', window.teacherShowPlan);
+        btn.setAttribute('aria-pressed', String(window.teacherShowPlan));
     }
 }
 
@@ -196,9 +196,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
         if (requestId !== scheduleLoadSeq) return;
-        
-        renderEmptyState(EMPTY_STATES.schedules);
-        showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
+        renderScheduleErrorState(weekDates, currentWeekStart);
+        showInlineFeedback(elements.feedback(), '加载课程安排失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
         if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
@@ -214,6 +213,10 @@ function renderSchedules(weekDates, schedules) {
     if (isMobileView()) {
         renderMobileScheduleTable(weekDates, grouped);
     } else {
+        const container = document.querySelector('#schedules .schedule-unified-card');
+        container?.querySelector('.mobile-schedule-table')?.remove();
+        const desktopTable = container?.querySelector('.weekly-schedule-table');
+        if (desktopTable) desktopTable.style.display = '';
         renderHeader(weekDates);
         renderBody(weekDates, schedules); // 修复此处，应传递原始 schedules 数组给矩阵渲染函数
     }
@@ -236,7 +239,9 @@ function renderMobileScheduleTable(weekDates, grouped) {
         return;
     }
 
-    clearChildren(container);
+    container.querySelector('.mobile-schedule-table')?.remove();
+    const desktopTable = container.querySelector('.weekly-schedule-table');
+    if (desktopTable) desktopTable.style.display = 'none';
 
     // 创建表格
     const table = createElement('table', 'mobile-schedule-table');
@@ -850,14 +855,29 @@ function showStatusActionSheet(schedule, card) {
 // --------------------------------------------------------------------------
 
 
-function renderEmptyState(message) {
-    renderHeader([]);
+function renderScheduleErrorState(weekDates, weekStart) {
+    const container = document.querySelector('#schedules .schedule-unified-card');
+    container?.querySelector('.mobile-schedule-table')?.remove();
+    const desktopTable = container?.querySelector('.weekly-schedule-table');
+    if (desktopTable) desktopTable.style.display = '';
+    renderHeader(weekDates);
+
     const tbody = elements.body();
     if (!tbody) return;
     clearChildren(tbody);
     const row = document.createElement('tr');
-    const cell = createElement('td', 'no-schedule', { textContent: message });
+    const cell = createElement('td', 'no-schedule');
     cell.colSpan = 7;
+    cell.style.cssText = 'padding:32px 16px;text-align:center;color:#b42318;';
+
+    const message = createElement('div', '', { textContent: '课程安排加载失败，暂时无法显示数据。' });
+    const retry = createElement('button', 'btn-retry-schedules', { textContent: '重试' });
+    retry.type = 'button';
+    retry.style.cssText = 'margin-top:12px;padding:8px 18px;border:none;border-radius:8px;background:#b42318;color:#fff;font-weight:600;cursor:pointer;';
+    retry.addEventListener('click', () => loadSchedules(weekStart, true));
+
+    cell.appendChild(message);
+    cell.appendChild(retry);
     row.appendChild(cell);
     tbody.appendChild(row);
 }

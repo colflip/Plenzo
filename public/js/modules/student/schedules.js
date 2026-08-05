@@ -90,9 +90,8 @@ function syncShowPlanButton() {
     const text = document.getElementById('studentShowPlanBtnText');
     if (text) text.textContent = window.studentShowPlan ? '隐藏全部安排' : '显示全部安排';
     if (btn) {
-        btn.classList.toggle('fee-active', window.studentShowPlan);
-        btn.style.backgroundColor = '#2ECC71';
-        btn.style.color = 'white';
+        btn.classList.toggle('schedule-toggle-active', window.studentShowPlan);
+        btn.setAttribute('aria-pressed', String(window.studentShowPlan));
     }
 }
 
