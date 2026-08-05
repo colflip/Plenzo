@@ -81,7 +81,14 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 app.use(express.static(path.join(__dirname, '../../public'), {
     maxAge: isProduction ? '1d' : '0',
-    etag: true
+    etag: true,
+    setHeaders(res, filePath) {
+        // ESM 子模块由入口脚本通过相对 URL 加载，HTML 版本注入无法覆盖这些依赖。
+        // JS 使用 ETag 重验证，避免部署后继续执行一天缓存的旧模块。
+        if (/\.js$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'no-cache');
+        }
+    }
 }));
 
 app.use('/api/auth/login', loginLimiter);
