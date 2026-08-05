@@ -1,69 +1,88 @@
 # Plenzo
 
-[![version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/colflip/plenzo) [![license](https://img.shields.io/badge/license-CC--BY--NC--4.0-green.svg?style=flat-square)](https://github.com/colflip/plenzo/blob/master/LICENSE) [![node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org) [![express](https://img.shields.io/badge/express-4.18.2-000000.svg?style=flat-square)](https://expressjs.com) [![postgresql](https://img.shields.io/badge/pg-8.x-336791.svg?style=flat-square)](https://www.postgresql.org)
+[![version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/colflip/Plenzo) [![license](https://img.shields.io/badge/license-CC--BY--NC--4.0-green.svg?style=flat-square)](https://github.com/colflip/Plenzo/blob/master/LICENSE) [![node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org) [![express](https://img.shields.io/badge/express-4.18.x-000000.svg?style=flat-square)](https://expressjs.com) [![postgresql](https://img.shields.io/badge/postgresql-supported-336791.svg?style=flat-square)](https://www.postgresql.org)
 
-一款 **AI-Native** 智能调度引擎，基于 `PostgreSQL` 与 `JWT` 无状态认证构建，采用 *RBAC* 多角色权限控制。
+一款面向复杂资源配置的 **AI-Native** 决策与调度引擎，基于 `PostgreSQL` 与 `JWT` 无状态认证构建，采用 *RBAC* 多角色权限控制。
 
-系统采用前后端分离架构，服务端基于 `Express.js` 提供 RESTful 接口，遵循 **Routes → Controllers → Services → DB** 四层分层设计；客户端以原生 JavaScript（ES6+）构建 SPA 应用，界面层采用 *Glassmorphism* 拟态设计语言。支持*教师*、*学生*与*管理*端的差异化交互：教师端提供可用时段配置、工时统计、课程确认及学生调度管理；学生端支持多视图课表与学习轨迹追踪；管理员端涵盖调度引擎、冲突检测、批量编排、人员管控、费用审计与数据导出。认证层采用 `JWT + Bcrypt`；安全中间件集成 `Helmet`、`CORS`、`Joi` 校验及滑动窗口限流。
+系统采用前后端分离架构：服务端基于 `Express.js` 提供 RESTful 接口，遵循 **Routes → Controllers → Services → DB** 四层分层设计；客户端以原生 JavaScript ES Modules 构建 SPA，并采用 *Glassmorphism* 拟态设计语言。系统面向*管理员*、*教师*和*学生*提供差异化功能：教师端支持可用时段管理、工时统计、课程处理与学生调度；学生端支持可用时段管理、课表查看、概览与统计查询；管理员端涵盖人员与课程类型管理、调度管理、冲突检测、批量编排、费用审计及数据导出。认证采用 `JWT + Bcrypt`，安全层集成 `Helmet`、`CORS`、`Joi` 校验与请求限流。
 
-**✨ AI 功能**：采用 **LLM Tool Calling** 架构集成 AI 能力。服务层设计统一 LLM 适配器，通过*协议翻译层*对上层提供一致响应。支持多模型供应商及自定义网关热切换。AI 控制器注册 **15+ 工具函数**，覆盖调度、查询、统计、管理等场景，LLM 通过 **Function Calling** 自主调用工具。前端助手支持*多模态输入*（Vision API），维护 `30 ` 轮上下文窗口，且支持*持久化与回溯*。
+**✨ AI 功能**：系统采用 **LLM Tool Calling** 架构集成 AI 能力。服务层通过统一的 LLM 适配器与*协议翻译层*，为上层提供一致的请求和响应结构，并支持多模型供应商及自定义兼容网关。AI 控制器内置 **15+ 工具函数**，覆盖调度、查询、统计与管理等场景；涉及数据写入时，采用“预览与确认”机制，在执行前向用户确认变更。前端助手支持模型能力检测、多模态输入（Vision API）、`30` 轮上下文，以及会话持久化与历史回溯。
 
-数据模型遵循 `3NF`，以 `teachers`、`students`、`course_arrangement` 为核心实体，通过*外键约束*维护*引用完整性*。时段表采用*时间区间建模*支撑冲突检测；审计表实现 `Provenance Tracking`，保障可追溯性。数据库层通过 `SchemaHelper` 动态列检测，结合 `JSONB` 支持灵活扩展。
+数据模型遵循 `3NF`，以 `teachers`、`students`、`course_arrangement` 为核心实体，通过*外键约束*维护*引用完整性*。时段数据采用时间区间建模，审计表通过 `Provenance Tracking` 保障操作可追溯性。数据库层基于 `SchemaHelper` 进行动态结构检测，并结合 `JSONB` 支持灵活扩展；连接层采用标准 PostgreSQL `pg` 连接池。
 
 ```
 plenzo/
-├── src/server/
-│   ├── controllers/
-│   ├── services/
-│   │   └── export/
-│   ├── middleware/
-│   ├── db/
-│   ├── routes/
-│   ├── validators/
-│   ├── jobs/
-│   └── utils/
+├── api/
+│   └── index.js
 ├── public/
 │   ├── admin/
-│   ├── teacher/
 │   ├── student/
-│   ├── css/modules/
-│   └── js/
-│       ├── core/
-│       ├── components/
-│       ├── modules/
-│       │   ├── admin/
-│       │   ├── teacher/
-│       │   ├── student/
-│       │   └── shared/
-│       └── utils/
-└── tests/
+│   ├── teacher/
+│   ├── assets/
+│   ├── css/
+│   │   ├── components/
+│   │   ├── core/
+│   │   └── modules/
+│   ├── js/
+│   │   ├── components/
+│   │   ├── core/
+│   │   ├── libs/
+│   │   ├── modules/
+│   │   │   ├── admin/
+│   │   │   ├── shared/
+│   │   │   ├── student/
+│   │   │   └── teacher/
+│   │   └── utils/
+│   ├── 404.html
+│   └── index.html
+├── src/server/
+│   ├── controllers/
+│   ├── data/
+│   ├── db/
+│   │   ├── db.js
+│   │   └── migrations.js
+│   ├── jobs/
+│   ├── middleware/
+│   ├── routes/
+│   ├── services/
+│   │   └── export/
+│   ├── utils/
+│   ├── validators/
+│   └── app.js
+├── .gitignore
+├── LICENSE
+├── README.md
+├── package.json
+├── package-lock.json
+└── vercel.json
 ```
 
 ## 技术栈
 
-
-| Module    | Tech Stack                            |
-| :---------- | :-------------------------------------- |
-| BE        | Node.js + Express + PostgreSQL        |
-| Auth      | JWT + Bcrypt                          |
-| FE        | Native JS (ES6+) + CSS3 Glassmorphism |
-| AI        | OpenAI/Anthropic API + Multi-Modal    |
-| Export    | ExcelJS + Streaming Write             |
-| Scheduler | node-cron                             |
-| Security  | Helmet + Joi + Rate Limit             |
-| Testing   | Jest + BackstopJS                     |
+| 模块 | 技术栈 |
+| :--- | :--- |
+| 前端 | Native JavaScript ES Modules + Static HTML SPA + CSS3 Glassmorphism |
+| 服务端 | Node.js + Express.js + RESTful API |
+| 数据库 | PostgreSQL + `pg` Pool + JSONB + SchemaHelper |
+| 认证与权限 | JWT + Bcrypt + RBAC |
+| AI | OpenAI-compatible / Anthropic Messages + Tool Calling + Vision API |
+| 数据导出 | ExcelJS + CSV + html2canvas + Clipboard API |
+| 数据同步 | API Client + Event Bus + Request Guards + Client-side Cache |
+| 定时任务 | node-cron |
+| 安全 | Helmet + CORS + Joi + express-rate-limit |
+| 测试 | Jest + BackstopJS |
 
 本项目基于 [CC BY-NC 4.0](./LICENSE) 开源。
 
 ---
 
-An **AI-Native** intelligent scheduling engine built on `PostgreSQL` and `JWT` stateless authentication, with an *RBAC* multi-role permission model.
+An **AI-Native** decision-making and scheduling engine for complex resource allocation, built on `PostgreSQL` with `JWT`-based stateless authentication and *RBAC* multi-role access control.
 
-The system adopts a front-end and back-end separation architecture: the server is built on `Express.js` providing RESTful APIs, following a four-layer design of **Routes → Controllers → Services → DB**; the client is built as an SPA using native JavaScript (ES6+) with *Glassmorphism* design language. It enables differentiated interaction across three roles: *Teachers* provide availability scheduling, hour statistics, course confirmation, and student schedule management; *Students* support multi-view timetable and learning trajectory tracking; *Administrators* cover the scheduling engine, conflict detection, batch orchestration, personnel management, fee auditing, and data export. Authentication uses `JWT + Bcrypt`; security middleware integrates `Helmet`, `CORS`, `Joi` validation, and sliding-window rate limiting.
+The system uses a decoupled front-end/back-end architecture: the server, built with `Express.js`, exposes RESTful APIs through a four-layer **Routes → Controllers → Services → DB** design; the client is built as an SPA with native JavaScript ES Modules and adopts the *Glassmorphism* design language. It provides differentiated capabilities for *Administrators*, *Teachers*, and *Students*: teachers manage availability, working-hour statistics, course workflows, and student scheduling; students manage availability and access schedules, overviews, and statistics; administrators handle user and schedule-type management, scheduling operations, conflict detection, batch scheduling, fee auditing, and data exports. Authentication uses `JWT + Bcrypt`, while the security layer integrates `Helmet`, `CORS`, `Joi` validation, and request rate limiting.
 
-**✨ AI Features**: The system integrates AI via an **LLM Tool Calling** architecture. The service layer defines a unified LLM adapter with a *Protocol Translation Layer* for consistent response shape. It supports multiple model providers and custom gateways, switchable via environment variables. The AI controller registers **15+ tool functions** covering scheduling, queries, statistics, and management scenarios; the LLM autonomously invokes tools via **Function Calling**. The frontend assistant supports *multi-modal input* (Vision API) with a `30` -turn context window, supporting *persistence and retrieval*.
+**✨ AI Features**: The system integrates AI through an **LLM Tool Calling** architecture. A unified LLM adapter and *Protocol Translation Layer* provide upper layers with consistent request and response structures while supporting multiple model providers and custom-compatible gateways. The AI controller includes **15+ tool functions** spanning scheduling, queries, statistics, and management. Data-modifying operations follow a preview-and-confirmation workflow, allowing users to verify changes before execution. The frontend assistant supports model capability detection, multimodal input via the Vision API, a `30`-turn context window, conversation persistence, and history retrieval.
 
-The data model adheres to `3NF`, centering on `teachers`, `students`, and `course_arrangement` entities with *foreign key constraints* maintaining *referential integrity*. The availability tables employ *temporal interval modeling* for conflict detection; audit tables implement `Provenance Tracking`, ensuring traceability. The database layer utilizes `SchemaHelper` for dynamic column detection with `JSONB` for flexible extensibility.
+The data model follows `3NF`, with `teachers`, `students`, and `course_arrangement` as its core entities and *foreign key constraints* preserving *referential integrity*. Scheduling data uses temporal interval modeling, while audit tables implement `Provenance Tracking` to ensure operational traceability. The database layer combines `SchemaHelper`-based dynamic structural detection with `JSONB` extensibility, and the connection layer uses the standard PostgreSQL `pg` connection pool.
 
 Released under [CC BY-NC 4.0](./LICENSE).
 

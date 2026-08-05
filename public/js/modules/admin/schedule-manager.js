@@ -21,17 +21,8 @@ window.toggleAdminFeeVisibility = function () {
     }
 
     if (toggleBtn) {
-        // 维持与“添加排课”一致的主调色 (#2ECC71)
-        const primaryColor = '#2ECC71';
-        toggleBtn.style.backgroundColor = primaryColor;
-        toggleBtn.style.color = 'white';
-        toggleBtn.style.borderColor = primaryColor;
-
-        if (window.adminFeeShow) {
-            toggleBtn.classList.add('fee-active');
-        } else {
-            toggleBtn.classList.remove('fee-active');
-        }
+        toggleBtn.classList.toggle('schedule-toggle-active', window.adminFeeShow);
+        toggleBtn.setAttribute('aria-pressed', String(window.adminFeeShow));
     }
 
     // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
@@ -52,11 +43,8 @@ window.toggleAdminShowPlan = async function () {
     }
 
     if (toggleBtn) {
-        if (window.adminShowPlan) {
-            toggleBtn.classList.add('fee-active');
-        } else {
-            toggleBtn.classList.remove('fee-active');
-        }
+        toggleBtn.classList.toggle('schedule-toggle-active', window.adminShowPlan);
+        toggleBtn.setAttribute('aria-pressed', String(window.adminShowPlan));
     }
 
     // 重新从后端拉取全量数据，因为过滤是在后端执行的
@@ -80,19 +68,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
     if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
     if (toggleBtn) {
-        // 初始化时也确保使用统一的主题色
-        toggleBtn.style.backgroundColor = '#2ECC71';
-        toggleBtn.style.color = 'white';
-        toggleBtn.style.borderColor = '#2ECC71';
+        toggleBtn.classList.toggle('schedule-toggle-active', window.adminFeeShow);
+        toggleBtn.setAttribute('aria-pressed', String(window.adminFeeShow));
     }
 
     const showPlanBtn = document.getElementById('toggleShowPlanBtn');
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     if (showPlanBtn) {
-        showPlanBtn.style.backgroundColor = '#2ECC71';
-        showPlanBtn.style.color = 'white';
-        showPlanBtn.style.borderColor = '#2ECC71';
+        showPlanBtn.classList.toggle('schedule-toggle-active', window.adminShowPlan);
+        showPlanBtn.setAttribute('aria-pressed', String(window.adminShowPlan));
     }
 
     // 绑定事件

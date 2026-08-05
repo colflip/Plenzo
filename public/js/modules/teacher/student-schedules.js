@@ -32,7 +32,8 @@ window.toggleTeacherStudentFeeVisibility = function () {
         btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
     }
     if (toggleBtn) {
-        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
+        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentFeeShow);
+        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentFeeShow));
     }
 
     // 重新渲染当前页的记录，使得费用新增按钮根据状态展示或隐藏
@@ -50,7 +51,10 @@ function syncShowPlanButton() {
     const btnText = document.getElementById('teacherStudentShowPlanBtnText');
     const toggleBtn = document.getElementById('toggleTeacherStudentShowPlanBtn');
     if (btnText) btnText.textContent = window.teacherStudentShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (toggleBtn) toggleBtn.classList.toggle('is-on', !!window.teacherStudentShowPlan);
+    if (toggleBtn) {
+        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentShowPlan);
+        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentShowPlan));
+    }
 }
 
 function getAdjustmentType(rec) {
@@ -103,7 +107,8 @@ export async function initStudentSchedulesSection() {
             toggleBtn.addEventListener('click', window.toggleTeacherStudentFeeVisibility);
             toggleBtn.__feeToggleBound = true;
         }
-        toggleBtn.classList.toggle('is-on', !!window.teacherStudentFeeShow);
+        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentFeeShow);
+        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentFeeShow));
     }
     syncShowPlanButton();
     bindNavigation();

@@ -1,5 +1,5 @@
-import { EMPTY_STATES, TIME_SLOT_CONFIG } from './constants.js';
-import { isMobileView } from '../shared/schedule-helpers.js';
+import { TIME_SLOT_CONFIG } from './constants.js';
+import { getWeekStart, isMobileView } from '../shared/schedule-helpers.js';
 import {
     clearChildren,
     createElement,
@@ -77,6 +77,7 @@ export async function loadAvailability(baseDate, showLoading = true) {
         availabilityState = buildStateFromResponse(weekDates, response);
         originalState = cloneState(availabilityState);
         renderTable(weekDates, availabilityState);
+        document.querySelector('#availability .availability-error-banner')?.remove();
         const saveBtn = elements.saveBtn();
         if (saveBtn) saveBtn.disabled = false;
         showInlineFeedback(elements.feedback(), '', 'info');
@@ -85,7 +86,7 @@ export async function loadAvailability(baseDate, showLoading = true) {
         // 加载失败：渲染明确错误态，禁止编辑，避免空白可编辑表格误导用户（R3）。
         const container = document.querySelector('#availability .schedule-unified-card') || document.querySelector('#availability');
         if (container) {
-            renderAvailabilityErrorState(container, currentWeekStart, '空闲时段加载失败，暂时无法编辑。请点击重试。');
+            renderAvailabilityErrorState(container, weekDates, currentWeekStart, '空闲时段加载失败，暂时无法编辑。请点击重试。');
         }
         const saveBtn = elements.saveBtn();
         if (saveBtn) saveBtn.disabled = true;
@@ -137,14 +138,24 @@ function renderTable(weekDates, state) {
     if (isMobileView()) {
         renderMobileTable(weekDates, state);
     } else {
+        const container = document.querySelector('#availability .schedule-unified-card');
+        container?.querySelector('.mobile-availability-table')?.remove();
+        const desktopTable = container?.querySelector('.weekly-schedule-table');
+        if (desktopTable) desktopTable.style.display = '';
         renderHeader(weekDates);
         renderBody(weekDates, state);
     }
 }
 
-// R3：空闲时段加载失败时的明确错误态（横幅 + 重试 + 禁用编辑）。
-function renderAvailabilityErrorState(container, weekStart, message) {
-    clearChildren(container);
+// R3：空闲时段加载失败时保留表格结构与本周日期，避免重试时找不到渲染节点。
+function renderAvailabilityErrorState(container, weekDates, weekStart, message) {
+    container.querySelector('.availability-error-banner')?.remove();
+    container.querySelector('.mobile-availability-table')?.remove();
+    const desktopTable = container.querySelector('.weekly-schedule-table');
+    if (desktopTable) desktopTable.style.display = '';
+    renderHeader(weekDates);
+    const tbody = elements.body();
+    if (tbody) clearChildren(tbody);
 
     const banner = createElement('div', 'availability-error-banner');
     banner.setAttribute('role', 'alert');
@@ -155,7 +166,7 @@ function renderAvailabilityErrorState(container, weekStart, message) {
         'justify-content:center',
         'gap:12px',
         'padding:32px 16px',
-        'margin:16px 0',
+        'margin:0',
         'border:1px dashed #f0a9a9',
         'border-radius:12px',
         'background:#fff5f5',
@@ -210,7 +221,9 @@ function renderMobileTable(weekDates, state) {
         return;
     }
 
-    clearChildren(container);
+    container.querySelector('.mobile-availability-table')?.remove();
+    const desktopTable = container.querySelector('.weekly-schedule-table');
+    if (desktopTable) desktopTable.style.display = 'none';
 
     // 创建表格
     const table = createElement('table', 'mobile-availability-table');

@@ -16,9 +16,22 @@
         return `${get('year')}${get('month')}${get('day')}`;
     }
 
+    function resolveMountTarget() {
+        // 优先挂到最外层背景卡片（dashboard-container），否则回退到 body
+        const container = document.querySelector('.dashboard-container');
+        return container || document.body;
+    }
+
     function ensureBadge() {
         let badge = document.getElementById(BADGE_ID);
-        if (badge) return badge;
+        if (badge && badge.isConnected) return badge;
+
+        if (badge && !badge.isConnected) {
+            // 节点已存在但被移出文档树（如重渲染），重新挂载
+            const target = resolveMountTarget();
+            target.appendChild(badge);
+            return badge;
+        }
 
         badge = document.createElement('a');
         badge.id = BADGE_ID;
@@ -28,7 +41,8 @@
         badge.rel = 'noopener noreferrer';
         badge.setAttribute('aria-label', '系统版本');
         badge.textContent = '';
-        document.body.appendChild(badge);
+        const target = resolveMountTarget();
+        target.appendChild(badge);
         return badge;
     }
 
