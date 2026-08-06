@@ -6,6 +6,66 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/admin/dashboard",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/admin/dashboard.html",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/admin/dashboard/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/admin/dashboard.html/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/dashboard",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/dashboard.html",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/dashboard/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/dashboard.html/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/student/dashboard",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/student/dashboard.html",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/student/dashboard/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/student/dashboard.html/:section",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/student/",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/public/$1"
     }
@@ -46,7 +106,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400, immutable"
+          "value": "public, max-age=86400, must-revalidate"
         }
       ]
     },
@@ -55,7 +115,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=86400, immutable"
+          "value": "public, max-age=86400, must-revalidate"
         }
       ]
     },
