@@ -210,9 +210,9 @@ function initLogin() {
 
                 // Redirect based on role
                 const redirectMap = {
-                    admin: '/admin/dashboard.html',
-                    teacher: '/teacher/dashboard.html',
-                    student: '/student/dashboard.html'
+                    admin: '/admin/dashboard',
+                    teacher: '/teacher/dashboard',
+                    student: '/student/dashboard'
                 };
 
                 window.location.href = redirectMap[userType] || '/';

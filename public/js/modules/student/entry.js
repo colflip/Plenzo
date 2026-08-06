@@ -5,8 +5,8 @@
 
 import { initOverviewSection, loadOverview } from './overview.js';
 import { initProfileSection, loadProfile } from './profile.js';
-import { initAvailabilitySection, refreshAvailability } from './availability.js';
-import { initSchedulesSection, refreshSchedules } from './schedules.js';
+import { initAvailabilitySection, refreshAvailability } from './availability.js?v=20260806-toggle';
+import { initSchedulesSection, refreshSchedules } from './schedules.js?v=20260806-toggle';
 import { initStatisticsSection, loadLearningStats } from './statistics.js';
 import * as aiAssistant from '../shared/ai-assistant-redesign.js';
 import {
