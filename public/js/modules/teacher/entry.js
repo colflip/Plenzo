@@ -6,10 +6,10 @@
 
 import { initOverviewSection, loadOverview } from './overview.js';
 import { initProfileSection, loadProfile } from './profile.js';
-import { initAvailabilitySection, refreshAvailability } from './availability.js';
-import { initSchedulesSection, refreshSchedules } from './schedules.js';
+import { initAvailabilitySection, refreshAvailability } from './availability.js?v=20260806-toggle';
+import { initSchedulesSection, refreshSchedules } from './schedules.js?v=20260806-toggle';
 import { initStatisticsSection, loadTeachingCount, loadTeachingSummary } from './statistics.js';
-import { initStudentSchedulesSection, refreshStudentSchedules } from './student-schedules.js';
+import { initStudentSchedulesSection, refreshStudentSchedules } from './student-schedules.js?v=20260806-toggle';
 import {
     setupSidebarToggle,
     applyChartFontFromCSSVars,
