@@ -24,6 +24,17 @@ let scheduleLoadSeq = 0;
 window.teacherStudentFeeShow = false;
 window.teacherStudentShowPlan = false;
 
+function syncToggleButton(button, isActive) {
+    if (!button) return;
+    const active = !!isActive;
+    const color = active ? '#ef4444' : '#2ECC71';
+    button.classList.toggle('schedule-toggle-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.style.backgroundColor = color;
+    button.style.borderColor = color;
+    button.style.color = '#fff';
+}
+
 window.toggleTeacherStudentFeeVisibility = function () {
     window.teacherStudentFeeShow = !window.teacherStudentFeeShow;
     const btnText = document.getElementById('teacherStudentFeeBtnText');
@@ -31,10 +42,7 @@ window.toggleTeacherStudentFeeVisibility = function () {
     if (btnText) {
         btnText.textContent = window.teacherStudentFeeShow ? '隐藏费用' : '显示费用';
     }
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentFeeShow);
-        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentFeeShow));
-    }
+    syncToggleButton(toggleBtn, window.teacherStudentFeeShow);
 
     // 重新渲染当前页的记录，使得费用新增按钮根据状态展示或隐藏
     const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
@@ -51,10 +59,7 @@ function syncShowPlanButton() {
     const btnText = document.getElementById('teacherStudentShowPlanBtnText');
     const toggleBtn = document.getElementById('toggleTeacherStudentShowPlanBtn');
     if (btnText) btnText.textContent = window.teacherStudentShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentShowPlan);
-        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentShowPlan));
-    }
+    syncToggleButton(toggleBtn, window.teacherStudentShowPlan);
 }
 
 function getAdjustmentType(rec) {
@@ -107,8 +112,7 @@ export async function initStudentSchedulesSection() {
             toggleBtn.addEventListener('click', window.toggleTeacherStudentFeeVisibility);
             toggleBtn.__feeToggleBound = true;
         }
-        toggleBtn.classList.toggle('schedule-toggle-active', !!window.teacherStudentFeeShow);
-        toggleBtn.setAttribute('aria-pressed', String(!!window.teacherStudentFeeShow));
+        syncToggleButton(toggleBtn, window.teacherStudentFeeShow);
     }
     syncShowPlanButton();
     bindNavigation();
