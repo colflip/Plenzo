@@ -54,8 +54,13 @@ function syncShowPlanButton() {
     const text = document.getElementById('teacherShowPlanBtnText');
     if (text) text.textContent = window.teacherShowPlan ? '隐藏全部安排' : '显示全部安排';
     if (btn) {
-        btn.classList.toggle('schedule-toggle-active', window.teacherShowPlan);
-        btn.setAttribute('aria-pressed', String(window.teacherShowPlan));
+        const isActive = !!window.teacherShowPlan;
+        const color = isActive ? '#ef4444' : '#2ECC71';
+        btn.classList.toggle('schedule-toggle-active', isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+        btn.style.backgroundColor = color;
+        btn.style.borderColor = color;
+        btn.style.color = '#fff';
     }
 }
 

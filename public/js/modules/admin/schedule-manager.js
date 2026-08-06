@@ -11,6 +11,17 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 window.adminFeeShow = false;
 window.adminShowPlan = false;
 
+function syncToggleButton(button, isActive) {
+    if (!button) return;
+    const active = !!isActive;
+    const color = active ? '#ef4444' : '#2ECC71';
+    button.classList.toggle('schedule-toggle-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.style.backgroundColor = color;
+    button.style.borderColor = color;
+    button.style.color = '#fff';
+}
+
 window.toggleAdminFeeVisibility = function () {
     window.adminFeeShow = !window.adminFeeShow;
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
@@ -20,10 +31,7 @@ window.toggleAdminFeeVisibility = function () {
         btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
     }
 
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('schedule-toggle-active', window.adminFeeShow);
-        toggleBtn.setAttribute('aria-pressed', String(window.adminFeeShow));
-    }
+    syncToggleButton(toggleBtn, window.adminFeeShow);
 
     // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
     if (!window.adminFeeShow) {
@@ -42,10 +50,7 @@ window.toggleAdminShowPlan = async function () {
         btnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     }
 
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('schedule-toggle-active', window.adminShowPlan);
-        toggleBtn.setAttribute('aria-pressed', String(window.adminShowPlan));
-    }
+    syncToggleButton(toggleBtn, window.adminShowPlan);
 
     // 重新从后端拉取全量数据，因为过滤是在后端执行的
     if (window.ScheduleManager) {
@@ -67,18 +72,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnText = document.getElementById('adminFeeBtnText');
     const toggleBtn = document.getElementById('toggleAdminFeeBtn');
     if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    if (toggleBtn) {
-        toggleBtn.classList.toggle('schedule-toggle-active', window.adminFeeShow);
-        toggleBtn.setAttribute('aria-pressed', String(window.adminFeeShow));
-    }
+    syncToggleButton(toggleBtn, window.adminFeeShow);
 
     const showPlanBtn = document.getElementById('toggleShowPlanBtn');
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
-    if (showPlanBtn) {
-        showPlanBtn.classList.toggle('schedule-toggle-active', window.adminShowPlan);
-        showPlanBtn.setAttribute('aria-pressed', String(window.adminShowPlan));
-    }
+    syncToggleButton(showPlanBtn, window.adminShowPlan);
 
     // 绑定事件
     if (toggleBtn) toggleBtn.onclick = window.toggleAdminFeeVisibility;

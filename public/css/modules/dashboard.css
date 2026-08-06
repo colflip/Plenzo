@@ -527,23 +527,6 @@ body {
     box-shadow: 0 4px 6px rgba(46, 204, 113, 0.3);
 }
 
-/* Active state for schedule visibility toggles across all dashboards. */
-.schedule-toggle-active,
-.schedule-toggle-active:hover,
-.schedule-controls .schedule-toggle-active,
-.schedule-controls .schedule-toggle-active:hover {
-    background-color: #ef4444 !important;
-    border-color: #ef4444 !important;
-    color: #fff !important;
-    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25) !important;
-}
-
-.schedule-toggle-active:hover,
-.schedule-controls .schedule-toggle-active:hover {
-    background-color: #dc2626 !important;
-    border-color: #dc2626 !important;
-}
-
 /* 表单样式 */
 .form-container {
     position: fixed;
@@ -9592,6 +9575,56 @@ svg {
 #schedules .schedule-card-group,
 #student-schedules .schedule-card-group {
     margin-bottom: 4px !important;
+}
+
+/* Schedule visibility toggles: explicit default green, active red across all dashboards. */
+#toggleStudentShowPlanBtn,
+#toggleTeacherShowPlanBtn,
+#toggleTeacherStudentFeeBtn,
+#toggleTeacherStudentShowPlanBtn,
+#toggleAdminFeeBtn,
+#toggleShowPlanBtn {
+    background-color: #2ECC71 !important;
+    border-color: #2ECC71 !important;
+    color: #fff !important;
+}
+
+#toggleStudentShowPlanBtn:hover,
+#toggleTeacherShowPlanBtn:hover,
+#toggleTeacherStudentFeeBtn:hover,
+#toggleTeacherStudentShowPlanBtn:hover,
+#toggleAdminFeeBtn:hover,
+#toggleShowPlanBtn:hover {
+    background-color: #27AE60 !important;
+    border-color: #27AE60 !important;
+}
+
+#toggleStudentShowPlanBtn.schedule-toggle-active,
+#toggleTeacherShowPlanBtn.schedule-toggle-active,
+#toggleTeacherStudentFeeBtn.schedule-toggle-active,
+#toggleTeacherStudentShowPlanBtn.schedule-toggle-active,
+#toggleAdminFeeBtn.schedule-toggle-active,
+#toggleShowPlanBtn.schedule-toggle-active,
+#toggleStudentShowPlanBtn.schedule-toggle-active:hover,
+#toggleTeacherShowPlanBtn.schedule-toggle-active:hover,
+#toggleTeacherStudentFeeBtn.schedule-toggle-active:hover,
+#toggleTeacherStudentShowPlanBtn.schedule-toggle-active:hover,
+#toggleAdminFeeBtn.schedule-toggle-active:hover,
+#toggleShowPlanBtn.schedule-toggle-active:hover {
+    background-color: #ef4444 !important;
+    border-color: #ef4444 !important;
+    color: #fff !important;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25) !important;
+}
+
+#toggleStudentShowPlanBtn.schedule-toggle-active:hover,
+#toggleTeacherShowPlanBtn.schedule-toggle-active:hover,
+#toggleTeacherStudentFeeBtn.schedule-toggle-active:hover,
+#toggleTeacherStudentShowPlanBtn.schedule-toggle-active:hover,
+#toggleAdminFeeBtn.schedule-toggle-active:hover,
+#toggleShowPlanBtn.schedule-toggle-active:hover {
+    background-color: #dc2626 !important;
+    border-color: #dc2626 !important;
 }
 
 /* ============================================================
