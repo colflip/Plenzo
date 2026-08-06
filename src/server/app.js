@@ -83,9 +83,9 @@ app.use(express.static(path.join(__dirname, '../../public'), {
     maxAge: isProduction ? '1d' : '0',
     etag: true,
     setHeaders(res, filePath) {
-        // ESM 子模块由入口脚本通过相对 URL 加载，HTML 版本注入无法覆盖这些依赖。
-        // JS 使用 ETag 重验证，避免部署后继续执行一天缓存的旧模块。
-        if (/\.js$/i.test(filePath)) {
+        // 仪表盘 HTML 与其 CSS/JS 都使用 ETag 重验证，避免生产环境一天强缓存
+        // 让部署后的按钮样式和 ESM 子模块继续停留在旧版本。
+        if (/\.(?:html|css|js)$/i.test(filePath)) {
             res.setHeader('Cache-Control', 'no-cache');
         }
     }
