@@ -6,135 +6,116 @@ const TIME_ZONE = 'UTC';
 const isProduction = process.env.NODE_ENV === 'production';
 const isVercel = process.env.VERCEL === '1';
 const isRender = process.env.RENDER === 'true';
-
-// 本地开发环境：绕过 Neon HTTP 驱动的 TLS 证书验证问题
-// 错误: UNABLE_TO_GET_ISSUER_CERT_LOCALLY
-if (!isProduction && !process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  // 抑制 Node.js 对 NODE_TLS_REJECT_UNAUTHORIZED=0 的安全警告
-  const originalEmit = process.emit.bind(process);
-  process.emit = function (event, ...args) {
-    if (event === 'warning' && args[0]?.name === 'Warning' &&
-        args[0]?.code?.startsWith('NODE_TLS_REJECT_UNAUTHORIZED')) {
-      return false;
-    }
-    return originalEmit(event, ...args);
-  };
-}
-
-/**
- * 数据库连接方式选择
- * DB_CONNECTION_TYPE 环境变量控制：
- *   - 'http' / 'neon'  → 强制使用 Neon HTTP 驱动（本地开发推荐，无 TLS 问题）
- *   - 'pool' / 'pg'    → 强制使用标准 pg 连接池
- *   - 'auto' / 未设置   → 自动判断：
- *       - 本地开发环境（NODE_ENV=development）默认使用 HTTP
- *       - 生产环境使用原逻辑（检查 DB_DRIVER 或连接字符串）
- */
 const connectionType = (process.env.DB_CONNECTION_TYPE || 'auto').toLowerCase();
+const neonFallbackEnabled = process.env.DB_NEON_FALLBACK !== 'false';
 
-let preferServerless;
-if (connectionType === 'http' || connectionType === 'neon') {
-  preferServerless = true;
-} else if (connectionType === 'pool' || connectionType === 'pg') {
-  preferServerless = false;
-} else {
-  // auto 模式：本地开发默认用 HTTP，生产用原逻辑
-  preferServerless = isProduction
-    ? (process.env.DB_DRIVER === 'neon' || connectionString.includes('neon.tech'))
-    : true; // 本地开发默认使用 Neon HTTP 驱动
-}
+const isNeonDatabase = /(?:^|\.)neon\.tech$/i.test((() => {
+  try {
+    return new URL(connectionString).hostname;
+  } catch (_) {
+    return '';
+  }
+})());
 
-console.log(`[DB] 连接方式: ${preferServerless ? 'Neon HTTP' : 'pg Pool'}`);
+const poolOnlyMode = connectionType === 'pool' || connectionType === 'pg';
+const httpOnlyMode = connectionType === 'http' || connectionType === 'neon';
+const allowNeonFallback = !poolOnlyMode && neonFallbackEnabled && isNeonDatabase;
 
-let query;
-let getClient;
+const isConnectionError = (err) => {
+  const code = String(err?.code || '').toUpperCase();
+  const message = String(err?.message || '').toLowerCase();
+  const connectionCodes = new Set([
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
+    'EPIPE', 'ENOTFOUND', 'UND_ERR_CONNECT_TIMEOUT', '57P01', '57P02', '57P03',
+    '08000', '08001', '08003', '08004', '08006', '08007', '08P01'
+  ]);
 
-if (preferServerless) {
+  return connectionCodes.has(code) ||
+    message.includes('connection terminated') ||
+    message.includes('connection timeout') ||
+    message.includes('connect timeout') ||
+    message.includes('socket disconnected') ||
+    message.includes('connection reset') ||
+    message.includes('server closed the connection') ||
+    message.includes('getaddrinfo') ||
+    message.includes('unable to verify the first certificate') ||
+    message.includes('self-signed certificate') ||
+    message.includes('fetch failed');
+};
+
+const normalizeResult = (res) => {
+  if (res && res.rows) return res;
+  const rows = Array.isArray(res) ? res : [];
+  return { rows, rowCount: rows.length };
+};
+
+const createNeonHttpDriver = () => {
   const { neon } = require('@neondatabase/serverless');
-
-  const fetchTimeout = parseInt(process.env.DB_FETCH_TIMEOUT) || 10000;
-  const maxRetries = Math.max(1, parseInt(process.env.DB_MAX_RETRIES) || 5);
-  const initialDelay = parseInt(process.env.DB_RETRY_DELAY) || 1000;
-
-  // Neon HTTP 驱动使用 HTTPS 请求，移除 sslmode 参数避免 TLS 冲突
+  const fetchTimeout = parseInt(process.env.DB_FETCH_TIMEOUT, 10) || 10000;
+  const maxRetries = Math.max(1, parseInt(process.env.DB_MAX_RETRIES, 10) || 5);
+  const initialDelay = parseInt(process.env.DB_RETRY_DELAY, 10) || 1000;
   const cleanConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/gi, '').replace(/\?$/, '');
-
   const sql = neon(cleanConnectionString, {
     fetchOptions: { timeout: fetchTimeout },
     connectionCache: true
   });
-
   let tzInitialized = false;
 
-  const executeQuery = async (text, params) => {
-    if (typeof sql.query === 'function') {
-      const res = await sql.query(text, params);
-      return res && res.rows ? res : { rows: res };
-    }
+  const executeQuery = async (text, params = []) => {
+    if (typeof sql.query === 'function') return normalizeResult(await sql.query(text, params));
     const res = await sql`${sql.unsafe(text, params)}`;
-    return Array.isArray(res) ? { rows: res } : (res && res.rows ? res : { rows: res });
+    return normalizeResult(res);
   };
 
-  query = async (text, params = []) => {
-    if (!tzInitialized) {
-      try {
-        await sql`SET TIME ZONE 'UTC'`;
-      } catch (e) {
-        console.warn('设置会话时区失败(Neon)：', e?.message || e);
-      }
-      tzInitialized = true;
-    }
-
-    let delay = initialDelay;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await executeQuery(text, params);
-      } catch (err) {
-        const errMsg = String(err.message || '');
-        const isRetriable = err.code === 'ECONNRESET' ||
-          err.code === 'ETIMEDOUT' ||
-          err.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-          errMsg.includes('fetch failed') ||
-          errMsg.includes('socket disconnected') ||
-          errMsg.includes('connection reset') ||
-          errMsg.includes('timeout');
-
-        if (isRetriable && attempt < maxRetries) {
-          console.warn(`[DB] 查询失败 (尝试 ${attempt}/${maxRetries}): ${errMsg}。正在 ${delay}ms 后重试...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          delay = Math.min(delay * 2, 10000);
-          continue;
+  return {
+    name: 'Neon HTTP',
+    async query(text, params = []) {
+      if (!tzInitialized) {
+        try {
+          await sql`SET TIME ZONE 'UTC'`;
+        } catch (e) {
+          console.warn('设置会话时区失败(Neon)：', e?.message || e);
         }
-        throw err;
+        tzInitialized = true;
       }
-    }
-  };
 
-  getClient = async () => {
-    throw new Error('getClient is not supported when using serverless DB driver');
+      let delay = initialDelay;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          return await executeQuery(text, params);
+        } catch (err) {
+          if (isConnectionError(err) && attempt < maxRetries) {
+            console.warn(`[DB] Neon HTTP 查询失败 (尝试 ${attempt}/${maxRetries}): ${err.message}。正在 ${delay}ms 后重试...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay = Math.min(delay * 2, 10000);
+            continue;
+          }
+          throw err;
+        }
+      }
+    },
+    async getClient() {
+      throw new Error('Neon HTTP does not support interactive transaction clients');
+    },
+    close: async () => {}
   };
-} else {
+};
+
+const createPgPoolDriver = () => {
   const { Pool } = require('pg');
-
-  const shouldUseSSL = (() => {
-    if (typeof process.env.DB_SSL !== 'undefined') return process.env.DB_SSL === 'true';
-    return /sslmode=require/i.test(connectionString);
-  })();
-
-  const poolConfig = {
+  const shouldUseSSL = typeof process.env.DB_SSL !== 'undefined'
+    ? process.env.DB_SSL === 'true'
+    : /sslmode=require/i.test(connectionString);
+  const pool = new Pool({
     connectionString,
-    ssl: shouldUseSSL ? { rejectUnauthorized: process.env.NODE_ENV === 'production' } : undefined,
+    ssl: shouldUseSSL ? { rejectUnauthorized: isProduction } : undefined,
     keepAlive: true,
-    max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX) || 10),
+    max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10),
     min: isVercel || isRender ? 0 : 2,
     idleTimeoutMillis: isVercel || isRender ? 5000 : 30000,
-    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT) || 10000,
+    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT, 10) || 10000,
     allowExitOnIdle: isVercel || isRender
-  };
-
-  const pool = new Pool(poolConfig);
+  });
 
   pool.on('connect', async (client) => {
     try {
@@ -143,56 +124,94 @@ if (preferServerless) {
       console.warn('设置会话时区失败(pg)：', e?.message || e);
     }
   });
+  pool.on('error', (err) => console.error('数据库连接池错误:', err.message));
 
-  pool.on('error', (err, client) => {
-    console.error('数据库连接池错误:', err.message);
-  });
-
-  query = (text, params) => pool.query(text, params);
-
-  getClient = async () => {
-    return await pool.connect();
+  return {
+    name: 'pg Pool',
+    query: (text, params) => pool.query(text, params),
+    getClient: () => pool.connect(),
+    close: () => pool.end()
   };
-}
+};
+
+let activeDriver = httpOnlyMode ? createNeonHttpDriver() : createPgPoolDriver();
+let fallbackPromise = null;
+console.log(`[DB] 默认连接方式: ${activeDriver.name}${allowNeonFallback ? '（连接失败时回退 Neon HTTP）' : ''}`);
+
+const switchToNeonHttp = async (err) => {
+  if (activeDriver.name === 'Neon HTTP') return activeDriver;
+  if (!allowNeonFallback || !isConnectionError(err)) throw err;
+
+  if (!fallbackPromise) {
+    const failedDriver = activeDriver;
+    fallbackPromise = Promise.resolve().then(async () => {
+      console.warn(`[DB] pg Pool 连接失败，切换到 Neon HTTP: ${err.message}`);
+      const nextDriver = createNeonHttpDriver();
+      activeDriver = nextDriver;
+      try {
+        await failedDriver.close();
+      } catch (closeErr) {
+        console.warn('[DB] 关闭失效 pg Pool 时发生错误:', closeErr.message);
+      }
+      return nextDriver;
+    });
+  }
+  return fallbackPromise;
+};
+
+const query = async (text, params = []) => {
+  const driver = activeDriver;
+  try {
+    return await driver.query(text, params);
+  } catch (err) {
+    if (driver !== activeDriver) return activeDriver.query(text, params);
+    const fallbackDriver = await switchToNeonHttp(err);
+    return fallbackDriver.query(text, params);
+  }
+};
+
+const getClient = async () => {
+  const driver = activeDriver;
+  try {
+    return await driver.getClient();
+  } catch (err) {
+    if (driver !== activeDriver) return activeDriver.getClient();
+    await switchToNeonHttp(err);
+    throw new Error('pg Pool 不可用且已切换到 Neon HTTP；交互式事务无法在 HTTP 驱动上安全执行');
+  }
+};
 
 const runInTransaction = async function (workFn) {
   let clientLocal = null;
-  let usePool = false;
   try {
-    try {
-      clientLocal = await getClient();
-      await clientLocal.query('BEGIN');
-    } catch (e) {
-      usePool = true;
-      await query('BEGIN');
-      clientLocal = { query: (...args) => query(...args), release: async () => { } };
-    }
-
-    await workFn(clientLocal, usePool);
-
-    if (usePool) await query('COMMIT'); else await clientLocal.query('COMMIT');
+    clientLocal = await getClient();
+    await clientLocal.query('BEGIN');
+    const result = await workFn(clientLocal, false);
+    await clientLocal.query('COMMIT');
+    return result;
   } catch (err) {
-    try {
-      if (usePool) await query('ROLLBACK'); else if (clientLocal) await clientLocal.query('ROLLBACK');
-    } catch (rbErr) {
-      console.error('回滚事务时发生错误:', rbErr);
+    if (clientLocal) {
+      try {
+        await clientLocal.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('回滚事务时发生错误:', rollbackErr);
+      }
     }
     throw err;
   } finally {
-    try {
-      if (!usePool && clientLocal && typeof clientLocal.release === 'function') await clientLocal.release();
-    } catch (relErr) {
-      console.warn('释放事务 client 时发生错误:', relErr);
+    if (clientLocal && typeof clientLocal.release === 'function') {
+      try {
+        clientLocal.release();
+      } catch (releaseErr) {
+        console.warn('释放事务 client 时发生错误:', releaseErr);
+      }
     }
   }
 };
 
-/**
- * 预热数据库连接（服务器启动时调用）
- * 执行一个简单查询以建立连接，减少首次请求的重试
- */
 const warmup = async () => {
   await query('SELECT 1');
 };
 
 module.exports = { query, getClient, runInTransaction, warmup };
+module.exports.__testables = { isConnectionError, isNeonDatabase, allowNeonFallback };
