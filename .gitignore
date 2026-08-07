@@ -4,7 +4,7 @@ node_modules/
 # Environment and local secrets
 .env
 .env.*
-.env.example
+!.env.example
 
 # Local assistant project data (keep locally; never commit)
 .workbuddy/
@@ -34,6 +34,8 @@ build/
 # Tests and test tooling (local only; not required for production deployment)
 tests/
 src/server/**/__tests__/
+!src/server/db/__tests__/
+!src/server/db/__tests__/db-connection-fallback.test.js
 e2e/
 jest.config.js
 playwright.config.js
@@ -45,7 +47,9 @@ blob-report/
 backstop_data/
 
 # Documentation and repository maintenance files (local only)
-docs/
+docs/*
+!docs/deployment.md
+!docs/development.md
 CHANGELOG.md
 CONTRIBUTING.md
 .github/
