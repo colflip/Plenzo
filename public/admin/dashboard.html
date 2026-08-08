@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>管理员仪表盘 - Plenzo</title>
+    <!-- 同步鉴权守卫：在任意脚本/接口调用前执行，避免非管理员或令牌缺失时加载后台并触发 403 误报 -->
+    <script>
+        (function () {
+            try {
+                var token = localStorage.getItem('token') || sessionStorage.getItem('tempToken');
+                var userType = localStorage.getItem('userType');
+                if (!token || userType !== 'admin') {
+                    window.location.replace('/index.html');
+                }
+            } catch (e) { /* 解析异常时交由后续逻辑处理 */ }
+        })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">

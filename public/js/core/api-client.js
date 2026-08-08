@@ -100,6 +100,18 @@ class ApiUtils {
 
                 const err = new ApiError(msg, status, data && data.errors, url);
                 this.handleError(err, !options.suppressErrorToast, options.suppressConsole);
+
+                // 令牌失效且当前处于受保护页面：跳回登录页，避免用户卡在报错态
+                if (status === 401) {
+                    const path = window.location.pathname || '';
+                    const onDashboard = /\/(admin|teacher|student)(\/|$)/.test(path);
+                    const onLogin = path.endsWith('/index.html') || path === '/' || path === '';
+                    if (onDashboard && !onLogin) {
+                        window.location.href = '/index.html';
+                        return;
+                    }
+                }
+
                 throw err;
             }
 
