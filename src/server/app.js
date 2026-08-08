@@ -178,6 +178,10 @@ app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, re
         res.sendFile(dashboardPages.teacher);
     });
 });
+// 隐藏酬劳彩蛋：点击"数据统计"标题 5 次后跳转的 JSON 展示页（自包含，独立 HTML）
+app.get('/teacher/dashboard/teaching-display/goodluck', (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/teacher/goodluck.html'));
+});
 app.get(['/teacher/dashboard/:section', '/teacher/dashboard.html/:section'], serveDashboardSection('teacher'));
 
 app.get(['/student/dashboard', '/student/dashboard.html', '/student/'], (req, res) => {
