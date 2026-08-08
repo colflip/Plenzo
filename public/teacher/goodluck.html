@@ -6,106 +6,12 @@
     <meta name="robots" content="noindex, nofollow">
     <title>goodluck :: reward</title>
     <style>
-        :root { color-scheme: dark; }
-        * { box-sizing: border-box; }
-        html, body {
-            margin: 0;
-            height: 100%;
-            background: #0b0f14;
-            color: #9fe6c4;
-            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        }
-        body {
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding: 32px 16px;
-        }
-        .wrap {
-            width: min(760px, 96vw);
-            background: #0b0f14;
-            border: 1px solid #1f2a37;
-            border-radius: 10px;
-            box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
-            overflow: hidden;
-            animation: glitch 2.4s infinite steps(1);
-        }
-        @keyframes glitch {
-            0%, 97% { transform: translate(0, 0); }
-            98% { transform: translate(-1px, 1px); }
-            99% { transform: translate(1px, -1px); }
-            100% { transform: translate(0, 0); }
-        }
-        .errbar {
-            background: #3b1212;
-            color: #ff9a9a;
-            font-size: 12px;
-            padding: 6px 12px;
-            letter-spacing: .5px;
-            border-bottom: 1px solid #5a1d1d;
-            animation: flicker 3s infinite;
-        }
-        @keyframes flicker {
-            0%, 92%, 100% { opacity: 1; }
-            93% { opacity: .35; }
-            94% { opacity: 1; }
-            96% { opacity: .6; }
-        }
-        .head {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            color: #7fb3ff;
-            border-bottom: 1px solid #16202b;
-            font-size: 13px;
-        }
-        .glyph { color: #7fb3ff; }
-        .back {
-            margin-left: auto;
-            background: none;
-            border: 1px solid #2a3a4a;
-            color: #9fe6c4;
-            border-radius: 6px;
-            cursor: pointer;
-            padding: 2px 8px;
-            font-family: inherit;
-            text-decoration: none;
-            font-size: 12px;
-        }
-        .back:hover { background: #13202b; }
-        .body { padding: 12px; }
-        .json {
-            background: #070b0f;
-            border: 1px solid #16202b;
-            border-radius: 8px;
-            padding: 14px;
-            color: #8ab4f8;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-size: 13px;
-            line-height: 1.6;
-            margin: 0;
-            min-height: 120px;
-        }
-        .meta {
-            color: #6b7c8c;
-            font-size: 12px;
-            margin: 0 0 10px;
-        }
+        body { margin: 16px; }
     </style>
 </head>
 <body>
-    <div class="wrap">
-        <div class="errbar">DEBUG // raw payload (unstable) — do not trust</div>
-        <div class="head"><span class="glyph">&#9612;</span> reward_calc :: teacher
-            <a class="back" href="/teacher/dashboard/teaching-display">[back]</a>
-        </div>
-        <div class="body">
-            <div class="meta" id="meta"></div>
-            <pre class="json" id="json">loading...</pre>
-        </div>
-    </div>
+    <div><a href="/teacher/dashboard/teaching-display">[back]</a></div>
+    <pre id="json">loading...</pre>
 
     <script>
         (function () {
@@ -230,7 +136,6 @@
                 const fee = computeFee(agg, coeff);
                 const payload = buildPayload(name, start, end, coeff, agg, fee);
 
-                document.getElementById('meta').textContent = `name=${name}  range=${start} ~ ${end}  coefficient=${round2(coeff)}  total=${fee.total}`;
                 document.getElementById('json').textContent = JSON.stringify(payload, null, 2);
             }
 
