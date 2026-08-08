@@ -39,6 +39,7 @@ const isConnectionError = (err) => {
     message.includes('server closed the connection') ||
     message.includes('getaddrinfo') ||
     message.includes('unable to verify the first certificate') ||
+    message.includes('unable to get local issuer certificate') ||
     message.includes('self-signed certificate') ||
     message.includes('fetch failed');
 };
@@ -103,12 +104,19 @@ const createNeonHttpDriver = () => {
 
 const createPgPoolDriver = () => {
   const { Pool } = require('pg');
-  const shouldUseSSL = typeof process.env.DB_SSL !== 'undefined'
+const shouldUseSSL = typeof process.env.DB_SSL !== 'undefined'
     ? process.env.DB_SSL === 'true'
     : /sslmode=require/i.test(connectionString);
-  const pool = new Pool({
+
+// 云 Postgres（Neon 等）强制要求 SSL。把"是否启用 SSL"与"是否校验证书"解耦：
+// 只要目标是 TLS 云库就始终启用 SSL（否则服务端拒绝非加密连接；且 ssl:undefined 时
+// pg 会改读 PGSSLMODE 环境变量，可能把 rejectUnauthorized 重置为 true，触发本机代理/
+// 自签名 CA 的 UNABLE_TO_GET_ISSUER_CERT_LOCALLY）。显式传入 ssl 对象可屏蔽 PGSSLMODE 干扰。
+// 开发环境跳过证书链校验（本机网络常有 TLS 拦截或缺失 CA）；生产环境仍强制校验。
+const needsSSL = shouldUseSSL || isNeonDatabase || /sslmode=require/i.test(connectionString);
+const pool = new Pool({
     connectionString,
-    ssl: shouldUseSSL ? { rejectUnauthorized: isProduction } : undefined,
+    ssl: needsSSL ? { rejectUnauthorized: isProduction } : undefined,
     keepAlive: true,
     max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10),
     min: isVercel || isRender ? 0 : 2,
