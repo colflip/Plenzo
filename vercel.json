@@ -42,6 +42,14 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/teacher/dashboard/:section/:subsection",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/teacher/dashboard.html/:section/:subsection",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/teacher/",
       "destination": "/api/index.js"
     },
