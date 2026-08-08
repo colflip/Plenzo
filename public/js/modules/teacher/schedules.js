@@ -25,6 +25,7 @@ let cachedSchedules = [];
 let scheduleLoadSeq = 0;
 
 window.teacherShowPlan = false;
+window.teacherFeeShow = false;
 
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
@@ -39,6 +40,13 @@ export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
     syncShowPlanButton();
+    ensureTeacherFeeHideStyle();
+    syncTeacherFeeButton();
+    const feeToggleBtn = document.getElementById('toggleTeacherFeeBtn');
+    if (feeToggleBtn && !feeToggleBtn.__teacherFeeBound) {
+        feeToggleBtn.addEventListener('click', window.toggleTeacherFeeVisibility);
+        feeToggleBtn.__teacherFeeBound = true;
+    }
     initFeeModal();
     await loadSchedules(currentWeekStart);
 }
@@ -62,6 +70,45 @@ function syncShowPlanButton() {
         btn.style.borderColor = color;
         btn.style.color = '#fff';
     }
+}
+
+// ── 费用显隐（与管理端一致）────────────────────────────
+function syncTeacherFeeButton() {
+    const btn = document.getElementById('toggleTeacherFeeBtn');
+    const text = document.getElementById('teacherFeeBtnText');
+    if (text) text.textContent = window.teacherFeeShow ? '隐藏费用' : '显示费用';
+    if (btn) {
+        const isActive = !!window.teacherFeeShow;
+        const color = isActive ? '#ef4444' : '#2ECC71';
+        btn.classList.toggle('schedule-toggle-active', isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+        btn.style.backgroundColor = color;
+        btn.style.borderColor = color;
+        btn.style.color = '#fff';
+    }
+    if (!window.teacherFeeShow) {
+        document.body.classList.add('global-hide-teacher-fee');
+    } else {
+        document.body.classList.remove('global-hide-teacher-fee');
+    }
+}
+
+window.toggleTeacherFeeVisibility = function () {
+    window.teacherFeeShow = !window.teacherFeeShow;
+    syncTeacherFeeButton();
+};
+
+// 注入费用显隐样式，统一管理端：通过 body 类名 + CSS 覆盖后续动态生成的 DOM
+function ensureTeacherFeeHideStyle() {
+    if (document.getElementById('teacher-fee-visibility-style')) return;
+    const style = document.createElement('style');
+    style.id = 'teacher-fee-visibility-style';
+    style.innerHTML = `
+        body.global-hide-teacher-fee .teacher-fee-element {
+            display: none !important;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 function bindNavigation() {
@@ -468,7 +515,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const mOFee = parseFloat(first.other_fee) || 0;
     const mHasFee = mTFee > 0 || mOFee > 0;
 
-    const feeWrapper = createElement('div', '', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
+    const feeWrapper = createElement('div', 'teacher-fee-element', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
 
     if (mHasFee) {
         const feeInfo = createElement('span', '', {
@@ -785,7 +832,7 @@ function buildScheduleCard(group) {
 
     // 费用显示行（已填写时显示，且作为可点击的触发器）
     if (hasFee) {
-        const feeInfo = createElement('span', '', {
+        const feeInfo = createElement('span', 'teacher-fee-element', {
             style: 'font-size: 11px; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; cursor: pointer;'
         });
         feeInfo.textContent = `交通¥${tFee} 其他¥${oFee}`;
@@ -796,7 +843,7 @@ function buildScheduleCard(group) {
         footer.appendChild(feeInfo);
     } else {
         // 无费用时，显示“添加费用”按钮
-        const feeBtn = createElement('button', 'info-btn', {
+        const feeBtn = createElement('button', 'info-btn teacher-fee-element', {
             textContent: '添加费用',
             style: 'padding: 2px 6px; font-size: 12px; min-width: auto; margin-left: 6px; height: 24px;'
         });

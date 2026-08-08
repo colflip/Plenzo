@@ -9583,6 +9583,7 @@ svg {
 #toggleTeacherStudentFeeBtn,
 #toggleTeacherStudentShowPlanBtn,
 #toggleAdminFeeBtn,
+#toggleTeacherFeeBtn,
 #toggleShowPlanBtn {
     background-color: #2ECC71 !important;
     border-color: #2ECC71 !important;
@@ -9594,6 +9595,7 @@ svg {
 #toggleTeacherStudentFeeBtn:hover,
 #toggleTeacherStudentShowPlanBtn:hover,
 #toggleAdminFeeBtn:hover,
+#toggleTeacherFeeBtn:hover,
 #toggleShowPlanBtn:hover {
     background-color: #27AE60 !important;
     border-color: #27AE60 !important;
@@ -9604,6 +9606,7 @@ svg {
 #toggleTeacherStudentFeeBtn.schedule-toggle-active,
 #toggleTeacherStudentShowPlanBtn.schedule-toggle-active,
 #toggleAdminFeeBtn.schedule-toggle-active,
+#toggleTeacherFeeBtn.schedule-toggle-active,
 #toggleShowPlanBtn.schedule-toggle-active,
 #toggleStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleTeacherShowPlanBtn.schedule-toggle-active:hover,
@@ -9622,6 +9625,7 @@ svg {
 #toggleTeacherStudentFeeBtn.schedule-toggle-active:hover,
 #toggleTeacherStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleAdminFeeBtn.schedule-toggle-active:hover,
+#toggleTeacherFeeBtn.schedule-toggle-active:hover,
 #toggleShowPlanBtn.schedule-toggle-active:hover {
     background-color: #dc2626 !important;
     border-color: #dc2626 !important;
