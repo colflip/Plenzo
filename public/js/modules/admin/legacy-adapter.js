@@ -181,8 +181,11 @@ function adjustSelectMinWidth(selectEl) {
 // 页面加载完成后执行
 document.addEventListener('DOMContentLoaded', () => {
     if (window.__TEST_MODE__) return; // 测试模式下跳过页面初始化
-    if (window.authUtils && window.authUtils.checkAuth) window.authUtils.checkAuth();
-    else if (window.checkAuth) window.checkAuth();
+    // 先校验身份：必须是管理员；否则跳登录页，避免后续 admin 接口 403 误报"权限错误"
+    const authed = window.authUtils && window.authUtils.checkAuth
+        ? window.authUtils.checkAuth('admin')
+        : (window.checkAuth ? window.checkAuth('admin') : true);
+    if (!authed) return;
     // setupSidebarToggle(); // 已由 index.js -> ui-helper.js 处理，此处移除以免重复绑定
     if (window.UILayout && window.UILayout.setupNavigation) window.UILayout.setupNavigation();
     else if (window.setupNavigation) window.setupNavigation();

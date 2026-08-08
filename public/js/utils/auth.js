@@ -11,11 +11,26 @@ window.authUtils = {
         return sessionStorage.getItem('tempToken');
     },
 
-    checkAuth: function () {
+    /**
+     * 校验登录态及角色
+     * @param {string} [expectedUserType] - 期望的用户类型 ('admin'|'teacher'|'student')，不传则只校验 token 存在
+     * @returns {boolean} 是否通过校验（未通过时内部已跳转登录页）
+     */
+    checkAuth: function (expectedUserType) {
         const authToken = window.apiUtils ? window.apiUtils.getAuthToken() : this.getAuthToken();
         if (!authToken) {
             window.location.href = '/index.html';
+            return false;
         }
+        if (expectedUserType) {
+            const userType = localStorage.getItem('userType');
+            if (userType !== expectedUserType) {
+                // 身份不匹配（如非管理员打开了管理后台）：跳回登录页，避免后端 403 误报"权限错误"
+                window.location.href = '/index.html';
+                return false;
+            }
+        }
+        return true;
     },
 
     /**
