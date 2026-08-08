@@ -46,10 +46,8 @@ test-results/
 blob-report/
 backstop_data/
 
-# Documentation and repository maintenance files (local only)
-docs/*
-!docs/deployment.md
-!docs/development.md
+# Documentation (local only; entire folder ignored)
+docs/
 CHANGELOG.md
 CONTRIBUTING.md
 .github/
