@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>goodluck :: reward</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: #0b0f14;
+            color: #9fe6c4;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        body {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 32px 16px;
+        }
+        .wrap {
+            width: min(760px, 96vw);
+            background: #0b0f14;
+            border: 1px solid #1f2a37;
+            border-radius: 10px;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
+            overflow: hidden;
+            animation: glitch 2.4s infinite steps(1);
+        }
+        @keyframes glitch {
+            0%, 97% { transform: translate(0, 0); }
+            98% { transform: translate(-1px, 1px); }
+            99% { transform: translate(1px, -1px); }
+            100% { transform: translate(0, 0); }
+        }
+        .errbar {
+            background: #3b1212;
+            color: #ff9a9a;
+            font-size: 12px;
+            padding: 6px 12px;
+            letter-spacing: .5px;
+            border-bottom: 1px solid #5a1d1d;
+            animation: flicker 3s infinite;
+        }
+        @keyframes flicker {
+            0%, 92%, 100% { opacity: 1; }
+            93% { opacity: .35; }
+            94% { opacity: 1; }
+            96% { opacity: .6; }
+        }
+        .head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            color: #7fb3ff;
+            border-bottom: 1px solid #16202b;
+            font-size: 13px;
+        }
+        .glyph { color: #7fb3ff; }
+        .back {
+            margin-left: auto;
+            background: none;
+            border: 1px solid #2a3a4a;
+            color: #9fe6c4;
+            border-radius: 6px;
+            cursor: pointer;
+            padding: 2px 8px;
+            font-family: inherit;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .back:hover { background: #13202b; }
+        .body { padding: 12px; }
+        .json {
+            background: #070b0f;
+            border: 1px solid #16202b;
+            border-radius: 8px;
+            padding: 14px;
+            color: #8ab4f8;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 13px;
+            line-height: 1.6;
+            margin: 0;
+            min-height: 120px;
+        }
+        .meta {
+            color: #6b7c8c;
+            font-size: 12px;
+            margin: 0 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="errbar">DEBUG // raw payload (unstable) — do not trust</div>
+        <div class="head"><span class="glyph">&#9612;</span> reward_calc :: teacher
+            <a class="back" href="/teacher/dashboard/teaching-display">[back]</a>
+        </div>
+        <div class="body">
+            <div class="meta" id="meta"></div>
+            <pre class="json" id="json">loading...</pre>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // 类型中文 → 英文键（含线上/半次/记录变体）
+            const TYPE_EN = {
+                '试教': 'trial', '入户': 'visit', '半次入户': 'half_visit',
+                '（线上）入户': 'online_visit', '(线上)入户': 'online_visit', '线上入户': 'online_visit',
+                '评审': 'review', '评审记录': 'review_record',
+                '（线上）评审': 'online_review', '(线上)评审': 'online_review', '线上评审': 'online_review',
+                '集体活动': 'group_activity',
+                '咨询': 'consultation', '咨询记录': 'consultation_record',
+                '（线上）咨询': 'online_consultation', '(线上)咨询': 'online_consultation', '线上咨询': 'online_consultation',
+                '（线上）评审记录': 'online_review_record', '(线上)评审记录': 'online_review_record', '线上评审记录': 'online_review_record',
+                '（线上）咨询记录': 'online_consultation_record', '(线上)咨询记录': 'online_consultation_record', '线上咨询记录': 'online_consultation_record'
+            };
+            const ONLINE_CAPABLE = new Set(['visit', 'review', 'consultation', 'review_record', 'consultation_record']);
+
+            function toEnKey(cn) {
+                const isOnline = cn.includes('（线上）') || cn.includes('(线上)') || cn.startsWith('线上');
+                const base = cn.replace(/[（(]线上[)）]/g, '').replace(/^线上/, '');
+                let en = TYPE_EN[cn] || TYPE_EN[base] || base;
+                if (isOnline && ONLINE_CAPABLE.has(en)) en = 'online_' + en;
+                return en;
+            }
+
+            function aggregate(m) {
+                const enMap = {};
+                for (const [cn, c] of Object.entries(m || {})) {
+                    const v = Number(c) || 0;
+                    if (v <= 0) continue;
+                    const en = toEnKey(cn);
+                    enMap[en] = (enMap[en] || 0) + v;
+                }
+                const g = (k) => Number(enMap[k] || 0);
+                const visit = g('visit') + g('online_visit');
+                const half = g('half_visit');
+                const review = g('review') + g('online_review');
+                const reviewRec = g('review_record') + g('online_review_record');
+                const consult = g('consultation') + g('online_consultation');
+                const consultRec = g('consultation_record') + g('online_consultation_record');
+                return {
+                    enMap,
+                    visitAgg: visit + half * 0.5 + reviewRec * 0.5 + consultRec * 0.5,
+                    reviewAgg: review + reviewRec,
+                    consultAgg: consult + consultRec,
+                    trial: g('trial'),
+                    group: g('group_activity')
+                };
+            }
+
+            function round2(x) { return Math.round((x + Number.EPSILON) * 100) / 100; }
+
+            function computeCoefficient(v) { return 1.0 + Math.floor(v / 5) * 0.1; }
+
+            function computeFee(a, c) {
+                const vs = round2(a.visitAgg * 200 * c);
+                const rs = round2(a.reviewAgg * 100);
+                const ts = round2(a.trial * 100);
+                const gs = round2(a.group * 100);
+                const cs = round2(a.consultAgg * 100);
+                return {
+                    breakdown: [
+                        { item: 'visit', count: a.visitAgg, unit_price: 200, coefficient: c, subtotal: vs },
+                        { item: 'review', count: a.reviewAgg, unit_price: 100, coefficient: 1.0, subtotal: rs },
+                        { item: 'trial', count: a.trial, unit_price: 100, coefficient: 1.0, subtotal: ts },
+                        { item: 'group_activity', count: a.group, unit_price: 100, coefficient: 1.0, subtotal: gs },
+                        { item: 'consultation', count: a.consultAgg, unit_price: 100, coefficient: 1.0, subtotal: cs }
+                    ],
+                    total: round2(vs + rs + ts + gs + cs)
+                };
+            }
+
+            function buildPayload(name, start, end, coeff, agg, fee) {
+                const typeStats = {};
+                for (const [k, v] of Object.entries(agg.enMap)) if (v > 0) typeStats[k] = v;
+                return {
+                    basic_info: { name, date_range: { start, end }, coefficient: round2(coeff) },
+                    aggregated: {
+                        visit: round2(agg.visitAgg),
+                        review: round2(agg.reviewAgg),
+                        trial: round2(agg.trial),
+                        group_activity: round2(agg.group),
+                        consultation: round2(agg.consultAgg)
+                    },
+                    type_stats: typeStats,
+                    breakdown: fee.breakdown,
+                    total: fee.total
+                };
+            }
+
+            function currentMonthRange() {
+                const now = new Date();
+                const y = now.getFullYear(), m = now.getMonth();
+                const last = new Date(y, m + 1, 0).getDate();
+                const p = (n) => String(n).padStart(2, '0');
+                return { start: `${y}-${p(m + 1)}-01`, end: `${y}-${p(m + 1)}-${last}` };
+            }
+
+            async function main() {
+                const params = new URLSearchParams(location.search);
+                let start = params.get('start'), end = params.get('end');
+                if (!start || !end) { const r = currentMonthRange(); start = r.start; end = r.end; }
+
+                let name = '未知';
+                try { const u = JSON.parse(localStorage.getItem('userData') || '{}'); name = u.name || u.nickname || '未知'; } catch (e) {}
+
+                let rawMap = {};
+                try {
+                    const token = localStorage.getItem('token');
+                    const res = await fetch(
+                        `/api/teacher/statistics?startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`,
+                        { headers: { 'Authorization': `Bearer ${token}` } }
+                    );
+                    if (res.ok) {
+                        const data = await res.json();
+                        (Array.isArray(data.typeStats) ? data.typeStats : []).forEach(r => { rawMap[r.type || r.name] = r.count; });
+                    }
+                } catch (e) { /* 离线/失败则展示空数据 */ }
+
+                const agg = aggregate(rawMap);
+                const coeff = computeCoefficient(agg.visitAgg);
+                const fee = computeFee(agg, coeff);
+                const payload = buildPayload(name, start, end, coeff, agg, fee);
+
+                document.getElementById('meta').textContent = `name=${name}  range=${start} ~ ${end}  coefficient=${round2(coeff)}  total=${fee.total}`;
+                document.getElementById('json').textContent = JSON.stringify(payload, null, 2);
+            }
+
+            main();
+        })();
+    </script>
+</body>
+</html>
