@@ -148,7 +148,7 @@ function computeDateContext() {
 const DEFAULT_PERIODS = {
     上午: { startTime: '09:00:00', endTime: '12:00:00' },
     下午: { startTime: '14:00:00', endTime: '17:00:00' },
-    晚上: { startTime: '19:00:00', endTime: '21:45:00' }
+    晚上: { startTime: '19:00:00', endTime: '21:30:00' }
 };
 
 /**
@@ -1694,7 +1694,7 @@ const query = asyncHandler(async (req, res) => {
           `(5) 系统返回预览表格，交由用户点击"确认创建排课"按钮执行。\n` +
           `状态判定："待定/看情况/可能"→pending，其余→confirmed。\n` +
           `\n【正例】输入"下周一晚上 浩浩入户（周老师，新课堂）"：\n` +
-          `  → resolve_datetime("下周一晚上") 得 date=下周一, 19:00:00-21:45:00\n` +
+          `  → resolve_datetime("下周一晚上") 得 date=下周一, 19:00:00-21:30:00\n` +
           `  → query_students(nickname:"浩浩") 得 studentId；query_teachers(name:"周老师") 得 teacherId\n` +
           `  → create_schedule_preview(groups:[{teacherId, studentId, courseType:"visit", location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
           `【反例】不要直接写 create_schedule_preview 而跳过 resolve_datetime 或 query_students —— 会导致日期错、学生错。\n` +
