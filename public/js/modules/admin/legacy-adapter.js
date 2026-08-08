@@ -1429,7 +1429,12 @@ async function loadStatistics() {
                     const selected = getSelectedTeacherForCharts();
                     renderTeacherTypePerTeacherCharts(rawSchedules, dayLabels, selected);
                 } catch (filterError) {
-
+                    // 不再静默吞错：个人图渲染失败会表现为"只剩按日期汇总"，必须可见
+                    console.error('[statistics] 教师个人图表渲染失败:', filterError);
+                    const grid = document.getElementById('teacherChartsContainer');
+                    if (grid && !grid.querySelector('.person-stat-card')) {
+                        grid.innerHTML = '<div style="padding:16px;color:#ef4444;">个人图表渲染失败，请查看控制台</div>';
+                    }
                 }
             } finally {
                 const teacherContainer = document.querySelector('.teacher-charts-container');
@@ -1469,7 +1474,12 @@ async function loadStatistics() {
                     const selectedStu = getSelectedStudentForCharts();
                     renderStudentTypePerStudentCharts(rawSchedules, dayLabels, selectedStu);
                 } catch (filterError) {
-
+                    // 不再静默吞错：个人图渲染失败会表现为"只剩按日期汇总"，必须可见
+                    console.error('[statistics] 学生个人图表渲染失败:', filterError);
+                    const grid = document.getElementById('studentChartsContainer');
+                    if (grid && !grid.querySelector('.person-stat-card')) {
+                        grid.innerHTML = '<div style="padding:16px;color:#ef4444;">个人图表渲染失败，请查看控制台</div>';
+                    }
                 }
             } finally {
                 const studentContainerEl = document.querySelector('.student-charts-container');
