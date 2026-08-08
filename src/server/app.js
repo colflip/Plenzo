@@ -22,6 +22,7 @@ const {
 const initScheduler = require('./jobs/scheduler');
 const runDatabaseMigrations = require('./db/migrations');
 const { warmup: dbWarmup } = require('./db/db');
+const db = require('./db/db');
 
 const app = express();
 
@@ -178,9 +179,36 @@ app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, re
         res.sendFile(dashboardPages.teacher);
     });
 });
-// 隐藏酬劳彩蛋：点击"数据统计"标题 5 次后跳转的 JSON 展示页（自包含，独立 HTML）
-app.get('/teacher/dashboard/teaching-display/goodluck', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/teacher/goodluck.html'));
+// 隐藏酬劳彩蛋：点击"数据统计"标题 5 次后跳转的 JSON 页（直接返回 JSON，无 HTML）。
+// 直接导航无法带 Authorization 头，故允许 token 经 URL 传递（隐藏调试页，非敏感操作）。
+// 无有效 token 时优雅降级为空数据 JSON，不报错。
+const jwt = require('jsonwebtoken');
+const rewardCalc = require('./services/rewardCalc');
+app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
+    const { start, end, token } = req.query;
+    const authHeader = req.headers.authorization;
+    const raw = token || (authHeader && authHeader.split(' ')[1]);
+    let user = null;
+    if (raw) {
+        try {
+            const secret = process.env.JWT_SECRET || (isDevelopment ? 'dev-insecure-secret' : null);
+            if (secret) user = jwt.verify(raw, secret);
+        } catch (_) { user = null; }
+    }
+    try {
+        if (user && user.userType === 'teacher') {
+            let name = '未知';
+            try {
+                const r = await db.query('SELECT name FROM teachers WHERE id = $1', [user.id]);
+                if (r.rows && r.rows[0] && r.rows[0].name) name = r.rows[0].name;
+            } catch (_) {}
+            const payload = await rewardCalc.getRewardPayload({ userId: user.id, name, start, end });
+            return res.json(payload);
+        }
+    } catch (err) {
+        console.error('[goodluck] 计算失败，降级空数据:', err && err.message);
+    }
+    res.json(rewardCalc.buildEmptyPayload('未知', start, end));
 });
 app.get(['/teacher/dashboard/:section', '/teacher/dashboard.html/:section'], serveDashboardSection('teacher'));
 
