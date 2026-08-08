@@ -3,6 +3,7 @@
  * Displays total teaching count within a selected date range
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
+import { initRewardEasterEgg } from './reward-easter-egg.js';
 
 let currentTeachingData = null;
 
@@ -12,6 +13,7 @@ let currentTeachingData = null;
 export async function initStatisticsSection() {
     setupDateRangePickers();
     setupEventListeners();
+    initRewardEasterEgg();
 
     try {
         // 并发发起两个请求，避免明细请求等待汇总完成（消除前端瀑布）：
@@ -892,3 +894,6 @@ function formatDateDisplay(dateStr) {
     const day = date.getDate();
     return `${year}年${month}月${day}日`;
 }
+
+// 供隐藏酬劳浮层复用已拉取的按类型统计（typeStats 为 {中文类型:count} 映射）
+window.getTeacherTypeStats = () => (currentTeachingData ? currentTeachingData.typeStats : null);
