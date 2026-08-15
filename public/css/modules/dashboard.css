@@ -9338,25 +9338,26 @@ svg {
 .app-version-badge {
     /* 锚定到最外侧背景卡片（.dashboard-container）的右下角 */
     position: absolute;
-    right: 18px;
+    right: 16px;
     bottom: 12px;
     z-index: 50;
-    padding: 0;
+    padding: 0 4px;
     border: none;
     background: none;
     box-shadow: none;
-    color: #94a3b8;
-    font-size: 14px;
-    line-height: 1.2;
-    text-decoration: none;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.4;
+    text-decoration: underline;
+    text-decoration-color: transparent;
     white-space: nowrap;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 
 .app-version-badge:hover {
-    color: #475569;
-    text-decoration: underline;
+    color: #3b82f6;
+    text-decoration-color: #3b82f6;
 }
 
 .app-version-badge.is-hidden {
@@ -9497,6 +9498,562 @@ svg {
     font-weight: 400 !important;
 }
 
+/* ============================================================
+   费用管理周视图表格：复用排课管理（#student-schedules）同款样式
+   （#fees 普通教师费用管理 / #sd-fees 班主任关联学生费用管理）
+   仅单元格内部内容（费用明细）与排课卡片不同，外框样式保持一致。
+   ============================================================ */
+/* 费用管理「学生视图」：聚合表格（一个学生一行，默认折叠明细）
+   覆盖 admin(#finance) / 教师(#fees) / 班主任关联(#sd-fees) 三端 */
+#finance .weekly-schedule-table,
+#fees .weekly-schedule-table,
+#sd-fees .weekly-schedule-table {
+    table-layout: auto; /* 列宽按内容自适应 */
+    width: 100%; /* 占满容器，剩余空白按内容长短自动分配到各列间距 */
+}
+
+/* 费用管理顶部工具栏：复用排课管理 .header-toolbar.schedule-controls 组件结构，
+   不额外写 inline style，避免内部组件与边缘的上下间距不一致。
+   这里只补全日期范围标签/输入框的特有样式。 */
+#finance .header-toolbar.schedule-controls .fm-range-label,
+#fees .header-toolbar.schedule-controls .fm-range-label,
+#sd-fees .header-toolbar.schedule-controls .fm-range-label {
+    font-weight: 600;
+    color: var(--sch-text-main, #1e293b);
+    font-size: 15px;
+    white-space: nowrap;
+    min-width: 180px;
+    text-align: center;
+    cursor: pointer;
+}
+
+#finance .header-toolbar.schedule-controls .fm-range-inputs,
+#fees .header-toolbar.schedule-controls .fm-range-inputs,
+#sd-fees .header-toolbar.schedule-controls .fm-range-inputs {
+    display: none; /* JS 切换显示 */
+    gap: 8px;
+    align-items: center;
+}
+
+#finance .header-toolbar.schedule-controls .fm-range-inputs input[type="date"],
+#fees .header-toolbar.schedule-controls .fm-range-inputs input[type="date"],
+#sd-fees .header-toolbar.schedule-controls .fm-range-inputs input[type="date"] {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0 8px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+#finance .weekly-schedule-table th,
+#fees .weekly-schedule-table th,
+#sd-fees .weekly-schedule-table th,
+#finance .weekly-schedule-table td,
+#fees .weekly-schedule-table td,
+#sd-fees .weekly-schedule-table td {
+    border-top: 1px solid #E9ECEF !important;
+    border-bottom: 1px solid #E9ECEF !important;
+    border-left: none !important;
+    border-right: none !important;
+    padding: 12px 14px !important; /* 左右内边距收敛，列间距随内容长短自动收放 */
+    min-height: 0 !important;
+    height: auto !important;
+    text-align: left;
+    vertical-align: middle;
+}
+
+/* 汇总行（一个学生一行）固定高度 60px；内容过多时由 fitSummaryRows() 压缩字号
+   （最小 12px），仍放不下则省略号。列宽基准由【明细行】决定（colgroup 已设基础宽度），
+   汇总行聚合长文本只被动省略，不撑宽列。 */
+#finance .weekly-schedule-table tr.fm-stu-row td,
+#fees .weekly-schedule-table tr.fm-stu-row td,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td {
+    height: 60px !important;
+    max-height: 60px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    vertical-align: middle;
+    text-align: center;
+    color: #111111; /* 汇总行文本黑色（反馈：文本使用黑色字体） */
+    overflow: hidden; /* 内容超出 60px 时裁切，保持行高固定 */
+}
+
+/* 学生名 15px（反馈 #1）；超长以省略号收起 */
+#finance .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
+#fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 学生名列（第1列）单元格本身也显式 15px：与日期列（:nth-of-type(2)）一致。
+   否则 td 继承 --font-size-base(1rem=16px)，fitSummaryRows 会以 16px 为该列基准，
+   并把 16px 内联写到 span.fm-stu-name，覆盖上面的 15px（页面调试实测为 16px）。 */
+#finance .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell,
+#fees .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell {
+    font-size: 15px;
+}
+
+/* 日期范围列（第2列）：纳入自适应策略，允许双行 + 省略，仍放不下时由 JS 切跑马灯 */
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2),
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2),
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2) {
+    font-size: 14px;
+    white-space: normal;
+    overflow: hidden;
+    max-width: 155px;
+}
+
+/* 老师/课程类型/上课地点/状态（第3-6列）14px，双行显示（不再单行 nowrap + 字号压缩）：
+   单元格内由 .fm-cell-clamp 内层 span 实现「最多 2 行 + 省略」；
+   max-width 与 colgroup 基础宽度对齐：列宽上限由【明细行】内容决定，
+   汇总行长文本超 2 行则省略（不反向撑宽列）。 */
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3),
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3),
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3) {
+    font-size: 14px;
+    white-space: normal;
+    overflow: hidden;
+    max-width: 120px;
+}
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4),
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4),
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4) {
+    font-size: 14px;
+    white-space: normal;
+    overflow: hidden;
+    max-width: 110px;
+}
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5),
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5),
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5) {
+    font-size: 14px;
+    white-space: normal;
+    overflow: hidden;
+    max-width: 95px;
+}
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) {
+    font-size: 14px;
+    white-space: normal;
+    overflow: hidden;
+    max-width: 85px;
+}
+
+/* 状态迷你标签 15px（反馈 #3） */
+#finance .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
+#fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini {
+    font-size: 15px;
+}
+
+/* 金额列（第7/8/9列）15px（反馈 #4-6）；单行不换行，超长省略；汇总行统一居中 */
+#finance .weekly-schedule-table tr.fm-stu-row td.fm-num,
+#fees .weekly-schedule-table tr.fm-stu-row td.fm-num,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td.fm-num {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+/* 整行（按钮除外）可点击展开/收起明细 */
+#finance .weekly-schedule-table tbody tr.fm-stu-row,
+#fees .weekly-schedule-table tbody tr.fm-stu-row,
+#sd-fees .weekly-schedule-table tbody tr.fm-stu-row {
+    cursor: pointer;
+}
+
+/* 内容区（汇总行 + 明细行）统一纯白背景（加 !important 压制 admin-schedule.css 等通用浅灰） */
+#finance .weekly-schedule-table tbody td,
+#fees .weekly-schedule-table tbody td,
+#sd-fees .weekly-schedule-table tbody td {
+    background-color: #ffffff !important;
+}
+
+#finance .weekly-schedule-table tbody td.sticky-col,
+#fees .weekly-schedule-table tbody td.sticky-col,
+#sd-fees .weekly-schedule-table tbody td.sticky-col {
+    background-color: #ffffff !important;
+}
+
+#finance .weekly-schedule-table td.fm-detail-td,
+#fees .weekly-schedule-table td.fm-detail-td,
+#sd-fees .weekly-schedule-table td.fm-detail-td {
+    background-color: #ffffff !important;
+}
+
+/* 悬停也保持纯白，避免通用 .weekly-schedule-table 的浅灰 hover 底色 */
+#finance .weekly-schedule-table tbody tr:hover td,
+#fees .weekly-schedule-table tbody tr:hover td,
+#sd-fees .weekly-schedule-table tbody tr:hover td {
+    background-color: #ffffff !important;
+}
+
+/* 汇总行（tfoot）文本强制右对齐：锁定覆盖 9517 行对全部 td 的 text-align:left，
+   避免被通用单元格规则覆盖导致汇总文本回到左对齐 */
+#finance .weekly-schedule-table tfoot td,
+#fees .weekly-schedule-table tfoot td,
+#sd-fees .weekly-schedule-table tfoot td {
+    text-align: right !important;
+}
+
+#finance .weekly-schedule-table thead th,
+#fees .weekly-schedule-table thead th,
+#sd-fees .weekly-schedule-table thead th {
+    background-color: #FAFAFA;
+    color: var(--sch-text-main, #1e293b);
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+    height: 68.59px !important;
+    padding: 0 14px !important;
+    vertical-align: middle;
+    border-bottom: 2px solid #E2E8F0;
+}
+
+#finance .weekly-schedule-table th.sticky-col,
+#fees .weekly-schedule-table th.sticky-col,
+#sd-fees .weekly-schedule-table th.sticky-col,
+#finance .weekly-schedule-table td.sticky-col,
+#fees .weekly-schedule-table td.sticky-col,
+#sd-fees .weekly-schedule-table td.sticky-col {
+    box-shadow: none;
+    background-color: #F8F9FA;
+    border-right: none;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+}
+
+#finance .weekly-schedule-table td.fm-num,
+#fees .weekly-schedule-table td.fm-num,
+#sd-fees .weekly-schedule-table td.fm-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #111111;
+}
+
+/* 费用「未填写」状态：灰色斜体弱化，与「填 0」(¥0.00 黑色加粗) 明显区分。
+   特异性与上方 .fm-num 规则一致（#xxx ... td.fm-fee-empty），且后置以覆盖颜色/字重。 */
+#finance .weekly-schedule-table td.fm-fee-empty,
+#fees .weekly-schedule-table td.fm-fee-empty,
+#sd-fees .weekly-schedule-table td.fm-fee-empty {
+    color: #94a3b8;
+    font-style: italic;
+    font-weight: 400;
+}
+
+#finance .weekly-schedule-table td.fm-center,
+#fees .weekly-schedule-table td.fm-center,
+#sd-fees .weekly-schedule-table td.fm-center {
+    text-align: center;
+}
+
+#finance .weekly-schedule-table td.fm-ops,
+#fees .weekly-schedule-table td.fm-ops,
+#sd-fees .weekly-schedule-table td.fm-ops {
+    text-align: center;
+    white-space: nowrap;
+}
+
+#finance .weekly-schedule-table td.fm-detail-td,
+#fees .weekly-schedule-table td.fm-detail-td,
+#sd-fees .weekly-schedule-table td.fm-detail-td {
+    background-color: #ffffff;
+}
+
+/* 「学生」列下方明细留白：白底、不显示任何内容；横向滚动时该列 sticky 跟随，保持与表头/汇总行对齐；
+   去掉下方分割线（明细行视觉上与上方汇总行/相邻明细行融为一体） */
+#finance .weekly-schedule-table td.fm-detail-blank,
+#fees .weekly-schedule-table td.fm-detail-blank,
+#sd-fees .weekly-schedule-table td.fm-detail-blank {
+    background-color: #ffffff;
+    padding: 12px 16px;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    border-bottom: none !important;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+}
+
+/* 明细行固定高度 40px（比汇总行 60px 更矮，体现从属层级）；覆盖通用单元格 12px 内边距；
+   去掉下方分割线：明细行视觉上与上方汇总行融为一体，不再逐条分割 */
+#finance .weekly-schedule-table tr.fm-detail td,
+#fees .weekly-schedule-table tr.fm-detail td,
+#sd-fees .weekly-schedule-table tr.fm-detail td {
+    height: 40px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    vertical-align: middle;
+    border-bottom: none !important;
+}
+
+/* ============================================
+   费用管理：表格圆角容器 + 排课卡片样式（复用排课管理视觉语言）
+   这两个 class 非 scoped，admin/teacher 两端共用（dashboard.css 均已加载）
+   ============================================ */
+.fm-table-card {
+    margin-top: 4px;
+    background: #ffffff;
+    border: 1px solid var(--sch-border, #e2e8f0);
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+    overflow-x: auto;
+}
+
+/* 学生视图：姓名展开箭头 + 状态迷你标签 + 操作按钮 + 折叠明细 */
+.fm-stu-name-cell {
+    cursor: pointer;
+    user-select: none;
+}
+
+.fm-expand-toggle {
+    display: inline-block;
+    width: 16px;
+    color: #94a3b8;
+    font-size: 12px;
+    transition: transform 0.15s ease;
+}
+
+.fm-stu-name {
+    font-weight: 600;
+    color: #111111;
+}
+
+.fm-status-mini {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(46, 204, 113, 0.12);
+    color: #108043;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* 汇总行「老师/课程类型/上课地点/状态」列：双行显示，超出第 2 行省略。
+   作用于单元格内的包裹 span（td 保持 table-cell，避免直接改 td display 破坏表格布局）；
+   对齐 .card-item-footer 既有 -webkit-line-clamp 用法。 */
+.fm-cell-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+    white-space: normal;
+    text-align: center;
+    -webkit-box-pack: center;
+    justify-content: center;
+}
+.fm-cell-clamp.fm-center {
+    text-align: center;
+    -webkit-box-pack: center;
+    justify-content: center;
+}
+
+/* 汇总行多值单元格：每个值作为独立 token，单元格内间距通过 --fm-token-gap 统一调控（自定义），
+   分隔符通过 --fm-token-sep 调控；默认「 / 」分隔、6px 间距。
+   如需某列单独定制，在对应 td:nth-of-type(n) 覆盖这两个变量即可。 */
+.fm-cell-clamp {
+    --fm-token-gap: 6px;
+    --fm-token-sep: " / ";
+}
+.fm-cell-clamp .fm-token + .fm-token::before {
+    content: var(--fm-token-sep, " / ");
+    margin: 0 var(--fm-token-gap, 6px);
+}
+
+/* 状态迷你标签内多个状态值：用空格分隔、间距略紧（与上方默认区分）；
+   取消 nowrap 以允许在窄列宽下随 .fm-cell-clamp 自动折行进入双行显示 */
+.fm-status-mini.fm-tokens {
+    --fm-token-sep: " ";
+    --fm-token-gap: 4px;
+    white-space: normal;
+}
+
+/* 汇总行跑马灯（内容超过 2 行时启用）：单行水平滚动，内容完整掠过；
+   轨道含两份相同内容（各带尾部留白），动画位移 -50% 实现无缝循环；
+   时长由 JS 按内容宽度设置（约 40px/s），悬停暂停便于阅读。 */
+.fm-marquee {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    width: 100%;
+    box-sizing: border-box;
+}
+.fm-marquee-track {
+    display: inline-block;
+    white-space: nowrap;
+    will-change: transform;
+    animation-name: fm-marquee;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+.fm-marquee:hover .fm-marquee-track {
+    animation-play-state: paused;
+}
+@keyframes fm-marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.fm-btn {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.fm-btn + .fm-btn {
+    margin-left: 8px;
+}
+
+.fm-btn:hover {
+    border-color: var(--sch-primary, #2ecc71);
+    color: var(--sch-primary, #2ecc71);
+}
+
+.fm-btn-edit {
+    color: #2563eb;
+    border-color: #bfdbfe;
+}
+
+.fm-btn-edit:hover {
+    border-color: #2563eb;
+    color: #1d4ed8;
+}
+
+.fm-btn-clear:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+/* 明细记录已改为按列对齐的真实表格行（每条课时一行，字段与表头列一一对应），
+   不再使用内嵌 flex 容器；以下为各字段单元格的微调样式 */
+
+/* 明细行文本：14px、常规字重、柔和灰蓝，与汇总行形成层级区分（反馈 #10-14） */
+.fm-d-teacher,
+.fm-d-type,
+.fm-d-location,
+.fm-d-datetime,
+.fm-d-status,
+.fm-d-fee,
+.fm-d-summary {
+    font-size: 14px;
+    color: #64748b;
+    font-weight: normal;
+    /* 所有明细文本列强制单行 + 省略：保证每个明细行严格 40px、截断表现一致（格式统一） */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 日期时间列单行显示，避免「周一（08-10，19:00 - 21:45）」折行；
+   不设固定 min-width，列宽随内容自适应（顶部「每列宽度自适应」） */
+.fm-d-datetime {
+    white-space: nowrap;
+}
+
+.fm-d-type {
+    color: #475569;
+}
+
+.fm-d-location {
+    color: #94a3b8;
+}
+
+/* 明细行金额为绿色但常规字重，区别于汇总行的加粗合计（反馈 #15-17 → 14px）。
+   明细金额单元格同时挂了 .fm-num（带 #finance 前缀、特异性更高），会覆盖此处颜色/字重，
+   导致金额显示为黑色加粗、与同行灰色常规文本撞色（格式不统一）。故加 !important 稳定胜过 .fm-num；
+   右对齐 / tabular-nums 仍由 .fm-num 提供（与汇总金额列垂直对齐）。 */
+.fm-d-fee {
+    color: #0f766e !important;
+    font-weight: normal !important;
+    font-size: 14px;
+}
+
+.fm-d-summary {
+    color: #0f766e !important;
+    font-weight: normal !important;
+    font-size: 14px;
+}
+
+.fm-edit-one {
+    border: none;
+    background: none;
+    color: #2563eb;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    text-decoration: underline;
+}
+
+/* 批量编辑：按日期分组，每天一个区块；区块内条目 flex 自动换行，
+   自适应浮窗宽度（窄屏单列、宽屏多列） */
+.fm-day-group {
+    margin-bottom: 14px;
+}
+.fm-day-group:last-child {
+    margin-bottom: 0;
+}
+.fm-day-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #eef2f7;
+}
+.fm-day-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.fm-day-item {
+    flex: 1 1 200px;
+    min-width: 180px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px;
+}
+.fm-day-item-title {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 13px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+}
+.fm-day-item-inputs {
+    display: flex;
+    gap: 8px;
+}
+.fm-day-item-inputs .form-group {
+    flex: 1;
+    min-width: 0;
+}
+.fm-day-item-inputs input {
+    width: 100%;
+    padding: 6px;
+    height: 32px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
 /* ============================================
    教师/学生空闲时段：单元格行高强一致（以学生空闲时段为基准）
    ============================================ */
@@ -9526,13 +10083,13 @@ svg {
 /* ============================================
    排课管理周视图（管理员/教师/学生）：列分界线虚线 + 减少卡片纵向间距与单元格内边距
    - .schedule-card-group margin-bottom: 8px → 4px (-50%)
-   - 单元格 padding: 16px 20px → 4px 5px (-75%)
+   - 单元格 padding: 16px 20px → 12px 5px（上下 12px 间距，左右 5px）
    - 列与列之间用虚线分隔
    ============================================ */
 #schedule .weekly-schedule-table tbody td,
 #schedules .weekly-schedule-table tbody td,
 #student-schedules .weekly-schedule-table tbody td {
-    padding: 4px 5px !important;
+    padding: 12px 5px !important;
     border-right: 1px dashed #CBD5E1 !important;
 }
 
