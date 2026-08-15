@@ -46,7 +46,8 @@ const securityHeaders = helmet({
             frameAncestors: ["'none'"],
             formAction: ["'self'"],
             baseUri: ["'self'"],
-            objectSrc: ["'none'"]
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: null
         },
         reportOnly: process.env.NODE_ENV === 'development'
     },

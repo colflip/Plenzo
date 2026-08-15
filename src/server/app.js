@@ -7,6 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const morgan = require('morgan');
 
 const {
@@ -113,15 +114,36 @@ const dashboardPages = {
     student: path.join(__dirname, '../../public/student/dashboard.html')
 };
 
-const dashboardSections = {
-    admin: new Set(['overview', 'users', 'availability-mgmt', 'schedule', 'statistics', 'system-settings']),
-    teacher: new Set(['overview', 'profile', 'availability', 'schedules', 'teaching-display', 'student-schedules']),
-    student: new Set(['overview', 'profile', 'availability', 'schedules', 'teaching-display'])
+// dashboard 区块白名单：直接从各端 dashboard.html 的 data-section 解析生成，
+// 避免手工维护与服务端路由不同步（曾导致 finance / fees / sd-fees 直达 404）。
+// 解析失败或为空时回退到内置名单，保证可用。
+const DASHBOARD_SECTIONS_FALLBACK = {
+    admin: ['overview', 'users', 'availability-mgmt', 'schedule', 'finance', 'statistics', 'system-settings'],
+    teacher: ['overview', 'profile', 'availability', 'schedules', 'teaching-display', 'fees', 'sd-fees', 'student-schedules'],
+    student: ['overview', 'profile', 'availability', 'schedules', 'teaching-display']
 };
+
+function buildDashboardSections() {
+    const result = {};
+    for (const role of Object.keys(dashboardPages)) {
+        const set = new Set();
+        try {
+            const html = fs.readFileSync(dashboardPages[role], 'utf8');
+            const re = /data-section="([^"]+)"/g;
+            let m;
+            while ((m = re.exec(html))) set.add(m[1]);
+        } catch (err) {
+            console.warn(`[dashboard] 解析 ${role} 导航区块失败，回退内置白名单:`, err.message);
+        }
+        result[role] = set.size ? set : new Set(DASHBOARD_SECTIONS_FALLBACK[role]);
+    }
+    return result;
+}
+
+const dashboardSections = buildDashboardSections();
 
 // 静态资源版本化：给 HTML 中本地 /js、/css、/assets 引用注入 ?v=<shortSha>，
 // 并令 HTML 本身 no-cache，确保部署后用户立即拿到新模块。
-const fs = require('fs');
 const { injectAssetVersion } = require('./utils/asset-version');
 const { getVersionMeta } = require('./services/version-service');
 
@@ -141,14 +163,23 @@ const versionedHtmlCache = new Map(); // filePath -> { version, html }
 
 async function sendVersionedDashboard(res, filePath) {
     const version = await getAssetVersion();
-    let entry = versionedHtmlCache.get(filePath);
-    if (!entry || entry.version !== version) {
-        const raw = await fs.promises.readFile(filePath, 'utf8');
-        entry = { version, html: injectAssetVersion(raw, version) };
-        versionedHtmlCache.set(filePath, entry);
+    // 生产环境按 (文件, 版本号) 缓存注入后的 HTML，避免重复读盘与正则注入；
+    // 非生产（本地 dev / NODE_ENV 未设置）每次读盘并重注入，确保未提交的 HTML
+    // 与 <script> 引用改动即时生效，避免"改代码刷新仍跑旧壳/旧模块"导致的报错。
+    if (isProduction) {
+        let entry = versionedHtmlCache.get(filePath);
+        if (!entry || entry.version !== version) {
+            const raw = await fs.promises.readFile(filePath, 'utf8');
+            entry = { version, html: injectAssetVersion(raw, version) };
+            versionedHtmlCache.set(filePath, entry);
+        }
+        res.set('Cache-Control', 'no-cache');
+        res.send(entry.html);
+        return;
     }
+    const raw = await fs.promises.readFile(filePath, 'utf8');
     res.set('Cache-Control', 'no-cache');
-    res.send(entry.html);
+    res.send(injectAssetVersion(raw, version));
 }
 
 function serveDashboardSection(role) {

@@ -63,6 +63,8 @@ async function initDashboard() {
             schedules: initSchedulesSection,
             'teaching-display': initStatisticsSection,
             'student-schedules': initStudentSchedulesSection,
+            fees: mountTeacherFees,
+            'sd-fees': mountTeacherHeadFees,
         },
         sectionRefreshers: {
             overview: loadOverview,
@@ -71,10 +73,14 @@ async function initDashboard() {
             schedules: refreshSchedules,
             'teaching-display': loadTeachingCount,
             'student-schedules': refreshStudentSchedules,
+            fees: mountTeacherFees,
+            'sd-fees': mountTeacherHeadFees,
         },
         routeBase: '/teacher/dashboard',
+        onSectionShown: () => ensureStudentDataGroupOpen(),
     });
     await controller.init();
+    ensureStudentDataGroupOpen();
     setupDataSyncSubscriptions();
 }
 
@@ -121,12 +127,82 @@ function setupDataSyncSubscriptions() {
     });
 }
 
-function toggleClassMasterNav(userData) {
-    const navStudentSchedules = document.getElementById('navStudentSchedules');
-    if (!navStudentSchedules) return;
-    if (userData && userData.student_ids && userData.student_ids.length > 0) {
-        navStudentSchedules.style.display = 'flex';
-    } else {
-        navStudentSchedules.style.display = 'none';
+// ---- 统一费用管理挂载（教师端共用 FeeManager） -------------------------
+function mountTeacherFees() {
+    if (!window.FeeManager) return;
+    window.FeeManager.mount({
+        mountSelector: '#teacherFeeManagerMount',
+        role: 'teacher',
+        listEndpoint: '/teacher/schedules',
+        saveMode: 'single',
+        feeEndpoint: (id) => `/teacher/schedules/${id}/fees`,
+        exportContextKey: 'teacher-fees',
+        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/schedules', { startDate: s, endDate: e }),
+    });
+}
+
+function mountTeacherHeadFees() {
+    if (!window.FeeManager) return;
+    window.FeeManager.mount({
+        mountSelector: '#teacherHeadFeeManagerMount',
+        role: 'teacher',
+        listEndpoint: '/teacher/student-schedules',
+        saveMode: 'batch',
+        batchEndpoint: '/teacher/batch-fees',
+        exportContextKey: 'teacher-head-fees',
+        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/student-schedules', { startDate: s, endDate: e }),
+    });
+}
+
+// ---- 学生数据管理分组（二级菜单）展开/收起 ----------------------------
+function setupStudentDataSubmenu() {
+    if (window.__sdSubmenuBound) return;
+    window.__sdSubmenuBound = true;
+    const group = document.getElementById('navStudentDataGroup');
+    const header = document.getElementById('navStudentDataHeader');
+    const chevron = header?.querySelector('.nav-group-chevron');
+    if (!group || !header) return;
+
+    const updateChevron = () => {
+        if (chevron) chevron.textContent = group.classList.contains('collapsed') ? 'chevron_right' : 'expand_more';
+    };
+
+    header.addEventListener('click', (e) => {
+        e.preventDefault();
+        group.classList.toggle('collapsed');
+        updateChevron();
+    });
+    group.querySelectorAll('.nav-subitem').forEach(item => {
+        item.addEventListener('click', () => {
+            group.classList.remove('collapsed');
+            updateChevron();
+        });
+    });
+    updateChevron();
+}
+
+function ensureStudentDataGroupOpen() {
+    const group = document.getElementById('navStudentDataGroup');
+    const header = document.getElementById('navStudentDataHeader');
+    const chevron = header?.querySelector('.nav-group-chevron');
+    if (!group) return;
+    const hasActive = !!group.querySelector('.nav-subitem.active');
+    group.classList.toggle('has-active', hasActive);
+    if (hasActive) {
+        group.classList.remove('collapsed');
+        if (chevron) chevron.textContent = 'expand_more';
     }
+}
+
+function toggleClassMasterNav(userData) {
+    const group = document.getElementById('navStudentDataGroup');
+    const collapsedItems = document.querySelectorAll('.class-master-collapsed-item');
+    const shouldShow = !!(userData && userData.student_ids && userData.student_ids.length > 0);
+    if (group) {
+        group.style.display = shouldShow ? '' : 'none';
+    }
+    collapsedItems.forEach(item => {
+        item.style.display = shouldShow ? '' : 'none';
+    });
+    setupStudentDataSubmenu();
 }

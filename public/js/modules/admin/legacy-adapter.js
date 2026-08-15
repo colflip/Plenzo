@@ -2253,55 +2253,6 @@ function buildAdminScheduleCard(group, student, dateKey) {
     locDiv.textContent = first.location || '地点待定';
     footer.appendChild(locDiv);
 
-    // --- Admin Fee Section ---
-    // 始终渲染，通过 display 控制可见性（切换时不需重载）
-    const feeShow = window.adminFeeShow || false;
-    let totalTransport = 0;
-    let totalOther = 0;
-    group.forEach(s => {
-        totalTransport += parseFloat(s.transport_fee) || 0;
-        totalOther += parseFloat(s.other_fee) || 0;
-    });
-    const hasFee = totalTransport > 0 || totalOther > 0;
-
-    const feeWrap = document.createElement('div');
-    feeWrap.classList.add('fee-bottom-wrap');
-    feeWrap.style.cssText = `display: ${feeShow ? 'flex' : 'none'}; justify-content: flex-end; width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 6px;`;
-
-    const feeContainer = document.createElement('div');
-    feeContainer.style.cssText = 'margin-top: 2px; display: flex; justify-content: center; width: 100%;';
-
-    if (hasFee) {
-        const feeInfo = document.createElement('span');
-        feeInfo.style.cssText = 'background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 4px;';
-
-        let parts = [];
-        if (totalTransport > 0) parts.push(`交通¥${totalTransport}`);
-        if (totalOther > 0) parts.push(`其他¥${totalOther}`);
-
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(feeInfo, `<span>${parts.join(' ')}</span><span class="material-icons-round" style="font-size: 12px; margin-left: 2px;">edit</span>`); } else { feeInfo.innerHTML = `<span>${parts.join(' ')}</span><span class="material-icons-round" style="font-size: 12px; margin-left: 2px;">edit</span>`; }
-        feeInfo.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (typeof editSchedule === 'function' && first.id) editSchedule(first.id);
-        });
-        feeContainer.appendChild(feeInfo);
-    } else {
-        const feeBtn = document.createElement('button');
-        feeBtn.classList.add('add-fee-btn');
-        feeBtn.textContent = '添加费用';
-        feeBtn.style.cssText = 'padding: 2px 8px; font-size: 11px; min-width: auto; height: 22px; margin: 0 auto; background: white; border: 1px solid #10B981; color: #10B981; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
-        feeBtn.onmouseover = () => { feeBtn.style.background = '#F0FDF4'; };
-        feeBtn.onmouseout = () => { feeBtn.style.background = 'white'; };
-        feeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (typeof editSchedule === 'function' && first.id) editSchedule(first.id);
-        });
-        feeContainer.appendChild(feeBtn);
-    }
-
-    feeWrap.appendChild(feeContainer);
-    footer.appendChild(feeWrap);
-
     card.appendChild(footer);
 
     return card;

@@ -63,6 +63,23 @@ async function runDatabaseMigrations() {
             console.log('数据库迁移完成：添加 transport_fee, other_fee 和 student_ids 字段');
         }
 
+        // 让 transport_fee / other_fee 能区分「未填写」(NULL) 与「填写 0」(0)
+        // 列本身无 NOT NULL，仅移除 DEFAULT 0：新排课默认 NULL = 未填写；
+        // 用户主动「清除费用」仍显式写入 0，与从未填写区分。幂等。
+        const feeDefaultResult = await db.query(`
+            SELECT column_name, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'course_arrangement'
+              AND column_name IN ('transport_fee', 'other_fee')
+        `);
+        const needsDropDefault = (feeDefaultResult.rows || []).some(r => r.column_default !== null && r.column_default !== 'NULL');
+        if (needsDropDefault) {
+            await db.query(`ALTER TABLE course_arrangement ALTER COLUMN transport_fee DROP DEFAULT`);
+            await db.query(`ALTER TABLE course_arrangement ALTER COLUMN other_fee DROP DEFAULT`);
+            console.log('数据库迁移完成：transport_fee/other_fee 移除默认值（NULL=未填写，0=已填0）');
+        }
+
         // 检查是否需要添加 fee_audit_logs 表
         const feeAuditTableResult = await db.query(`
             SELECT table_name 

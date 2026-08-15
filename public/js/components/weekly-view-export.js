@@ -151,20 +151,20 @@
         }
         if (prepToastId && window.apiUtils) window.apiUtils.hideToast(prepToastId);
 
-        // 2. 仅保留本周实际有课程的学生
-        const studentsWithSchedules = collectStudentsWithSchedules(fullSchedules);
-        if (studentsWithSchedules.length === 0) {
-            if (window.apiUtils) window.apiUtils.showToast('本周没有可导出的学生数据', 'warning');
+        // 2. 仅保留本周实际有课程的学生/教师
+        const { dim, targets } = collectDimensionTargets(fullSchedules);
+        if (targets.length === 0) {
+            if (window.apiUtils) window.apiUtils.showToast('本周没有可导出的数据', 'warning');
             return;
         }
 
-        // 3. 选学生
+        // 3. 选目标
         let target;
-        if (studentsWithSchedules.length === 1) {
-            target = studentsWithSchedules[0];
+        if (targets.length === 1) {
+            target = targets[0];
         } else {
             try {
-                target = await pickStudentForWeeklyView(studentsWithSchedules);
+                target = await pickStudentForWeeklyView(targets);
             } catch (_cancelled) {
                 return;
             }
@@ -172,17 +172,40 @@
         if (!target) return;
 
         // 4. 生成并复制
-        await generateAndCopyWeeklyView(target, fullSchedules, weekDates, role);
+        await generateAndCopyWeeklyView(target, fullSchedules, weekDates, role, dim);
     }
 
-    function collectStudentsWithSchedules(schedules) {
+    // 收集导出目标：优先按学生维度；若无 student_id（如普通教师自己的课）则回退教师维度；
+    // 若两者皆无，则视为单一「本人」视图。返回 { dim, targets }
+    function collectDimensionTargets(schedules) {
+        const list = Array.isArray(schedules) ? schedules : [];
+        const hasStudent = list.some(s => s.student_id != null);
         const seen = new Map();
-        (schedules || []).forEach(s => {
-            const id = s.student_id;
-            if (id == null) return;
-            if (!seen.has(id)) seen.set(id, { id: id, name: s.student_name || '未知学生' });
-        });
-        return Array.from(seen.values()).sort((a, b) => (a.id || 0) - (b.id || 0));
+
+        if (hasStudent) {
+            list.forEach(s => {
+                if (s.student_id == null) return;
+                if (!seen.has(s.student_id)) {
+                    seen.set(s.student_id, { id: s.student_id, name: s.student_name || '未知学生', dim: 'student' });
+                }
+            });
+            return { dim: 'student', targets: Array.from(seen.values()).sort((a, b) => (a.id || 0) - (b.id || 0)) };
+        }
+
+        const hasTeacher = list.some(s => s.teacher_id != null);
+        if (hasTeacher) {
+            list.forEach(s => {
+                if (s.teacher_id == null) return;
+                if (!seen.has(s.teacher_id)) {
+                    seen.set(s.teacher_id, { id: s.teacher_id, name: s.teacher_name || '未知教师', dim: 'teacher' });
+                }
+            });
+            return { dim: 'teacher', targets: Array.from(seen.values()).sort((a, b) => (a.id || 0) - (b.id || 0)) };
+        }
+
+        // 完全无维度：整周作为单一「本人」视图导出
+        const fallbackName = (list[0] && (list[0].teacher_name || list[0].student_name)) || '我的排课';
+        return { dim: 'self', targets: [{ id: 'self', name: fallbackName, dim: 'self' }] };
     }
 
     // ---- 学生选择弹窗（与教师端样式一致） ------------------------------
@@ -307,16 +330,20 @@
     }
 
     // ---- 主流程：转换 → 渲染 → 截图 → 剪贴板 --------------------------
-    async function generateAndCopyWeeklyView(targetStudent, sourceSchedules, weekDates, role) {
+    async function generateAndCopyWeeklyView(targetStudent, sourceSchedules, weekDates, role, dim) {
         const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成本周视图...', 'info', 0) : null;
 
         const startDateObj = weekDates[0];
         const endDateObj = weekDates[weekDates.length - 1];
 
-        // 1. 过滤出本周 + 该学生的排课
+        // 1. 过滤出本周 + 该目标（学生/教师/本人）的排课
         const baseSchedules = Array.isArray(sourceSchedules) ? sourceSchedules : [];
         const adaptedRows = baseSchedules
-            .filter(s => String(s.student_id) === String(targetStudent.id))
+            .filter(s => {
+                if (dim === 'teacher') return String(s.teacher_id) === String(targetStudent.id);
+                if (dim === 'self') return true;
+                return String(s.student_id) === String(targetStudent.id);
+            })
             .map(s => ({
                 id: s.id,
                 date: s.date,
@@ -324,7 +351,9 @@
                 end_time: s.end_time,
                 status: s.status,
                 student_id: s.student_id,
-                student_name: s.student_name || targetStudent.name,
+                student_name: dim === 'student'
+                    ? (s.student_name || targetStudent.name)
+                    : (s.teacher_name || s.student_name || targetStudent.name),
                 teacher_id: s.teacher_id,
                 teacher_name: s.teacher_name,
                 transport_fee: s.transport_fee,
