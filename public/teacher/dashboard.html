@@ -9,7 +9,7 @@
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">
-    <link rel="stylesheet" href="/css/modules/dashboard.css">
+    <link rel="stylesheet" href="/css/modules/dashboard.css?v=2">
     <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
     <style>
@@ -543,6 +543,210 @@
             font-weight: 500;
             color: var(--text-primary);
         }
+
+        /* ===== 学生管理分组（展开态）与收起态独立项统一格式 ===== */
+        /* 展开态分组：与一级菜单同宽、同圆角、同边距 */
+        .nav-group.expanded-only {
+            display: block;
+            margin: 4px 12px;
+        }
+
+        .sidebar.collapsed .nav-group.expanded-only {
+            display: none;
+        }
+
+        /* 收起态独立项默认隐藏，侧边栏收起时显示 */
+        .nav-item.collapsed-only {
+            display: none;
+        }
+
+        .sidebar.collapsed .nav-item.collapsed-only {
+            display: flex;
+        }
+
+        .nav-group-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            margin: 0;
+            color: var(--text-secondary);
+            text-decoration: none;
+            cursor: pointer;
+            font-size: var(--font-size-base);
+            font-weight: 500;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.5s ease;
+        }
+
+        .nav-group-header:hover {
+            background-color: rgba(46, 204, 113, 0.1);
+            color: #2ECC71;
+        }
+
+        /* 分组头部高亮：任意子项 active 时 */
+        .nav-group.has-active .nav-group-header {
+            background-color: rgba(46, 204, 113, 0.12);
+            color: #27AE60;
+        }
+
+        /* 固定图标槽 22px，与一级菜单图标严格左对齐 */
+        .nav-group-header > .material-icons-round:first-child {
+            font-size: 22px;
+            width: 22px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 0;
+            flex-shrink: 0;
+        }
+
+        .nav-group-header .nav-text {
+            font-size: var(--font-size-base);
+            white-space: nowrap;
+            transition: all 0.5s ease;
+        }
+
+        /* 箭头固定 20px 弹性容器，靠右对齐，避免旋转移位 */
+        .nav-group-chevron {
+            font-size: 20px;
+            width: 20px;
+            height: 20px;
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .nav-subgroup {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-left: 0;
+            margin: 2px 0;
+            overflow: hidden;
+        }
+
+        .nav-group.collapsed .nav-subgroup {
+            display: none;
+        }
+
+        /* 二级菜单：图标缩小、左侧留缩进，形成清晰子层级 */
+        .nav-subitem {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px 10px 46px !important;
+            margin: 0 !important;
+            margin-left: 0 !important;
+            font-size: 13.5px;
+            font-weight: 500;
+            border-radius: 12px;
+        }
+
+        .nav-subitem .material-icons-round {
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-right: 0;
+        }
+
+        .nav-subitem .nav-text {
+            font-size: 13.5px;
+            white-space: nowrap;
+        }
+
+        .nav-subitem.active {
+            background: rgba(46, 204, 113, 0.12);
+            color: #27AE60;
+        }
+
+        /* 移动端菜单中分组头部/子项与一级菜单保持统一卡片样式 */
+        @media screen and (max-width: 768px) {
+            .sidebar .nav-group.expanded-only {
+                display: block;
+                margin: 0 0 10px 0;
+            }
+
+            .sidebar .nav-item.collapsed-only {
+                display: none !important;
+            }
+
+            .sidebar .nav-group-header,
+            .sidebar .nav-subitem {
+                display: flex !important;
+                align-items: center !important;
+                padding: 14px 18px !important;
+                margin: 0 !important;
+                gap: 12px !important;
+                background-color: #FFFFFF !important;
+                color: #2C3E50 !important;
+                border-radius: 12px !important;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+                border: none !important;
+                text-decoration: none !important;
+                width: 100% !important;
+                text-align: left !important;
+                font-size: 16px !important;
+                font-weight: 600 !important;
+                transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+                            opacity 0.6s ease,
+                            background-color 0.2s ease;
+            }
+
+            .sidebar .nav-subitem {
+                font-size: 15.5px !important;
+                font-weight: 500 !important;
+            }
+
+            .sidebar .nav-subitem .nav-text {
+                font-size: 15.5px !important;
+            }
+
+            .sidebar .nav-group-header.active,
+            .sidebar .nav-subitem.active {
+                background-color: #2ECC71 !important;
+                color: #FFFFFF !important;
+            }
+
+            .sidebar .nav-group-header.active .nav-text,
+            .sidebar .nav-subitem.active .nav-text,
+            .sidebar .nav-group-header.active .material-icons-round,
+            .sidebar .nav-subitem.active .material-icons-round {
+                color: #FFFFFF !important;
+            }
+
+            .sidebar .nav-group-header .material-icons-round:first-child {
+                color: #6C757D;
+            }
+
+            .sidebar .nav-group-header:hover .material-icons-round:first-child {
+                color: #2ECC71;
+            }
+
+            .sidebar .nav-group-header.active .material-icons-round:first-child {
+                color: #FFFFFF !important;
+            }
+
+            .sidebar .nav-subgroup {
+                padding-left: 24px;
+                gap: 8px;
+                margin: 8px 0;
+            }
+
+            .sidebar .nav-group-chevron {
+                color: #6C757D;
+            }
+        }
     </style>
 </head>
 
@@ -576,14 +780,42 @@
                     <span class="material-icons-round">calendar_today</span>
                     <span class="nav-text">课程安排</span>
                 </a>
+                <a href="#" class="nav-item" data-section="fees">
+                    <span class="material-icons-round">payments</span>
+                    <span class="nav-text">费用管理</span>
+                </a>
                 <a href="#" class="nav-item" data-section="teaching-display">
                     <span class="material-icons-round">analytics</span>
                     <span class="nav-text">数据统计</span>
                 </a>
-                <a href="#" class="nav-item" data-section="student-schedules" id="navStudentSchedules"
-                    style="display: none;">
-                    <span class="material-icons-round">groups</span>
+
+                <!-- 学生管理（班主任角色可见，展开时含二级菜单） -->
+                <div class="nav-group expanded-only" id="navStudentDataGroup" style="display: none;">
+                    <a href="#" class="nav-group-header" id="navStudentDataHeader">
+                        <span class="material-icons-round">groups</span>
+                        <span class="nav-text">学生管理</span>
+                        <span class="material-icons-round nav-group-chevron">expand_more</span>
+                    </a>
+                    <div class="nav-subgroup" id="navStudentDataSub">
+                        <a href="#" class="nav-item nav-subitem" data-section="student-schedules">
+                            <span class="material-icons-round">calendar_today</span>
+                            <span class="nav-text">学生排课管理</span>
+                        </a>
+                        <a href="#" class="nav-item nav-subitem" data-section="sd-fees">
+                            <span class="material-icons-round">payments</span>
+                            <span class="nav-text">学生费用管理</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- 学生管理收起态：以两个独立一级菜单图标显示 -->
+                <a href="#" class="nav-item collapsed-only class-master-collapsed-item" data-section="student-schedules" style="display: none;">
+                    <span class="material-icons-round">calendar_today</span>
                     <span class="nav-text">学生排课管理</span>
+                </a>
+                <a href="#" class="nav-item collapsed-only class-master-collapsed-item" data-section="sd-fees" style="display: none;">
+                    <span class="material-icons-round">payments</span>
+                    <span class="nav-text">学生费用管理</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -983,6 +1215,11 @@
                     </div>
                 </section>
 
+                <!-- 教师费用管理（所有教师可见） -->
+                <section id="fees" class="dashboard-section">
+                    <div id="teacherFeeManagerMount"></div>
+                </section>
+
                 <!-- 班主任学生课程安排 -->
                 <section id="student-schedules" class="dashboard-section">
                     <div class="header-toolbar schedule-controls">
@@ -996,10 +1233,6 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="toggleTeacherStudentFeeBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;">
-                                <span style="font-style: normal; font-size: 14px; font-weight: 500;">¥</span>&nbsp;<span
-                                    id="teacherStudentFeeBtnText">显示费用</span>
-                            </button>
                             <button id="toggleTeacherStudentShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" onclick="window.toggleTeacherStudentShowPlan && window.toggleTeacherStudentShowPlan()">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
                                 <span id="teacherStudentShowPlanBtnText">显示全部安排</span>
@@ -1008,11 +1241,6 @@
                                 style="margin-left: 8px;" onclick="window.exportTeacherStudents && window.exportTeacherStudents()">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
                                 导出数据
-                            </button>
-                            <button id="exportWeeklyViewBtn" class="primary-btn"
-                                style="margin-left: 8px;">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">image</span>
-                                导出当前视图
                             </button>
                         </div>
                     </div>
@@ -1047,6 +1275,11 @@
                             批量保存费用
                         </button>
                     </div>
+                </section>
+
+                <!-- 班主任关联学生费用管理 -->
+                <section id="sd-fees" class="dashboard-section">
+                    <div id="teacherHeadFeeManagerMount"></div>
                 </section>
 
             </div>
@@ -1162,6 +1395,7 @@
     <script src="/js/components/export-manager.js?v=20260803-markers"></script>
     <script src="/js/components/export-dialog.js"></script>
     <script src="/js/components/weekly-view-export.js?v=20260803-markers"></script>
+    <script src="/js/components/fee-manager.js"></script>
 
     <script type="module" src="/js/modules/teacher/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>

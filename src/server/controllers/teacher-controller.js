@@ -658,6 +658,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.teacher_id, ca.location,
+                    t.name as teacher_name,
                     ca.transport_fee, ca.other_fee,
                     ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
@@ -1151,10 +1152,17 @@ const teacherController = {
             const { id } = req.params;
             const { transport_fee, other_fee } = req.body;
 
-            const tFee = parseFloat(transport_fee) || 0;
-            const oFee = parseFloat(other_fee) || 0;
+            // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0；
+            // 负数仍拒绝。NULL 与 0 在数据库层区分，前端据此区分「未填」与「填 0」。
+            const parseFee = (val) => {
+                if (val === null || val === undefined || val === '') return null;
+                const n = parseFloat(val);
+                return Number.isNaN(n) ? null : n;
+            };
+            const tFee = parseFee(transport_fee);
+            const oFee = parseFee(other_fee);
 
-            if (tFee < 0 || oFee < 0) {
+            if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
                 return res.status(400).json({ message: '费用不能为负数' });
             }
 
@@ -1298,10 +1306,18 @@ const teacherController = {
 
                 for (const item of updates) {
                     const id = item.id;
-                    const tFee = parseFloat(item.transport_fee) || 0;
-                    const oFee = parseFloat(item.other_fee) || 0;
+                    // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0。
+                    const parseFee = (val) => {
+                        if (val === null || val === undefined || val === '') return null;
+                        const n = parseFloat(val);
+                        return Number.isNaN(n) ? null : n;
+                    };
+                    const tFee = parseFee(item.transport_fee);
+                    const oFee = parseFee(item.other_fee);
 
-                    if (tFee < 0 || oFee < 0) throw new Error(`排课 ID ${id} 包含负数费用`);
+                    if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
+                        throw new Error(`排课 ID ${id} 包含负数费用`);
+                    }
 
                     const originalResult = await q(
                         'SELECT transport_fee, other_fee FROM course_arrangement WHERE id = $1',
@@ -1311,8 +1327,9 @@ const teacherController = {
                     if (originalResult.rows.length === 0) continue;
 
                     const { transport_fee: old_t_fee, other_fee: old_o_fee } = originalResult.rows[0];
-
-                    if (parseFloat(old_t_fee) === tFee && parseFloat(old_o_fee) === oFee) {
+                    // null 安全对比：NULL 与 0 视为不同值；原值可能为字符串/数字/NULL
+                    const norm = (v) => (v === null || v === undefined ? null : parseFloat(v));
+                    if (norm(old_t_fee) === tFee && norm(old_o_fee) === oFee) {
                         continue; // No changes
                     }
 

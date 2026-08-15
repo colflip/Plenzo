@@ -110,7 +110,6 @@ export function setupAvailabilityTabs() {
 
             if (viewId === 'student-availability-view') {
                 if (window.initStudentAvailability) window.initStudentAvailability();
-                if (window.initStudentScheduleFees) window.initStudentScheduleFees();
             } else if (viewId === 'teacher-availability-view') {
                 if (window.initTeacherAvailability) window.initTeacherAvailability();
             }
@@ -198,6 +197,20 @@ export function showSection(sectionId) {
             else if (window.loadSchedules) window.loadSchedules();
             setHeaderTitle('排课管理');
             break;
+        case 'finance':
+            if (window.FeeManager) {
+                window.FeeManager.mount({
+                    mountSelector: '#feeManagerMount',
+                    role: 'admin',
+                    listEndpoint: '/admin/schedules',
+                    saveMode: 'single',
+                    feeEndpoint: (id) => `/admin/schedules/${id}/fees`,
+                    exportContextKey: 'admin',
+                    fetchWeekSchedules: (s, e) => window.apiUtils.get('/admin/schedules', { startDate: s, endDate: e }),
+                });
+            }
+            setHeaderTitle('费用管理');
+            break;
         case 'statistics':
             // 延迟初始化统计模块（仅在首次访问时执行）
             if (window.ensureStatisticsInitialized) window.ensureStatisticsInitialized();
@@ -223,7 +236,6 @@ export function showSection(sectionId) {
                 if (window.initTeacherAvailability) window.initTeacherAvailability();
             } else {
                 if (window.initStudentAvailability) window.initStudentAvailability();
-                if (window.initStudentScheduleFees) window.initStudentScheduleFees();
             }
             setHeaderTitle('空闲时段管理');
             break;
@@ -231,9 +243,6 @@ export function showSection(sectionId) {
         case 'student-availability':
             if (window.initStudentAvailability) {
                 window.initStudentAvailability();
-            }
-            if (window.initStudentScheduleFees) {
-                window.initStudentScheduleFees();
             }
             setHeaderTitle('学生空闲时段');
             break;

@@ -9881,31 +9881,7 @@ svg {
     white-space: normal;
 }
 
-/* 汇总行跑马灯（内容超过 2 行时启用）：单行水平滚动，内容完整掠过；
-   轨道含两份相同内容（各带尾部留白），动画位移 -50% 实现无缝循环；
-   时长由 JS 按内容宽度设置（约 40px/s），悬停暂停便于阅读。 */
-.fm-marquee {
-    display: block;
-    overflow: hidden;
-    white-space: nowrap;
-    width: 100%;
-    box-sizing: border-box;
-}
-.fm-marquee-track {
-    display: inline-block;
-    white-space: nowrap;
-    will-change: transform;
-    animation-name: fm-marquee;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-}
-.fm-marquee:hover .fm-marquee-track {
-    animation-play-state: paused;
-}
-@keyframes fm-marquee {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-}
+/* 汇总行跑马灯已移除（2026-08-15）：五列改为双行截断，不再水平滚动 */
 
 .fm-btn {
     border: 1px solid #e2e8f0;

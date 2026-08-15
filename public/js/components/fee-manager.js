@@ -258,12 +258,11 @@
 
     // 汇总行高度固定 60px。不同列采用不同适配策略：
     //  · 日期时间 / 老师 / 课程类型 / 上课地点 / 状态（列索引 1~5）：【自适应】——
-    //    字号随内容收缩（最小 13px）；单行放下则单行；放不下→双行（最多 2 行 + 省略）；
-    //    双行仍放不下（内容超 2 行高度）→ 跑马灯（水平滚动，内容完整掠过）。详见 fitAdaptiveCell。
+    //    字号随内容收缩（最小 13px）；单行放下则单行；放不下→双行截断（最多 2 行 + 省略）。不做跑马灯。
     //  · 学生 / 交通 / 其他 / 总计：沿用原【按列统一】压缩（最小 12px），保持汇总行格式统一。
     // 列宽基准仍由【明细行】决定（colgroup 已设基础宽度），汇总行长文本只被动省略，不撑宽列。
 
-    // 自适应单元格（列索引 1~5）：单行→双行→跑马灯 三级降级
+    // 自适应单元格（列索引 1~5）：字号收缩 → 单行 → 双行截断
     function fitAdaptiveCell(td, idx) {
         const BASE = idx === 1 ? 15 : 14; // 日期时间 15px，其余 14px
         const MIN = 13;                   // 字号下限 13px
@@ -275,6 +274,22 @@
             td.querySelectorAll('*').forEach(el => { el.style.fontSize = s + 'px'; });
         };
         const clamp = td.querySelector('.fm-cell-clamp');
+
+        // 日期时间列（idx=1）：强制在「~」处两行显示，不随列宽塌回单行、也不进跑马灯
+        if (idx === 1) {
+            td.style.whiteSpace = 'normal';
+            td.style.overflow = 'hidden';
+            td.style.textOverflow = '';
+            if (clamp) {
+                clamp.style.display = 'inline';      // 解除 -webkit-box，使 <br> 生效
+                clamp.style.webkitLineClamp = 'unset';
+                clamp.style.whiteSpace = 'normal';
+                clamp.style.overflow = 'visible';
+            }
+            td.style.fontSize = BASE + 'px';
+            if (clamp) clamp.style.fontSize = BASE + 'px';
+            return;
+        }
 
         // 阶段 1：单行，字号逐步压缩到 13px
         const oneLine = () => {
@@ -294,7 +309,7 @@
         while (size > MIN && td.scrollWidth > td.clientWidth + 1) { size--; setFont(size); }
         if (td.scrollWidth <= td.clientWidth + 1) return; // 单行放下
 
-        // 阶段 2：双行（最多 2 行 + 省略）
+        // 阶段 2：双行截断（最多 2 行 + 省略），不进跑马灯
         if (clamp) {
             clamp.style.display = '';
             clamp.style.webkitLineClamp = '2';
@@ -304,68 +319,6 @@
         td.style.whiteSpace = 'normal';
         td.style.overflow = 'hidden';
         setFont(MIN);
-        if (!exceedsTwoLines(td, clamp, MIN)) return; // 双行放下
-
-        // 阶段 3：跑马灯
-        setMarquee(td);
-    }
-
-    // 内容是否超过 2 行（需进跑马灯）。纯文本（日期列）双行必能放下，返回 false。
-    function exceedsTwoLines(td, clamp, size) {
-        if (!clamp) return false;
-        const prev = {
-            l: clamp.style.webkitLineClamp, d: clamp.style.display,
-            w: clamp.style.whiteSpace, o: clamp.style.overflow
-        };
-        clamp.style.webkitLineClamp = 'unset';
-        clamp.style.display = '';
-        clamp.style.whiteSpace = 'normal';
-        clamp.style.overflow = 'visible';
-        const full = clamp.scrollHeight;
-        clamp.style.webkitLineClamp = prev.l;
-        clamp.style.display = prev.d;
-        clamp.style.whiteSpace = prev.w;
-        clamp.style.overflow = prev.o;
-        return full > size * 1.35 * 2 + 4; // 2 行高度 ≈ size*1.35*2
-    }
-
-    // 跑马灯：单行水平滚动，轨道含两份相同内容（尾部留白），位移 -50% 无缝循环
-    function setMarquee(td) {
-        const clamp = td.querySelector('.fm-cell-clamp');
-        const plainText = td.textContent;
-        td.style.whiteSpace = 'nowrap';
-        td.style.overflow = 'hidden';
-        td.style.textOverflow = '';
-        const build = () => {
-            let node;
-            if (clamp) {
-                node = clamp.cloneNode(true);
-                node.style.display = 'inline';
-                node.style.webkitLineClamp = 'unset';
-                node.style.whiteSpace = 'nowrap';
-                node.style.overflow = 'visible';
-                node.style.paddingRight = '2em';
-                node.querySelectorAll('*').forEach(e => { e.style.whiteSpace = 'nowrap'; });
-            } else {
-                node = document.createElement('span');
-                node.style.whiteSpace = 'nowrap';
-                node.style.paddingRight = '2em';
-                node.textContent = plainText;
-            }
-            return node;
-        };
-        td.textContent = '';
-        const marquee = document.createElement('span');
-        marquee.className = 'fm-marquee';
-        const track = document.createElement('span');
-        track.className = 'fm-marquee-track';
-        track.appendChild(build());
-        track.appendChild(build());
-        const copyW = track.firstChild ? track.firstChild.scrollWidth : 0;
-        // 约 12px/s；相对原 40px/s 降低速度 70%（时长约拉长 3.33 倍）
-        track.style.animationDuration = Math.max(5, Math.round(copyW / 12)) + 's';
-        marquee.appendChild(track);
-        td.appendChild(marquee);
     }
 
     function fitSummaryRows(mountEl) {
@@ -654,8 +607,8 @@
             const tdDate = document.createElement('td');
             const dateClamp = document.createElement('span');
             dateClamp.className = 'fm-cell-clamp';
-            // 在 ~ 与 - 后插入 <wbr>，让日期范围在极窄列宽下也能正确断行进入双行显示
-            dateClamp.innerHTML = esc(dateRange).replace(/~/g, '~<wbr>').replace(/-/g, '-<wbr>');
+            // 日期范围强制在「~」处折成两行（无论列宽，不塌回单行）；fitAdaptiveCell 对日期列走强制两行分支
+            dateClamp.innerHTML = esc(dateRange).replace(/~/, '~<br>');
             tdDate.appendChild(dateClamp);
             tr.appendChild(tdDate);
 

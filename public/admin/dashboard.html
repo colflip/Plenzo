@@ -21,7 +21,7 @@
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">
-    <link rel="stylesheet" href="/css/modules/dashboard.css">
+    <link rel="stylesheet" href="/css/modules/dashboard.css?v=2">
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
     <link rel="stylesheet" href="/css/modules/admin-schedule.css">
     <link rel="stylesheet" href="/css/modules/admin-overview.css?v=2">
@@ -501,6 +501,10 @@
                 <a href="#" class="nav-item" data-section="schedule">
                     <span class="material-icons-round">event_note</span>
                     <span class="nav-text">排课管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="finance">
+                    <span class="material-icons-round">payments</span>
+                    <span class="nav-text">费用管理</span>
                 </a>
                 <a href="#" class="nav-item" data-section="statistics">
                     <span class="material-icons-round">insights</span>
@@ -1178,19 +1182,10 @@
                             <button id="addScheduleBtn" class="add-btn">
                                 <span class="material-icons-round">add</span> 添加排课
                             </button>
-                            <button id="toggleAdminFeeBtn" class="add-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;">
-                                <span
-                                    style="font-style: normal; font-size: 14px; font-weight: bold; margin-right: 4px;">¥</span><span
-                                    id="adminFeeBtnText">显示费用</span>
-                            </button>
                             <button id="toggleShowPlanBtn" class="add-btn schedule-visibility-toggle" aria-pressed="false" onclick="window.toggleAdminShowPlan()" style="margin-left: 10px;">
                         <span class="material-icons-round">visibility</span>
                         <span id="showPlanBtnText">显示全部安排</span>
                     </button>
-                            <button id="exportCurrentViewBtn" class="add-btn" style="margin-left: 10px;">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">image</span>
-                                导出当前视图
-                            </button>
                         </div>
 
                         <!-- Right: Filters -->
@@ -1336,6 +1331,11 @@
                             </div>
                         </form>
                     </div>
+                </section>
+
+                <!-- 费用管理部分 -->
+                <section id="finance" class="dashboard-section">
+                    <div id="feeManagerMount"></div>
                 </section>
 
                 <!-- 空闲时段管理部分（学生 / 教师 二级菜单） -->
@@ -1637,58 +1637,13 @@
         <script type="module" src="/js/modules/admin/teacher-availability.js"></script>
         <script type="module" src="/js/modules/admin/schedule-types.js"></script>
         <script type="module" src="/js/modules/admin/admin-reward.js"></script>
-        <script type="module" src="/js/modules/admin/schedule-utils.js"></script>
         <script type="module" src="/js/modules/admin/index.js"></script>
         <script src="/js/modules/admin/today-logic.js?v=3"></script>
-        <script type="module" src="/js/modules/admin/schedule-manager.js"></script>
         <script src="/js/modules/admin/legacy-adapter.js" defer></script>
         <script type="module" src="/js/modules/admin/student-availability.js"></script>
-        <script type="module" src="/js/modules/admin/feedback-manager.js"></script>
-        <script src="/js/modules/admin/student-schedule-fees.js"></script>
+        <script src="/js/components/fee-manager.js"></script>
         <script src="/js/modules/admin/ai-models-manager.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>
-    <!-- 费用管理弹窗 (与教师端同款增强版) -->
-    <div id="adminFeeManagementModal" class="modal" style="display: none;">
-        <div class="modal-overlay" id="adminFeeModalOverlay"></div>
-        <div class="modal-content" style="width: 480px; max-width: 95vw;">
-            <div class="modal-header">
-                <h3 id="adminFeeModalTitle">费用管理</h3>
-                <button class="modal-close" id="closeAdminFeeModal">
-                    <span class="material-icons-round">close</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="adminFeeManagementForm">
-                    <!-- 这个包裹器用于插入多选单列 -->
-                    <div id="adminDynamicFeeInputsContainer" style="display: none; width: 100%;"></div>
-
-                    <div class="form-group" id="adminFeeTransportGroup">
-                        <label>交通费 (元)</label>
-                        <input type="number" id="adminFeeTransportInput" placeholder="0.00" step="0.01" min="0"
-                            max="999999.99">
-                    </div>
-
-                    <div class="form-group" id="adminFeeOtherGroup">
-                        <label>其他费用 (元)</label>
-                        <input type="number" id="adminFeeOtherInput" placeholder="0.00" step="0.01" min="0"
-                            max="999999.99">
-                    </div>
-
-                    <div class="form-group">
-                        <label><strong>总计费用 (元)</strong></label>
-                        <div id="adminFeeTotalDisplay"
-                            style="font-size: 18px; font-weight: bold; color: #27AE60; margin-top: 8px;">0.00</div>
-                    </div>
-
-                    <div class="modal-footer" style="margin-top: 24px;">
-                        <button type="button" class="btn btn-secondary" id="cancelAdminFeeBtn"
-                            style="background:#9ca3af;">取消</button>
-                        <button type="submit" class="btn btn-primary" id="saveAdminFeeBtn">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
     <!-- 全局弹窗遮罩层（统一管理所有模态弹窗的背景遮罩） -->
     <div id="modalOverlay" class="modal-overlay" style="display:none"></div>
 </body>

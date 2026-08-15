@@ -8,7 +8,6 @@ import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
 
 // --- Global State ---
-window.adminFeeShow = false;
 window.adminShowPlan = false;
 
 function syncToggleButton(button, isActive) {
@@ -21,25 +20,6 @@ function syncToggleButton(button, isActive) {
     button.style.borderColor = color;
     button.style.color = '#fff';
 }
-
-window.toggleAdminFeeVisibility = function () {
-    window.adminFeeShow = !window.adminFeeShow;
-    const toggleBtn = document.getElementById('toggleAdminFeeBtn');
-    const btnText = document.getElementById('adminFeeBtnText');
-
-    if (btnText) {
-        btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    }
-
-    syncToggleButton(toggleBtn, window.adminFeeShow);
-
-    // 使用 body 上的类名结合全局 CSS 实现，完美兼容后来生成的 DOM 节点
-    if (!window.adminFeeShow) {
-        document.body.classList.add('global-hide-admin-fee');
-    } else {
-        document.body.classList.remove('global-hide-admin-fee');
-    }
-};
 
 window.toggleAdminShowPlan = async function () {
     window.adminShowPlan = !window.adminShowPlan;
@@ -69,36 +49,13 @@ window.toggleAdminShowPlan = async function () {
 // This part needs to be called when the page initializes or data is loaded.
 // For now, placing it here as a global setup.
 document.addEventListener('DOMContentLoaded', () => {
-    const btnText = document.getElementById('adminFeeBtnText');
-    const toggleBtn = document.getElementById('toggleAdminFeeBtn');
-    if (btnText) btnText.textContent = window.adminFeeShow ? '隐藏费用' : '显示费用';
-    syncToggleButton(toggleBtn, window.adminFeeShow);
-
     const showPlanBtn = document.getElementById('toggleShowPlanBtn');
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     syncToggleButton(showPlanBtn, window.adminShowPlan);
 
     // 绑定事件
-    if (toggleBtn) toggleBtn.onclick = window.toggleAdminFeeVisibility;
     if (showPlanBtn) showPlanBtn.onclick = window.toggleAdminShowPlan;
-
-    // 初始化全局样式以便接管
-    if (!document.getElementById('admin-fee-visibility-style')) {
-        const style = document.createElement('style');
-        style.id = 'admin-fee-visibility-style';
-        style.innerHTML = `
-            body.global-hide-admin-fee .fee-bottom-wrap {
-                display: none !important;
-            }
-        `;
-        document.head.appendChild(style);
-    }
-
-    // 初始化一次状态
-    if (!window.adminFeeShow) {
-        document.body.classList.add('global-hide-admin-fee');
-    }
 });
 
 
@@ -382,6 +339,13 @@ function rollbackOperation(backup, operation) {
 
 // --- Data Store ---
 
+// 缓存键按「是否查看全部安排(含已调整原课程)」分桶，避免默认视图复用了
+// "显示全部安排"模式下缓存的已调整原课程数据（页面刷新后 adminShowPlan 重置为 false，
+// 但 localStorage 仍残留旧数据导致默认视图错误地展示已调整原课程）。
+function adminSchedulesCacheKey() {
+    return 'admin_all_schedules' + (window.adminShowPlan ? '_plan' : '_actual');
+}
+
 export const WeeklyDataStore = {
     ttlMs: 60 * 60 * 1000, // 1 hour cache
     students: { list: [], loadedAt: 0 },
@@ -411,7 +375,9 @@ export const WeeklyDataStore = {
     },
 
     async getAllSchedules(force = false) {
-        const key = 'admin_all_schedules';
+        const key = adminSchedulesCacheKey();
+        // 迁移：清除旧版本无模式后缀的脏缓存
+        this._clearLegacyLocalCache();
         // Memory Cache
         if (!force && this.schedules.has(key) && this._isFresh(this.schedules.get(key).loadedAt)) {
             return this.schedules.get(key).rows;
@@ -435,7 +401,7 @@ export const WeeklyDataStore = {
     async _backgroundSync() {
         if (navigator.onLine) {
             try {
-                const key = 'admin_all_schedules';
+                const key = adminSchedulesCacheKey();
                 const rows = await this._fetchFromApi();
                 // Check if data changed? For now just overwrite
                 this.schedules.set(key, { rows, loadedAt: Date.now() });
@@ -456,6 +422,12 @@ export const WeeklyDataStore = {
         this.schedules.set(key, { rows, loadedAt: Date.now() });
         this._saveToLocal(key, rows);
         return rows;
+    },
+
+    // 兼容旧 key（无模式后缀），迁移时一并清除，防止脏数据
+    _clearLegacyLocalCache() {
+        const legacy = this._CACHE_KEY_prefix + 'admin_all_schedules';
+        if (localStorage.getItem(legacy)) localStorage.removeItem(legacy);
     },
 
     async _fetchFromApi() {
@@ -554,7 +526,7 @@ export const WeeklyDataStore = {
         // Clear all schedule related keys from localStorage
         Object.keys(localStorage).forEach(k => {
             if (k.startsWith(this._CACHE_KEY_prefix + 'schedules_') ||
-                k === this._CACHE_KEY_prefix + 'admin_all_schedules') {
+                k.startsWith(this._CACHE_KEY_prefix + 'admin_all_schedules')) {
                 localStorage.removeItem(k);
             }
         });
@@ -566,7 +538,7 @@ export const WeeklyDataStore = {
      * @param {boolean} isDelete - 是否为删除操作
      */
     updateLocalRecord(recordOrId, isDelete = false) {
-        const key = 'admin_all_schedules';
+        const key = adminSchedulesCacheKey();
         const cache = this.schedules.get(key);
         if (!cache || !Array.isArray(cache.rows)) return;
 
@@ -1330,60 +1302,6 @@ function buildAdminScheduleCard(group, student, dateKey) {
         ${locHtml}
     `;
     content.appendChild(footer);
-
-    // --- 费用区块 ---
-    const scheduleId = first.id;
-    const studentName = student?.name || '';
-
-    let totalTransport = 0;
-    let totalOther = 0;
-    group.forEach(s => {
-        totalTransport += parseFloat(s.transport_fee ?? s.transportFee) || 0;
-        totalOther += parseFloat(s.other_fee ?? s.otherFee) || 0;
-    });
-    const hasFee = totalTransport > 0 || totalOther > 0;
-
-    // 打开费用弹窗的通用处理器
-    const openFee = (e) => {
-        e.stopPropagation();
-        if (typeof window.openAdminFeeModal === 'function') {
-            window.openAdminFeeModal(group, studentName);
-        }
-    };
-
-    const feeContainer = document.createElement('div');
-    feeContainer.style.cssText = 'margin-top: 6px; justify-content: center; width: 100%; display: flex;';
-
-    if (hasFee) {
-        const feeInfo = document.createElement('span');
-        feeInfo.style.cssText = 'background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer;';
-
-        feeInfo.addEventListener('click', openFee);
-
-        let parts = [];
-        if (totalTransport > 0) parts.push(`交通¥${totalTransport}`);
-        if (totalOther > 0) parts.push(`其他¥${totalOther}`);
-        feeInfo.textContent = parts.join(' ');
-
-        feeContainer.appendChild(feeInfo);
-    } else {
-        const feeBtn = document.createElement('button');
-        feeBtn.classList.add('add-fee-btn');
-        feeBtn.textContent = '添加费用';
-        feeBtn.style.cssText = 'padding: 2px 8px; font-size: 11px; min-width: auto; height: 22px; margin: 0 auto;';
-
-        feeBtn.addEventListener('click', openFee);
-        feeContainer.appendChild(feeBtn);
-    }
-
-    if (feeContainer.hasChildNodes()) {
-        const feeWrap = document.createElement('div');
-        feeWrap.classList.add('fee-bottom-wrap');
-        feeWrap.style.cssText = 'display: flex; justify-content: flex-end; width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 6px;';
-        feeWrap.appendChild(feeContainer);
-        footer.appendChild(feeWrap);
-    }
-    content.appendChild(footer);
     card.appendChild(content);
 
     return card;
@@ -1836,20 +1754,6 @@ export async function setupScheduleEventListeners() {
             window.showAddScheduleModal();
         }
     });
-
-    const exportViewBtn = document.getElementById('exportCurrentViewBtn');
-    if (exportViewBtn && !exportViewBtn.__exportViewBound) {
-        exportViewBtn.addEventListener('click', () => {
-            if (typeof window.exportWeeklyScheduleView !== 'function') {
-                if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
-                return;
-            }
-            window.exportWeeklyScheduleView('admin').catch(err => {
-                if (window.apiUtils) window.apiUtils.showToast('导出失败: ' + err.message, 'error');
-            });
-        });
-        exportViewBtn.__exportViewBound = true;
-    }
 
     const form = document.getElementById('scheduleForm');
     if (form) {

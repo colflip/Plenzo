@@ -36,7 +36,7 @@
         badge = document.createElement('a');
         badge.id = BADGE_ID;
         badge.className = 'app-version-badge';
-        badge.href = '#';
+        badge.href = 'https://github.com/colflip/Plenzo';
         badge.target = '_blank';
         badge.rel = 'noopener noreferrer';
         badge.setAttribute('aria-label', '系统版本');
@@ -97,12 +97,12 @@
             if (meta.repoUrl) {
                 badge.href = meta.repoUrl;
             } else {
-                badge.removeAttribute('href');
+                badge.href = 'https://github.com/colflip/Plenzo';
             }
         } catch (error) {
             badge.textContent = '版本未知';
             badge.title = '无法获取系统版本信息';
-            badge.removeAttribute('href');
+            badge.href = 'https://github.com/colflip/Plenzo';
         }
     }
 
