@@ -518,6 +518,7 @@ body {
     box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
     transition: all 0.2s ease;
     min-width: 100px;
+    white-space: nowrap;
 }
 
 .add-btn:hover,
@@ -9578,11 +9579,12 @@ svg {
     overflow: hidden; /* 内容超出 60px 时裁切，保持行高固定 */
 }
 
-/* 学生名 15px（反馈 #1）；超长以省略号收起 */
+/* 学生名 15px（反馈 #1）；超长以省略号收起
+   !important 覆盖 fitSummaryRows「其余列」分支写回的内联 font-size（实测为 16px）。 */
 #finance .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
 #fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name {
-    font-size: 15px;
+    font-size: 15px !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -10197,4 +10199,160 @@ svg {
 #student-schedules .weekly-schedule-table tbody tr:hover td:first-child {
     background-color: rgba(241, 245, 249, 0.5) !important;
 }
+
+/* ===== 费用报销状态（待提交/待审核/已审核/已报销/已退回/退回报销） =====
+   复用整站 .status-select（无边框彩色胶囊）作为费用状态展示与可编辑下拉，
+   颜色类 .fm-fee-* 与排课状态 .status-select.<state> 同语言。 */
+.fm-fee-draft            { background: rgba(100,116,139,.14); color: #475569; }
+.fm-fee-submitted        { background: rgba(37,99,235,.12);  color: #1d4ed8; }
+.fm-fee-reviewed         { background: rgba(217,119,6,.14);  color: #b45309; }
+.fm-fee-reimbursed       { background: rgba(16,128,67,.14);  color: #108043; }
+.fm-fee-returned         { background: rgba(220,38,38,.12);  color: #b91c1c; }
+.fm-fee-reimbursement-returned { background: rgba(124,45,18,.16); color: #7c2d12; }
+
+/* 明细行「排课及状态」合并单元格：一行内「类型，状态」 */
+.fm-d-merged {
+    color: #475569;
+    font-size: 14px;
+    font-weight: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* 明细行「费用状态」单元格 */
+.fm-d-feestatus { text-align: center; font-size: 14px; }
+.fm-d-feestatus .status-select {
+    font-size: 14px;
+    height: 24px;
+    padding: 0 10px;
+    line-height: 1.4;
+}
+
+/* 汇总行「排课及状态」：类型一行 + 状态一行 */
+.fm-merged-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    line-height: 1.3;
+}
+.fm-merged-summary .fm-ms-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* 反馈 #2/#3：类型行与状态行统一 13px；
+       !important 覆盖 fitMergedCell 起始写入的内联 font-size（实测为 14px）。 */
+    font-size: 13px !important;
+}
+.fm-merged-summary .fm-ms-type { color: #475569; }
+.fm-merged-summary .fm-ms-status { color: #94a3b8; }
+
+/* 工具栏：费用状态筛选 + 批量按钮（三端共用）
+   动作按钮复用整站 .add-btn（绿色实心主操作风格），与「导出报销单」一致；
+   故此处仅保留布局容器与筛选下拉样式。 */
+.fm-toolbar-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-left: auto;
+}
+
+/* 工具栏批量动作：分段胶囊控件（灰底 + 幽灵按钮） */
+.fm-action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 4px;
+}
+.fm-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+.fm-action-btn:hover {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.fm-action-btn .material-icons-round {
+    font-size: 18px;
+}
+.fm-action-btn.act-success { color: #15803d; }
+.fm-action-btn.act-danger  { color: #b91c1c; }
+
+.fm-fee-filter {
+    border: 1px solid var(--border-muted, #e2e8f0);
+    background: var(--bg-surface, #fff);
+    color: #475569;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.fm-batch-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 18px;
+    align-items: center;
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+}
+.fm-batch-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.fm-batch-label {
+    font-size: 14px;
+    color: #64748b;
+    white-space: nowrap;
+    line-height: 1;
+}
+.fm-batch-field select,
+.fm-batch-field input {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 14px;
+    color: #334155;
+    background: #fff;
+    height: 36px;
+    box-sizing: border-box;
+    white-space: nowrap;
+}
+.fm-batch-field input { width: 150px; }
+.fm-batch-msg {
+    font-size: 14px;
+    color: #64748b;
+    white-space: nowrap;
+}
+.fm-batch-apply {
+    border: none;
+    background: var(--sch-primary, #2ecc71);
+    color: #fff;
+    border-radius: 8px;
+    padding: 7px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    height: 36px;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+.fm-batch-apply:hover { filter: brightness(1.05); }
 

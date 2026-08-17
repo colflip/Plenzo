@@ -29,6 +29,8 @@ router.post('/schedules/:id/confirm', authMiddleware, teacherOnly, teacherContro
 router.put('/schedules/:id/status', authMiddleware, teacherOnly, teacherController.updateScheduleStatus);
 router.patch('/schedules/:id', authMiddleware, teacherOnly, teacherController.updateScheduleStatus);
 router.patch('/schedules/:id/fees', authMiddleware, teacherOnly, teacherController.updateScheduleFees);
+router.patch('/schedules/:id/fee-status', authMiddleware, teacherOnly, teacherController.updateScheduleFeeStatus);
+router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, teacherController.batchUpdateScheduleFeeStatus);
 
 // 班主任管理关联学生
 router.get('/student-schedules', authMiddleware, teacherOnly, teacherController.getHeadTeacherStudentSchedules);

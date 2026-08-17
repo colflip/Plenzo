@@ -205,6 +205,10 @@ export function showSection(sectionId) {
                     listEndpoint: '/admin/schedules',
                     saveMode: 'single',
                     feeEndpoint: (id) => `/admin/schedules/${id}/fees`,
+                    feeStatusBase: '/admin/schedules',
+                    canEditFeeStatus: true,
+                    enableBatchFeeStatus: true,
+                    feeStatusFilter: true,
                     exportContextKey: 'admin',
                     fetchWeekSchedules: (s, e) => window.apiUtils.get('/admin/schedules', { startDate: s, endDate: e }),
                 });

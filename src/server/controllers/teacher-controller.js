@@ -4,6 +4,7 @@ const excelGenerator = require('../services/excel-generator-service');
 const { standardResponse } = require('../middleware/validation');
 const { handleExportError, ExportError } = require('../middleware/export-error-handler');
 const ExportLogService = require('../utils/export-log-service');
+const { validateFeeStatusTransition, writeFeeStatusLog, resolveActor } = require('../utils/feeStatus');
 
 const SLOT_COLUMNS = Object.freeze({
     morning: 'morning_available',
@@ -660,6 +661,7 @@ const teacherController = {
                     ca.teacher_id, ca.location,
                     t.name as teacher_name,
                     ca.transport_fee, ca.other_fee,
+                    ca.fee_status,
                     ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
                     st.name as student_name,
@@ -681,6 +683,12 @@ const teacherController = {
             if (status) {
                 query += ` AND ca.status = $4`;
                 values.push(status);
+            }
+
+            // 费用报销状态过滤
+            if (req.query.fee_status) {
+                query += ` AND ca.fee_status = $${values.length + 1}`;
+                values.push(req.query.fee_status);
             }
 
             // 默认隐藏调走的原课程；“显示全部安排”时与管理员端一致展示
@@ -1207,7 +1215,24 @@ const teacherController = {
                 }
             });
 
-            res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee });
+            // 普通教师「保存并提交」：当前为待提交/已退回时自动进入待审核
+            const actor = await resolveActor(db, req.user.id);
+            let feeStatusRow = await db.query('SELECT fee_status FROM course_arrangement WHERE id = $1', [id]);
+            let feeStatus = feeStatusRow.rows[0] ? feeStatusRow.rows[0].fee_status : null;
+            if (actor.actorType === 'teacher' && (feeStatus === 'draft' || feeStatus === 'returned')) {
+                const from = feeStatus;
+                await db.query(
+                    'UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                    ['teacher_submitted', id]
+                );
+                await writeFeeStatusLog(db.query.bind(db), {
+                    scheduleId: id, oldStatus: from, newStatus: 'teacher_submitted',
+                    operatorId: req.user.id, actorType: 'teacher', note: '保存并提交',
+                });
+                feeStatus = 'teacher_submitted';
+            }
+
+            res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus });
         } catch (error) {
             console.error('更新费用错误:', error);
             res.status(500).json({ message: '服务器错误' });
@@ -1254,6 +1279,7 @@ const teacherController = {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location, ca.transport_fee, ca.other_fee,
+                    ca.fee_status,
                     ca.adjustment_type,
                     ca.adjustment_type AS is_temp,
                     t.name as teacher_name, t.id as teacher_id,
@@ -1271,9 +1297,16 @@ const teacherController = {
                 query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
             }
 
+            // 费用报销状态过滤（班主任视图同样支持）
+            const headParams = [studentIds, startDate, endDate];
+            if (req.query.fee_status) {
+                query += ` AND ca.fee_status = $${headParams.length + 1}`;
+                headParams.push(req.query.fee_status);
+            }
+
             query += ` ORDER BY date, ca.start_time`;
 
-            const result = await db.query(query, [studentIds, startDate, endDate]);
+            const result = await db.query(query, headParams);
             res.json({ students, schedules: result.rows });
         } catch (error) {
             console.error('获取班主任学生排课错误:', error);
@@ -1291,6 +1324,9 @@ const teacherController = {
             if (!updates || !Array.isArray(updates) || updates.length === 0) {
                 return res.status(400).json({ message: '无可更新内容' });
             }
+
+            // 解析操作身份：班主任（有绑定学生）仅能操作关联学生；普通教师仅能操作本人课时
+            const actor = await resolveActor(db, req.user.id);
 
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
@@ -1320,11 +1356,21 @@ const teacherController = {
                     }
 
                     const originalResult = await q(
-                        'SELECT transport_fee, other_fee FROM course_arrangement WHERE id = $1',
+                        'SELECT transport_fee, other_fee, student_id, teacher_id FROM course_arrangement WHERE id = $1',
                         [id]
                     );
 
                     if (originalResult.rows.length === 0) continue;
+
+                    // 范围校验：班主任限关联学生，普通教师限本人课时（修复既有安全缺口）
+                    const row = originalResult.rows[0];
+                    if (actor.actorType === 'headteacher') {
+                        if (!actor.studentIds.includes(Number(row.student_id))) {
+                            throw new Error(`排课 ID ${id} 不在您管理的班级范围内`);
+                        }
+                    } else if (Number(row.teacher_id) !== Number(req.user.id)) {
+                        throw new Error(`排课 ID ${id} 不属于您`);
+                    }
 
                     const { transport_fee: old_t_fee, other_fee: old_o_fee } = originalResult.rows[0];
                     // null 安全对比：NULL 与 0 视为不同值；原值可能为字符串/数字/NULL
@@ -1354,6 +1400,126 @@ const teacherController = {
             res.json({ message: '批量更新费用成功' });
         } catch (error) {
             console.error('批量更新费用错误:', error);
+            res.status(500).json({ message: '服务器错误' });
+        }
+    },
+
+    /**
+     * 教师/班主任更新单条排课的费用报销状态
+     * 授权：班主任（student_ids 非空）可操作其关联学生、任意流转；普通教师仅能操作本人课时，
+     *       且仅允许 待提交→待审核 / 已退回→待审核。越权或非法流转返回 403/400。
+     */
+    async updateScheduleFeeStatus(req, res) {
+        try {
+            const { id } = req.params;
+            const { fee_status: target, note } = req.body;
+            if (!target) return res.status(400).json({ message: '缺少目标状态' });
+
+            const actor = await resolveActor(db, req.user.id);
+            const cur = await db.query(
+                'SELECT fee_status, student_id, teacher_id FROM course_arrangement WHERE id = $1',
+                [id]
+            );
+            if (cur.rows.length === 0) return res.status(404).json({ message: '排课不存在' });
+
+            const row = cur.rows[0];
+            if (actor.actorType === 'headteacher') {
+                if (!actor.studentIds.includes(Number(row.student_id))) {
+                    return res.status(403).json({ message: '无权操作该学生的排课' });
+                }
+            } else if (Number(row.teacher_id) !== Number(req.user.id)) {
+                return res.status(403).json({ message: '无权操作该排课' });
+            }
+
+            const from = row.fee_status;
+            const check = validateFeeStatusTransition(actor.actorType, from, target);
+            if (!check.ok) return res.status(400).json({ message: check.reason });
+
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+                await q(
+                    `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                    [target, id]
+                );
+                await writeFeeStatusLog(q, {
+                    scheduleId: id, oldStatus: from, newStatus: target,
+                    operatorId: req.user.id, actorType: actor.actorType, note,
+                });
+            });
+
+            res.json({ message: '费用状态已更新', fee_status: target });
+        } catch (error) {
+            console.error('教师更新费用状态错误:', error);
+            res.status(500).json({ message: '服务器错误' });
+        }
+    },
+
+    /**
+     * 教师/班主任批量更新费用报销状态
+     * 授权同 updateScheduleFeeStatus；范围支持 ids 列表或 scope 日期范围（班主任限关联学生）。
+     */
+    async batchUpdateScheduleFeeStatus(req, res) {
+        try {
+            const { ids, scope, fee_status: target, note, skipStatus } = req.body;
+            if (!target) return res.status(400).json({ message: '缺少目标状态' });
+
+            const actor = await resolveActor(db, req.user.id);
+
+            let targetIds = [];
+            if (Array.isArray(ids) && ids.length) {
+                targetIds = ids.map(Number).filter(n => !Number.isNaN(n));
+            } else if (scope && scope.startDate && scope.endDate) {
+                const dateExpr = await SchemaHelper.getDateExpr('ca');
+                let sql = `SELECT id, fee_status, student_id FROM course_arrangement ca WHERE ${dateExpr} BETWEEN $1 AND $2`;
+                const params = [scope.startDate, scope.endDate];
+                if (scope.fee_status) { sql += ` AND ca.fee_status = $3`; params.push(scope.fee_status); }
+                if (actor.actorType === 'headteacher') {
+                    sql += ` AND ca.student_id = ANY($${params.length + 1}::int[])`;
+                    params.push(actor.studentIds);
+                } else {
+                    sql += ` AND ca.teacher_id = $${params.length + 1}`;
+                    params.push(req.user.id);
+                }
+                const r = await db.query(sql, params);
+                targetIds = r.rows.map(x => x.id);
+            } else {
+                return res.status(400).json({ message: '请提供 ids 或 scope 范围' });
+            }
+
+            if (!targetIds.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
+
+            let updated = 0;
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+                for (const sid of targetIds) {
+                    const cur = await q('SELECT fee_status, student_id, teacher_id FROM course_arrangement WHERE id = $1', [sid]);
+                    if (cur.rows.length === 0) continue;
+                    const row = cur.rows[0];
+                    // 二次范围校验（ids 直传时也必须校验）
+                    if (actor.actorType === 'headteacher') {
+                        if (!actor.studentIds.includes(Number(row.student_id))) continue;
+                    } else if (Number(row.teacher_id) !== Number(req.user.id)) {
+                        continue;
+                    }
+                    const from = row.fee_status;
+                    if (skipStatus && from === skipStatus) continue;
+                    const check = validateFeeStatusTransition(actor.actorType, from, target);
+                    if (!check.ok) continue;
+                    await q(
+                        `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                        [target, sid]
+                    );
+                    await writeFeeStatusLog(q, {
+                        scheduleId: sid, oldStatus: from, newStatus: target,
+                        operatorId: req.user.id, actorType: actor.actorType, note,
+                    });
+                    updated++;
+                }
+            });
+
+            res.json({ message: `已更新 ${updated} 条排课的费用状态`, updated });
+        } catch (error) {
+            console.error('教师批量更新费用状态错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },

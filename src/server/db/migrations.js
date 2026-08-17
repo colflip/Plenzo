@@ -210,6 +210,48 @@ async function runDatabaseMigrations() {
             console.log('数据库迁移完成：添加 ai_config 表');
         }
 
+        // 费用报销状态：course_arrangement.fee_status 字段 + fee_status_logs 审计表
+        const feeStatusColResult = await db.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'course_arrangement'
+              AND column_name = 'fee_status'
+        `);
+        if (feeStatusColResult.rows.length === 0) {
+            await db.query(`ALTER TABLE course_arrangement ADD COLUMN IF NOT EXISTS fee_status VARCHAR(20) DEFAULT 'draft'`);
+            await db.query(`CREATE INDEX IF NOT EXISTS idx_ca_fee_status_date ON course_arrangement(fee_status, class_date)`);
+            await db.query(`COMMENT ON COLUMN course_arrangement.fee_status IS '费用报销状态: draft 待提交 / teacher_submitted 待审核 / admin_submitted 已审核 / reimbursed 已报销 / returned 已退回 / reimbursement_returned 退回报销'`);
+            console.log('数据库迁移完成：添加 course_arrangement.fee_status 字段');
+        }
+        // 确保 CHECK 约束覆盖最新枚举（先删后建，幂等；兼容已部署旧约束）
+        await db.query(`ALTER TABLE course_arrangement DROP CONSTRAINT IF EXISTS chk_ca_fee_status`);
+        await db.query(`ALTER TABLE course_arrangement ADD CONSTRAINT chk_ca_fee_status CHECK (fee_status IN ('draft','teacher_submitted','admin_submitted','reimbursed','returned','reimbursement_returned'))`);
+
+        const feeStatusLogResult = await db.query(`
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'fee_status_logs'
+        `);
+        if (feeStatusLogResult.rows.length === 0) {
+            await db.query(`
+                CREATE TABLE public.fee_status_logs (
+                    id SERIAL PRIMARY KEY,
+                    schedule_id INTEGER NOT NULL REFERENCES public.course_arrangement(id) ON DELETE CASCADE,
+                    old_status VARCHAR(20),
+                    new_status VARCHAR(20) NOT NULL,
+                    operator_id INTEGER,
+                    actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
+                    note TEXT,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await db.query(`CREATE INDEX IF NOT EXISTS idx_fee_status_logs_sid ON public.fee_status_logs(schedule_id)`);
+            await db.query(`COMMENT ON TABLE public.fee_status_logs IS '费用状态流转审计日志（可分辨 admin/headteacher/teacher 操作身份）'`);
+            console.log('数据库迁移完成：添加 fee_status_logs 表');
+        }
+
     } catch (error) {
         console.error('数据库迁移失败:', error);
         // 不要因为迁移失败而中断应用启动
