@@ -75,7 +75,7 @@
         columnPx: {
             '日期': 96, '星期': 60,
             '计划安排': 480, '实际安排': 480,
-            '费用': 120, '周汇总': 110
+            '费用': 120, '周汇总': 110, '报销状态': 100
         },
         cellPaddingY: 1, cellPaddingX: 8,
         lineHeight: 1.1, minRowHeight: 22,
@@ -350,6 +350,7 @@
                 start_time: s.start_time,
                 end_time: s.end_time,
                 status: s.status,
+                fee_status: s.fee_status,
                 student_id: s.student_id,
                 student_name: dim === 'student'
                     ? (s.student_name || targetStudent.name)
@@ -440,7 +441,7 @@
 
     // ---- 离屏表格构造（与教师端 buildWeeklyViewWrapper 1:1） -----------
     function buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows) {
-        const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
+        const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总', '报销状态'];
         const totalWidth = HEADERS.reduce((sum, h) => sum + (WEEKLY_VIEW_STYLE.columnPx[h] || 0), 0);
 
         const watermarkByDate = {};
@@ -492,7 +493,7 @@
             renderRows = weekDates.map(d => ({
                 '日期': toISODate(d),
                 '星期': days[d.getDay()],
-                '计划安排': '', '实际安排': '', '费用': '', '周汇总': '',
+                '计划安排': '', '实际安排': '', '费用': '', '周汇总': '', '报销状态': '',
                 _isSunday: d.getDay() === 0,
                 _weekNumber: getISOWeekStub(d)
             }));
@@ -503,13 +504,13 @@
         renderRows.forEach((r, i) => {
             const tr = document.createElement('tr');
             HEADERS.forEach(h => {
-                if (['日期', '星期', '费用'].includes(h) && !rowspans.dateFirst[i]) return;
+                if (['日期', '星期', '费用', '报销状态'].includes(h) && !rowspans.dateFirst[i]) return;
                 if (h === '周汇总' && !rowspans.weekFirst[i]) return;
 
                 const td = document.createElement('td');
                 const value = r[h] != null ? String(r[h]) : '';
 
-                if (['日期', '星期', '费用'].includes(h) && rowspans.dateSpan[i] > 1) {
+                if (['日期', '星期', '费用', '报销状态'].includes(h) && rowspans.dateSpan[i] > 1) {
                     td.rowSpan = rowspans.dateSpan[i];
                 }
                 if (h === '周汇总' && rowspans.weekSpan[i] > 1) {
