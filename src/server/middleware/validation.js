@@ -188,6 +188,11 @@ const scheduleValidation = {
             .messages({
                 'number.base': '课程类型ID必须是数字',
                 'number.positive': '课程类型ID必须是正数'
+            }),
+        fee_status: Joi.string().valid('draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned')
+            .optional()
+            .messages({
+                'any.only': '费用状态非法'
             })
     })
 };

@@ -36,6 +36,8 @@ router.put('/schedules/:id', authMiddleware, adminOnly, validate(scheduleValidat
 router.delete('/schedules/:id', authMiddleware, adminOnly, adminController.deleteSchedule);
 router.post('/schedules/:id/confirm', authMiddleware, adminOnly, adminController.confirmSchedule);
 router.patch('/schedules/:id/fees', authMiddleware, adminOnly, adminController.updateScheduleFees);
+router.patch('/schedules/:id/fee-status', authMiddleware, adminOnly, adminController.updateScheduleFeeStatus);
+router.post('/schedules/batch-fee-status', authMiddleware, adminOnly, adminController.batchUpdateScheduleFeeStatus);
 
 // 统计数据路由
 router.get('/statistics/overview', authMiddleware, adminOnly, adminController.getOverviewStats);

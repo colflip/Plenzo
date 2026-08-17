@@ -10,8 +10,8 @@
  * - 自带费用弹窗（DOM 由本组件动态注入，id 前缀 fm-，不与现有
  *   adminFeeManagementModal / feeManagementModal 冲突）
  * - 单条 PATCH 或 批量 POST 保存（由 saveMode 决定）
- * - “清除费用” = 置 0 后提交（后端无独立删除端点）
- * - “导出当前费用” = 注册周导出上下文并复用 window.exportWeeklyScheduleView
+ * - “清除费用” = 置 null（未填写）后提交：汇总行清空该生范围内全部课时费用；明细行编辑浮窗清空当前单条课时费用。
+ * - "导出报销单" = 注册周导出上下文并复用 window.exportWeeklyScheduleView（即报送报销用）
  *
  * 所有请求统一走 window.apiUtils（baseURL=/api），组件内只写相对路径。
  * ========================================================================== */
@@ -164,7 +164,7 @@
         // 顶部工具栏直接复用排课管理页的 .header-toolbar.schedule-controls 组件结构，
         // 不额外写 inline style，避免内部组件与边缘的上下间距不一致。
         mountEl.innerHTML = `
-            <div class="header-toolbar schedule-controls">
+            <div class="header-toolbar schedule-controls" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                 <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                     <div class="week-navigation">
                         <button class="nav-btn" data-fm="prev">
@@ -180,12 +180,35 @@
                             <span class="material-icons-round">chevron_right</span>
                         </button>
                     </div>
-                    <button class="add-btn" data-fm="export" title="导出当前费用">
+                    <button class="add-btn" data-fm="export" title="导出报销单">
                         <span class="material-icons-round">image</span>
-                        <span>导出当前费用</span>
+                        <span>导出报销单</span>
                     </button>
                 </div>
+                <div class="fm-toolbar-right">
+                    ${config.feeStatusFilter ? `
+                    <select class="fm-fee-filter" data-fm="feeStatusFilter" title="按费用状态筛选">
+                        <option value="">全部状态</option>
+                        ${FEE_STATUSES.map(code => `<option value="${code}">${FEE_STATUS[code].label}</option>`).join('')}
+                    </select>` : ''}
+                    ${config.enableBatchFeeStatus ? `
+                    <div class="fm-action-group">
+                        <button class="fm-action-btn" data-fm="batchPanel" title="批量设置费用状态">
+                            <span class="material-icons-round">playlist_add_check</span>
+                            <span>批量设置状态</span>
+                        </button>
+                        <button class="fm-action-btn act-success" data-fm="completeReimburse" title="将本周范围内未报销的标记为已报销">
+                            <span class="material-icons-round">check</span>
+                            <span>完成报销</span>
+                        </button>
+                        <button class="fm-action-btn act-danger" data-fm="returnReimburse" title="将本周范围内已报销的退回（撤销报销）">
+                            <span class="material-icons-round">reply</span>
+                            <span>退回报销</span>
+                        </button>
+                    </div>` : ''}
+                </div>
             </div>
+            <div class="fm-batch-bar" data-fm="batchBar" style="display:none;"></div>
             <div class="weekly-table-container fm-table-card">
                 <table class="weekly-schedule-table">
                     <thead data-fm="thead"></thead>
@@ -249,12 +272,176 @@
         mountEl.querySelector('[data-fm="prev"]').addEventListener('click', () => shiftRange(-7));
         mountEl.querySelector('[data-fm="next"]').addEventListener('click', () => shiftRange(7));
         mountEl.querySelector('[data-fm="export"]').addEventListener('click', () => doExport(config));
+
+        // 费用状态筛选
+        const filterSel = mountEl.querySelector('[data-fm="feeStatusFilter"]');
+        if (filterSel) {
+            filterSel.addEventListener('change', () => {
+                stateMap[sel].feeStatusFilter = filterSel.value;
+                loadData(config, mountEl);
+            });
+        }
+        // 批量设置状态面板
+        const batchBtn = mountEl.querySelector('[data-fm="batchPanel"]');
+        if (batchBtn) {
+            batchBtn.addEventListener('click', () => toggleBatchBar(config, mountEl));
+        }
+        // 完成报销（本周一键标记已报销，跳过已报销）
+        const completeBtn = mountEl.querySelector('[data-fm="completeReimburse"]');
+        if (completeBtn) {
+            completeBtn.addEventListener('click', () => doCompleteReimburse(config, mountEl));
+        }
+        // 退回报销（本周已报销的撤销报销，仅作用于已报销状态）
+        const returnBtn = mountEl.querySelector('[data-fm="returnReimburse"]');
+        if (returnBtn) {
+            returnBtn.addEventListener('click', () => doReturnReimburse(config, mountEl));
+        }
+    }
+
+    // 批量面板：范围（本周全部 / 当前筛选结果）+ 目标状态 + 备注
+    function toggleBatchBar(config, mountEl) {
+        const bar = mountEl.querySelector('[data-fm="batchBar"]');
+        if (!bar) return;
+        if (bar.style.display !== 'none' && bar.dataset.fmBatchOpen === '1') {
+            bar.style.display = 'none';
+            bar.dataset.fmBatchOpen = '0';
+            return;
+        }
+        const filterOpt = config.feeStatusFilter
+            ? `<label>仅含状态<select data-fm="batchScopeStatus"><option value="">不限</option>${FEE_STATUSES.map(c => `<option value="${c}">${FEE_STATUS[c].label}</option>`).join('')}</select></label>`
+            : '';
+        bar.innerHTML = `
+            <div class="fm-batch-field">
+                <span class="fm-batch-label">范围</span>
+                <select data-fm="batchRange">
+                    <option value="week">本周全部</option>
+                    <option value="filtered">当前筛选结果</option>
+                </select>
+            </div>
+            ${config.feeStatusFilter ? `
+            <div class="fm-batch-field">
+                <span class="fm-batch-label">仅含状态</span>
+                <select data-fm="batchScopeStatus"><option value="">不限</option>${FEE_STATUSES.map(c => `<option value="${c}">${FEE_STATUS[c].label}</option>`).join('')}</select>
+            </div>` : ''}
+            <div class="fm-batch-field">
+                <span class="fm-batch-label">目标状态</span>
+                <select data-fm="batchTarget">${FEE_STATUSES.map(c => `<option value="${c}">${FEE_STATUS[c].label}</option>`).join('')}</select>
+            </div>
+            <div class="fm-batch-field">
+                <span class="fm-batch-label">备注</span>
+                <input type="text" data-fm="batchNote" placeholder="可选">
+            </div>
+            <button class="fm-batch-apply" data-fm="batchApply">应用</button>
+            <span data-fm="batchMsg" class="fm-batch-msg"></span>
+        `;
+        bar.style.display = 'flex';
+        bar.dataset.fmBatchOpen = '1';
+        bar.querySelector('[data-fm="batchApply"]').addEventListener('click', () => applyBatchFeeStatus(config, mountEl, bar));
+    }
+
+    // 批量提交费用状态
+    async function applyBatchFeeStatus(config, mountEl, bar) {
+        if (!config.feeStatusBase) return;
+        const range = bar.querySelector('[data-fm="batchRange"]').value;
+        const target = bar.querySelector('[data-fm="batchTarget"]').value;
+        const note = bar.querySelector('[data-fm="batchNote"]').value || '';
+        const scopeStatus = bar.querySelector('[data-fm="batchScopeStatus"]')
+            ? bar.querySelector('[data-fm="batchScopeStatus"]').value : '';
+        const st = stateMap[config.mountSelector];
+        let payload;
+        if (range === 'week') {
+            payload = { scope: { startDate: st.startDate, endDate: st.endDate, fee_status: scopeStatus || undefined }, fee_status: target, note };
+        } else {
+            // 当前筛选结果：取已加载且（若设了筛选）匹配的记录 id
+            const ids = st.schedules
+                .filter(r => !scopeStatus || (r.fee_status || 'draft') === scopeStatus)
+                .map(r => r.id);
+            if (!ids.length) {
+                bar.querySelector('[data-fm="batchMsg"]').textContent = '没有符合条件的排课';
+                return;
+            }
+            payload = { ids, fee_status: target, note };
+        }
+        const msg = bar.querySelector('[data-fm="batchMsg"]');
+        msg.textContent = '处理中...';
+        try {
+            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, payload);
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '批量更新成功', 'success');
+            else if (window.showToast) window.showToast(r.message || '批量更新成功', 'success');
+            loadData(config, mountEl);
+        } catch (err) {
+            msg.textContent = '失败：' + (err.message || '未知错误');
+        }
+    }
+
+    // 完成报销：本周范围内未报销的标记为已报销（跳过已报销，避免重复审计）
+    async function doCompleteReimburse(config, mountEl) {
+        if (!config.feeStatusBase) return;
+        const st = stateMap[config.mountSelector];
+        const ok = await fmConfirm({
+            title: '完成报销',
+            message: `将把本周（${formatChineseDate(st.startDate)} 至 ${formatChineseDate(st.endDate)}）范围内尚未报销的排课标记为「已报销」。已报销的将自动跳过。`,
+            confirmText: '确认报销',
+        });
+        if (!ok) return;
+        try {
+            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
+                scope: { startDate: st.startDate, endDate: st.endDate },
+                fee_status: 'reimbursed',
+                skipStatus: 'reimbursed',
+                note: '完成报销',
+            });
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '已完成报销', 'success');
+            else if (window.showToast) window.showToast(r.message || '已完成报销', 'success');
+            loadData(config, mountEl);
+        } catch (err) {
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+            else if (window.showToast) window.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+        }
+    }
+
+    // 退回报销：本周范围内「已报销」的撤销报销（仅作用于已报销状态，避免误退未报销项），跳过已退回
+    async function doReturnReimburse(config, mountEl) {
+        if (!config.feeStatusBase) return;
+        const st = stateMap[config.mountSelector];
+        const ok = await fmConfirm({
+            title: '退回报销',
+            message: `将把本周（${formatChineseDate(st.startDate)} 至 ${formatChineseDate(st.endDate)}）范围内「已报销」的排课标记为「退回报销」（撤销报销）。非已报销状态的将自动跳过。此操作可经审计追溯。`,
+            confirmText: '确认退回',
+        });
+        if (!ok) return;
+        try {
+            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
+                scope: { startDate: st.startDate, endDate: st.endDate, fee_status: 'reimbursed' },
+                fee_status: 'reimbursement_returned',
+                skipStatus: 'reimbursement_returned',
+                note: '退回报销',
+            });
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '已退回报销', 'success');
+            else if (window.showToast) window.showToast(r.message || '已退回报销', 'success');
+            loadData(config, mountEl);
+        } catch (err) {
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+            else if (window.showToast) window.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+        }
     }
 
     // ---- 数据加载与渲染（学生视图：一个学生一行，默认展开明细） -------
     // 列数 = 表头列数（学生 / 日期时间 / 老师 / 课程类型 / 上课地点 / 状态 / 交通 / 其他 / 总计 / 操作）
     const STUDENT_COLS = 10;
     const STATUS_SHORT = { completed: '完成', pending: '待', confirmed: '确认', cancelled: '取消' };
+
+    // 费用报销状态（与后端 validateFeeStatusTransition / feeStatus.js 保持一致）
+    const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
+    const FEE_STATUS = {
+        draft:             { label: '待提交', cls: 'fm-fee-draft' },
+        teacher_submitted: { label: '待审核', cls: 'fm-fee-submitted' },
+        admin_submitted:   { label: '已审核', cls: 'fm-fee-reviewed' },
+        reimbursed:        { label: '已报销', cls: 'fm-fee-reimbursed' },
+        returned:          { label: '已退回', cls: 'fm-fee-returned' },
+        reimbursement_returned: { label: '退回报销', cls: 'fm-fee-reimbursement-returned' },
+    };
+    function feeStatusInfo(s) { return FEE_STATUS[s] || FEE_STATUS.draft; }
 
     // 汇总行高度固定 60px。不同列采用不同适配策略：
     //  · 日期时间 / 老师 / 课程类型 / 上课地点 / 状态（列索引 1~5）：【自适应】——
@@ -321,10 +508,26 @@
         setFont(MIN);
     }
 
+    // 汇总行「排课及状态」双行（类型一行 + 状态一行）：字号收缩到能放下两行
+    function fitMergedCell(td) {
+        const MIN = 12;
+        const lines = td.querySelectorAll('.fm-ms-line');
+        const setFont = (s) => {
+            td.style.fontSize = s + 'px';
+            lines.forEach(l => {
+                l.style.fontSize = s + 'px';
+                l.querySelectorAll('*').forEach(el => { el.style.fontSize = s + 'px'; });
+            });
+        };
+        let size = 14;
+        setFont(size);
+        while (size > MIN && td.scrollHeight > td.clientHeight + 1) { size--; setFont(size); }
+    }
+
     function fitSummaryRows(mountEl) {
         const tbody = mountEl.querySelector('[data-fm="tbody"]');
         if (!tbody) return;
-        const ADAPTIVE = new Set([1, 2, 3, 4, 5]); // 日期时间 / 老师 / 课程类型 / 上课地点 / 状态
+        const ADAPTIVE = new Set([1, 2, 4, 5]); // 日期时间 / 老师 / 上课地点 / 费用状态（排课及状态为自定义双行，单独处理）
 
         // 按列收集汇总行单元格（排除操作列）
         const colCells = {};
@@ -338,6 +541,11 @@
         Object.keys(colCells).forEach(ci => {
             const cells = colCells[ci];
             const idx = parseInt(ci, 10);
+            if (idx === 3) {
+                // 排课及状态：汇总行自定义双行（类型一行 + 状态一行），字号收缩适配
+                cells.forEach(td => fitMergedCell(td));
+                return;
+            }
             if (ADAPTIVE.has(idx)) {
                 cells.forEach(td => fitAdaptiveCell(td, idx));
                 return;
@@ -393,7 +601,9 @@
         }
 
         try {
-            const data = await window.apiUtils.get(config.listEndpoint, { startDate: st.startDate, endDate: st.endDate });
+            const params = { startDate: st.startDate, endDate: st.endDate };
+            if (config.feeStatusFilter && st.feeStatusFilter) params.fee_status = st.feeStatusFilter;
+            const data = await window.apiUtils.get(config.listEndpoint, params);
             // 后端已按 startDate/endDate 用 BETWEEN 过滤；此处再做客户端兜底，
             // 确保表格严格只显示所选日期选择器范围内的记录（防御端点差异/边界）。
             const all = normalizeList(data);
@@ -423,13 +633,13 @@
         const thead = mountEl.querySelector('[data-fm="thead"]');
         if (!thead) return;
         // 表头列名/位置与下方明细记录（逐条课时）的字段一一对应：
-        // 学生 / 日期时间 / 老师 / 课程类型 / 上课地点 / 状态 / 交通 / 其他 / 总计 / 操作
-        const cols = ['学生', '日期时间', '老师', '课程类型', '上课地点', '状态', '交通', '其他', '总计', '操作'];
+        // 学生 / 日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
+        // （原「课程类型」与「状态」合并为「排课及状态」：汇总行各占一行、明细行同行显示）
+        const cols = ['学生', '日期时间', '老师', '排课及状态', '上课地点', '费用状态', '交通', '其他', '总计', '操作'];
         // 每列基础宽度（px，作为 table-layout:auto 下的列宽下限）：
         // 列宽基准是【明细行】每条课时记录（单老师名/单课程类型等短内容），而非汇总行的聚合长文本。
-        // 老师/课程类型也设下限，避免 auto 布局把容器剩余空间全部分配给这两列而撑宽；
-        // 汇总行的聚合长内容（多名教师/多种类型）由 CSS max-width 约束，超宽则省略，不反向撑列。
-        const colWidths = ['80px', '155px', '120px', '110px', '95px', '85px', '70px', '70px', '80px', '90px'];
+        // 排课及状态（合并）需更宽以容纳「类型，状态」；费用状态独立列。
+        const colWidths = ['80px', '155px', '120px', '150px', '95px', '90px', '70px', '70px', '80px', '90px'];
         if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(thead, '');
         else thead.innerHTML = '';
 
@@ -483,6 +693,15 @@
             cnt[s] = (cnt[s] || 0) + 1;
         });
         return Object.keys(cnt).map(s => `${STATUS_SHORT[s] || s}${cnt[s]}`);
+    }
+
+    function feeStatusMini(list) {
+        const cnt = {};
+        list.forEach(r => {
+            const s = r.fee_status || 'draft';
+            cnt[s] = (cnt[s] || 0) + 1;
+        });
+        return Object.keys(cnt).map(s => `${FEE_STATUS[s].label}${cnt[s]}`);
     }
 
     // 将多个值渲染为独立 token 包入 .fm-cell-clamp 内层 span：汇总行「老师/课程类型/上课地点/状态」列
@@ -551,12 +770,19 @@
             const totalDisp = (tUnfilled && oUnfilled)
                 ? { text: '—', cls: 'fm-fee-empty' }
                 : { text: '¥' + money(total), cls: 'fm-fee-set' };
-            // 顺序与表头对齐：日期时间 / 老师 / 课程类型 / 上课地点 / 状态 / 交通 / 其他 / 总计 / 操作
+            // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
             addCell('datetime', isDup ? '' : dtText);
             addCell('teacher', teacher);
-            addCell('type', typeStr);
+            addCell('merged', `${esc(typeStr)}，${esc(statusText(r.status))}`);
             addCell('location', locationText);
-            addCell('status', statusText(r.status), 'fm-center');
+            // 费用状态：管理员/班主任可编辑（下拉）；普通教师只读 pill
+            const fs = feeStatusInfo(r.fee_status);
+            const feeStatusHtml = config.canEditFeeStatus
+                ? `<select class="status-select fm-fee-${(r.fee_status || 'draft')}" data-fm-fs-id="${r.id}">`
+                    + FEE_STATUSES.map(code => `<option value="${code}"${code === (r.fee_status || 'draft') ? ' selected' : ''}>${FEE_STATUS[code].label}</option>`).join('')
+                    + `</select>`
+                : `<span class="status-select ${fs.cls}">${fs.label}</span>`;
+            addCell('feestatus', feeStatusHtml, 'fm-center');
             addCell('fee', tDisp.text, 'fm-num ' + tDisp.cls);
             addCell('fee', oDisp.text, 'fm-num ' + oDisp.cls);
             addCell('summary', totalDisp.text, 'fm-num ' + totalDisp.cls);
@@ -618,10 +844,21 @@
             setClampTokens(tdTeacher, teachers.length ? teachers : ['未分配']);
             tr.appendChild(tdTeacher);
 
-            // 课程类型（去重）
+            // 排课及状态（合并列）：第一行=课程类型（去重），第二行=排课状态迷你计数
             const types = [...new Set(list.map(r => r.schedule_type_cn || r.schedule_type || r.schedule_types).filter(Boolean))];
             const tdType = document.createElement('td');
-            setClampTokens(tdType, types.length ? types : ['-']);
+            tdType.className = 'fm-center';
+            const merged = document.createElement('div');
+            merged.className = 'fm-merged-summary';
+            const typeLine = document.createElement('div');
+            typeLine.className = 'fm-ms-line fm-ms-type';
+            typeLine.textContent = types.length ? types.join(' / ') : '-';
+            const statusLine = document.createElement('div');
+            statusLine.className = 'fm-ms-line fm-ms-status';
+            statusLine.textContent = statusMini(list).join('  ') || '-';
+            merged.appendChild(typeLine);
+            merged.appendChild(statusLine);
+            tdType.appendChild(merged);
             tr.appendChild(tdType);
 
             // 上课地点（去重）
@@ -630,22 +867,22 @@
             setClampTokens(tdLoc, locs.length ? locs : ['-']);
             tr.appendChild(tdLoc);
 
-            // 状态：状态迷你标签内多个状态值同样作为 token，间距可调控（默认空格分隔）
-            const tdStatus = document.createElement('td');
-            tdStatus.className = 'fm-center';
-            const statusClamp = document.createElement('span');
-            statusClamp.className = 'fm-cell-clamp fm-center';
-            const statusPill = document.createElement('span');
-            statusPill.className = 'fm-status-mini fm-tokens';
-            statusMini(list).forEach(t => {
+            // 费用状态（汇总：各状态计数）
+            const tdFeeStatus = document.createElement('td');
+            tdFeeStatus.className = 'fm-center';
+            const fsClamp = document.createElement('span');
+            fsClamp.className = 'fm-cell-clamp fm-center';
+            const fsPill = document.createElement('span');
+            fsPill.className = 'fm-status-mini fm-tokens';
+            feeStatusMini(list).forEach(t => {
                 const tk = document.createElement('span');
                 tk.className = 'fm-token';
                 tk.textContent = t;
-                statusPill.appendChild(tk);
+                fsPill.appendChild(tk);
             });
-            statusClamp.appendChild(statusPill);
-            tdStatus.appendChild(statusClamp);
-            tr.appendChild(tdStatus);
+            fsClamp.appendChild(fsPill);
+            tdFeeStatus.appendChild(fsClamp);
+            tr.appendChild(tdFeeStatus);
 
             // 交通：全部未填写显示灰色「—」，否则 ¥合计（含全 0 情形 = ¥0.00）
             const tEmpty = tAgg.allEmpty;
@@ -720,7 +957,7 @@
                 const name = nameEl ? nameEl.textContent.trim() : '该学生';
                 const ok = await fmConfirm({
                     title: '确认清除费用',
-                    message: `将清除「${name}」范围内 ${list.length} 条课时的交通 / 其他费用（置 0），此操作不可撤销。`,
+                    message: `将清除「${name}」范围内 ${list.length} 条课时的交通 / 其他费用（置空/未填写），此操作不可撤销。`,
                     confirmText: '确认清除',
                     danger: true,
                 });
@@ -735,6 +972,31 @@
                 if (rec) openModal(config, 'single', [rec]);
             });
         });
+        // 费用状态下拉（管理员/班主任可编辑）：选择即提交流转
+        if (config.canEditFeeStatus) {
+            tbody.querySelectorAll('select.status-select[data-fm-fs-id]').forEach(sel => {
+                sel.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    patchFeeStatus(config, mountEl, sel.dataset.fmFsId, sel.value);
+                });
+                sel.addEventListener('click', (e) => e.stopPropagation());
+            });
+        }
+    }
+
+    // 单条费用状态流转（PATCH /{base}/:id/fee-status）
+    async function patchFeeStatus(config, mountEl, id, target, note) {
+        if (!config.feeStatusBase) return;
+        try {
+            await window.apiUtils.patch(`${config.feeStatusBase}/${id}/fee-status`, { fee_status: target, note: note || '' });
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('费用状态已更新', 'success');
+            else if (window.showToast) window.showToast('费用状态已更新', 'success');
+            loadData(config, mountEl);
+        } catch (err) {
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('更新失败：' + (err.message || '未知错误'), 'error');
+            else if (window.showToast) window.showToast('更新失败：' + (err.message || '未知错误'), 'error');
+            loadData(config, mountEl); // 失败回刷，恢复下拉原值
+        }
     }
 
     function updateSummary(mountEl, st) {
@@ -760,9 +1022,9 @@
         tfoot.appendChild(tr);
     }
 
-    // 一键清除某生范围内全部课时费用（置 0 后提交，不弹窗）
+    // 一键清除某生范围内全部课时费用（置 null/未填写 后提交，不弹窗）
     async function batchClear(config, mountEl, list) {
-        const updates = list.map(s => ({ id: s.id, transport_fee: 0, other_fee: 0 }));
+        const updates = list.map(s => ({ id: s.id, transport_fee: null, other_fee: null }));
         try {
             await persist(config, updates);
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('费用已清除', 'success');
@@ -844,7 +1106,7 @@
                         <div class="modal-footer" style="margin-top:24px; display:flex; gap:10px; justify-content:flex-end;">
                             <button type="button" class="btn btn-secondary" id="fmClearBtn" style="background:#9ca3af;">清除费用</button>
                             <button type="button" class="btn btn-secondary" id="fmCancelBtn" style="background:#9ca3af;">取消</button>
-                            <button type="submit" class="btn btn-primary" id="fmSaveBtn">保存</button>
+                            <button type="submit" class="btn btn-primary" id="fmSaveBtn">保存并提交</button>
                         </div>
                     </form>
                 </div>
@@ -963,7 +1225,7 @@
             content.style.width = '480px';
             if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(container, '');
             const rec = schedules[0] || {};
-            // 未填写(null)→输入框留空；0 或正数→原值。留空保存即写回 NULL（未填写），与「清除费用」置 0 区分。
+            // 未填写(null)→输入框留空；0 或正数→原值。留空保存即写回 NULL（未填写），与「清除费用」置 null 一致。
             tInput.value = isUnfilled(rec.transport_fee) ? '' : String(rec.transport_fee);
             oInput.value = isUnfilled(rec.other_fee) ? '' : String(rec.other_fee);
             modal.querySelector('#fmTotalDisplay').textContent = money(
@@ -983,7 +1245,7 @@
         activeModal = null;
     }
 
-    // 输入框 → 费用值：留空/未传 → null（未填写）；0 或正数 → 数值。与「清除费用」显式置 0 区分。
+    // 输入框 → 费用值：留空/未传 → null（未填写）；0 或正数 → 数值。与「清除费用」显式置 null 一致。
     function parseInputFee(val) {
         if (val === '' || val === null || val === undefined) return null;
         const n = parseFloat(val);
@@ -1050,7 +1312,7 @@
             else if (window.showToast) window.showToast('保存失败：' + (err.message || '未知错误'), 'error');
         } finally {
             saveBtn.disabled = false;
-            saveBtn.textContent = '保存';
+            saveBtn.textContent = '保存并提交';
         }
     }
 
@@ -1059,13 +1321,13 @@
         const { config, mode, schedules } = activeModal;
         const ok = await fmConfirm({
             title: '确认清除费用',
-            message: `将清除当前 ${schedules.length} 条课时的交通 / 其他费用（置 0），此操作不可撤销。`,
+            message: `将清除当前 ${schedules.length} 条课时的交通 / 其他费用（置空/未填写），此操作不可撤销。`,
             confirmText: '确认清除',
             danger: true,
         });
         if (!ok) return;
         const updates = (mode === 'multi' ? schedules : [schedules[0]]).map(s => ({
-            id: s.id, transport_fee: 0, other_fee: 0,
+            id: s.id, transport_fee: null, other_fee: null,
         }));
         const saveBtn = document.getElementById('fmSaveBtn');
         saveBtn.disabled = true;
@@ -1080,11 +1342,11 @@
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('清除失败：' + (err.message || '未知错误'), 'error');
         } finally {
             saveBtn.disabled = false;
-            saveBtn.textContent = '保存';
+            saveBtn.textContent = '保存并提交';
         }
     }
 
-    // ---- 导出当前费用 ---------------------------------------------------
+    // ---- 导出报销单 ---------------------------------------------------
     function ensureExportContext(config) {
         if (!config.exportContextKey || !config.fetchWeekSchedules) return;
         if (typeof window.registerWeeklyViewExportContext !== 'function') return;

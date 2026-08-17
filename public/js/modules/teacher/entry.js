@@ -136,6 +136,10 @@ function mountTeacherFees() {
         listEndpoint: '/teacher/schedules',
         saveMode: 'single',
         feeEndpoint: (id) => `/teacher/schedules/${id}/fees`,
+        feeStatusBase: '/teacher/schedules',
+        canEditFeeStatus: false,
+        enableBatchFeeStatus: false,
+        feeStatusFilter: false,
         exportContextKey: 'teacher-fees',
         fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/schedules', { startDate: s, endDate: e }),
     });
@@ -145,10 +149,14 @@ function mountTeacherHeadFees() {
     if (!window.FeeManager) return;
     window.FeeManager.mount({
         mountSelector: '#teacherHeadFeeManagerMount',
-        role: 'teacher',
+        role: 'headteacher',
         listEndpoint: '/teacher/student-schedules',
         saveMode: 'batch',
         batchEndpoint: '/teacher/batch-fees',
+        feeStatusBase: '/teacher/schedules',
+        canEditFeeStatus: true,
+        enableBatchFeeStatus: true,
+        feeStatusFilter: true,
         exportContextKey: 'teacher-head-fees',
         fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/student-schedules', { startDate: s, endDate: e }),
     });
