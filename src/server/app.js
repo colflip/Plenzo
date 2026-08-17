@@ -257,6 +257,16 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
+// 运行数据库迁移（幂等，失败不阻断启动）。
+// 注意：原先仅在非 Vercel 的 listen 回调中执行，导致 Vercel Serverless 环境下
+// 迁移表（holidays / feedbacks / fee_audit_logs / ai_config 等）从未被创建。
+// 改为在模块加载时触发（测试环境跳过），使所有部署形态都能拿到最新表结构。
+if (process.env.NODE_ENV !== 'test') {
+    runDatabaseMigrations().catch(err => {
+        console.error('❌ 数据库迁移启动失败:', err.message);
+    });
+}
+
 // 启动服务器逻辑：除非在 Vercel Serverless 环境，否则一律启动监听
 if (process.env.VERCEL) {
     // Vercel 自动处理导出
@@ -271,11 +281,6 @@ if (process.env.VERCEL) {
             console.log(`[DB] 连接预热成功`);
         }).catch(err => {
             console.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', err.message);
-        });
-
-        // 运行数据库迁移（幂等，失败不阻断启动）
-        runDatabaseMigrations().catch(err => {
-            console.error('❌ 数据库迁移启动失败:', err.message);
         });
 
         try {

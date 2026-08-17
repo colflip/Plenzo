@@ -24,6 +24,7 @@
 const { AppError } = require('../middleware/error');
 const axios = require('axios');
 const https = require('https');
+const aiConfigStore = require('./ai-config-store');
 
 // 开发环境下跳过 TLS 验证（解决代理/MITM 导致的 TLS 错误）
 const isDev = process.env.NODE_ENV === 'development';
@@ -86,21 +87,28 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 /**
  * 读取并归一化 AI 配置
+ * @desc 优先使用数据库持久化的运行时配置（管理后台动态切换模型，跨 Serverless 实例生效），
+ *       回退到环境变量默认值。读取为同步，便于每次请求无阻塞取值。
  */
 function getAIConfig() {
-    const provider = (process.env.AI_PROVIDER || 'deepseek').toLowerCase();
-    const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.custom;
-    const protocol = (process.env.AI_PROTOCOL || defaults.protocol || 'openai').toLowerCase();
-    return {
-        enabled: String(process.env.AI_ENABLED || '').toLowerCase() === 'true',
-        provider,
-        protocol: protocol === 'messages' ? 'messages' : 'openai',
-        apiKey: process.env.AI_API_KEY || '',
-        baseUrl: process.env.AI_BASE_URL || defaults.baseUrl,
-        model: process.env.AI_MODEL || defaults.model,
-        timeout: parseInt(process.env.AI_TIMEOUT, 10) || 30000,
-        maxTokens: parseInt(process.env.AI_MAX_TOKENS, 10) || 8000
-    };
+    try {
+        return aiConfigStore.getEffectiveConfig();
+    } catch (e) {
+        // 理论上 getEffectiveConfig 不会抛错；此处兜底使用环境变量配置
+        const provider = (process.env.AI_PROVIDER || 'deepseek').toLowerCase();
+        const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.custom;
+        const protocol = (process.env.AI_PROTOCOL || defaults.protocol || 'openai').toLowerCase();
+        return {
+            enabled: String(process.env.AI_ENABLED || '').toLowerCase() === 'true',
+            provider,
+            protocol: protocol === 'messages' ? 'messages' : 'openai',
+            apiKey: process.env.AI_API_KEY || '',
+            baseUrl: process.env.AI_BASE_URL || defaults.baseUrl,
+            model: process.env.AI_MODEL || defaults.model,
+            timeout: parseInt(process.env.AI_TIMEOUT, 10) || 30000,
+            maxTokens: parseInt(process.env.AI_MAX_TOKENS, 10) || 8000
+        };
+    }
 }
 
 /**
