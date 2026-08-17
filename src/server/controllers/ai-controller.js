@@ -2081,16 +2081,21 @@ const updateConfig = asyncHandler(async (req, res) => {
         throw new AppError('缺少必要的配置参数', 400);
     }
 
-    // 使用配置管理器更新配置（立即生效，无需重启）
-    aiConfigManager.updateAIConfig({
-        provider,
-        protocol: protocol || 'openai',
-        apiKey: realApiKey,
-        baseUrl,
-        model,
-        timeout: timeout || 30000,
-        maxTokens: maxTokens || 3000
-    });
+    // 使用配置管理器更新配置（持久化到数据库，跨实例立即生效，无需重启）
+    try {
+        await aiConfigManager.updateAIConfig({
+            provider,
+            protocol: protocol || 'openai',
+            apiKey: realApiKey,
+            baseUrl,
+            model,
+            timeout: timeout || 30000,
+            maxTokens: maxTokens || 3000
+        });
+    } catch (err) {
+        console.error('[AI] 更新配置失败:', err && err.message ? err.message : err);
+        throw new AppError('配置保存失败，请稍后重试', 500);
+    }
 
     res.json(standardResponse(true, { message: '配置已更新并立即生效！' }));
 });

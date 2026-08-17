@@ -1,98 +1,42 @@
 /**
- * AI 配置管理器
- * @description 支持动态重载配置，无需重启服务
+ * AI 配置管理器（兼容层）
+ * @description
+ *  历史实现会在运行时 fs 读写项目根目录的 .env 文件，这在 Vercel/ShServerless 环境下
+ *  会因 /var/task/.env 不存在而抛 ENOENT，且只读文件系统导致修改无法持久生效。
+ *
+ *  现在改为把配置持久化到数据库（见 ai-config-store.js）。本模块仅作为兼容层，
+ *  保留原有方法名（updateAIConfig / getConfig），供 ai-controller 调用。
  */
 
-const fs = require('fs');
-const path = require('path');
+const store = require('./ai-config-store');
 
-class AIConfigManager {
-    constructor() {
-        this.envPath = path.join(__dirname, '../../../.env');
-        this.configCache = null;
-        this.lastModified = null;
-    }
-
-    /**
-     * 读取 .env 文件并解析为对象
-     */
-    parseEnvFile() {
-        const content = fs.readFileSync(this.envPath, 'utf8');
-        const config = {};
-
-        content.split('\n').forEach(line => {
-            line = line.trim();
-            if (!line || line.startsWith('#')) return;
-
-            const match = line.match(/^([^=]+)=(.*)$/);
-            if (match) {
-                const key = match[1].trim();
-                let value = match[2].trim();
-                // 移除引号
-                if ((value.startsWith('"') && value.endsWith('"')) ||
-                    (value.startsWith("'") && value.endsWith("'"))) {
-                    value = value.slice(1, -1);
-                }
-                config[key] = value;
-            }
-        });
-
-        return config;
-    }
-
-    /**
-     * 更新 AI 配置
-     */
-    updateAIConfig(updates) {
-        const config = this.parseEnvFile();
-
-        // 更新配置
-        if (updates.provider) config.AI_PROVIDER = updates.provider;
-        if (updates.protocol) config.AI_PROTOCOL = updates.protocol;
-        if (updates.apiKey) config.AI_API_KEY = updates.apiKey;
-        if (updates.baseUrl) config.AI_BASE_URL = updates.baseUrl;
-        if (updates.model) config.AI_MODEL = updates.model;
-        if (updates.timeout) config.AI_TIMEOUT = updates.timeout.toString();
-        if (updates.maxTokens) config.AI_MAX_TOKENS = updates.maxTokens.toString();
-        config.AI_ENABLED = 'true';
-
-        // 写回 .env 文件
-        this.writeEnvFile(config);
-
-        // 立即更新 process.env（使配置生效）
-        Object.keys(updates).forEach(key => {
-            const envKey = `AI_${key.toUpperCase().replace(/([A-Z])/g, '_$1')}`;
-            if (updates[key]) {
-                process.env[envKey] = updates[key].toString();
-            }
-        });
-        process.env.AI_ENABLED = 'true';
-
-        // 清除缓存
-        this.configCache = null;
-    }
-
-    /**
-     * 将配置对象写回 .env 文件
-     */
-    writeEnvFile(config) {
-        const lines = [];
-
-        Object.keys(config).forEach(key => {
-            const value = config[key];
-            // 如果值包含空格或特殊字符，加引号
-            if (value.includes(' ') || value.includes('#')) {
-                lines.push(`${key}='${value}'`);
-            } else {
-                lines.push(`${key}=${value}`);
-            }
-        });
-
-        fs.writeFileSync(this.envPath, lines.join('\n'), 'utf8');
-    }
+/**
+ * 更新 AI 配置（持久化到数据库，跨实例生效）
+ * @param {Object} updates - 部分字段更新
+ * @returns {Promise<Object>} 合并后的完整配置
+ */
+async function updateAIConfig(updates) {
+    return store.saveConfig(updates);
 }
 
-// 单例
-const configManager = new AIConfigManager();
+/**
+ * 同步获取当前生效配置（环境变量默认值 + 数据库覆盖项）
+ * @returns {Object}
+ */
+function getConfig() {
+    return store.getEffectiveConfig();
+}
 
-module.exports = configManager;
+/**
+ * 后台加载数据库配置（幂等）
+ */
+async function ensureLoaded() {
+    return store.ensureLoaded();
+}
+
+module.exports = {
+    updateAIConfig,
+    getConfig,
+    ensureLoaded,
+    _store: store
+};

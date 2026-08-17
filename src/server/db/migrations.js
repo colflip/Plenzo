@@ -180,6 +180,36 @@ async function runDatabaseMigrations() {
             }
         }
 
+        // 检查是否需要添加 ai_config 表（AI 运行时配置持久化）
+        // 替代老旧的「运行时读写 .env 文件」方案：该方案在 Vercel 等 Serverless
+        // 环境下会因 /var/task/.env 不存在而崩溃（ENOENT），且只读文件系统 +
+        // 实例无状态导致修改无法跨请求生效。改用数据库单行持久化。
+        const aiConfigTableResult = await db.query(`
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'ai_config'
+        `);
+
+        if (aiConfigTableResult.rows.length === 0) {
+            await db.query(`
+                CREATE TABLE public.ai_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    provider VARCHAR(50) NOT NULL DEFAULT 'deepseek',
+                    protocol VARCHAR(20) NOT NULL DEFAULT 'openai',
+                    api_key TEXT,
+                    base_url TEXT,
+                    model VARCHAR(100),
+                    timeout INTEGER NOT NULL DEFAULT 30000,
+                    max_tokens INTEGER NOT NULL DEFAULT 8000,
+                    enabled BOOLEAN NOT NULL DEFAULT false,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await db.query(`COMMENT ON TABLE public.ai_config IS 'AI 运行时配置（管理后台动态切换模型，持久化以跨 Serverless 实例生效）'`);
+            console.log('数据库迁移完成：添加 ai_config 表');
+        }
+
     } catch (error) {
         console.error('数据库迁移失败:', error);
         // 不要因为迁移失败而中断应用启动
