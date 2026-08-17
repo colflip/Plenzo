@@ -618,7 +618,8 @@ const adminController = {
             }
 
             // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            if (req.query.show_plan !== 'true') {
+            // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
+            if (String(req.query.show_plan) !== 'true') {
                 sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
             }
 
@@ -724,7 +725,8 @@ const adminController = {
             }
 
             // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            if (req.query.show_plan !== 'true') {
+            // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
+            if (String(req.query.show_plan) !== 'true') {
                 sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
             }
 

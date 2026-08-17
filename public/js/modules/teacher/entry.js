@@ -141,7 +141,7 @@ function mountTeacherFees() {
         enableBatchFeeStatus: false,
         feeStatusFilter: false,
         exportContextKey: 'teacher-fees',
-        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/schedules', { startDate: s, endDate: e }),
+        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/schedules', { startDate: s, endDate: e, show_plan: true }),
     });
 }
 
@@ -158,7 +158,7 @@ function mountTeacherHeadFees() {
         enableBatchFeeStatus: true,
         feeStatusFilter: true,
         exportContextKey: 'teacher-head-fees',
-        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/student-schedules', { startDate: s, endDate: e }),
+        fetchWeekSchedules: (s, e) => window.apiUtils.get('/teacher/student-schedules', { startDate: s, endDate: e, show_plan: true }),
     });
 }
 
