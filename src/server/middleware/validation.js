@@ -170,6 +170,14 @@ const scheduleValidation = {
                 'date.base': '结束日期格式不正确',
                 'date.min': '结束日期不能早于开始日期'
             }),
+        // 前端费用导出（报销单）以 camelCase 传递日期；放行以免被 stripUnknown 丢弃导致日期过滤失效。
+        // 用 string 而非常规 date()，避免 Joi 把 'YYYY-MM-DD' 强转成 Date 对象后，pg 绑定成 timestamp 导致 BETWEEN 末日丢失。
+        startDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional()
+            .messages({ 'string.pattern.base': '开始日期格式不正确，应为YYYY-MM-DD' }),
+        endDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional()
+            .messages({ 'string.pattern.base': '结束日期格式不正确，应为YYYY-MM-DD' }),
+        // 报销单/全部安排视图需带回“已调整原课程”(status=modified_away AND adjustment_type=0)，放行以免被剥离
+        show_plan: Joi.boolean().optional(),
         teacher_id: Joi.number().integer().positive()
             .messages({
                 'number.base': '教师ID必须是数字',

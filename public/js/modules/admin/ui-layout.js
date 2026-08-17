@@ -210,7 +210,7 @@ export function showSection(sectionId) {
                     enableBatchFeeStatus: true,
                     feeStatusFilter: true,
                     exportContextKey: 'admin',
-                    fetchWeekSchedules: (s, e) => window.apiUtils.get('/admin/schedules', { startDate: s, endDate: e }),
+                    fetchWeekSchedules: (s, e) => window.apiUtils.get('/admin/schedules', { startDate: s, endDate: e, show_plan: true }),
                 });
             }
             setHeaderTitle('费用管理');

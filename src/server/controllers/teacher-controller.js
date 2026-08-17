@@ -692,7 +692,8 @@ const teacherController = {
             }
 
             // 默认隐藏调走的原课程；“显示全部安排”时与管理员端一致展示
-            if (req.query.show_plan !== 'true') {
+            // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
+            if (String(req.query.show_plan) !== 'true') {
                 query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
             }
 
@@ -1293,7 +1294,7 @@ const teacherController = {
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            if (req.query.show_plan !== 'true') {
+            if (String(req.query.show_plan) !== 'true') {
                 query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
             }
 
