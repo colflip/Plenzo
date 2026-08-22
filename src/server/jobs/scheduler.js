@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 const cron = require('node-cron');
 const updateScheduleStatus = require('./update-schedule-status');
 
@@ -18,7 +19,7 @@ function initScheduler() {
         await updateScheduleStatus();
     }, 5000);
 
-    console.log('[Scheduler] 已启动 | 定时任务: 状态更新 (每日 23:30) + 启动检查');
+    logger.log('[Scheduler] 已启动 | 定时任务: 状态更新 (每日 23:30) + 启动检查');
 }
 
 module.exports = initScheduler;

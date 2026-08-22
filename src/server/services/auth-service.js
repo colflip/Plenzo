@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 认证服务
  * @description 处理登录、注册、密码管理等核心认证逻辑
@@ -129,7 +130,7 @@ class AuthService {
         // 3. 验证密码
         const storedPwd = getPasswordField(user);
         if (!storedPwd) {
-            console.error(`Login Error: User ${user.id} (${username}) missing password field`);
+            logger.error(`Login Error: User ${user.id} (${username}) missing password field`);
             throw new AppError('账户数据异常，请联系管理员', 500);
         }
 
@@ -152,7 +153,7 @@ class AuthService {
         try {
             await db.query(`UPDATE ${table} SET last_login = NOW() WHERE id = $1`, [user.id]);
         } catch (err) {
-            console.warn('Failed to update last_login:', err.message);
+            logger.warn('Failed to update last_login:', err.message);
         }
 
         // 5. 生成 Token — 根据 rememberMe 决定过期时间
@@ -233,7 +234,7 @@ class AuthService {
             const ALLOWED_COLUMNS = ['phone', 'email', 'contact', 'home_address', 'gender', 'grade', 'notes', 'permission_level', 'nickname'];
             for (const [key, value] of Object.entries(additionalInfo)) {
                 if (!ALLOWED_COLUMNS.includes(key)) {
-                    console.warn(`[AuthService] 忽略不在白名单中的列名: ${key}`);
+                    logger.warn(`[AuthService] 忽略不在白名单中的列名: ${key}`);
                     continue;
                 }
                 columns.push(key);

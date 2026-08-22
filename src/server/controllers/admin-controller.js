@@ -1,20 +1,25 @@
+const logger = require('../utils/logger.js');
 /**
  * 管理员控制器
  * @description 处理管理员端的用户管理、排课管理、统计和数据导出等操作
  */
 
 const db = require('../db/db');
-const bcrypt = require('bcrypt');
 const { standardResponse } = require('../middleware/validation');
-const { recordAudit } = require('../middleware/audit');
 const { handleExportError } = require('../middleware/export-error-handler');
 const SchemaHelper = require('../utils/schema-helper');
+const { upsertAvailabilityByAdmin } = require('../services/availability-service');
+const HolidayService = require('../services/holiday-service');
+const ScheduleTypeService = require('../services/schedule-type-service');
+const FeedbackService = require('../services/feedback-service');
+const FeeService = require('../services/fee-service');
+const UserService = require('../services/user-service');
+const scheduleService = require('../services/schedule-service');
 const { getTimestamp } = require('../utils/shared-utils');
-const { validateFeeStatusTransition, writeFeeStatusLog } = require('../utils/feeStatus');
 const AdvancedExportService = require('../services/advanced-export-service');
 const ExportLogService = require('../utils/export-log-service');
-const UnifiedExportService = require('../services/unified-export-service');
-const excelGeneratorService = require('../services/excel-generator-service');
+const exportService = require('../services/export-service');
+const { buildScopeClause, canTouchRecord, requiresOwnDataScope } = require('../utils/admin-permissions');
 
 const adminController = {
     /**
@@ -22,56 +27,15 @@ const adminController = {
      * @description 根据用户类型返回对应的用户列表（管理员/教师/学生）
      * @param {string} req.params.userType - 用户类型
      */
+    /**
+     * 获取用户列表（逻辑见 user-service.listUsers）
+     */
     async getUsers(req, res) {
         try {
-            const { userType } = req.params;
-            let table;
-            let selectColumns;
-
-            switch (userType) {
-                case 'admin':
-                    table = 'administrators';
-                    selectColumns = 'id, username, name, nickname, email, permission_level, last_login, created_at';
-                    break;
-                case 'teacher':
-                    table = 'teachers';
-                    selectColumns = 'id, username, name, nickname, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
-                    break;
-                case 'student':
-                    table = 'students';
-                    selectColumns = 'id, username, name, nickname, profession, contact, visit_location, home_address, last_login, created_at';
-                    break;
-                default:
-                    return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 分页参数（限制范围防止 DoS）
-            const page = Math.max(1, parseInt(req.query.page) || 1);
-            const size = Math.min(200, Math.max(1, parseInt(req.query.size) || 50));
-            const offset = (page - 1) * size;
-
-            // 检查 status 列是否存在（SchemaHelper 内部有缓存）
-            const hasStatus = await SchemaHelper.hasColumn(table, 'status');
-
-            if (hasStatus) {
-                selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
-            }
-
-            // 检查 nickname 列是否存在（向后兼容）
-            const hasNickname = await SchemaHelper.hasColumn(table, 'nickname');
-            if (!hasNickname) {
-                selectColumns = selectColumns.replace(', nickname', '');
-            }
-
-            const result = await db.query(
-                `SELECT ${selectColumns} FROM ${table} ORDER BY id ASC LIMIT $1 OFFSET $2`,
-                [size, offset]
-            );
-
-            const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
-            res.json(standardResponse(true, rows, '获取用户列表成功'));
+            const result = await UserService.listUsers(req.params.userType, { page: req.query.page, size: req.query.size }, req);
+            return res.status(result.status).json(result.body);
         } catch (error) {
-            console.error('获取用户列表错误:', error);
+            logger.error('获取用户列表错误:', error);
             res.status(500).json(standardResponse(false, null, '获取用户列表失败'));
         }
     },
@@ -82,461 +46,55 @@ const adminController = {
      * @param {string} req.params.userType - 用户类型
      * @param {string} req.params.id - 用户ID
      */
+    /**
+     * 获取单个用户详情（逻辑见 user-service.getUserById）
+     */
     async getUserById(req, res) {
         try {
-            const { userType, id } = req.params;
-            let table;
-            let selectColumns;
-            switch (userType) {
-                case 'admin':
-                    table = 'administrators';
-                    selectColumns = 'id, username, name, nickname, email, permission_level, last_login, created_at';
-                    break;
-                case 'teacher':
-                    table = 'teachers';
-                    selectColumns = 'id, username, name, nickname, profession, contact, work_location, home_address, restriction, student_ids, last_login, created_at';
-                    break;
-                case 'student':
-                    table = 'students';
-                    selectColumns = 'id, username, name, nickname, profession, contact, visit_location, home_address, last_login, created_at';
-                    break;
-                default:
-                    return res.status(400).json(standardResponse(false, null, '无效的用户类型'));
-            }
-
-            // 若存在 status 列，则动态追加到返回字段
-            try {
-                if (table === 'teachers' || table === 'students') {
-                    if (await SchemaHelper.hasColumn(table, 'status')) {
-                        selectColumns = selectColumns.replace('last_login, created_at', 'status, last_login, created_at');
-                    }
-                }
-                // 若不存在 nickname 列，则移除（向后兼容）
-                if (!(await SchemaHelper.hasColumn(table, 'nickname'))) {
-                    selectColumns = selectColumns.replace(', nickname', '');
-                }
-            } catch (_) { }
-
-            const result = await db.query(`SELECT ${selectColumns} FROM ${table} WHERE id = $1`, [id]);
-            const rows = (result && result.rows) ? result.rows : [];
-            if (!rows[0]) {
-                return res.status(404).json(standardResponse(false, null, '用户不存在'));
-            }
-            res.json(standardResponse(true, rows[0], '获取用户成功'));
+            const result = await UserService.getUserById(req.params.userType, req.params.id, req);
+            return res.status(result.status).json(result.body);
         } catch (error) {
-            console.error('获取用户详情错误:', error);
+            logger.error('获取用户详情错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
+    /**
+     * 创建用户（逻辑见 user-service.createUser）
+     */
     async createUser(req, res) {
         try {
-            const { userType, username, password, name, email, id, ...additionalInfo } = req.body;
-            let table;
-
-            switch (userType) {
-                case 'admin':
-                    table = 'administrators';
-                    break;
-                case 'teacher':
-                    table = 'teachers';
-                    break;
-                case 'student':
-                    table = 'students';
-                    break;
-                default:
-                    return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 基础字段校验
-            if (!username || !password || !name) {
-                return res.status(400).json({ message: '缺少必要字段：username, password, name' });
-            }
-
-            // 管理员必须提供合法的权限级别(1-3)与合法邮箱
-            if (userType === 'admin') {
-                const lvl = parseInt(additionalInfo.permission_level, 10);
-                if (!Number.isInteger(lvl) || lvl < 1 || lvl > 3) {
-                    return res.status(400).json({ message: '权限级别必须在1到3之间' });
-                }
-                additionalInfo.permission_level = lvl;
-                if (!email) {
-                    return res.status(400).json({ message: '管理员必须提供 email' });
-                }
-                const emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
-                if (!emailRe.test(email)) {
-                    return res.status(400).json({ message: '邮箱格式不合法' });
-                }
-            }
-
-            const allowedAdditionalByType = {
-                admin: ['permission_level', 'nickname'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids', 'nickname'],
-                student: ['profession', 'contact', 'visit_location', 'home_address', 'status', 'nickname']
-            };
-            const allowedAdditional = allowedAdditionalByType[userType] || [];
-            const filteredAdditional = Object.fromEntries(
-                Object.entries(additionalInfo).filter(([key]) => allowedAdditional.includes(key))
-            );
-
-            // 验证 student_ids 并规范化为逗号分隔的字符串
-            if (userType === 'teacher' && filteredAdditional.student_ids) {
-                const idsArr = filteredAdditional.student_ids.split(',').map(sId => parseInt(sId.trim(), 10)).filter(sId => !isNaN(sId));
-                if (idsArr.length > 0) {
-                    const checkRes = await db.query(`SELECT id FROM students WHERE id = ANY($1)`, [idsArr]);
-                    const existingIds = checkRes.rows.map(r => Number(r.id));
-                    const missingIds = idsArr.filter(sId => !existingIds.includes(Number(sId)));
-                    if (missingIds.length > 0) {
-                        return res.status(400).json({ message: `以下学生ID不存在: ${missingIds.join(', ')}` });
-                    }
-                    filteredAdditional.student_ids = existingIds.join(',');
-                } else {
-                    filteredAdditional.student_ids = null;
-                }
-            } else if (userType === 'teacher') {
-                filteredAdditional.student_ids = null;
-            }
-
-            // 若表不存在某些列，则忽略该字段，防止 SQL 错误
-            try {
-                for (const f of ['status', 'student_ids', 'nickname']) {
-                    if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !(await SchemaHelper.hasColumn(table, f))) {
-                        delete filteredAdditional[f];
-                    }
-                }
-            } catch (_) { /* 静默处理探测错误 */ }
-
-            // 检查用户名是否已存在
-            const existingUser = await db.query(
-                `SELECT id FROM ${table} WHERE username = $1`,
-                [username]
-            );
-
-            const existingRows = (existingUser && existingUser.rows) ? existingUser.rows : (Array.isArray(existingUser) ? existingUser : []);
-            if (existingRows.length > 0) {
-                return res.status(400).json({ message: '用户名已存在' });
-            }
-
-            // 如果传了自定义 id，还需检查 ID 是否被占用
-            if (id) {
-                const existingId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]);
-                const existingIdRows = (existingId && existingId.rows) ? existingId.rows : (Array.isArray(existingId) ? existingId : []);
-                if (existingIdRows.length > 0) {
-                    return res.status(400).json({ message: '该用户 ID 已被占用' });
-                }
-            }
-
-            // 在事务中创建用户，确保插入与审计原子性
-            let createdUser = null;
-            await db.runInTransaction(async (client, usePool) => {
-                // 加密密码
-                const salt = await bcrypt.genSalt(10);
-                const passwordHash = await bcrypt.hash(password, salt);
-
-                // 构建插入语句
-                let columns = ['username', 'password_hash', 'name'];
-                let values = [username, passwordHash, name];
-                let placeholders = ['$1', '$2', '$3'];
-                let currentPlaceholder = 4;
-
-                // 如果指定了 id
-                if (id) {
-                    columns.push('id');
-                    values.push(id);
-                    placeholders.push(`$${currentPlaceholder++}`);
-                }
-
-                // 管理员插入必须包含 email
-                if (userType === 'admin') {
-                    columns.push('email');
-                    values.push(email);
-                    placeholders.push(`$${currentPlaceholder++}`);
-                }
-
-                // 添加额外信息（仅合法字段）
-                for (let [key, value] of Object.entries(filteredAdditional)) {
-                    columns.push(key);
-                    values.push(value);
-                    placeholders.push(`$${currentPlaceholder++}`);
-                }
-
-                const insertSql = `
-                    INSERT INTO ${table} (${columns.join(', ')})
-                    VALUES (${placeholders.join(', ')})
-                    RETURNING *
-                `;
-
-                const q = usePool ? db.query : client.query.bind(client);
-                const result = await q(insertSql, values);
-                const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
-                if (rows[0] && rows[0].password_hash) { delete rows[0].password_hash; }
-                if (rows[0] && rows[0].password) { delete rows[0].password; }
-                createdUser = rows[0];
-                // 记录审计（在事务内）
-                try { await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0]?.id, details: { username, name, email, custom_id: id } }); } catch (_) { }
-            });
-            // 事务成功提交后才发送响应
-            res.status(201).json(standardResponse(true, createdUser, '创建用户成功'));
+            const result = await UserService.createUser(req.body, req);
+            return res.status(result.status).json(result.body);
         } catch (error) {
-            console.error('创建用户错误:', error);
+            logger.error('创建用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
+    /**
+     * 更新用户（逻辑见 user-service.updateUser）
+     */
     async updateUser(req, res) {
         try {
-            const { userType, id } = req.params;
-            const { username, name, email, new_id, ...additionalInfo } = req.body;
-            let table;
-
-            switch (userType) {
-                case 'admin':
-                    table = 'administrators';
-                    break;
-                case 'teacher':
-                    table = 'teachers';
-                    break;
-                case 'student':
-                    table = 'students';
-                    break;
-                default:
-                    return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 如果更新管理员权限级别，确保合法(1-3)
-            if (userType === 'admin' && Object.prototype.hasOwnProperty.call(additionalInfo, 'permission_level')) {
-                const lvl = parseInt(additionalInfo.permission_level, 10);
-                if (!Number.isInteger(lvl) || lvl < 1 || lvl > 3) {
-                    return res.status(400).json({ message: '权限级别必须在1到3之间' });
-                }
-                additionalInfo.permission_level = lvl;
-            }
-
-            // 检查用户是否存在
-            const existingUser = await db.query(
-                `SELECT id FROM ${table} WHERE id = $1`,
-                [id]
-            );
-            const existingRows = (existingUser && existingUser.rows) ? existingUser.rows : (Array.isArray(existingUser) ? existingUser : []);
-            if (existingRows.length === 0) {
-                return res.status(404).json({ message: '用户不存在' });
-            }
-
-            const allowedAdditionalByType = {
-                admin: ['permission_level', 'nickname'],
-                teacher: ['profession', 'contact', 'work_location', 'home_address', 'status', 'restriction', 'student_ids', 'nickname'],
-                student: ['profession', 'contact', 'visit_location', 'home_address', 'status', 'nickname']
-            };
-            const allowedAdditional = allowedAdditionalByType[userType] || [];
-            const filteredAdditional = Object.fromEntries(
-                Object.entries(additionalInfo).filter(([key]) => allowedAdditional.includes(key))
-            );
-
-            // 验证 student_ids 并规范化为逗号分隔的字符串
-            if (userType === 'teacher' && filteredAdditional.student_ids) {
-                const idsArr = filteredAdditional.student_ids.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
-                if (idsArr.length > 0) {
-                    const checkRes = await db.query(`SELECT id FROM students WHERE id = ANY($1)`, [idsArr]);
-                    const existingIds = checkRes.rows.map(r => Number(r.id));
-                    const missingIds = idsArr.filter(id => !existingIds.includes(Number(id)));
-                    if (missingIds.length > 0) {
-                        return res.status(400).json({ message: `以下学生ID不存在: ${missingIds.join(', ')}` });
-                    }
-                    filteredAdditional.student_ids = existingIds.join(',');
-                } else {
-                    filteredAdditional.student_ids = null;
-                }
-            } else if (userType === 'teacher' && Object.prototype.hasOwnProperty.call(additionalInfo, 'student_ids')) {
-                // 如果传入了且为空，则清空
-                filteredAdditional.student_ids = null;
-            }
-
-            // 若教师/学生表不存在 status / student_ids 列，则忽略该字段，防止 SQL 错误
-            try {
-                for (const f of ['status', 'student_ids', 'nickname']) {
-                    // 补丁：对 teacher 类型且字段为 student_ids 时强行豁免嗅探剔除，确保存入
-                    if (userType === 'teacher' && f === 'student_ids') continue;
-                    if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !(await SchemaHelper.hasColumn(table, f))) {
-                        delete filteredAdditional[f];
-                    }
-                }
-            } catch (_) { /* 静默处理探测错误 */ }
-
-
-
-            // 构建更新语句
-            let updates = [];
-            let values = [];
-            let currentPlaceholder = 1;
-
-            // 处理密码更新（管理员可以直接重置密码，无需旧密码）
-            const { password } = req.body;
-            if (typeof password !== 'undefined' && password !== null && password !== '') {
-                const salt = await bcrypt.genSalt(10);
-                const passwordHash = await bcrypt.hash(password, salt);
-                updates.push(`password_hash = $${currentPlaceholder}`);
-                values.push(passwordHash);
-                currentPlaceholder++;
-            }
-
-            if (typeof username !== 'undefined') {
-                updates.push(`username = $${currentPlaceholder}`);
-                values.push(username);
-                currentPlaceholder++;
-            }
-            if (typeof name !== 'undefined') {
-                updates.push(`name = $${currentPlaceholder}`);
-                values.push(name);
-                currentPlaceholder++;
-            }
-            // new_id 仅用于探测是否需要更改主键，不放到常规 updates 数组中
-            let needIdChange = false;
-            let newIdInt = null;
-            if (typeof new_id !== 'undefined' && String(new_id) !== String(id)) {
-                needIdChange = true;
-                newIdInt = parseInt(new_id, 10);
-            }
-
-            if (userType === 'admin' && typeof email !== 'undefined') {
-                const emailRe = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
-                if (!emailRe.test(email)) {
-                    return res.status(400).json({ message: '邮箱格式不合法' });
-                }
-                updates.push(`email = $${currentPlaceholder}`);
-                values.push(email);
-                currentPlaceholder++;
-            }
-
-            for (let [key, value] of Object.entries(filteredAdditional)) {
-                updates.push(`${key} = $${currentPlaceholder}`);
-                values.push(value);
-                currentPlaceholder++;
-            }
-
-            if (updates.length === 0 && !needIdChange) {
-                return res.status(400).json({ message: '无更新字段' });
-            }
-
-            // 如果除了改 ID 还有别的字段，构建 SET 语句
-            let query = '';
-            if (updates.length > 0) {
-                // 如果要改 ID，连同改 ID 一起执行
-                if (needIdChange) {
-                    updates.push(`id = $${currentPlaceholder}`);
-                    values.push(newIdInt);
-                    currentPlaceholder++;
-                }
-                values.push(id); // 为 WHERE id = $... 准备
-                query = `
-                    UPDATE ${table}
-                    SET ${updates.join(', ')}
-                    WHERE id = $${currentPlaceholder}
-                    RETURNING *
-                `;
-            } else if (needIdChange) {
-                // 只改了 ID，其他没改
-                values.push(newIdInt); // $1
-                values.push(id); // $2
-                query = `
-                    UPDATE ${table}
-                    SET id = $1
-                    WHERE id = $2
-                    RETURNING *
-                `;
-            }
-
-            if (needIdChange) {
-                // 检查新 ID 是否已被占用
-                const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
-                const checkRows = (checkNewId && checkNewId.rows) ? checkNewId.rows : (Array.isArray(checkNewId) ? checkNewId : []);
-                if (checkRows.length > 0) {
-                    throw Object.assign(new Error('新 ID 已被占用'), { code: '23505' });
-                }
-            }
-
-            // 执行更新（外键约束已设置 ON UPDATE CASCADE，PostgreSQL 自动级联更新关联表）
-            const result = await db.query(query, values);
-            const rows = (result && result.rows) ? result.rows : (Array.isArray(result) ? result : []);
-            if (!rows[0]) {
-                throw Object.assign(new Error('更新失败'), { statusCode: 500 });
-            }
-            if (rows[0].password_hash) delete rows[0].password_hash;
-            if (rows[0].password) delete rows[0].password;
-            try { await recordAudit(req, { op: 'update', entityType: userType, entityId: needIdChange ? newIdInt : Number(id), details: { username, name, email, ...filteredAdditional } }); } catch (_) { }
-            res.json(standardResponse(true, rows[0], '更新用户成功'));
+            const result = await UserService.updateUser(req.params.userType, req.params.id, req.body, req);
+            return res.status(result.status).json(result.body);
         } catch (error) {
-            if (error && error.code === '23505') {
-                return res.status(409).json(standardResponse(false, null, '修改失败：用户名或新ID已被占用'));
-            }
-            console.error('更新用户错误:', error);
+            logger.error('更新用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
+    /**
+     * 删除用户（逻辑见 user-service.deleteUser）
+     */
     async deleteUser(req, res) {
         try {
-            const { userType, id } = req.params;
             const cascade = (req.query && (req.query.cascade === 'true' || req.query.cascade === '1'));
-            let table;
-
-            switch (userType) {
-                case 'admin':
-                    table = 'administrators';
-                    break;
-                case 'teacher':
-                    table = 'teachers';
-                    break;
-                case 'student':
-                    table = 'students';
-                    break;
-                default:
-                    return res.status(400).json({ message: '无效的用户类型' });
-            }
-
-            // 对教师/学生删除前进行外键检查，必要时支持级联删除
-            if (userType === 'teacher' || userType === 'student') {
-                const refCol = userType === 'teacher' ? 'teacher_id' : 'student_id';
-                const refCountRes = await db.query(
-                    `SELECT COUNT(*)::int AS count FROM course_arrangement WHERE ${refCol} = $1`,
-                    [id]
-                );
-                const refCount = (refCountRes && refCountRes.rows && refCountRes.rows[0] && typeof refCountRes.rows[0].count !== 'undefined')
-                    ? refCountRes.rows[0].count
-                    : 0;
-
-                if (refCount > 0 && !cascade) {
-                    const entityLabel = userType === 'teacher' ? '教师' : '学生';
-                    return res.status(409).json(standardResponse(
-                        false,
-                        { referencedSchedules: refCount },
-                        `该${entityLabel}仍有关联的排课（${refCount} 项），请先删除相关排课或使用级联删除`
-                    ));
-                }
-
-                if (refCount > 0 && cascade) {
-                    // 在事务内先删除关联排课，再删除用户
-                    await db.runInTransaction(async (client, usePool) => {
-                        const q = usePool ? db.query : client.query.bind(client);
-                        await q(`DELETE FROM course_arrangement WHERE ${refCol} = $1`, [id]);
-                        await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
-                        try { await recordAudit(req, { op: 'delete_cascade', entityType: userType, entityId: Number(id), details: { deletedSchedules: refCount } }); } catch (_) { }
-                    });
-                    // 事务成功提交后才发送响应
-                    res.json(standardResponse(true, { deletedSchedules: refCount }, '用户及其关联排课已删除'));
-                    return;
-                }
-            }
-
-            // 默认删除（管理员或无关联引用）
-            await db.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
-            try { await recordAudit(req, { op: 'delete', entityType: userType, entityId: Number(id) }); } catch (_) { }
-            res.json(standardResponse(true, null, '用户删除成功'));
+            const result = await UserService.deleteUser(req.params.userType, req.params.id, { cascade }, req);
+            return res.status(result.status).json(result.body);
         } catch (error) {
-            // 外键约束冲突：返回 409 并给出友好提示
-            if (error && error.code === '23503') {
-                return res.status(409).json(standardResponse(false, null, '删除失败：存在外键引用，请先删除相关排课或选择级联删除'));
-            }
-            console.error('删除用户错误:', error);
+            logger.error('删除用户错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
@@ -550,215 +108,19 @@ const adminController = {
      * @param {string} req.query.type - 类型过滤（可选）
      */
     async getSchedules(req, res) {
-        try {
-            let { startDate, endDate, status, type, course_id } = req.query;
-            // 兼容前端传递的 course_id 或 type 参数名
-            type = type || course_id;
-            // 兼容：若未提供日期，则使用极大范围作为默认值（用于测试或前端未传参场景）
-            if (!startDate || !endDate) {
-                startDate = startDate || '1970-01-01';
-                endDate = endDate || '2099-12-31';
-            }
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            const values = [startDate, endDate];
-
-            // 检测 teacher/student 表是否包含 status 字段
-            let teacherHasStatus = false, studentHasStatus = false;
-            try {
-                const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                teacherHasStatus = (tCols.rows || []).length > 0;
-                studentHasStatus = (sCols.rows || []).length > 0;
-            } catch (_) { }
-
-            // 基础 SQL：关联教师与学生以便能够按账号状态过滤，同时关联课程类型获取中文名称
-            let sql = `
-                SELECT 
-                    ca.id, 
-                    ${dateExpr} AS date, 
-                    ca.start_time, 
-                    ca.end_time, 
-                    ca.status, 
-                    ca.teacher_id, 
-                    t.name AS teacher_name, 
-                    ca.student_id, 
-                    s.name AS student_name, 
-                    ca.course_id, 
-                    COALESCE(stt.description, stt.name) AS schedule_type_cn, 
-                    ca.location,
-                    ca.transport_fee,
-                    ca.other_fee,
-                    ca.adjustment_type,
-                    ca.fee_status
-                FROM course_arrangement ca
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN students s ON ca.student_id = s.id
-                LEFT JOIN schedule_types stt ON ca.course_id = stt.id
-                WHERE ${dateExpr} BETWEEN $1 AND $2
-            `;
-
-            if (teacherHasStatus) sql += ` AND t.status = 1`;
-            if (studentHasStatus) sql += ` AND s.status = 1`;
-
-            if (status) {
-                values.push(status);
-                sql += ` AND ca.status = $${values.length}`;
-            }
-            if (type) {
-                values.push(type);
-                sql += ` AND ca.course_id = $${values.length}`;
-            }
-
-            // 费用报销状态过滤（与排课状态 status 分开）
-            const feeStatus = req.query.fee_status;
-            if (feeStatus) {
-                values.push(feeStatus);
-                sql += ` AND ca.fee_status = $${values.length}`;
-            }
-
-            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
-            if (String(req.query.show_plan) !== 'true') {
-                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
-            }
-
-            sql += ` ORDER BY ${dateExpr} ASC, ca.start_time ASC`;
-
-            const result = await db.query(sql, values);
-            res.json(result.rows || []);
-        } catch (error) {
-            console.error('获取排课列表错误:', error);
-            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
-        }
+        const out = await scheduleService.adminListSchedules(req);
+        return res.status(out.status).json(out.body);
     },
 
     async getScheduleById(req, res) {
-        try {
-            const { id } = req.params;
-            const numId = Number(id);
-            if (!Number.isInteger(numId) || numId <= 0) {
-                return res.status(400).json({ message: '无效的排课ID' });
-            }
-            const rCols = await db.query(`
-              SELECT column_name FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-            `);
-            const cols = new Set((rCols.rows || []).map(x => x.column_name));
-            const dateCol = cols.has('arr_date') ? 'arr_date' : (cols.has('class_date') ? 'class_date' : 'date');
-
-            const result = await db.query(
-                `SELECT ca.id,
-                        ca.teacher_id,
-                        ca.student_id,
-                        ca.course_id,
-                        ca.status,
-                        ca.start_time,
-                        ca.end_time,
-                        ca.location,
-                        ca.family_participants,
-                        ca.adjustment_type,
-                        ca.${dateCol} AS date
-                 FROM course_arrangement ca
-                 WHERE ca.id = $1`,
-                [numId]
-            );
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: '未找到排课记录' });
-            }
-            res.json(result.rows[0]);
-        } catch (error) {
-            console.error('获取排课详情错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.adminGetScheduleById(req);
+        return res.status(out.status).json(out.body);
     },
 
     // 网格视图：返回逐条排课记录，供前端按学生×日期进行精准渲染
     async getSchedulesGrid(req, res) {
-        try {
-            const { start_date, end_date, status, type_id, course_id, teacher_id } = req.query;
-            // 兼容前端传递的 course_id 或 type_id 参数名
-            const effectiveTypeId = type_id || course_id;
-            if (!start_date || !end_date) {
-                return res.status(400).json({ message: '缺少开始/结束日期' });
-            }
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            const teacherHasStatus = await SchemaHelper.hasColumn('teachers', 'status');
-            const studentHasStatus = await SchemaHelper.hasColumn('students', 'status');
-
-            let sql = `
-                SELECT 
-                    ca.id,
-                    s.id AS student_id,
-                    s.name AS student_name,
-                    t.id AS teacher_id,
-                    t.name AS teacher_name,
-                    ca.course_id,
-                    stt.name AS schedule_type,
-                    COALESCE(stt.description, stt.name) AS schedule_types,
-                    COALESCE(stt.description, stt.name) AS schedule_type_cn,
-                    ${dateExpr} AS date,
-                    ca.start_time,
-                    ca.end_time,
-                    ca.location,
-                    ca.status,
-                    ca.transport_fee,
-                    ca.other_fee,
-                    ca.fee_status,
-                    ca.adjustment_type
-                FROM course_arrangement ca
-                JOIN students s ON ca.student_id = s.id
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types stt ON ca.course_id = stt.id
-                WHERE ${dateExpr}::date >= $1::date AND ${dateExpr}::date <= $2::date
-            `;
-            const params = [start_date, end_date];
-
-            if (status) {
-                sql += ` AND ca.status = $${params.length + 1}`;
-                params.push(status);
-            }
-            if (effectiveTypeId) {
-                sql += ` AND ca.course_id = $${params.length + 1}`;
-                params.push(effectiveTypeId);
-            }
-
-            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
-            // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
-            if (String(req.query.show_plan) !== 'true') {
-                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
-            }
-
-            // 过滤删除状态：允许正常与暂停，但不显示删除
-            if (teacherHasStatus) sql += ` AND t.status <> -1`;
-            if (studentHasStatus) sql += ` AND s.status <> -1`;
-            if (teacher_id) {
-                sql += ` AND ca.teacher_id = $${params.length + 1}`;
-                params.push(teacher_id);
-            }
-
-            sql += ` ORDER BY ${dateExpr} ASC, s.id ASC, ca.start_time ASC`;
-
-            const result = await db.query(sql, params);
-            const rows = result.rows || [];
-
-            // 数据完整性检查（基本时间有效性）
-            const safeRows = rows.map(r => {
-                const toMin = (t) => {
-                    const m = /^([0-2]?\d):([0-5]\d)$/.exec(String(t || ''));
-                    return m ? (Number(m[1]) * 60 + Number(m[2])) : NaN;
-                };
-                const sv = toMin(r.start_time), ev = toMin(r.end_time);
-                const valid = !Number.isNaN(sv) && !Number.isNaN(ev) && ev > sv;
-                return { ...r, valid };
-            });
-
-            res.json(safeRows);
-        } catch (error) {
-            console.error('获取网格排课错误:', error);
-            res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
-        }
+        const out = await scheduleService.adminGetSchedulesGrid(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -776,23 +138,26 @@ const adminController = {
 
             // 1. 获取所有教师（状态非删除）
             let teacherSql = `SELECT id, name FROM teachers WHERE 1=1`;
-            try {
-                const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                if ((tCols.rows || []).length > 0) {
-                    teacherSql += ` AND status <> -1`;
-                }
-            } catch (_) { }
+            if (await SchemaHelper.hasColumn('teachers', 'status')) {
+                teacherSql += ` AND status <> -1`;
+            }
             teacherSql += ` ORDER BY id ASC`;
             const teachersResult = await db.query(teacherSql);
             const teachers = teachersResult.rows || [];
 
-            // 2. 获取日期范围内的availability数据
-            const availabilitySql = `
+            // 2. 获取日期范围内的availability数据（权限落地：L3 仅见自己创建 + 无主存量）
+            let availabilitySql = `
                 SELECT teacher_id, date, morning_available, afternoon_available, evening_available
                 FROM teacher_daily_availability
                 WHERE date BETWEEN $1 AND $2
             `;
-            const availabilityResult = await db.query(availabilitySql, [startDate, endDate]);
+            const availabilityParams = [startDate, endDate];
+            const teacherScope = buildScopeClause(req.user, 'teacher_daily_availability');
+            if (teacherScope) {
+                availabilityParams.push(teacherScope.actorId);
+                availabilitySql += ` AND ${teacherScope.clause.replace('$ACTOR_ID', `$${availabilityParams.length}`)}`;
+            }
+            const availabilityResult = await db.query(availabilitySql, availabilityParams);
             const availabilityRecords = availabilityResult.rows || [];
 
             // 3. 组织数据结构：Map<TeacherId, Map<DateStr, SlotData>>
@@ -830,7 +195,7 @@ const adminController = {
 
             res.json(result);
         } catch (error) {
-            console.error('获取教师空闲网格错误:', error);
+            logger.error('获取教师空闲网格错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -846,43 +211,15 @@ const adminController = {
                 return res.status(400).json({ message: '缺少更新数据' });
             }
 
-            // 使用事务进行批量更新
+            // 使用事务进行批量更新（逻辑见 availability-service.upsertAvailabilityByAdmin）
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-
-                for (const item of updates) {
-                    const { teacher_id, date, morning, afternoon, evening } = item;
-                    // 简单的参数校验
-                    if (!teacher_id || !date) continue;
-
-                    // 使用 UPSERT (PostgreSQL specific)
-                    // morning/afternoon/evening 应该是 0 或 1，如果 undefined 则保持原值或设为默认? 
-                    // 这里假设前端传过来的是完整的状态，或者只传变化的。
-                    // 为了健壮性，使用 COALESCE(EXCLUDED.col, col) 逻辑比较复杂，
-                    // 建议前端传确定的值 (0/1). 
-                    // SQL: INSERT INTO ... VALUES ... ON CONFLICT (teacher_id, date) DO UPDATE SET ...
-
-                    const mVal = morning ? 1 : 0;
-                    const aVal = afternoon ? 1 : 0;
-                    const eVal = evening ? 1 : 0;
-
-                    const sql = `
-                        INSERT INTO teacher_daily_availability (teacher_id, date, morning_available, afternoon_available, evening_available, start_time, end_time)
-                        VALUES ($1, $2, $3, $4, $5, '00:00', '23:59')
-                        ON CONFLICT (teacher_id, date) 
-                        DO UPDATE SET 
-                            morning_available = EXCLUDED.morning_available,
-                            afternoon_available = EXCLUDED.afternoon_available,
-                            evening_available = EXCLUDED.evening_available,
-                            updated_at = CURRENT_TIMESTAMP
-                    `;
-                    await q(sql, [teacher_id, date, mVal, aVal, eVal]);
-                }
+                await upsertAvailabilityByAdmin(q, 'teacher_daily_availability', 'teacher_id', updates, req.user);
             });
 
             res.json({ message: '更新成功' });
         } catch (error) {
-            console.error('更新教师空闲时段错误:', error);
+            logger.error('更新教师空闲时段错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -902,23 +239,26 @@ const adminController = {
 
             // 1. 获取所有学生（状态非删除）
             let studentSql = `SELECT id, name FROM students WHERE 1=1`;
-            try {
-                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                if ((sCols.rows || []).length > 0) {
-                    studentSql += ` AND status <> -1`;
-                }
-            } catch (_) { }
+            if (await SchemaHelper.hasColumn('students', 'status')) {
+                studentSql += ` AND status <> -1`;
+            }
             studentSql += ` ORDER BY id ASC`;
             const studentsResult = await db.query(studentSql);
             const students = studentsResult.rows || [];
 
-            // 2. 获取日期范围内的availability数据
-            const availabilitySql = `
+            // 2. 获取日期范围内的availability数据（权限落地：L3 仅见自己创建 + 无主存量）
+            let availabilitySql = `
                 SELECT student_id, date, morning_available, afternoon_available, evening_available
                 FROM student_daily_availability
                 WHERE date BETWEEN $1 AND $2
             `;
-            const availabilityResult = await db.query(availabilitySql, [startDate, endDate]);
+            const availabilityParams = [startDate, endDate];
+            const studentScope = buildScopeClause(req.user, 'student_daily_availability');
+            if (studentScope) {
+                availabilityParams.push(studentScope.actorId);
+                availabilitySql += ` AND ${studentScope.clause.replace('$ACTOR_ID', `$${availabilityParams.length}`)}`;
+            }
+            const availabilityResult = await db.query(availabilitySql, availabilityParams);
             const availabilityRecords = availabilityResult.rows || [];
 
             // 3. 组织数据结构：Map<StudentId, Map<DateStr, SlotData>>
@@ -955,7 +295,7 @@ const adminController = {
 
             res.json(result);
         } catch (error) {
-            console.error('获取学生空闲网格错误:', error);
+            logger.error('获取学生空闲网格错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -971,384 +311,37 @@ const adminController = {
                 return res.status(400).json({ message: '缺少更新数据' });
             }
 
-            // 使用事务进行批量更新
+            // 使用事务进行批量更新（逻辑见 availability-service.upsertAvailabilityByAdmin）
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-
-                for (const item of updates) {
-                    const { student_id, date, morning, afternoon, evening } = item;
-                    // 简单的参数校验
-                    if (!student_id || !date) continue;
-
-                    const mVal = morning ? 1 : 0;
-                    const aVal = afternoon ? 1 : 0;
-                    const eVal = evening ? 1 : 0;
-
-                    const sql = `
-                        INSERT INTO student_daily_availability (student_id, date, morning_available, afternoon_available, evening_available, start_time, end_time)
-                        VALUES ($1, $2, $3, $4, $5, '00:00', '23:59')
-                        ON CONFLICT (student_id, date) 
-                        DO UPDATE SET 
-                            morning_available = EXCLUDED.morning_available,
-                            afternoon_available = EXCLUDED.afternoon_available,
-                            evening_available = EXCLUDED.evening_available,
-                            updated_at = CURRENT_TIMESTAMP
-                    `;
-                    await q(sql, [student_id, date, mVal, aVal, eVal]);
-                }
+                await upsertAvailabilityByAdmin(q, 'student_daily_availability', 'student_id', updates, req.user);
             });
 
             res.json({ message: '更新成功' });
         } catch (error) {
-            console.error('更新学生空闲时段错误:', error);
+            logger.error('更新学生空闲时段错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
 
     async createSchedule(req, res) {
-        try {
-            const {
-                teacherId,
-                date,
-                timeSlot,
-                startTime,
-                endTime,
-                studentIds,
-                scheduleTypes,
-                location,
-                status,
-                resolve_strategy,
-                is_temp
-            } = req.body;
-
-            // 使用统一事务封装，支持 pool client 与 serverless 回退
-            let createdScheduleId = null;
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-
-                // 验证教师与学生状态必须为1(正常)
-                try {
-                    // 仅当存在 status 列时进行状态校验
-                    const tCol = await q(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                    const sCol = await q(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                    const hasTeacherStatus = (tCol.rows || []).length > 0;
-                    const hasStudentStatus = (sCol.rows || []).length > 0;
-                    if (hasTeacherStatus) {
-                        const tRes = await q('SELECT status FROM teachers WHERE id = $1', [teacherId]);
-                        if (!tRes.rows.length) throw Object.assign(new Error('教师不存在'), { statusCode: 400 });
-                        const tStatus = Number(tRes.rows[0].status);
-                        if (tStatus !== 1) throw Object.assign(new Error('教师状态非正常，无法参与排课'), { statusCode: 400 });
-                    }
-                    const firstStudentId = Array.isArray(studentIds) ? studentIds[0] : studentIds;
-                    if (hasStudentStatus && firstStudentId != null) {
-                        const sRes = await q('SELECT status FROM students WHERE id = $1', [firstStudentId]);
-                        if (!sRes.rows.length) throw Object.assign(new Error('学生不存在'), { statusCode: 400 });
-                        const sStatus = Number(sRes.rows[0].status);
-                        if (sStatus !== 1) throw Object.assign(new Error('学生状态非正常，无法参与排课'), { statusCode: 400 });
-                    }
-                } catch (stErr) {
-                    console.error('状态校验错误:', stErr);
-                    throw stErr;
-                }
-
-                // 适配新结构：每条 course_arrangement 代表一个学生的具体安排
-                const firstStudentId = Array.isArray(studentIds) ? studentIds[0] : studentIds;
-                const firstTypeId = Array.isArray(scheduleTypes) ? scheduleTypes[0] : scheduleTypes;
-
-                // 兼容不同日期列存在性
-                const rCols = await db.query(`
-              SELECT column_name FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-            `);
-                const cols = new Set((rCols.rows || []).map(x => x.column_name));
-                const dateCol = cols.has('arr_date') ? 'arr_date' : (cols.has('class_date') ? 'class_date' : 'date');
-                // 基础验证：时间格式与先后关系
-                function toMinutes(t) {
-                    const m = /^([0-2]?\d):([0-5]\d)$/.exec(String(t || ''));
-                    if (!m) return NaN;
-                    return Number(m[1]) * 60 + Number(m[2]);
-                }
-                const sMin = toMinutes(startTime);
-                const eMin = toMinutes(endTime);
-                if (isNaN(sMin) || isNaN(eMin)) {
-                    throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
-                }
-                if (eMin <= sMin) {
-                    throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
-                }
-
-                // 允许完全重复：不进行重复检测（同一教师/学生/日期/时间段也允许保留多条）
-
-                // 冲突检测移除：允许教师同一时间段存在多条排课
-                const overlapPredicate = `NOT (end_time <= $3 OR start_time >= $4)`;
-                // 学生冲突（如提供）
-                // 学生重叠允许：不阻断创建，满足同一时间段同一学生可存在多条记录的需求
-                // 地点冲突移除：允许地点同一时间段存在多条排课
-
-                // 按传入状态写入，默认 pending，且限制为几种合法状态
-                const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
-                const nextStatus = allowedStatuses.has(String(status || '').trim()) ? String(status).trim() : 'pending';
-                // Family participants
-                const familyParticipants = req.body.family_participants !== undefined ? Number(req.body.family_participants) : 4;
-
-                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, status, location, created_by, family_participants, adjustment_type)
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                               RETURNING id`;
-                const insertResult = await q(
-                    insertSql,
-                    [teacherId, firstStudentId, firstTypeId, date, startTime, endTime, nextStatus, location || null, req.user.id, familyParticipants, (is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null]
-                );
-
-                // 保存结果，事务提交后再发送响应
-                createdScheduleId = insertResult.rows[0].id;
-            });
-            // 事务成功提交后才发送响应
-            res.status(201).json({ id: createdScheduleId, skipped_students: Array.isArray(studentIds) ? Math.max(0, studentIds.length - 1) : 0 });
-        } catch (error) {
-            console.error('创建排课错误:', error);
-            // 友好错误映射
-            const msg = String(error?.message || '');
-            if (error.code === '23503') { // foreign_key_violation
-                return res.status(400).json({
-                    message: '外键约束冲突',
-                    errors: [{ field: 'fk', message: '教师/学生/类型不存在或已被删除' }]
-                });
-            } else if (error.code === '23514') { // check_violation
-                return res.status(400).json({
-                    message: '检查约束冲突',
-                    errors: [{ field: 'check', message: '不符合数据库检查约束' }]
-                });
-            }
-            // 结构化错误（由事务内抛出）支持携带 statusCode / payload
-            if (error.statusCode && Number(error.statusCode) >= 400 && Number(error.statusCode) < 600) {
-                const status = Number(error.statusCode);
-                const payload = error.payload || {};
-                return res.status(status).json(Object.assign({ message: error.message }, payload));
-            }
-            return res.status(500).json({
-                message: '服务器错误',
-                errors: [{ field: 'db', message: '数据库错误' }]
-            });
-        }
+        const out = await scheduleService.adminCreateSchedule(req);
+        return res.status(out.status).json(out.body);
     },
 
     async updateSchedule(req, res) {
-        try {
-            const { id } = req.params;
-            let resData = null;
-            // 使用 snake_case 字段以匹配验证规则
-            const {
-                teacher_id,
-                date,
-                start_time,
-                end_time,
-                student_ids,
-                type_ids,
-                status,
-                location,
-                family_participants,
-                is_temp
-            } = req.body;
-
-            // 将更新逻辑放入事务中，确保读取-验证-更新在同一连接上执行
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-
-                // 兼容不同日期列存在性
-                const rCols = await q(`
-                  SELECT column_name FROM information_schema.columns
-                  WHERE table_schema='public' AND table_name='course_arrangement' AND column_name IN ('arr_date','class_date','date')
-                `);
-                const cols = new Set((rCols.rows || []).map(x => x.column_name));
-                const dateCol = cols.has('arr_date') ? 'arr_date' : (cols.has('class_date') ? 'class_date' : 'date');
-
-                // 读取当前记录，便于缺省字段沿用现值并做冲突校验
-                const currentRes = await q(`
-                  SELECT id, teacher_id, student_id, course_id, ${dateCol} AS date, start_time, end_time, location, family_participants, created_by, adjustment_type
-                  FROM course_arrangement WHERE id = $1
-                `, [id]);
-                if (currentRes.rows.length === 0) {
-                    throw Object.assign(new Error('排课不存在'), { statusCode: 404 });
-                }
-                const current = currentRes.rows[0];
-
-                // 适配并计算生效更新值
-                const nextStudentId = Array.isArray(student_ids) ? student_ids[0] : student_ids;
-                const nextTypeId = Array.isArray(type_ids) ? type_ids[0] : type_ids;
-                const effTeacherId = (teacher_id != null) ? teacher_id : current.teacher_id;
-                const effStudentId = (nextStudentId != null) ? nextStudentId : current.student_id;
-                const effTypeId = (nextTypeId != null) ? nextTypeId : current.course_id;
-                const effDate = (date != null && date !== '') ? date : current.date;
-                const effStart = (start_time != null && start_time !== '') ? start_time : current.start_time;
-                const effEnd = (end_time != null && end_time !== '') ? end_time : current.end_time;
-                const effLocation = (location !== undefined) ? (location || null) : current.location;
-
-                // 验证教师与学生状态
-                try {
-                    const tCol = await q(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                    const sCol = await q(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                    const hasTeacherStatus = (tCol.rows || []).length > 0;
-                    const hasStudentStatus = (sCol.rows || []).length > 0;
-                    if (hasTeacherStatus) {
-                        const tRes = await q('SELECT status FROM teachers WHERE id = $1', [effTeacherId]);
-                        if (!tRes.rows.length) throw Object.assign(new Error('教师不存在'), { statusCode: 400 });
-                        if (Number(tRes.rows[0].status) !== 1) throw Object.assign(new Error('教师状态非正常，无法参与排课'), { statusCode: 400 });
-                    }
-                    if (hasStudentStatus) {
-                        const sRes = await q('SELECT status FROM students WHERE id = $1', [effStudentId]);
-                        if (!sRes.rows.length) throw Object.assign(new Error('学生不存在'), { statusCode: 400 });
-                        if (Number(sRes.rows[0].status) !== 1) throw Object.assign(new Error('学生状态非正常，无法参与排课'), { statusCode: 400 });
-                    }
-                } catch (stErr) {
-                    console.error('状态校验错误:', stErr);
-                    throw stErr;
-                }
-
-                // 时间格式校验 (兼容 HH:MM 和 HH:MM:SS)
-                function toMinutes(t) {
-                    const m = /^([0-2]?\d):([0-5]\d)(?::([0-5]\d))?$/.exec(String(t || ''));
-                    if (!m) return NaN;
-                    return Number(m[1]) * 60 + Number(m[2]);
-                }
-                const sMin = toMinutes(effStart);
-                const eMin = toMinutes(effEnd);
-                if (isNaN(sMin) || isNaN(eMin)) throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
-                if (eMin <= sMin) throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
-
-                // [重要] 如果状态被设为 'modified_away'，且原状态不是 'modified_away' 且原纪录是非增补课程 (adjustment_type != 2)，执行“逻辑作废+增补”逻辑
-                if (status === 'modified_away' && current.status !== 'modified_away' && Number(current.adjustment_type || 0) !== 2) {
-                     // 1. 将现记录置为 modified_away （仅更新状态）
-                     await q(`UPDATE course_arrangement SET status = 'modified_away', adjustment_type = 0 WHERE id = $1`, [id]);
-                     
-                     // 2. 插入新的一笔作为调整后的实际课程，类型标记为 2 (临时改动)
-                     const insertSql = `
-                        INSERT INTO course_arrangement 
-                        (teacher_id, student_id, course_id, ${dateCol}, start_time, end_time, location, family_participants, status, created_by, adjustment_type)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', $9, 2)
-                        RETURNING id
-                     `;
-                     const creatorId = req.user ? req.user.id : current.created_by;
-                     const effFamilyParticipants = (family_participants !== undefined) ? 
-                        (family_participants === null ? 4 : Number(family_participants)) : 
-                        (current.family_participants === null ? 4 : Number(current.family_participants));
-
-                     const newRes = await q(insertSql, [
-                        effTeacherId, effStudentId, effTypeId, effDate, effStart, effEnd, effLocation, 
-                        isNaN(effFamilyParticipants) ? 4 : effFamilyParticipants, creatorId
-                     ]);
-                     
-                     resData = standardResponse(true, { newId: newRes.rows[0].id }, '排课已成功调整，原记录已归档');
-                     return;
-                }
-
-                // 正常更新流程
-                const sets = [];
-                const values = [];
-                let vi = 1;
-                if (teacher_id != null) { sets.push(`teacher_id = $${vi++}`); values.push(teacher_id); }
-                if (date != null) { sets.push(`${dateCol} = $${vi++}`); values.push(date); }
-                if (start_time != null) { sets.push(`start_time = $${vi++}`); values.push(start_time); }
-                if (end_time != null) { sets.push(`end_time = $${vi++}`); values.push(end_time); }
-                if (status != null) { 
-                    const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
-                    const finalStatus = allowedStatuses.has(String(status).trim()) ? String(status).trim() : current.status;
-                    sets.push(`status = $${vi++}`); 
-                    values.push(finalStatus); 
-                }
-                if (nextStudentId != null) { sets.push(`student_id = $${vi++}`); values.push(nextStudentId); }
-                if (nextTypeId != null) { sets.push(`course_id = $${vi++}`); values.push(nextTypeId); }
-                if (location !== undefined) { sets.push(`location = $${vi++}`); values.push(location || null); }
-                if (family_participants !== undefined) { sets.push(`family_participants = $${vi++}`); values.push((family_participants === null) ? 4 : Number(family_participants)); }
-                
-                // 适配 adjustment_type
-                const adjType = req.body.adjustment_type !== undefined ? req.body.adjustment_type : (req.body.is_temp ? 1 : undefined);
-                if (adjType !== undefined) {
-                    sets.push(`adjustment_type = $${vi++}`);
-                    values.push(adjType);
-                }
-
-                if (sets.length === 0) throw Object.assign(new Error('无更新字段'), { statusCode: 400 });
-
-                const sql = `UPDATE course_arrangement SET ${sets.join(', ')} WHERE id = $${vi}`;
-                values.push(id);
-                await q(sql, values);
-
-                resData = standardResponse(true, null, '排课更新成功');
-            });
-
-            if (!resData) {
-                return res.status(400).json(standardResponse(false, null, '未检测到任何字段修改'));
-            }
-            res.json(resData);
-        } catch (error) {
-            console.error('更新排课错误:', error);
-            // 如果已经发送了响应，不要尝试再次发送（这会导致 Headers already sent）
-            if (res.headersSent) return;
-
-            // 友好错误映射
-            let mapped = { message: '服务器错误', code: error.code || 'UNKNOWN_ERROR', errors: [] };
-            if (error.statusCode === 404) {
-                 return res.status(404).json(standardResponse(false, null, error.message));
-            }
-            
-            if (error.code === '23505') { // unique_violation
-                mapped.message = '数据唯一性约束冲突';
-                mapped.errors = [{ field: 'unique', message: '相同教师/学生/时间段的排课已存在' }];
-            } else if (error.code === '23503') { // foreign_key_violation
-                mapped.message = '外键约束冲突';
-                mapped.errors = [{ field: 'fk', message: '教师/学生/类型不存在或已被删除' }];
-            } else if (error.code === '23514') { // check_violation
-                mapped.message = '检查约束冲突';
-                mapped.errors = [{ field: 'check', message: '不符合数据库检查约束' }];
-            } else {
-                mapped.errors = [{ field: 'db', message: '数据库操作失败' }];
-            }
-            res.status(error.statusCode || 500).json(standardResponse(false, null, mapped.message, mapped.errors));
-        }
+        const out = await scheduleService.adminUpdateSchedule(req);
+        return res.status(out.status).json(out.body);
     },
 
     async deleteSchedule(req, res) {
-        try {
-            const { id } = req.params;
-
-            // 先验证排课是否存在
-            const existing = await db.query('SELECT id FROM course_arrangement WHERE id = $1', [id]);
-            if (!existing.rows || existing.rows.length === 0) {
-                return res.status(404).json({ message: '未找到该排课记录' });
-            }
-
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-                await q('DELETE FROM course_arrangement WHERE id = $1', [id]);
-            });
-            // 事务成功提交后才发送响应
-            res.json({ message: '排课删除成功' });
-        } catch (error) {
-            console.error('删除排课错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.adminDeleteSchedule(req);
+        return res.status(out.status).json(out.body);
     },
 
     async confirmSchedule(req, res) {
-        try {
-            const { id } = req.params;
-            const { adminConfirmed } = req.body;
-
-            // 适配新结构：更新 course_arrangement 状态，并维护更新时间
-            // 注意：数据库schema中不包含notes字段，避免引用不存在的列
-            await db.query(
-                `UPDATE course_arrangement 
-                 SET status = CASE WHEN $2 THEN 'confirmed' ELSE status END,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1`,
-                [id, !!adminConfirmed]
-            );
-
-            res.json({ message: '课程确认状态更新成功' });
-        } catch (error) {
-            console.error('确认课程错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.adminConfirmSchedule(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -1356,171 +349,18 @@ const adminController = {
      * @description 返回系统总览数据：教师/学生数量、排课统计等
      */
     async getOverviewStats(req, res) {
-        try {
-            // 获取总览数据
-            const caDateExpr = await SchemaHelper.getDateExpr('');
-            const stats = await db.query(`
-                SELECT
-                    (SELECT COUNT(*) FROM teachers) as teacher_count,
-                    (SELECT COUNT(*) FROM students) as student_count,
-                    (SELECT COUNT(*) FROM course_arrangement 
-                       WHERE ${caDateExpr} >= DATE_TRUNC('month', CURRENT_DATE)
-                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as monthly_schedules,
-                    (SELECT COUNT(*) FROM course_arrangement 
-                       WHERE status = 'pending' 
-                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as pending_count,
-                    (SELECT COUNT(*) FROM course_arrangement 
-                       WHERE NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)) as total_schedules
-            `);
-
-            // 兼容不同驱动返回值形态（对象含 rows 或直接数组）
-            const rows = (stats && stats.rows) ? stats.rows : (Array.isArray(stats) ? stats : []);
-            // 如果查询结果为空，返回默认值
-            if (!rows[0]) {
-                return res.json({
-                    teacher_count: 0,
-                    student_count: 0,
-                    monthly_schedules: 0,
-                    pending_count: 0,
-                    total_schedules: 0
-                });
-            }
-
-            res.json(rows[0]);
-        } catch (error) {
-            console.error('获取总览统计错误:', error);
-            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
-        }
+        const out = await scheduleService.adminOverviewStats(req);
+        return res.status(out.status).json(out.body);
     },
 
     async getScheduleStats(req, res) {
-        try {
-            let { startDate, endDate } = req.query;
-
-            // 验证和设置默认日期
-            if (!startDate || startDate === '') {
-                const now = new Date();
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-                startDate = firstDay.toISOString().split('T')[0];
-            }
-
-            if (!endDate || endDate === '') {
-                const now = new Date();
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                endDate = lastDay.toISOString().split('T')[0];
-            }
-
-            // 获取排课统计数据
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-
-            const query = `
-                SELECT
-                    COALESCE(st.description, st.name) as type,
-                    COUNT(*) as count
-                FROM course_arrangement ca
-                JOIN schedule_types st ON ca.course_id = st.id
-                WHERE ${dateExpr} BETWEEN $1 AND $2
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                GROUP BY COALESCE(st.description, st.name)
-                ORDER BY count DESC
-            `;
-
-            const result = await db.query(query, [startDate, endDate]);
-            res.json(result.rows);
-        } catch (error) {
-            console.error('获取排课统计错误:', error);
-            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
-        }
+        const out = await scheduleService.adminScheduleStats(req);
+        return res.status(out.status).json(out.body);
     },
 
     async getUserStats(req, res) {
-        try {
-            let { startDate, endDate } = req.query;
-
-            // 验证和设置默认日期
-            if (!startDate || startDate === '') {
-                const now = new Date();
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-                startDate = firstDay.toISOString().split('T')[0];
-            }
-
-            if (!endDate || endDate === '') {
-                const now = new Date();
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                endDate = lastDay.toISOString().split('T')[0];
-            }
-
-            // 获取用户统计数据
-            const dateExpr2 = await SchemaHelper.getDateExpr('ca');
-
-            // 教师汇总统计（全部教师，按类型分组）
-            const teacherStats = await db.query(`
-                SELECT
-                    t.id as teacher_id,
-                    t.name as teacher_name,
-                    COALESCE(st.description, st.name, '未分类') as schedule_type,
-                    COUNT(ca.id) as type_count
-                FROM teachers t
-                LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id
-                    AND ${dateExpr2} BETWEEN $1 AND $2
-                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                LEFT JOIN schedule_types st ON ca.course_id = st.id
-                WHERE t.status != -1
-                GROUP BY t.id, t.name, COALESCE(st.description, st.name, '未分类')
-                ORDER BY t.name
-            `, [startDate, endDate]);
-
-            // 学生汇总统计（全部学生，按类型分组）
-            const studentStats = await db.query(`
-                SELECT
-                    s.id as student_id,
-                    s.name as student_name,
-                    COALESCE(st.description, st.name, '未分类') as schedule_type,
-                    COUNT(ca.id) as type_count
-                FROM students s
-                LEFT JOIN course_arrangement ca ON s.id = ca.student_id
-                    AND ${dateExpr2} BETWEEN $1 AND $2
-                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                LEFT JOIN schedule_types st ON ca.course_id = st.id
-                WHERE s.status != -1
-                GROUP BY s.id, s.name, COALESCE(st.description, st.name, '未分类')
-                ORDER BY s.name
-            `, [startDate, endDate]);
-
-            // 聚合数据：按人员汇总，每人包含各类型的排课数
-            const aggregateByPerson = (rows, idKey, nameKey) => {
-                const map = new Map();
-                rows.forEach(row => {
-                    const id = row[idKey];
-                    if (!map.has(id)) {
-                        map.set(id, {
-                            id,
-                            name: row[nameKey],
-                            total: 0,
-                            types: {}
-                        });
-                    }
-                    const person = map.get(id);
-                    const typeCount = parseInt(row.type_count) || 0;
-                    const scheduleType = row.schedule_type || '未分类';
-                    // 仅统计有排课的类型（排除 LEFT JOIN 产生的 null 类型）
-                    if (typeCount > 0) {
-                        person.total += typeCount;
-                        person.types[scheduleType] = (person.types[scheduleType] || 0) + typeCount;
-                    }
-                });
-                // 按总排课数降序排列
-                return Array.from(map.values()).sort((a, b) => b.total - a.total);
-            };
-
-            res.json({
-                teacherStats: aggregateByPerson(teacherStats.rows, 'teacher_id', 'teacher_name'),
-                studentStats: aggregateByPerson(studentStats.rows, 'student_id', 'student_name')
-            });
-        } catch (error) {
-            console.error('获取用户统计错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.adminUserStats(req);
+        return res.status(out.status).json(out.body);
     },
 
     // ============ 高级导出功能 ============
@@ -1555,7 +395,7 @@ const adminController = {
                         adminName = result.rows[0].name || result.rows[0].username || '管理员';
                     }
                 } catch (err) {
-                    console.warn('获取管理员名称失败:', err.message);
+                    logger.warn('获取管理员名称失败:', err.message);
                 }
             }
 
@@ -1581,7 +421,7 @@ const adminController = {
                     exportType: type
                 });
             } catch (logError) {
-                console.warn('记录导出日志失败:', logError.message);
+                logger.warn('记录导出日志失败:', logError.message);
                 // 继续执行导出，不中断流程
             }
 
@@ -1637,9 +477,8 @@ const adminController = {
                         );
                     }
 
-                    // 2. 使用统一服务生成完整的多Sheet数据
-                    const unifiedService = new UnifiedExportService();
-                    const exportResult = await unifiedService.generateCompleteExport(rawData, {
+                    // 2. 使用统一导出服务生成完整的多Sheet Excel（unified + excel 合并）
+                    const excelResult = await exportService.generateExcelFromData(rawData, {
                         startDate,
                         endDate,
                         userType: 'admin',
@@ -1651,12 +490,6 @@ const adminController = {
                         teacherName: teacherName
                     });
 
-                    // 3. 使用 excelGeneratorService 生成 Excel 文件
-                    const excelResult = await excelGeneratorService.generateMultiSheetExcel(
-                        exportResult.sheets,
-                        exportResult.filename
-                    );
-
                     // 记录导出成功
                     if (logId) {
                         try {
@@ -1667,7 +500,7 @@ const adminController = {
                                 duration: Date.now() - startTime
                             });
                         } catch (logError) {
-                            console.warn('记录导出完成日志失败:', logError.message);
+                            logger.warn('记录导出完成日志失败:', logError.message);
                         }
                     }
 
@@ -1702,9 +535,8 @@ const adminController = {
                         scheduleTeacherName = scheduleRawData[0]?.teacher_name || null;
                     }
 
-                    // 使用统一服务生成完整的多Sheet数据
-                    const scheduleUnifiedService = new UnifiedExportService();
-                    const scheduleExportResult = await scheduleUnifiedService.generateCompleteExport(scheduleRawData, {
+                    // 使用统一导出服务生成完整的多Sheet Excel（unified + excel 合并）
+                    const scheduleExcelResult = await exportService.generateExcelFromData(scheduleRawData, {
                         startDate,
                         endDate,
                         userType: 'admin',
@@ -1716,29 +548,23 @@ const adminController = {
                         teacherName: scheduleTeacherName
                     });
 
-                    // 生成 Excel 文件
-                    const scheduleExcelResult = await excelGeneratorService.generateMultiSheetExcel(
-                        scheduleExportResult.sheets,
-                        scheduleExportResult.filename
-                    );
-
                     // 记录导出成功
                     if (logId) {
                         try {
                             await logService.logExportSuccess(logId, {
                                 recordCount: scheduleRawData.length,
                                 fileSize: scheduleExcelResult.buffer.length,
-                                fileName: scheduleExportResult.filename,
+                                fileName: scheduleExcelResult.filename,
                                 duration: Date.now() - startTime
                             });
                         } catch (logError) {
-                            console.warn('记录导出完成日志失败:', logError.message);
+                            logger.warn('记录导出完成日志失败:', logError.message);
                         }
                     }
 
                     // 直接发送文件
                     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(scheduleExportResult.filename)}"`);
+                    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(scheduleExcelResult.filename)}"`);
                     res.setHeader('Content-Length', scheduleExcelResult.buffer.length);
                     return res.end(scheduleExcelResult.buffer);
 
@@ -1760,7 +586,7 @@ const adminController = {
                     });
                 }
             } catch (logError) {
-                console.warn('记录导出完成日志失败:', logError.message);
+                logger.warn('记录导出完成日志失败:', logError.message);
             }
 
             // 返回原始数据，由前端 ExportManager 统一生成 Excel
@@ -1778,7 +604,7 @@ const adminController = {
                 try {
                     await logService.logExportError(logId, error.message);
                 } catch (logError) {
-                    console.warn('记录导出错误日志失败:', logError.message);
+                    logger.warn('记录导出错误日志失败:', logError.message);
                 }
             }
 
@@ -1788,283 +614,160 @@ const adminController = {
     },
 
     /**
-     * 获取所有课程类型
+     * 获取所有课程类型（逻辑见 schedule-type-service.listScheduleTypes）
      */
     async getScheduleTypes(req, res) {
         try {
-            const result = await db.query('SELECT * FROM schedule_types ORDER BY id ASC');
-            res.json(standardResponse(true, result.rows || [], '获取课程类型成功'));
+            const data = await ScheduleTypeService.listScheduleTypes();
+            res.json(standardResponse(true, data, '获取课程类型成功'));
         } catch (error) {
-            console.error('获取课程类型错误:', error);
+            logger.error('获取课程类型错误:', error);
             res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
     /**
-     * 创建课程类型
+     * 创建课程类型（逻辑见 schedule-type-service.createScheduleType）
      */
     async createScheduleType(req, res) {
         try {
-            const { name, description } = req.body;
-            if (!name) {
-                return res.status(400).json({ message: '课程类型名称不能为空' });
+            const result = await ScheduleTypeService.createScheduleType(req.body, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            // 检查名称重复
-            const existing = await db.query('SELECT id FROM schedule_types WHERE name = $1', [name]);
-            if ((existing.rows || []).length > 0) {
-                return res.status(409).json({ message: '课程类型名称已存在' });
-            }
-
-            const result = await db.query(
-                'INSERT INTO schedule_types (name, description) VALUES ($1, $2) RETURNING *',
-                [name, description]
-            );
-
-            await recordAudit(req, { op: 'create_schedule_type', details: { name, description } });
-            res.status(201).json(standardResponse(true, result.rows[0], '创建课程类型成功'));
+            res.status(result.status).json(standardResponse(true, result.data, '创建课程类型成功'));
         } catch (error) {
-            console.error('创建课程类型错误:', error);
+            logger.error('创建课程类型错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 更新课程类型
+     * 更新课程类型（逻辑见 schedule-type-service.updateScheduleType）
      */
     async updateScheduleType(req, res) {
         try {
-            const { id } = req.params;
-            const { name, description } = req.body;
-            if (!name) {
-                return res.status(400).json({ message: '课程类型名称不能为空' });
+            const result = await ScheduleTypeService.updateScheduleType(req.params.id, req.body, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            // 检查名称重复（排除自身）
-            const existing = await db.query('SELECT id FROM schedule_types WHERE name = $1 AND id <> $2', [name, id]);
-            if ((existing.rows || []).length > 0) {
-                return res.status(409).json({ message: '课程类型名称已存在' });
-            }
-
-            const result = await db.query(
-                'UPDATE schedule_types SET name = $1, description = $2 WHERE id = $3 RETURNING *',
-                [name, description, id]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: '课程类型不存在' });
-            }
-
-            await recordAudit(req, { op: 'update_schedule_type', entityId: id, details: { name, description } });
-            res.json(standardResponse(true, result.rows[0], '更新课程类型成功'));
+            res.status(result.status).json(standardResponse(true, result.data, '更新课程类型成功'));
         } catch (error) {
-            console.error('更新课程类型错误:', error);
+            logger.error('更新课程类型错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 删除课程类型
+     * 删除课程类型（逻辑见 schedule-type-service.deleteScheduleType）
      */
     async deleteScheduleType(req, res) {
         try {
-            const { id } = req.params;
-
-            // 检查是否有排课引用
-            const refCheck = await db.query('SELECT COUNT(*) as count FROM course_arrangement WHERE course_id = $1', [id]);
-            const count = Number(refCheck.rows[0].count);
-            if (count > 0) {
-                return res.status(409).json({ message: `该类型已被引用 ${count} 次，无法删除` });
+            const result = await ScheduleTypeService.deleteScheduleType(req.params.id, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            const result = await db.query('DELETE FROM schedule_types WHERE id = $1 RETURNING id', [id]);
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: '课程类型不存在' });
-            }
-
-            await recordAudit(req, { op: 'delete_schedule_type', entityId: id });
             res.json(standardResponse(true, null, '删除课程类型成功'));
         } catch (error) {
-            console.error('删除课程类型错误:', error);
+            logger.error('删除课程类型错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 获取节假日列表
+     * 获取节假日列表（逻辑见 holiday-service.listHolidays）
      */
     async getHolidays(req, res) {
         try {
-            const result = await db.query('SELECT * FROM holidays ORDER BY year ASC, start_date ASC');
-            res.json(standardResponse(true, result.rows || [], '获取节假日成功'));
+            const data = await HolidayService.listHolidays();
+            res.json(standardResponse(true, data, '获取节假日成功'));
         } catch (error) {
-            console.error('获取节假日错误:', error);
+            logger.error('获取节假日错误:', error);
             res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
     /**
-     * 创建节假日
+     * 创建节假日（逻辑见 holiday-service.createHoliday）
      */
     async createHoliday(req, res) {
         try {
-            const { year, type, label, start_date, end_date } = req.body;
-            if (!year || !type || !label || !start_date || !end_date) {
-                return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
+            const result = await HolidayService.createHoliday(req.body, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            const result = await db.query(
-                'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-                [year, type, label, start_date, end_date]
-            );
-
-            await recordAudit(req, { op: 'create_holiday', details: { year, type, label, start_date, end_date } });
-            res.status(201).json(standardResponse(true, result.rows[0], '创建节假日成功'));
+            res.status(result.status).json(standardResponse(true, result.data, '创建节假日成功'));
         } catch (error) {
-            console.error('创建节假日错误:', error);
+            logger.error('创建节假日错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 更新节假日
+     * 更新节假日（逻辑见 holiday-service.updateHoliday）
      */
     async updateHoliday(req, res) {
         try {
-            const { id } = req.params;
-            const { year, type, label, start_date, end_date } = req.body;
-            if (!year || !type || !label || !start_date || !end_date) {
-                return res.status(400).json({ message: '年份、类型、名称、日期均不能为空' });
+            const result = await HolidayService.updateHoliday(req.params.id, req.body, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            const result = await db.query(
-                'UPDATE holidays SET year = $1, type = $2, label = $3, start_date = $4, end_date = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING *',
-                [year, type, label, start_date, end_date, id]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: '节假日记录不存在' });
-            }
-
-            await recordAudit(req, { op: 'update_holiday', entityId: id, details: { year, type, label, start_date, end_date } });
-            res.json(standardResponse(true, result.rows[0], '更新节假日成功'));
+            res.status(result.status).json(standardResponse(true, result.data, '更新节假日成功'));
         } catch (error) {
-            console.error('更新节假日错误:', error);
+            logger.error('更新节假日错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 删除节假日
+     * 删除节假日（逻辑见 holiday-service.deleteHoliday）
      */
     async deleteHoliday(req, res) {
         try {
-            const { id } = req.params;
-
-            const result = await db.query('DELETE FROM holidays WHERE id = $1 RETURNING id', [id]);
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: '节假日记录不存在' });
+            const result = await HolidayService.deleteHoliday(req.params.id, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            await recordAudit(req, { op: 'delete_holiday', entityId: id });
             res.json(standardResponse(true, null, '删除节假日成功'));
         } catch (error) {
-            console.error('删除节假日错误:', error);
+            logger.error('删除节假日错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 批量同步节假日（按涉及年份先清空再写入）
+     * 批量同步节假日（按涉及年份先清空再写入；逻辑见 holiday-service.batchUpsertHolidays）
      */
     async batchUpsertHolidays(req, res) {
         try {
-            const { items } = req.body;
-            if (!Array.isArray(items) || items.length === 0) {
-                return res.status(400).json({ message: '同步数据不能为空' });
+            const result = await HolidayService.batchUpsertHolidays(req.body.items, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            const years = [...new Set(items.map(i => i.year).filter(Boolean))];
-            if (years.length > 0) {
-                await db.query(`DELETE FROM holidays WHERE year = ANY($1::int[])`, [years]);
-            }
-
-            for (const item of items) {
-                if (!item.year || !item.type || !item.label || !item.start_date || !item.end_date) continue;
-                await db.query(
-                    'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
-                    [item.year, item.type, item.label, item.start_date, item.end_date]
-                );
-            }
-
-            await recordAudit(req, { op: 'batch_sync_holidays', details: { years, count: items.length } });
-            res.json(standardResponse(true, { count: items.length, years }, `成功同步 ${items.length} 条节假日数据`));
+            res.json(standardResponse(true, result.data, `成功同步 ${result.data.count} 条节假日数据`));
         } catch (error) {
-            console.error('批量同步节假日错误:', error);
+            logger.error('批量同步节假日错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
      * 从第三方 API 同步节假日（后端代理，规避浏览器 CSP/CORS）
-     * 拉取 timor.tech 节假日数据，按年份清空后写入，返回最新列表
+     * 逻辑见 holiday-service.syncHolidaysFromAPI
      */
     async syncHolidaysFromAPI(req, res) {
         try {
-            const years = Array.isArray(req.body && req.body.years) && req.body.years.length
-                ? req.body.years
-                : [2025, 2026, 2027];
-
-            const items = [];
-            for (const year of years) {
-                let data;
-                try {
-                    const resp = await fetch(`https://timor.tech/api/holiday/year/${year}`, {
-                        headers: { 'User-Agent': 'Mozilla/5.0' }
-                    });
-                    if (!resp.ok) continue;
-                    data = await resp.json();
-                } catch (e) {
-                    console.warn(`节假日同步：获取 ${year} 年数据失败`, e.message);
-                    continue;
-                }
-                if (!data || !data.holiday) continue;
-
-                for (const [key, info] of Object.entries(data.holiday)) {
-                    if (!key || key.length < 2 || !info || !info.name) continue;
-                    const parts = key.replace(/^-/, '').split('-');
-                    const month = (parts[0] || '01').padStart(2, '0');
-                    const day = (parts[1] || '01').padStart(2, '0');
-                    const date = `${year}-${month}-${day}`;
-                    items.push({
-                        year,
-                        type: info.holiday ? 'holiday' : 'makeup',
-                        label: info.name,
-                        start_date: date,
-                        end_date: date
-                    });
-                }
+            const years = Array.isArray(req.body && req.body.years) ? req.body.years : undefined;
+            const result = await HolidayService.syncHolidaysFromAPI(years, req);
+            if (result.error) {
+                return res.status(result.status).json({ message: result.error });
             }
-
-            if (items.length === 0) {
+            if (result.data.length === 0) {
                 return res.json(standardResponse(true, [], '未获取到节假日数据（该年份可能尚未发布）'));
             }
-
-            const syncedYears = [...new Set(items.map(i => i.year))];
-            await db.query(`DELETE FROM holidays WHERE year = ANY($1::int[])`, [syncedYears]);
-            for (const item of items) {
-                await db.query(
-                    'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
-                    [item.year, item.type, item.label, item.start_date, item.end_date]
-                );
-            }
-
-            await recordAudit(req, { op: 'sync_holidays_from_api', details: { years: syncedYears, count: items.length } });
-
-            const result = await db.query('SELECT * FROM holidays ORDER BY year ASC, start_date ASC');
-            res.json(standardResponse(true, result.rows || [], `成功同步 ${items.length} 条节假日数据`));
+            res.json(standardResponse(true, result.data, `成功同步 ${result.count} 条节假日数据`));
         } catch (error) {
-            console.error('同步节假日错误:', error);
+            logger.error('同步节假日错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
@@ -2080,65 +783,47 @@ const adminController = {
             const { id } = req.params;
             const { transport_fee, other_fee } = req.body;
 
-            // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0；
-            // 负数仍拒绝。NULL 与 0 在数据库层区分，前端据此区分「未填」与「填 0」。
-            const parseFee = (val) => {
-                if (val === null || val === undefined || val === '') return null;
-                const n = parseFloat(val);
-                return Number.isNaN(n) ? null : n;
-            };
-            const tFee = parseFee(transport_fee);
-            const oFee = parseFee(other_fee);
+            // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0；负数仍拒绝。
+            const tFee = FeeService.parseFeeAmount(transport_fee);
+            const oFee = FeeService.parseFeeAmount(other_fee);
 
             if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
                 return res.status(400).json({ message: '费用不能为负数' });
             }
 
             const originalResult = await db.query(
-                'SELECT transport_fee, other_fee FROM course_arrangement WHERE id = $1',
+                'SELECT transport_fee, other_fee, fee_status, created_by FROM course_arrangement WHERE id = $1',
                 [id]
             );
 
             if (originalResult.rows.length === 0) {
                 return res.status(404).json({ message: '课程不存在' });
             }
+            // 权限落地：L3 只能操作自己创建或无主的排课；越权视为不存在
+            if (!canTouchRecord(originalResult.rows[0].created_by, req.user)) {
+                return res.status(404).json({ message: '课程不存在' });
+            }
 
-            const { transport_fee: old_t_fee, other_fee: old_o_fee } = originalResult.rows[0];
+            const { transport_fee: old_t_fee, other_fee: old_o_fee, fee_status: old_status } = originalResult.rows[0];
 
-            await db.runInTransaction(async (client, usePool) => {
+            // 事务内更新费用 + 审计 + 「保存并提交」自动流转（管理员端 → 已审核）
+            // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）
+            const feeStatus = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-
-                await q(
-                    `UPDATE course_arrangement 
-                     SET transport_fee = $1, other_fee = $2, updated_at = CURRENT_TIMESTAMP
-                     WHERE id = $3`,
-                    [tFee, oFee, id]
-                );
-
-                // 尝试写入审计日志（表可能不存在）
-                try {
-                    const tableCheck = await q(`
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = 'public' AND table_name = 'fee_audit_logs'
-                    `);
-                    if (tableCheck.rows.length > 0) {
-                        await q(
-                            `INSERT INTO fee_audit_logs 
-                            (schedule_id, operator_id, operator_role, old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                            [id, req.user.id, 'admin', old_t_fee, tFee, old_o_fee, oFee]
-                        );
-                    }
-                } catch (_) { /* 忽略审计错误 */ }
+                await FeeService.updateScheduleFeesInTx(q, id, {
+                    tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
+                    operatorId: req.user.id, operatorRole: 'admin'
+                });
+                if (!FeeService.hasFilledFee(tFee, oFee)) return old_status;
+                const auto = await FeeService.autoSubmitFeeStatus(q, {
+                    id, from: old_status, actorType: 'admin', operatorId: req.user.id
+                });
+                return auto.fee_status;
             });
 
-            // 回带当前费用报销状态，便于前端同步展示
-            const statusResult = await db.query('SELECT fee_status FROM course_arrangement WHERE id = $1', [id]);
-            const feeStatus = statusResult.rows[0] ? statusResult.rows[0].fee_status : null;
             res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus });
         } catch (error) {
-            console.error('管理员更新费用错误:', error);
+            logger.error('管理员更新费用错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -2155,28 +840,25 @@ const adminController = {
             const { fee_status: target, note } = req.body;
             if (!target) return res.status(400).json({ message: '缺少目标状态' });
 
-            const cur = await db.query('SELECT fee_status, student_id, teacher_id FROM course_arrangement WHERE id = $1', [id]);
+            const cur = await db.query('SELECT fee_status, student_id, teacher_id, created_by FROM course_arrangement WHERE id = $1', [id]);
             if (cur.rows.length === 0) return res.status(404).json({ message: '排课不存在' });
+            // 权限落地：L3 只能操作自己创建或无主的排课；越权视为不存在
+            if (!canTouchRecord(cur.rows[0].created_by, req.user)) {
+                return res.status(404).json({ message: '排课不存在' });
+            }
 
             const from = cur.rows[0].fee_status;
-            const check = validateFeeStatusTransition('admin', from, target);
-            if (!check.ok) return res.status(400).json({ message: check.reason });
-
-            await db.runInTransaction(async (client, usePool) => {
+            const result = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-                await q(
-                    `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-                    [target, id]
-                );
-                await writeFeeStatusLog(q, {
-                    scheduleId: id, oldStatus: from, newStatus: target,
-                    operatorId: req.user.id, actorType: 'admin', note,
+                return await FeeService.transitionFeeStatus(q, {
+                    id, from, target, note, operatorId: req.user.id, actorType: 'admin'
                 });
             });
+            if (!result.ok) return res.status(400).json({ message: result.error });
 
             res.json({ message: '费用状态已更新', fee_status: target });
         } catch (error) {
-            console.error('管理员更新费用状态错误:', error);
+            logger.error('管理员更新费用状态错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -2197,11 +879,27 @@ const adminController = {
             let targetIds = [];
             if (Array.isArray(ids) && ids.length) {
                 targetIds = ids.map(Number).filter(n => !Number.isNaN(n));
+                // 权限落地：L3 批量操作 all-or-nothing —— 任一目标越权则整批拒绝
+                if (requiresOwnDataScope(req.user)) {
+                    const ownedRes = await db.query(
+                        'SELECT id FROM course_arrangement WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
+                        [targetIds, req.user.id]
+                    );
+                    if ((ownedRes.rows || []).length !== targetIds.length) {
+                        return res.status(403).json({ message: '批量操作中包含您无权修改的排课，已整批拒绝' });
+                    }
+                }
             } else if (scope && scope.startDate && scope.endDate) {
                 const dateExpr = await SchemaHelper.getDateExpr('ca');
                 let sql = `SELECT id, fee_status FROM course_arrangement ca WHERE ${dateExpr} BETWEEN $1 AND $2`;
                 const params = [scope.startDate, scope.endDate];
                 if (scope.fee_status) { sql += ` AND ca.fee_status = $3`; params.push(scope.fee_status); }
+                // 权限落地：L3 按范围选择时仅命中自己创建 + 无主存量的排课
+                const batchScope = buildScopeClause(req.user, 'ca');
+                if (batchScope) {
+                    params.push(batchScope.actorId);
+                    sql += ` AND ${batchScope.clause.replace('$ACTOR_ID', `$${params.length}`)}`;
+                }
                 const r = await db.query(sql, params);
                 targetIds = r.rows.map(x => x.id);
             } else {
@@ -2210,31 +908,16 @@ const adminController = {
 
             if (!targetIds.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
 
-            let updated = 0;
-            await db.runInTransaction(async (client, usePool) => {
+            const updated = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-                for (const sid of targetIds) {
-                    const cur = await q('SELECT fee_status FROM course_arrangement WHERE id = $1', [sid]);
-                    if (cur.rows.length === 0) continue;
-                    const from = cur.rows[0].fee_status;
-                    if (skipStatus && from === skipStatus) continue; // 跳过已是 skipStatus 的
-                    const check = validateFeeStatusTransition('admin', from, target);
-                    if (!check.ok) continue; // 跳过非法流转（如状态未变化）
-                    await q(
-                        `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-                        [target, sid]
-                    );
-                    await writeFeeStatusLog(q, {
-                        scheduleId: sid, oldStatus: from, newStatus: target,
-                        operatorId: req.user.id, actorType: 'admin', note,
-                    });
-                    updated++;
-                }
+                return await FeeService.batchTransitionFeeStatus(q, {
+                    targetIds, target, note, operatorId: req.user.id, actorType: 'admin', skipStatus
+                });
             });
 
             res.json({ message: `已更新 ${updated} 条排课的费用状态`, updated });
         } catch (error) {
-            console.error('管理员批量更新费用状态错误:', error);
+            logger.error('管理员批量更新费用状态错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -2249,9 +932,11 @@ const adminController = {
             const ps = [date, startTime, endTime];
             if (excludeScheduleId) { sql += ` AND ca.id != $4`; ps.push(excludeScheduleId); }
             const cR = await db.query(sql, ps);
-            // teacher_daily_availability 使用 day_of_week 模式，需转换日期为星期几
-            const dayOfWeek = new Date(date).getDay() || 7; // 1=周一, 7=周日
-            const aR = await db.query(`SELECT teacher_id, start_time, end_time FROM teacher_daily_availability WHERE day_of_week = $1`, [dayOfWeek]);
+            // teacher_daily_availability 按具体日期存储（date 列），仅统计可用记录
+            const aR = await db.query(
+                `SELECT teacher_id, start_time, end_time FROM teacher_daily_availability WHERE date = $1 AND status = 'available'`,
+                [date]
+            );
             const resMap = {};
             (cR.rows || []).forEach(c => { resMap[c.teacher_id] = { hasClass: true }; });
             // 检查教师可用性：收集每个教师的所有可用时段
@@ -2269,7 +954,10 @@ const adminController = {
                 }
             });
             res.json(resMap);
-        } catch (e) { res.status(500).json({ message: '服务器错误' }); }
+        } catch (e) {
+            logger.error('获取教师冲突状态失败:', e);
+            res.status(500).json({ message: '服务器错误' });
+        }
     },
 
     // ============================================
@@ -2277,133 +965,62 @@ const adminController = {
     // ============================================
 
     /**
-     * 列表
+     * 列表（逻辑见 feedback-service.listFeedbacks）
      */
     async listFeedbacks(req, res) {
         try {
-            const result = await db.query(
-                `SELECT id, type, priority, title, description, status,
-                        submitter_id, submitter_role, submitter_name,
-                        created_at, updated_at
-                   FROM feedbacks
-                  ORDER BY created_at DESC`
-            );
-            res.json(standardResponse(true, result.rows || [], '获取反馈成功'));
+            const data = await FeedbackService.listFeedbacks();
+            res.json(standardResponse(true, data, '获取反馈成功'));
         } catch (error) {
-            console.error('获取反馈错误:', error);
+            logger.error('获取反馈错误:', error);
             res.status(503).json(standardResponse(false, null, '数据库暂时不可用，请稍后重试'));
         }
     },
 
     /**
-     * 创建反馈
-     * 任意已登录用户均可提交（不限角色）
+     * 创建反馈（逻辑见 feedback-service.createFeedback）
      */
     async createFeedback(req, res) {
         try {
-            const { type, priority, title, description } = req.body || {};
-            const allowedTypes = ['feature', 'bug', 'request', 'other'];
-            const allowedPriorities = ['high', 'medium', 'low'];
-            if (!type || !allowedTypes.includes(type)) {
-                return res.status(400).json(standardResponse(false, null, '反馈类型无效'));
+            const result = await FeedbackService.createFeedback(req.body, req);
+            if (result.error) {
+                return res.status(result.status).json(standardResponse(false, null, result.error));
             }
-            const pri = allowedPriorities.includes(priority) ? priority : 'medium';
-            if (!description || typeof description !== 'string' || description.trim().length === 0) {
-                return res.status(400).json(standardResponse(false, null, '请填写详细描述'));
-            }
-            const desc = description.trim();
-            const ttl = (title && String(title).trim().length > 0)
-                ? String(title).trim().slice(0, 120)
-                : desc.slice(0, 50);
-
-            const user = req.user || {};
-            const submitterId = user.id || null;
-            const submitterRole = user.userType || null;
-            const submitterName = user.name || user.username || null;
-
-            const result = await db.query(
-                `INSERT INTO feedbacks (type, priority, title, description, status,
-                                        submitter_id, submitter_role, submitter_name)
-                 VALUES ($1,$2,$3,$4,'open',$5,$6,$7)
-                 RETURNING *`,
-                [type, pri, ttl, desc, submitterId, submitterRole, submitterName]
-            );
-            res.json(standardResponse(true, result.rows[0], '反馈已提交'));
+            res.status(result.status).json(standardResponse(true, result.data, '反馈已提交'));
         } catch (error) {
-            console.error('创建反馈错误:', error);
+            logger.error('创建反馈错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 更新反馈（状态/优先级/标题/描述）
-     * 管理员可修改任意；其它角色仅能修改自己提交的
+     * 更新反馈（逻辑见 feedback-service.updateFeedback）
      */
     async updateFeedback(req, res) {
         try {
-            const { id } = req.params;
-            const { type, priority, title, description, status } = req.body || {};
-            const user = req.user || {};
-
-            const cur = await db.query('SELECT * FROM feedbacks WHERE id = $1', [id]);
-            if (!cur.rows.length) {
-                return res.status(404).json(standardResponse(false, null, '反馈不存在'));
+            const result = await FeedbackService.updateFeedback(req.params.id, req.body, req);
+            if (result.error) {
+                return res.status(result.status).json(standardResponse(false, null, result.error));
             }
-            const row = cur.rows[0];
-            const isAdmin = user.userType === 'admin';
-            const isOwner = row.submitter_id && user.id && row.submitter_id === user.id;
-            if (!isAdmin && !isOwner) {
-                return res.status(403).json(standardResponse(false, null, '无权修改该反馈'));
-            }
-
-            const allowedTypes = ['feature', 'bug', 'request', 'other'];
-            const allowedPriorities = ['high', 'medium', 'low'];
-            const allowedStatus = ['open', 'in_progress', 'done', 'rejected'];
-
-            const next = {
-                type: allowedTypes.includes(type) ? type : row.type,
-                priority: allowedPriorities.includes(priority) ? priority : row.priority,
-                title: (title && String(title).trim().length) ? String(title).trim().slice(0, 120) : row.title,
-                description: (description && String(description).trim().length) ? String(description).trim() : row.description,
-                status: allowedStatus.includes(status) ? status : row.status,
-            };
-
-            const result = await db.query(
-                `UPDATE feedbacks
-                    SET type=$1, priority=$2, title=$3, description=$4, status=$5,
-                        updated_at=CURRENT_TIMESTAMP
-                  WHERE id=$6
-                  RETURNING *`,
-                [next.type, next.priority, next.title, next.description, next.status, id]
-            );
-            res.json(standardResponse(true, result.rows[0], '反馈已更新'));
+            res.status(result.status).json(standardResponse(true, result.data, '反馈已更新'));
         } catch (error) {
-            console.error('更新反馈错误:', error);
+            logger.error('更新反馈错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     },
 
     /**
-     * 删除反馈：管理员或提交人本人
+     * 删除反馈（逻辑见 feedback-service.deleteFeedback）
      */
     async deleteFeedback(req, res) {
         try {
-            const { id } = req.params;
-            const user = req.user || {};
-            const cur = await db.query('SELECT submitter_id FROM feedbacks WHERE id = $1', [id]);
-            if (!cur.rows.length) {
-                return res.status(404).json(standardResponse(false, null, '反馈不存在'));
+            const result = await FeedbackService.deleteFeedback(req.params.id, req);
+            if (result.error) {
+                return res.status(result.status).json(standardResponse(false, null, result.error));
             }
-            const ownerId = cur.rows[0].submitter_id;
-            const isAdmin = user.userType === 'admin';
-            const isOwner = ownerId && user.id && ownerId === user.id;
-            if (!isAdmin && !isOwner) {
-                return res.status(403).json(standardResponse(false, null, '无权删除该反馈'));
-            }
-            await db.query('DELETE FROM feedbacks WHERE id = $1', [id]);
-            res.json(standardResponse(true, { id }, '反馈已删除'));
+            res.status(result.status).json(standardResponse(true, result.data, '反馈已删除'));
         } catch (error) {
-            console.error('删除反馈错误:', error);
+            logger.error('删除反馈错误:', error);
             res.status(500).json(standardResponse(false, null, '服务器错误'));
         }
     }

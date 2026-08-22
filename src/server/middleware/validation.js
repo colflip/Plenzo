@@ -1,15 +1,8 @@
 const Joi = require('joi');
+const { FEE_STATUSES } = require('../utils/feeStatus');
 
-// 标准化响应格式
-const standardResponse = (success, data = null, message = '', errors = null) => {
-    return {
-        success,
-        data,
-        message,
-        errors,
-        timestamp: new Date().toISOString()
-    };
-};
+// 标准化响应格式（单一来源见 utils/response.js）
+const { standardResponse } = require('../utils/response');
 
 // 通用验证中间件
 const validate = (schema, property = 'body') => {
@@ -359,42 +352,381 @@ const userValidation = {
     })
 };
 
-// 错误处理中间件
-const errorHandler = (err, req, res, next) => {
-    console.error('Error:', err);
+// 改密码验证规则（教师/学生端 changePassword 实际读取 currentPassword / newPassword）
+const passwordChangeValidation = Joi.object({
+    currentPassword: Joi.string().required()
+        .messages({
+            'any.required': '当前密码不能为空',
+            'string.base': '当前密码格式不正确'
+        }),
+    newPassword: Joi.string().min(6).max(100).required()
+        .messages({
+            'string.min': '新密码长度不能少于6位',
+            'string.max': '新密码长度不能超过100个字符',
+            'any.required': '新密码不能为空'
+        })
+});
 
-    // 数据库错误
-    if (err.code) {
-        switch (err.code) {
-            case '23505': // 唯一约束违反
-                return res.status(409).json(
-                    standardResponse(false, null, '数据已存在，请检查唯一性约束')
-                );
-            case '23503': // 外键约束违反
-                return res.status(400).json(
-                    standardResponse(false, null, '关联数据不存在')
-                );
-            case '23502': // 非空约束违反
-                return res.status(400).json(
-                    standardResponse(false, null, '必填字段不能为空')
-                );
-            default:
-                return res.status(500).json(
-                    standardResponse(false, null, '数据库操作失败')
-                );
-        }
-    }
+// 教师资料更新验证（前端全量提交：name 必填非空，其余可选可空，status 限定 -1/0/1）
+// 所有控制器无条件写入的字段均在此声明，避免 validate 的 stripUnknown 剥离后写 undefined 清空列。
+const teacherProfileValidation = Joi.object({
+    name: Joi.string().min(1).max(50).required()
+        .messages({
+            'string.min': '姓名不能为空',
+            'string.max': '姓名长度不能超过50个字符',
+            'any.required': '姓名是必填项'
+        }),
+    nickname: Joi.string().max(50).allow('', null).optional()
+        .messages({ 'string.max': '昵称长度不能超过50个字符' }),
+    profession: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '职业类型长度不能超过100个字符' }),
+    contact: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '联系方式长度不能超过100个字符' }),
+    work_location: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '工作地点长度不能超过100个字符' }),
+    home_address: Joi.string().max(200).allow('', null).optional()
+        .messages({ 'string.max': '家庭地址长度不能超过200个字符' }),
+    status: Joi.number().integer().valid(-1, 0, 1).optional()
+        .messages({
+            'number.base': '状态必须是整数',
+            'any.only': '状态只能是-1(删除)、0(暂停)、1(正常)'
+        })
+});
 
-    // 默认服务器错误
-    res.status(500).json(
-        standardResponse(false, null, '服务器内部错误')
-    );
-};
+// 学生资料更新验证（前端全量提交，不含 status 字段）
+const studentProfileValidation = Joi.object({
+    name: Joi.string().min(1).max(50).required()
+        .messages({
+            'string.min': '姓名不能为空',
+            'string.max': '姓名长度不能超过50个字符',
+            'any.required': '姓名是必填项'
+        }),
+    nickname: Joi.string().max(50).allow('', null).optional()
+        .messages({ 'string.max': '昵称长度不能超过50个字符' }),
+    profession: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '职业类型长度不能超过100个字符' }),
+    contact: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '联系方式长度不能超过100个字符' }),
+    visit_location: Joi.string().max(100).allow('', null).optional()
+        .messages({ 'string.max': '入户地点长度不能超过100个字符' }),
+    home_address: Joi.string().max(200).allow('', null).optional()
+        .messages({ 'string.max': '家庭地址长度不能超过200个字符' })
+});
+
+// 费用金额字段：容错 number / 数字字符串 / null / ''（空值=未填 NULL）；负数由控制器 parseFee + 负数检查拒。
+// 控制器对 transport_fee/other_fee 用 parseFloat 处理，schema 只需确保「非空非空串则可解析为数字」即可，不过度收紧以免破坏前端数字字符串。
+const feeAmount = Joi.any().custom((value, helpers) => {
+    if (value === null || value === undefined || value === '') return value;
+    const n = parseFloat(value);
+    if (Number.isNaN(n)) return helpers.error('any.invalid');
+    return value;
+}).optional();
+
+// 费用更新（admin/teacher 共用 updateScheduleFees）：仅 transport_fee / other_fee 两个金额字段
+const feeUpdateValidation = Joi.object({
+    transport_fee: feeAmount,
+    other_fee: feeAmount
+});
+
+// 单条费用报销状态更新（admin/teacher 共用 updateScheduleFeeStatus）
+const feeStatusUpdateValidation = Joi.object({
+    fee_status: Joi.string().valid(...FEE_STATUSES).required()
+        .messages({
+            'any.only': '非法的费用报销状态',
+            'any.required': '缺少目标状态'
+        }),
+    note: Joi.string().max(500).allow('', null).optional()
+        .messages({ 'string.max': '备注长度不能超过500个字符' })
+});
+
+// 批量费用报销状态更新（admin/teacher 共用 batchUpdateScheduleFeeStatus）
+const feeStatusBatchValidation = Joi.object({
+    fee_status: Joi.string().valid(...FEE_STATUSES).required()
+        .messages({
+            'any.only': '非法的费用报销状态',
+            'any.required': '缺少目标状态'
+        }),
+    ids: Joi.array().items(Joi.number().integer()).optional(),
+    scope: Joi.object({
+        startDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+            .messages({ 'string.pattern.base': '开始日期格式应为YYYY-MM-DD' }),
+        endDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+            .messages({ 'string.pattern.base': '结束日期格式应为YYYY-MM-DD' }),
+        fee_status: Joi.string().valid(...FEE_STATUSES).optional()
+            .messages({ 'any.only': '非法的费用报销状态' })
+    }).optional(),
+    note: Joi.string().max(500).allow('', null).optional()
+        .messages({ 'string.max': '备注长度不能超过500个字符' }),
+    skipStatus: Joi.string().valid(...FEE_STATUSES).allow(null, '').optional()
+        .messages({ 'any.only': '非法的费用报销状态' })
+});
+
+// 教师批量费用更新（teacher batch-fees）：updates 数组，每项 { id, transport_fee, other_fee }
+const feeBatchValidation = Joi.object({
+    updates: Joi.array().items(
+        Joi.object({
+            id: Joi.number().integer().positive().required()
+                .messages({
+                    'number.base': '排课ID必须是数字',
+                    'number.positive': '排课ID必须是正数',
+                    'any.required': '缺少排课ID'
+                }),
+            transport_fee: feeAmount,
+            other_fee: feeAmount
+        })
+    ).min(1).required()
+        .messages({
+            'array.min': '无可更新内容',
+            'any.required': '缺少 updates 列表'
+        })
+});
+
+// 课程类型创建/更新（admin schedule-types）：name 必填，description 可选
+const scheduleTypeValidation = Joi.object({
+    name: Joi.string().min(1).max(50).required()
+        .messages({
+            'string.min': '课程类型名称不能为空',
+            'string.max': '名称长度不能超过50个字符',
+            'any.required': '课程类型名称不能为空'
+        }),
+    description: Joi.string().max(200).allow('', null).optional()
+        .messages({ 'string.max': '描述长度不能超过200个字符' })
+});
+
+// 节假日创建/更新（admin holidays）：year/type/label/start_date/end_date 全部必填
+const holidayValidation = Joi.object({
+    year: Joi.number().integer().min(2000).max(2100).required()
+        .messages({
+            'number.base': '年份必须是数字',
+            'number.integer': '年份必须是整数',
+            'any.required': '年份不能为空'
+        }),
+    type: Joi.string().max(20).required()
+        .messages({ 'any.required': '类型不能为空', 'string.max': '类型长度不能超过20个字符' }),
+    label: Joi.string().max(50).required()
+        .messages({ 'any.required': '名称不能为空', 'string.max': '名称长度不能超过50个字符' }),
+    start_date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+        .messages({ 'string.pattern.base': '开始日期格式应为YYYY-MM-DD', 'any.required': '开始日期不能为空' }),
+    end_date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+        .messages({ 'string.pattern.base': '结束日期格式应为YYYY-MM-DD', 'any.required': '结束日期不能为空' })
+});
+
+// 节假日批量同步（admin holidays/batch）：items 数组，每项同 holiday 字段
+const holidayBatchValidation = Joi.object({
+    items: Joi.array().items(
+        Joi.object({
+            year: Joi.number().integer().min(2000).max(2100).required(),
+            type: Joi.string().max(20).required(),
+            label: Joi.string().max(50).required(),
+            start_date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required(),
+            end_date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+        })
+    ).min(1).required()
+        .messages({ 'array.min': '同步数据不能为空', 'any.required': '缺少 items' }),
+    // syncHolidaysFromAPI 的 years 可选；此处复用 batch 路由不传 years，仅校验 items
+});
+
+// 从第三方 API 同步节假日（admin holidays/sync）：years 可选数组
+const holidaySyncValidation = Joi.object({
+    years: Joi.array().items(Joi.number().integer().min(2000).max(2100)).optional()
+}).unknown(true);
+
+// 反馈创建（admin /feedbacks）：type 必填枚举、description 必填非空，priority/title 可选
+const feedbackCreateValidation = Joi.object({
+    type: Joi.string().valid('feature', 'bug', 'request', 'other').required()
+        .messages({ 'any.only': '反馈类型无效', 'any.required': '缺少反馈类型' }),
+    priority: Joi.string().valid('high', 'medium', 'low').optional()
+        .messages({ 'any.only': '无效的优先级' }),
+    title: Joi.string().max(120).allow('', null).optional()
+        .messages({ 'string.max': '标题长度不能超过120个字符' }),
+    description: Joi.string().min(1).required()
+        .messages({ 'string.min': '请填写详细描述', 'any.required': '请填写详细描述' })
+});
+
+// 反馈更新（admin /feedbacks/:id）：type/priority/status 枚举可选，description 允许空串（保留原值），全部缺省时由控制器回退原行
+const feedbackUpdateValidation = Joi.object({
+    type: Joi.string().valid('feature', 'bug', 'request', 'other').optional()
+        .messages({ 'any.only': '反馈类型无效' }),
+    priority: Joi.string().valid('high', 'medium', 'low').optional()
+        .messages({ 'any.only': '无效的优先级' }),
+    title: Joi.string().max(120).allow('', null).optional()
+        .messages({ 'string.max': '标题长度不能超过120个字符' }),
+    description: Joi.string().allow('', null).optional()
+        .messages({ 'string.base': '描述格式不正确' }),
+    status: Joi.string().valid('open', 'in_progress', 'done', 'rejected').optional()
+        .messages({ 'any.only': '无效的反馈状态' })
+});
+
+// 管理员确认排课（admin POST /schedules/:id/confirm）：adminConfirmed 布尔可选
+const adminConfirmValidation = Joi.object({
+    adminConfirmed: Joi.boolean().optional()
+});
+
+// 教师确认排课（teacher POST /schedules/:id/confirm）：teacherConfirmed 布尔可选、notes 可选
+const teacherConfirmValidation = Joi.object({
+    teacherConfirmed: Joi.boolean().optional(),
+    notes: Joi.string().allow('', null).max(500).optional()
+        .messages({ 'string.max': '备注长度不能超过500个字符' })
+});
+
+// 教师更新课程状态（teacher PUT /schedules/:id/status）：status 必填枚举、notes 可选
+const teacherStatusUpdateValidation = Joi.object({
+    status: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled').required()
+        .messages({ 'any.only': '非法的课程状态值', 'any.required': '缺少课程状态' }),
+    notes: Joi.string().allow('', null).max(500).optional()
+        .messages({ 'string.max': '备注长度不能超过500个字符' })
+});
+
+// AI 配置更新（ai PUT /config）：provider/baseUrl/model 必填；apiKey 可选（允许空串，缺省时由控制器校验 apiKey‖presetId 并抛 400）
+const aiConfigUpdateValidation = Joi.object({
+    provider: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 provider', 'string.min': 'provider 不能为空' }),
+    protocol: Joi.string().allow('', null).optional(),
+    apiKey: Joi.string().allow('', null).optional(),
+    baseUrl: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 baseUrl', 'string.min': 'baseUrl 不能为空' }),
+    model: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 model', 'string.min': 'model 不能为空' }),
+    timeout: Joi.number().integer().min(1).optional(),
+    maxTokens: Joi.number().integer().min(1).optional(),
+    presetId: Joi.string().allow('', null).optional()
+});
+
+// AI 连接检测/测试（ai POST /check、/test）：provider 可选（默认 custom），baseUrl/model 必填，apiKey 可选（控制器校验 apiKey‖presetId）
+const aiConfigTestValidation = Joi.object({
+    provider: Joi.string().allow('', null).optional(),
+    protocol: Joi.string().allow('', null).optional(),
+    apiKey: Joi.string().allow('', null).optional(),
+    baseUrl: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 baseUrl', 'string.min': 'baseUrl 不能为空' }),
+    model: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 model', 'string.min': 'model 不能为空' }),
+    timeout: Joi.number().integer().min(1).optional(),
+    maxTokens: Joi.number().integer().min(1).optional(),
+    presetId: Joi.string().allow('', null).optional()
+});
+
+// 空闲时段日期格式（YYYY-MM-DD）
+const availabilityDate = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
+
+// 教师 setAvailability（teacher POST /availability）：availabilityList 数组，每项含 date + 多态 slot 字段
+// （slots 对象 或 timeSlot/isAvailable 等）。用 unknown(true) 保留形态，避免 stripUnknown 误删控制器读取的字段。
+const teacherAvailabilitySetValidation = Joi.object({
+    availabilityList: Joi.array().items(
+        Joi.object({ date: availabilityDate.required() }).unknown(true)
+    ).required()
+}).unknown(true);
+
+// 教师 deleteAvailability（teacher DELETE /availability）：records/date/timeSlots 均可选，保留兼容字段
+const teacherAvailabilityDeleteValidation = Joi.object({
+    records: Joi.array().items(Joi.object({ date: availabilityDate.optional() }).unknown(true)).optional(),
+    date: availabilityDate.optional(),
+    timeSlots: Joi.array().items(Joi.any()).optional()
+}).unknown(true);
+
+// 教师 replaceAvailability（teacher PUT /availability，R2 原子保存）：updates[{date, slots{}}] / removals[{date, removeAll?, timeSlot?}] 可选数组
+const teacherAvailabilityReplaceValidation = Joi.object({
+    updates: Joi.array().items(
+        Joi.object({
+            date: availabilityDate.required(),
+            slots: Joi.object({
+                morning: Joi.any().optional(),
+                afternoon: Joi.any().optional(),
+                evening: Joi.any().optional()
+            }).unknown(true).optional()
+        }).unknown(true)
+    ).optional(),
+    removals: Joi.array().items(
+        Joi.object({
+            date: availabilityDate.required(),
+            removeAll: Joi.boolean().optional(),
+            timeSlot: Joi.any().optional(),
+            slot: Joi.any().optional(),
+            time_slot: Joi.any().optional()
+        }).unknown(true)
+    ).optional()
+}).unknown(true);
+
+// 管理员批量更新教师空闲（admin POST /teacher-availability）：updates[{teacher_id, date, morning?, afternoon?, evening?}]
+const adminTeacherAvailabilityValidation = Joi.object({
+    updates: Joi.array().items(
+        Joi.object({
+            teacher_id: Joi.number().integer().positive().required()
+                .messages({ 'number.base': '教师ID必须是数字', 'any.required': '缺少教师ID' }),
+            date: availabilityDate.required()
+                .messages({ 'string.pattern.base': '日期格式应为YYYY-MM-DD', 'any.required': '缺少日期' }),
+            morning: Joi.any().optional(),
+            afternoon: Joi.any().optional(),
+            evening: Joi.any().optional()
+        }).unknown(true)
+    ).min(1).required()
+        .messages({ 'array.min': '缺少更新数据', 'any.required': '缺少 updates' })
+}).unknown(true);
+
+// 管理员批量更新学生空闲（admin POST /student-availability）：updates[{student_id, date, morning?, afternoon?, evening?}]
+const adminStudentAvailabilityValidation = Joi.object({
+    updates: Joi.array().items(
+        Joi.object({
+            student_id: Joi.number().integer().positive().required()
+                .messages({ 'number.base': '学生ID必须是数字', 'any.required': '缺少学生ID' }),
+            date: availabilityDate.required()
+                .messages({ 'string.pattern.base': '日期格式应为YYYY-MM-DD', 'any.required': '缺少日期' }),
+            morning: Joi.any().optional(),
+            afternoon: Joi.any().optional(),
+            evening: Joi.any().optional()
+        }).unknown(true)
+    ).min(1).required()
+        .messages({ 'array.min': '缺少更新数据', 'any.required': '缺少 updates' })
+}).unknown(true);
+
+// 学生 setAvailability（student POST /availability）：availabilityList[{timeSlot, date, isAvailable?}]，保留兼容字段
+const studentAvailabilitySetValidation = Joi.object({
+    availabilityList: Joi.array().items(
+        Joi.object({
+            date: availabilityDate.required(),
+            timeSlot: Joi.string().valid('morning', 'afternoon', 'evening').required()
+                .messages({ 'any.only': '时段无效', 'any.required': '缺少时段' }),
+            isAvailable: Joi.boolean().optional()
+        }).unknown(true)
+    ).required()
+}).unknown(true);
+
+// 学生 deleteAvailability（student DELETE /availability）：startDate/endDate/timeSlots/ranges 可选
+const studentAvailabilityDeleteValidation = Joi.object({
+    startDate: availabilityDate.optional(),
+    endDate: availabilityDate.optional(),
+    timeSlots: Joi.array().items(Joi.string().valid('morning', 'afternoon', 'evening')).optional(),
+    ranges: Joi.array().items(Joi.object({ start_time: Joi.any().optional() }).unknown(true)).optional()
+}).unknown(true);
 
 module.exports = {
     validate,
     standardResponse,
     scheduleValidation,
     userValidation,
-    errorHandler
+    passwordChangeValidation,
+    teacherProfileValidation,
+    studentProfileValidation,
+    feeUpdateValidation,
+    feeStatusUpdateValidation,
+    feeStatusBatchValidation,
+    feeBatchValidation,
+    scheduleTypeValidation,
+    holidayValidation,
+    holidayBatchValidation,
+    holidaySyncValidation,
+    feedbackCreateValidation,
+    feedbackUpdateValidation,
+    adminConfirmValidation,
+    teacherConfirmValidation,
+    teacherStatusUpdateValidation,
+    aiConfigUpdateValidation,
+    aiConfigTestValidation,
+    teacherAvailabilitySetValidation,
+    teacherAvailabilityDeleteValidation,
+    teacherAvailabilityReplaceValidation,
+    adminTeacherAvailabilityValidation,
+    adminStudentAvailabilityValidation,
+    studentAvailabilitySetValidation,
+    studentAvailabilityDeleteValidation
 };

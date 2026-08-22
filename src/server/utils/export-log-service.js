@@ -1,3 +1,4 @@
+const logger = require('./logger.js');
 /**
  * 导出操作日志服务
  * 记录所有端的导出操作，用于监控和分析
@@ -68,7 +69,7 @@ class ExportLogService {
             `);
 
         } catch (error) {
-            console.warn('扩展导出日志表结构失败（非致命错误）:', error.message);
+            logger.warn('扩展导出日志表结构失败（非致命错误）:', error.message);
         }
     }
 
@@ -119,7 +120,7 @@ class ExportLogService {
 
             return result.rows[0]?.id;
         } catch (error) {
-            console.warn('记录导出开始日志失败（非致命错误）:', error.message);
+            logger.warn('记录导出开始日志失败（非致命错误）:', error.message);
             return null;
         }
     }
@@ -148,7 +149,7 @@ class ExportLogService {
                 WHERE id = $1
             `, [logId, recordCount || 0, fileSize || 0, fileName || '', duration || 0]);
         } catch (error) {
-            console.warn('记录导出成功日志失败（非致命错误）:', error.message);
+            logger.warn('记录导出成功日志失败（非致命错误）:', error.message);
         }
     }
 
@@ -166,7 +167,7 @@ class ExportLogService {
                 WHERE id = $1
             `, [logId, errorMessage || '未知错误']);
         } catch (error) {
-            console.warn('记录导出失败日志失败（非致命错误）:', error.message);
+            logger.warn('记录导出失败日志失败（非致命错误）:', error.message);
         }
     }
 
@@ -190,7 +191,7 @@ class ExportLogService {
 
             return result.rows[0];
         } catch (error) {
-            console.warn('获取导出统计失败:', error.message);
+            logger.warn('获取导出统计失败:', error.message);
             return null;
         }
     }

@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 统一导出服务
  * 整合前端 export-manager.js 的所有导出逻辑到后端
@@ -172,11 +173,11 @@ class UnifiedExportService {
             const generateTime = Date.now() - generateStartTime;
 
             const totalTime = Date.now() - startTime;
-            console.log(`[Performance] 导出性能统计 - 总记录数: ${rawData.length}, 生成耗时: ${generateTime}ms, 总耗时: ${totalTime}ms`);
+            logger.log(`[Performance] 导出性能统计 - 总记录数: ${rawData.length}, 生成耗时: ${generateTime}ms, 总耗时: ${totalTime}ms`);
 
             return result;
         } catch (error) {
-            console.error('导出生成失败:', error);
+            logger.error('导出生成失败:', error);
 
             // 如果已经是 ExportError，直接抛出
             if (error instanceof ExportError) {
@@ -238,7 +239,7 @@ class UnifiedExportService {
         ]);
         const sheetTime = Date.now() - sheetStartTime;
 
-        console.log(`[Performance] 单批生成 - 聚合耗时: ${aggregateTime}ms, 工作表生成: ${sheetTime}ms`);
+        logger.log(`[Performance] 单批生成 - 聚合耗时: ${aggregateTime}ms, 工作表生成: ${sheetTime}ms`);
 
         // 配置工作表选项
         const sheets = {
@@ -291,7 +292,7 @@ class UnifiedExportService {
             batches.push(rawData.slice(i, i + BATCH_SIZE));
         }
 
-        console.log(`[UnifiedExportService] 分批处理: ${batches.length} 批, 每批 ${BATCH_SIZE} 条, 总计 ${rawData.length} 条`);
+        logger.log(`[UnifiedExportService] 分批处理: ${batches.length} 批, 每批 ${BATCH_SIZE} 条, 总计 ${rawData.length} 条`);
 
         // 1. 每日排课明细 - 分批追加
         const dailyRows = [];

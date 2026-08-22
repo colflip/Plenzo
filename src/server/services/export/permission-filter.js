@@ -56,6 +56,7 @@ class PermissionFilter {
         data.forEach(row => {
             delete row['费用'];
             delete row['周汇总'];
+            delete row['报销状态'];
         });
 
         return data;

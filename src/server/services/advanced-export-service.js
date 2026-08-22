@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 高级数据导出处理模块
  * 提供教师/学生信息查询和排课数据查询能力
@@ -169,6 +170,7 @@ SELECT
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
+    ca.fee_status,
     ca.family_participants,
     ca.teacher_rating,
     ca.student_rating,
@@ -199,7 +201,7 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         const result = await this.db.query(query, values);
         const queryTime = Date.now() - queryStartTime;
 
-        console.log(`[Performance] queryTeacherSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
+        logger.log(`[Performance] queryTeacherSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
 
         return result.rows || [];
     }
@@ -232,6 +234,7 @@ SELECT
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
+    ca.fee_status,
     ca.adjustment_type
 FROM course_arrangement ca
 LEFT JOIN students s ON ca.student_id = s.id
@@ -254,7 +257,7 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         const result = await this.db.query(query, values);
         const queryTime = Date.now() - queryStartTime;
 
-        console.log(`[Performance] queryStudentSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
+        logger.log(`[Performance] queryStudentSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
 
         return result.rows || [];
     }

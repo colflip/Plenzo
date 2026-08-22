@@ -14,8 +14,32 @@ const authController = {
      */
     login: asyncHandler(async (req, res) => {
         const { username, password, userType, rememberMe } = req.body;
-        const result = await authService.login(username, password, userType, rememberMe === true || rememberMe === 'true');
+        const rem = rememberMe === true || rememberMe === 'true';
+        const result = await authService.login(username, password, userType, rem);
+
+        // P1-5 修复：将 JWT 写入 httpOnly Cookie，避免 XSS 经 localStorage 窃取。
+        // 仍返回 token 以兼容非浏览器/旧客户端，但前端不再写入 localStorage。
+        const isProd = process.env.NODE_ENV === 'production';
+        const maxAge = rem ? 30 * 24 * 3600 * 1000 : 24 * 3600 * 1000;
+        res.cookie('token', result.token, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: 'lax',
+            path: '/',
+            maxAge
+        });
+
         res.json(result);
+    }),
+
+    /**
+     * @route POST /api/auth/logout
+     * @description 登出：清除 httpOnly Cookie
+     */
+    logout: asyncHandler(async (req, res) => {
+        const isProd = process.env.NODE_ENV === 'production';
+        res.clearCookie('token', { path: '/', secure: isProd, sameSite: 'lax' });
+        res.json({ success: true, message: '已登出' });
     }),
 
     /**

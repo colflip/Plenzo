@@ -111,7 +111,23 @@ function ensureLimit(sql, max = 100) {
 }
 
 /**
+ * 命中下列字段名的，视为高敏感 PII，整列脱敏（避免住址/联系方式泄露）。
+ * 注意：排课用的普通 location（上课地点，如"新课堂"）不在其列，保持可读。
+ */
+const SENSITIVE_COLUMN_PATTERNS = [
+    /home_address/i,
+    /(^|_)address$/i,
+    /contact/i,
+    /work_location/i,
+    /phone/i,
+    /mobile/i,
+    /email/i
+];
+
+/**
  * 对结果集做 PII 脱敏
+ * - 列名脱敏：命中 SENSITIVE_COLUMN_PATTERNS 的字段整列打码（防止住址/联系方式暴露）
+ * - 值模式脱敏：手机号 / 邮箱 / 身份证（仍保留，防止值级泄露）
  */
 function maskPII(rows) {
     if (!Array.isArray(rows)) return rows;
@@ -119,6 +135,10 @@ function maskPII(rows) {
         if (typeof row !== 'object' || row === null) return row;
         const out = {};
         for (const [key, value] of Object.entries(row)) {
+            if (SENSITIVE_COLUMN_PATTERNS.some(re => re.test(key))) {
+                out[key] = '***已脱敏***';
+                continue;
+            }
             if (typeof value === 'string') {
                 let masked = value;
                 for (const { re, replace } of PII_PATTERNS) {
@@ -181,12 +201,22 @@ async function buildSchemaPrompt() {
  * @param {number} [opts.timeoutMs=5000] statement 超时
  * @param {number} [opts.maxRows=100] 最大返回行数
  * @param {boolean} [opts.mask=true] 是否脱敏
+ * @param {string} [opts.callerRole] 调用者角色，必须为 teacher/admin，否则拒绝执行。
+ *        设计约束：本沙箱只允许教师/管理员使用；绝不可在向学生开放的路由中调用，
+ *        否则学生可通过自然语言查询获取师生住址/联系方式等 PII。
  * @returns {Promise<{rows: Array, sql: string, rowCount: number, limited: boolean}>}
  */
 async function execute(sql, opts = {}) {
     const timeoutMs = opts.timeoutMs || 5000;
     const maxRows = opts.maxRows || 100;
     const shouldMask = opts.mask !== false;
+
+    // 角色护栏：仅教师/管理员可触发自然语言 SQL 查询。
+    if (opts.callerRole && opts.callerRole !== 'teacher' && opts.callerRole !== 'admin') {
+        const err = new Error('SQL 沙箱仅对教师/管理员开放');
+        err.code = 'SQL_FORBIDDEN_ROLE';
+        throw err;
+    }
 
     // 1. 安全校验
     const validation = validateSQL(sql);

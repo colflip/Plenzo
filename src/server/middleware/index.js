@@ -4,7 +4,7 @@
  * @module middleware
  */
 
-const { authMiddleware, checkPermissionLevel } = require('./auth');
+const { authMiddleware, checkPermissionLevel, getJwtSecret } = require('./auth');
 const {
     ROLES,
     PERMISSION_LEVELS,
@@ -46,6 +46,7 @@ module.exports = {
     // 认证
     authMiddleware,
     checkPermissionLevel,
+    getJwtSecret,
 
     // 角色权限
     ROLES,

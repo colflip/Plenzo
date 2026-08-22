@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * AI 运行时配置存储（数据库持久化）
  * @description
@@ -45,7 +46,7 @@ class AIConfigStore {
         // 后台异步预热（测试环境不触发数据库访问）
         if (process.env.NODE_ENV !== 'test') {
             this.ensureLoaded().catch(err => {
-                console.error('[AIConfigStore] 初始加载失败:', err && err.message ? err.message : err);
+                logger.error('[AIConfigStore] 初始加载失败:', err && err.message ? err.message : err);
             });
         }
     }
@@ -126,7 +127,7 @@ class AIConfigStore {
                 this.loaded = true;
             } catch (err) {
                 // 数据库暂不可用（如无 DB 的本地场景）：回退到环境变量，不阻断启动
-                console.warn('[AIConfigStore] 读取配置失败，回退到环境变量:', err && err.message ? err.message : err);
+                logger.warn('[AIConfigStore] 读取配置失败，回退到环境变量:', err && err.message ? err.message : err);
                 this.cache = null;
                 this.loaded = true; // 标记已加载，避免每次调用都打库；后续写入会重新尝试
             }

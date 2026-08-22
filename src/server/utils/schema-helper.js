@@ -1,3 +1,4 @@
+const logger = require('./logger.js');
 /**
  * Schema 助手
  * @description 统一的数据库 schema 检测工具，消除各控制器中的重复实现
@@ -65,7 +66,7 @@ class SchemaHelper {
             // 其他别名：替换 ca 为目标别名
             return expr.replace(/ca\./g, `${alias}.`);
         } catch (error) {
-            console.warn('检测日期列失败，使用默认 date:', error.message);
+            logger.warn('检测日期列失败，使用默认 date:', error.message);
             return `${alias}.date`;
         }
     }
@@ -91,8 +92,58 @@ class SchemaHelper {
             SchemaHelper._columnCache.set(cacheKey, exists);
             return exists;
         } catch (error) {
-            console.warn(`检测列 ${table}.${column} 失败:`, error.message);
+            logger.warn(`检测列 ${table}.${column} 失败:`, error.message);
             return false;
+        }
+    }
+
+    /**
+     * 检查表是否存在
+     * @param {string} table 表名
+     * @returns {Promise<boolean>}
+     */
+    static async hasTable(table) {
+        const cacheKey = `table:${table}`;
+        if (SchemaHelper._columnCache.has(cacheKey)) {
+            return SchemaHelper._columnCache.get(cacheKey);
+        }
+        try {
+            const result = await db.query(
+                `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1 LIMIT 1`,
+                [table]
+            );
+            const exists = result.rows.length > 0;
+            SchemaHelper._columnCache.set(cacheKey, exists);
+            return exists;
+        } catch (error) {
+            logger.warn(`检测表 ${table} 失败:`, error.message);
+            return false;
+        }
+    }
+
+    /**
+     * 批量检测表中给定列名的存在性，返回实际存在的列名集合（Set）
+     * @param {string} table 表名
+     * @param {string[]} columns 待检测列名列表
+     * @returns {Promise<Set<string>>}
+     */
+    static async getColumns(table, columns) {
+        if (!Array.isArray(columns) || columns.length === 0) return new Set();
+        const cacheKey = `cols:${table}:${columns.slice().sort().join(',')}`;
+        if (SchemaHelper._columnCache.has(cacheKey)) {
+            return SchemaHelper._columnCache.get(cacheKey);
+        }
+        try {
+            const result = await db.query(
+                `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = ANY($2)`,
+                [table, columns]
+            );
+            const existing = new Set(result.rows.map(r => r.column_name));
+            SchemaHelper._columnCache.set(cacheKey, existing);
+            return existing;
+        } catch (error) {
+            logger.warn(`检测列 ${table}.${columns.join('/')} 失败:`, error.message);
+            return new Set();
         }
     }
 

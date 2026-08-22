@@ -31,4 +31,11 @@ router.post('/register', authMiddleware, adminOnly, validate(registerSchema), au
  */
 router.post('/change-password', authMiddleware, validate(changePasswordSchema), authController.changePassword);
 
+/**
+ * @route POST /api/auth/logout
+ * @description 登出（清除 httpOnly Cookie）
+ * @access Private
+ */
+router.post('/logout', authMiddleware, authController.logout);
+
 module.exports = router;

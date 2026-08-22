@@ -1,12 +1,16 @@
+const logger = require('../utils/logger.js');
 /**
  * 学生端控制器
  * @description 处理学生端的个人信息、时间安排、课程管理等操作
  */
 
 const db = require('../db/db');
+const { slotToColumn, mapRowToStudentAvailability } = require('../services/availability-service');
 const { handleExportError } = require('../middleware/export-error-handler');
-const ExportLogService = require('../utils/export-log-service');
 const SchemaHelper = require('../utils/schema-helper');
+const scheduleService = require('../services/schedule-service');
+const AdvancedExportService = require('../services/advanced-export-service');
+const exportService = require('../services/export-service');
 
 const studentController = {
     /**
@@ -18,8 +22,7 @@ const studentController = {
             // 动态选择是否返回 status 和 nickname 字段
             let selectCols = 'id, username, name, profession, contact, visit_location, home_address, last_login';
             try {
-                const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name IN ('status', 'nickname')`);
-                const availableCols = new Set((cols.rows || []).map(r => r.column_name));
+                const availableCols = await SchemaHelper.getColumns('students', ['status', 'nickname']);
                 if (availableCols.has('nickname')) {
                     selectCols += ', nickname';
                 }
@@ -38,7 +41,7 @@ const studentController = {
 
             res.json(result.rows[0]);
         } catch (error) {
-            console.error('获取学生信息错误:', error);
+            logger.error('获取学生信息错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -80,7 +83,7 @@ const studentController = {
 
             res.json(result.rows[0]);
         } catch (error) {
-            console.error('更新学生信息错误:', error);
+            logger.error('更新学生信息错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -104,15 +107,9 @@ const studentController = {
                 [req.user.id, startDate, endDate]
             );
 
-            res.json(result.rows.map(r => ({
-                id: r.id,
-                date: r.date,
-                morning_available: r.morning_available,
-                afternoon_available: r.afternoon_available,
-                evening_available: r.evening_available
-            })));
+            res.json(result.rows.map(mapRowToStudentAvailability));
         } catch (error) {
-            console.error('获取时间安排错误:', error);
+            logger.error('获取时间安排错误:', error);
             res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
         }
     },
@@ -121,101 +118,27 @@ const studentController = {
      * 高级导出（供直接获取多Sheet Excel文件）
      */
     async advancedExport(req, res) {
-        let logId = null;
-        const startTime = Date.now();
-        const logService = new ExportLogService(db);
-
         try {
             const studentId = req.user.id;
             const { startDate, endDate } = req.query;
-            const { standardResponse } = require('../middleware/validation');
-
-            if (!startDate || !endDate) {
-                return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
-            }
-
-            // 验证日期格式
-            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-            if (!dateRegex.test(startDate) || !dateRegex.test(endDate) ||
-                new Date(startDate).toString() === 'Invalid Date' ||
-                new Date(endDate).toString() === 'Invalid Date') {
-                return res.status(400).json(standardResponse(false, null, '日期格式无效，请使用 YYYY-MM-DD 格式'));
-            }
-
-            // 记录导出开始
-            try {
-                logId = await logService.logExportStart({
-                    userId: studentId,
-                    userType: 'student',
-                    startDate,
-                    endDate,
-                    studentId: studentId,
-                    exportType: 'student_schedule'
-                });
-            } catch (logError) {
-                console.warn('记录导出开始日志失败:', logError.message);
-            }
-
-            // 1. 查询原始数据（只查询当前学生的数据）
-            const AdvancedExportService = require('../services/advanced-export-service');
-            const exportService = new AdvancedExportService(db);
-            const rawData = await exportService.queryStudentSchedule(startDate, endDate, {
-                student_id: studentId
-            });
-
-            if (!rawData || rawData.length === 0) {
-                return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
-            }
-
-            // 2. 使用统一服务生成完整的多Sheet数据
-            const UnifiedExportService = require('../services/unified-export-service');
-            const unifiedService = new UnifiedExportService();
-            const exportResult = await unifiedService.generateCompleteExport(rawData, {
+            const out = await exportService.runRoleScheduleExport({
                 startDate,
                 endDate,
-                userType: 'student',
                 userId: studentId,
-                studentId: studentId,
-                studentName: req.user.name || req.user.username
+                userType: 'student',
+                studentId,
+                exportType: 'student_schedule',
+                studentName: req.user.name || req.user.username,
+                queryRawData: () => new AdvancedExportService(db).queryStudentSchedule(startDate, endDate, { student_id: studentId })
             });
-
-            // 3. 使用 excelGeneratorService 生成 Excel 文件
-            const excelGeneratorService = require('../services/excel-generator-service');
-            const excelResult = await excelGeneratorService.generateMultiSheetExcel(
-                exportResult.sheets,
-                exportResult.filename
-            );
-
-            // 记录导出成功
-            if (logId) {
-                try {
-                    await logService.logExportSuccess(logId, {
-                        recordCount: rawData.length,
-                        fileSize: excelResult.buffer.length,
-                        fileName: excelResult.filename,
-                        duration: Date.now() - startTime
-                    });
-                } catch (logError) {
-                    console.warn('记录导出成功日志失败:', logError.message);
-                }
+            if (out.buffer) {
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+                res.setHeader('Content-Length', out.buffer.length);
+                return res.end(out.buffer);
             }
-
-            // 4. 直接发送文件流
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
-            res.setHeader('Content-Length', excelResult.buffer.length);
-            return res.end(excelResult.buffer);
-
+            return res.status(out.status).json(out.body);
         } catch (error) {
-            // 记录导出失败
-            if (logId) {
-                try {
-                    await logService.logExportError(logId, error.message);
-                } catch (logError) {
-                    console.warn('记录导出错误日志失败:', logError.message);
-                }
-            }
-
             return handleExportError(error, req, res);
         }
     },
@@ -242,15 +165,7 @@ const studentController = {
                 const q = usePool ? db.query : client.query.bind(client);
 
                 for (const item of availabilityList) {
-                    const slotToCol = (slot) => {
-                        switch (slot) {
-                            case 'morning': return 'morning_available';
-                            case 'afternoon': return 'afternoon_available';
-                            case 'evening': return 'evening_available';
-                            default: return null;
-                        }
-                    };
-                    const col = slotToCol(item.timeSlot);
+                    const col = slotToColumn(item.timeSlot);
                     if (!col) continue;
 
                     const val = item.isAvailable === false ? 0 : 1;
@@ -280,7 +195,7 @@ const studentController = {
 
             res.json({ message: '时间安排更新成功', updateCount, insertCount });
         } catch (error) {
-            console.error('[setAvailability] 错误:', error);
+            logger.error('[setAvailability] 错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -296,18 +211,9 @@ const studentController = {
         try {
             const { startDate, endDate, timeSlots, ranges } = req.body;
 
-            const slotToCol = (slot) => {
-                switch (slot) {
-                    case 'morning': return 'morning_available';
-                    case 'afternoon': return 'afternoon_available';
-                    case 'evening': return 'evening_available';
-                    default: return null;
-                }
-            };
-
             if (Array.isArray(timeSlots) && timeSlots.length > 0) {
                 for (const slot of timeSlots) {
-                    const col = slotToCol(slot);
+                    const col = slotToColumn(slot);
                     if (!col) continue;
                     await db.query(
                         `UPDATE student_daily_availability SET ${col} = 0, updated_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND date BETWEEN $2 AND $3`,
@@ -325,7 +231,7 @@ const studentController = {
                     if (start === '08:00') slot = 'morning';
                     if (start === '13:00') slot = 'afternoon';
                     if (start === '18:00') slot = 'evening';
-                    const col = slotToCol(slot);
+                    const col = slotToColumn(slot);
                     if (!col) continue;
                     await db.query(
                         `UPDATE student_daily_availability SET ${col} = 0, updated_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND date BETWEEN $2 AND $3`,
@@ -336,7 +242,7 @@ const studentController = {
 
             res.json({ message: '时间安排删除成功' });
         } catch (error) {
-            console.error('删除时间安排错误:', error);
+            logger.error('删除时间安排错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },
@@ -349,53 +255,8 @@ const studentController = {
      * @param {string} req.query.status - 课程状态过滤（可选）
      */
     async getSchedules(req, res) {
-        try {
-            const { startDate, endDate, status } = req.query;
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            let query = `
-                SELECT
-                    ca.id,
-                    (${dateExpr})::text AS date,
-                    ca.start_time, ca.end_time, ca.status,
-                    ca.location,
-                    ca.adjustment_type,
-                    ca.adjustment_type AS is_temp,
-                    ca.teacher_id, t.name as teacher_name,
-                    sty.name as schedule_type,
-                    sty.description as schedule_type_cn,
-                    ca.course_id
-                FROM course_arrangement ca
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
-                JOIN students s ON ca.student_id = s.id
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-            `;
-
-            if (await SchemaHelper.hasColumn('teachers', 'status')) query += ` AND t.status = 1`;
-            if (await SchemaHelper.hasColumn('students', 'status')) query += ` AND s.status = 1`;
-
-            const values = [req.user.id, startDate, endDate];
-
-            if (status) {
-                query += ` AND ca.status = $4`;
-                values.push(status);
-            }
-
-            // 默认隐藏调走的原课程；“显示全部安排”时与管理员端一致展示
-            if (req.query.show_plan !== 'true') {
-                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
-            }
-
-            query += ` ORDER BY date, ca.start_time`;
-
-            const result = await db.query(query, values);
-            res.json(result.rows);
-        } catch (error) {
-            console.error('获取课程安排错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.studentListSchedules(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -405,74 +266,8 @@ const studentController = {
      * @param {string} req.query.endDate - 结束日期
      */
     async getStatistics(req, res) {
-        try {
-            const { startDate, endDate } = req.query;
-            if (!startDate || !endDate) {
-                return res.status(400).json({ message: '请提供日期范围' });
-            }
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-
-            // 三个查询相互独立，使用 Promise.all 并行执行，
-            // 减少 Neon serverless 多次往返带来的累计延迟
-            const [typeStats, monthlyStats, schedules] = await Promise.all([
-                // 1. 按类型的聚合统计 (排除已取消)
-                db.query(`
-                SELECT
-                    COALESCE(sty.description, sty.name) as type,
-                    COUNT(*)::int as count
-                FROM course_arrangement ca
-                JOIN schedule_types sty ON ca.course_id = sty.id
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                GROUP BY COALESCE(sty.description, sty.name)
-                ORDER BY count DESC
-            `, [req.user.id, startDate, endDate]),
-
-                // 2. 每月课程数统计 (柱状图所需)
-                db.query(`
-                SELECT
-                    TO_CHAR(${dateExpr}, 'YYYY-MM') as month,
-                    COUNT(*)::int as count
-                FROM course_arrangement ca
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                GROUP BY TO_CHAR(${dateExpr}, 'YYYY-MM')
-                ORDER BY month
-            `, [req.user.id, startDate, endDate]),
-
-                // 3. 所有课程明细 (用于统计页下方的表格，已过滤日期)
-                db.query(`
-                SELECT
-                    ca.id,
-                    (${dateExpr})::text AS date,
-                    ca.start_time, ca.end_time, ca.status,
-                    ca.location,
-                    ca.adjustment_type AS is_temp,
-                    t.name as teacher_name,
-                    sty.name as schedule_type,
-                    sty.description as schedule_type_cn
-                FROM course_arrangement ca
-                LEFT JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
-                ORDER BY date DESC, ca.start_time ASC
-            `, [req.user.id, startDate, endDate])
-            ]);
-
-            res.json({
-                typeStats: typeStats.rows,
-                monthlyStats: monthlyStats.rows,
-                schedules: schedules.rows
-            });
-        } catch (error) {
-            console.error('获取统计数据错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.studentStatistics(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -480,106 +275,8 @@ const studentController = {
      * @description 获取学生仪表盘总览数据，包括本月课程数、待上课数、已完成课数、今日课程
      */
     async getOverview(req, res) {
-        try {
-            // Date ranges calculation
-            const today = new Date();
-
-            // Week range (Monday to Sunday)
-            const dayOfWeek = today.getDay() || 7; // Sunday is 0, make it 7 for calculation
-            const activeWeekStart = new Date(today);
-            activeWeekStart.setDate(today.getDate() - dayOfWeek + 1);
-            const activeWeekEnd = new Date(activeWeekStart);
-            activeWeekEnd.setDate(activeWeekStart.getDate() + 6);
-
-            // Month range
-            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-            // Year range
-            const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
-            const lastDayOfYear = new Date(today.getFullYear(), 11, 31);
-
-            // 修复时区偏差问题：确保返回纯数字的 YYYY-MM-DD 格式，避免 zh-CN 下出现“月”、“日”字符
-            const formatDate = (d) => {
-                const parts = new Intl.DateTimeFormat('en-US', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    timeZone: 'Asia/Shanghai'
-                }).formatToParts(d);
-                const year = parts.find(p => p.type === 'year').value;
-                const month = parts.find(p => p.type === 'month').value;
-                const day = parts.find(p => p.type === 'day').value;
-                return `${year}-${month}-${day}`;
-            };
-
-            const todayStr = formatDate(today);
-            const weekStartStr = formatDate(activeWeekStart);
-            const weekEndStr = formatDate(activeWeekEnd);
-            const monthStartStr = formatDate(firstDayOfMonth);
-            const monthEndStr = formatDate(lastDayOfMonth);
-            const yearStartStr = formatDate(firstDayOfYear);
-            const yearEndStr = formatDate(lastDayOfYear);
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-
-            // Unified Query for all 6 metrics
-            // Time-based: pending, confirmed, completed (exclude cancelled)
-            // Status-based: all time
-            const statsResult = await db.query(`
-                SELECT 
-                    -- Time-based (Weekly, Monthly, Yearly) - Valid courses only
-                    SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as weekly_count,
-                    SUM(CASE WHEN ${dateExpr} BETWEEN $4 AND $5 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as monthly_count,
-                    SUM(CASE WHEN ${dateExpr} BETWEEN $6 AND $7 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as yearly_count,
-                    
-                    -- Status-based (All time)
-                    SUM(CASE WHEN ca.status IN ('pending', 'confirmed') THEN 1 ELSE 0 END)::int as total_pending,
-                    SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
-                    SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
-                FROM course_arrangement ca
-                WHERE ca.student_id = $1
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
-            `, [
-                req.user.id,
-                weekStartStr, weekEndStr,
-                monthStartStr, monthEndStr,
-                yearStartStr, yearEndStr
-            ]);
-
-            // 获取今日课程
-            const todaySchedules = await db.query(`
-                SELECT 
-                    ca.id,
-                    (${dateExpr})::text AS date,
-                    ca.start_time, ca.end_time, ca.status,
-                    ca.location,
-                    ca.adjustment_type AS is_temp,
-                    t.name as teacher_name,
-                    sty.name as schedule_type,
-                    sty.description as schedule_type_cn
-                FROM course_arrangement ca
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
-                WHERE ca.student_id = $1
-                  AND ${dateExpr} = $2
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
-                ORDER BY ca.start_time
-            `, [req.user.id, todayStr]);
-
-            res.json({
-                weeklyCount: parseInt(statsResult.rows[0]?.weekly_count || 0),
-                monthlyCount: parseInt(statsResult.rows[0]?.monthly_count || 0),
-                yearlyCount: parseInt(statsResult.rows[0]?.yearly_count || 0),
-                totalPending: parseInt(statsResult.rows[0]?.total_pending || 0), // Includes confirmed as 'active/pending' actions
-                totalCompleted: parseInt(statsResult.rows[0]?.total_completed || 0),
-                totalCancelled: parseInt(statsResult.rows[0]?.total_cancelled || 0),
-                todaySchedules: todaySchedules.rows
-            });
-        } catch (error) {
-            console.error('获取总览数据错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.studentOverview(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -594,30 +291,8 @@ const studentController = {
      * @param {string} req.params.id - 课程ID
      */
     async confirmSchedule(req, res) {
-        try {
-            const scheduleId = req.params.id;
-
-            // 验证课程是否属于该学生
-            const checkResult = await db.query(
-                'SELECT id FROM course_arrangement WHERE id = $1 AND student_id = $2',
-                [scheduleId, req.user.id]
-            );
-
-            if (checkResult.rows.length === 0) {
-                return res.status(404).json({ message: '未找到该课程或无权限' });
-            }
-
-            // 更新状态为已确认
-            await db.query(
-                'UPDATE course_arrangement SET status = $1 WHERE id = $2',
-                ['confirmed', scheduleId]
-            );
-
-            res.json({ message: '课程确认成功' });
-        } catch (error) {
-            console.error('确认课程错误:', error);
-            res.status(500).json({ message: '服务器错误' });
-        }
+        const out = await scheduleService.studentConfirmSchedule(req);
+        return res.status(out.status).json(out.body);
     },
 
     /**
@@ -657,7 +332,7 @@ const studentController = {
             try {
                 isValidPassword = await bcrypt.compare(currentPassword, currentPasswordHash);
             } catch (error) {
-                console.error('密码比较错误:', error);
+                logger.error('密码比较错误:', error);
                 return res.status(500).json({ message: '密码验证失败' });
             }
 
@@ -690,7 +365,7 @@ const studentController = {
 
             res.json({ message: '密码修改成功' });
         } catch (error) {
-            console.error('修改密码错误:', error);
+            logger.error('修改密码错误:', error);
             res.status(500).json({ message: '服务器错误' });
         }
     },

@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 统一导出控制器
  * @description 四端（管理员、教师、班主任、学生）共用的导出逻辑
@@ -93,7 +94,7 @@ const exportController = {
                     exportType
                 });
             } catch (e) {
-                console.warn('记录导出开始日志失败:', e.message);
+                logger.warn('记录导出开始日志失败:', e.message);
             }
 
             // ===== 6. 查询原始数据 =====
@@ -154,7 +155,7 @@ const exportController = {
                         duration: Date.now() - startTime
                     });
                 } catch (e) {
-                    console.warn('记录导出成功日志失败:', e.message);
+                    logger.warn('记录导出成功日志失败:', e.message);
                 }
             }
 
@@ -200,7 +201,7 @@ const exportController = {
                     exportType: type
                 });
             } catch (e) {
-                console.warn('记录导出日志失败:', e.message);
+                logger.warn('记录导出日志失败:', e.message);
             }
 
             const exportService = new AdvancedExportService(db);
@@ -223,7 +224,7 @@ const exportController = {
                         duration: Date.now() - startTime
                     });
                 } catch (e) {
-                    console.warn('记录导出完成日志失败:', e.message);
+                    logger.warn('记录导出完成日志失败:', e.message);
                 }
             }
 

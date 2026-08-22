@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOrAdmin, anyAuthenticated } = require('../middleware/role');
 const aiController = require('../controllers/ai-controller');
+const { validate, aiConfigUpdateValidation, aiConfigTestValidation } = require('../middleware/validation');
 
 /**
  * AI 专用速率限制
@@ -36,13 +37,13 @@ router.get('/config', authMiddleware, teacherOrAdmin, aiController.getConfig);
 router.get('/presets', authMiddleware, teacherOrAdmin, aiController.getPresets);
 
 // 更新 AI 配置
-router.put('/config', authMiddleware, teacherOrAdmin, aiController.updateConfig);
+router.put('/config', authMiddleware, teacherOrAdmin, validate(aiConfigUpdateValidation), aiController.updateConfig);
 
 // 检测 AI 模型状态（快速检测，只验证连接性）
-router.post('/check', authMiddleware, teacherOrAdmin, aiController.checkModel);
+router.post('/check', authMiddleware, teacherOrAdmin, validate(aiConfigTestValidation), aiController.checkModel);
 
 // 测试 AI 模型连接（完整测试，发送真实请求）
-router.post('/test', authMiddleware, teacherOrAdmin, aiController.testModel);
+router.post('/test', authMiddleware, teacherOrAdmin, validate(aiConfigTestValidation), aiController.testModel);
 
 // 获取所有渠道支持的模型列表
 router.get('/models', authMiddleware, teacherOrAdmin, aiController.getAvailableModels);

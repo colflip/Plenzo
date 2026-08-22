@@ -1,7 +1,9 @@
+const logger = require('../utils/logger.js');
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const db = require('../db/db');
+const SchemaHelper = require('../utils/schema-helper');
 
 // 获取所有用户或根据类型过滤用户（仅管理员）
 router.get('/', authMiddleware, adminOnly, async (req, res) => {
@@ -14,10 +16,12 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
             let teachersSql = "SELECT id, name, username, 'teacher' as type FROM teachers";
             let studentsSql = "SELECT id, name, username, 'student' as type FROM students";
             try {
-                const tCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='teachers' AND column_name='status'`);
-                const sCols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='status'`);
-                if ((tCols.rows || []).length > 0) teachersSql += ' WHERE status != -1';
-                if ((sCols.rows || []).length > 0) studentsSql += ' WHERE status != -1';
+                const [tHasStatus, sHasStatus] = await Promise.all([
+                    SchemaHelper.hasColumn('teachers', 'status'),
+                    SchemaHelper.hasColumn('students', 'status')
+                ]);
+                if (tHasStatus) teachersSql += ' WHERE status != -1';
+                if (sHasStatus) studentsSql += ' WHERE status != -1';
             } catch(_) {}
             const teachersResult = await db.query(teachersSql);
             const studentsResult = await db.query(studentsSql);
@@ -52,7 +56,7 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
             });
         }
     } catch (error) {
-        console.error('获取用户列表错误:', error);
+        logger.error('获取用户列表错误:', error);
         res.status(500).json({
             success: false,
             message: '服务器错误'

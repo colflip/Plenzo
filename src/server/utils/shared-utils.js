@@ -1,3 +1,4 @@
+const logger = require('./logger.js');
 /**
  * 服务端共享工具函数
  * @description 消除控制器和服务层之间的重复代码
@@ -76,7 +77,7 @@ async function resolveUserName(db, userType, userId) {
             return r.rows[0].name || r.rows[0].username || '用户';
         }
     } catch (e) {
-        console.warn('获取用户名失败:', e.message);
+        logger.warn('获取用户名失败:', e.message);
     }
     return userType === 'admin' ? '管理员' : userType === 'teacher' ? '教师' : '学生';
 }

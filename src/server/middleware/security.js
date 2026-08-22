@@ -6,6 +6,8 @@
 
 const helmet = require('helmet');
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 /**
  * 安全Headers配置
  */
@@ -15,8 +17,6 @@ const securityHeaders = helmet({
             defaultSrc: ["'self'"],
             scriptSrc: [
                 "'self'",
-                "'unsafe-inline'",
-                "'unsafe-eval'",
                 'cdn.jsdelivr.net',
                 'cdnjs.cloudflare.com'
             ],
@@ -126,21 +126,26 @@ const corsOptions = {
 
         // 同站放行：浏览器加载同站 ES module / 静态资源时仍会带 Origin 头，
         // 若该 Origin 的 host:port 与服务器实际监听一致（或均为 localhost/127.0.0.1 任意端口），
-        // 视为同源，避免生产环境误将同站资源请求拒为 500（真实根因：
+        // 视为同源，避免开发环境误将同站资源请求拒为 500（真实根因：
         // 之前只允许白名单域名，导致运行端口的 127.0.0.1 同源请求被 CORS 拦截成 500，
         // 进而 entry.js 等模块脚本无法加载，仪表盘不初始化）。
-        try {
-            const originUrl = new URL(origin);
-            const host = process.env.HOST || 'localhost';
-            const port = String(process.env.PORT || 3001);
-            const sameHost = originUrl.hostname === host || originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1';
-            const samePort = originUrl.port === port || originUrl.port === '';
-            const isLocal = (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1');
-            if (sameHost && (samePort || isLocal)) {
-                return callback(null, true);
+        // 注意：该动态 localhost 回退仅在非生产环境生效；生产环境必须收紧，
+        // 仅允许上方显式 ALLOWED_ORIGINS + Railway URL，避免本机任意页面/扩展
+        // 以 localhost 源发起带凭证的跨域请求。
+        if (!isProduction) {
+            try {
+                const originUrl = new URL(origin);
+                const host = process.env.HOST || 'localhost';
+                const port = String(process.env.PORT || 3001);
+                const sameHost = originUrl.hostname === host || originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1';
+                const samePort = originUrl.port === port || originUrl.port === '';
+                const isLocal = (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1');
+                if (sameHost && (samePort || isLocal)) {
+                    return callback(null, true);
+                }
+            } catch (_) {
+                // 非法 origin 字符串，落到下面的拒绝分支
             }
-        } catch (_) {
-            // 非法 origin 字符串，落到下面的拒绝分支
         }
 
         callback(new Error('不允许的CORS请求'));
@@ -150,8 +155,7 @@ const corsOptions = {
     allowedHeaders: [
         'Content-Type',
         'Authorization',
-        'X-Requested-With',
-        'X-CSRF-Token'
+        'X-Requested-With'
     ],
     exposedHeaders: ['Content-Disposition'],
     maxAge: 86400
