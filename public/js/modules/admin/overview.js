@@ -148,7 +148,13 @@ export async function loadOverviewStats() {
             }
             if (elements.adminRole) {
                 let roleLabel = '管理员';
-                if (userData.userType === 'admin') roleLabel = '管理员';
+                if (userData.userType === 'admin') {
+                    // 权限落地（Phase 3）：按级别细化身份显示
+                    const lvl = parseInt(userData.permission_level, 10);
+                    if (lvl === 1) roleLabel = '超级管理员';
+                    else if (lvl === 2) roleLabel = '普通管理员';
+                    else roleLabel = '操作员';
+                }
                 else if (userData.userType === 'teacher') roleLabel = '老师';
                 else if (userData.userType === 'student') roleLabel = '学生';
                 elements.adminRole.textContent = roleLabel; // 移除括号

@@ -43,7 +43,7 @@ function renderHolidaysTable(data) {
     if (!tbody) return;
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">暂无节假日数据，可手动添加或点击"从 API 同步"</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">暂无节假日数据，可手动添加或点击"从 API 同步"</td></tr>';
         return;
     }
 
@@ -52,22 +52,28 @@ function renderHolidaysTable(data) {
         return a.start_date.localeCompare(b.start_date);
     });
 
-    tbody.innerHTML = sorted.map(item => `
-        <tr data-id="${item.id || ''}">
-            <td>${item.year || ''}</td>
+    const esc = window.SecurityUtils ? (v) => window.SecurityUtils.escapeHtml(String(v ?? '')) : (s) => String(s ?? '');
+    const fmtDate = (d) => d ? d.replace(/-/g, '/') : '';
+    const holidaysHtml = sorted.map(item => {
+        const sameDate = item.start_date === item.end_date;
+        return `
+        <tr data-id="${esc(item.id)}">
+            <td>${esc(item.year)}</td>
             <td>${item.type === 'makeup' ? '调休补班' : '法定节假日'}</td>
-            <td>${formatDateRange(item.start_date, item.end_date)}</td>
-            <td>${item.label || ''}</td>
+            <td>${esc(item.label)}</td>
+            <td>${fmtDate(item.start_date)}</td>
+            <td>${sameDate ? '同上' : fmtDate(item.end_date)}</td>
             <td>
-                <button class="edit-btn" data-id="${item.id || ''}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
+                <button class="edit-btn" data-id="${esc(item.id)}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
                     <span class="material-icons-round" style="font-size:18px;">edit</span>
                 </button>
-                <button class="delete-btn" data-id="${item.id || ''}" title="删除" style="background:none;border:none;color:#ef4444;cursor:pointer;">
+                <button class="delete-btn" data-id="${esc(item.id)}" title="删除" style="background:none;border:none;color:#ef4444;cursor:pointer;">
                     <span class="material-icons-round" style="font-size:18px;">delete</span>
                 </button>
             </td>
-        </tr>
-    `).join('');
+        </tr>`;
+    }).join('');
+    tbody.innerHTML = holidaysHtml;
 
     // 绑定编辑/删除事件
     tbody.querySelectorAll('.edit-btn').forEach(btn => {
@@ -167,7 +173,7 @@ async function editHoliday(id) {
 // 删除节假日
 // ========================
 async function deleteHoliday(id) {
-    if (!id || !confirm('确定删除此节假日记录？')) return;
+    if (!id || !await Modal.confirm('确定删除此节假日记录？', { title: '删除节假日', confirmText: '删除', confirmStyle: 'danger' })) return;
     try {
         await window.apiUtils.delete(`/admin/holidays/${id}`);
         window.showToast('节假日已删除', 'success');

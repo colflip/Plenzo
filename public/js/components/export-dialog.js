@@ -190,7 +190,7 @@ window.ExportDialog = (function () {
         // 创建 HTML
         const html = createDialogHTML();
         const tempDiv = document.createElement('div');
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tempDiv, html); } else { tempDiv.innerHTML = html; }
+        window.SecurityUtils.safeSetHTML(tempDiv, html);
         const element = tempDiv.firstElementChild;
         document.body.appendChild(element);
 
@@ -454,7 +454,7 @@ window.ExportDialog = (function () {
                 const safeName = String(name).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
                 html += `<option value="${s.id}">${safeName}</option>`;
             });
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSelect, html); } else { studentSelect.innerHTML = html; }
+            window.SecurityUtils.safeSetHTML(studentSelect, html);
         };
 
         // 需求：如果是教师/班主任，应实时获取其关联的学生列表，而不应使用管理员缓存的全体学生
@@ -468,7 +468,7 @@ window.ExportDialog = (function () {
             state.studentsLoaded = true;
         } else {
             // 班主任或无缓存时，显示 Loading 并从接口获取
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载中...</option>'); } else { studentSelect.innerHTML = '<option value="">加载中...</option>'; }
+            window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载中...</option>');
             studentSelect.disabled = true;
         }
 
@@ -504,7 +504,7 @@ window.ExportDialog = (function () {
             } catch (e) {
                 // 如果没有缓存且加载失败
                 if (!cachedData) {
-                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载失败</option>'); } else { studentSelect.innerHTML = '<option value="">加载失败</option>'; }
+                    window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载失败</option>');
                     studentSelect.disabled = false;
                 }
             }
@@ -535,7 +535,7 @@ window.ExportDialog = (function () {
                 const safeName = String(name).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
                 html += `<option value="${t.id}">${safeName}</option>`;
             });
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSelect, html); } else { teacherSelect.innerHTML = html; }
+            window.SecurityUtils.safeSetHTML(teacherSelect, html);
         };
 
         if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
@@ -543,7 +543,7 @@ window.ExportDialog = (function () {
             teacherSelect.disabled = false;
             state.teachersLoaded = true;
         } else {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSelect, '<option value="">加载中...</option>'); } else { teacherSelect.innerHTML = '<option value="">加载中...</option>'; }
+            window.SecurityUtils.safeSetHTML(teacherSelect, '<option value="">加载中...</option>');
             teacherSelect.disabled = true;
         }
 
@@ -564,7 +564,7 @@ window.ExportDialog = (function () {
                 state.teachersLoaded = true;
             } catch (e) {
                 if (!cachedData) {
-                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSelect, '<option value="">加载失败</option>'); } else { teacherSelect.innerHTML = '<option value="">加载失败</option>'; }
+                    window.SecurityUtils.safeSetHTML(teacherSelect, '<option value="">加载失败</option>');
                     teacherSelect.disabled = false;
                 }
             }
@@ -654,7 +654,7 @@ window.ExportDialog = (function () {
             const originalBtnText = exportBtn ? exportBtn.innerHTML : '导出 Excel';
             if (exportBtn) {
                 exportBtn.disabled = true;
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(exportBtn, '<i class="fas fa-spinner fa-spin"></i> 导出 Excel···'); } else { exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 导出 Excel···'; }
+                window.SecurityUtils.safeSetHTML(exportBtn, '<i class="fas fa-spinner fa-spin"></i> 导出 Excel···');
             }
 
             // 更新 UI
@@ -673,7 +673,6 @@ window.ExportDialog = (function () {
             // 调用统一导出 API
             const currentUser = getCurrentUser();
             const userType = currentUser.userType || 'admin';
-            const token = (window.apiUtils && window.apiUtils.getAuthToken && window.apiUtils.getAuthToken()) || localStorage.getItem('token') || sessionStorage.getItem('tempToken');
             const isInfoType = (state.selectedType === 'teacher_info' || state.selectedType === 'student_info');
 
             let fetchResponse;
@@ -683,9 +682,9 @@ window.ExportDialog = (function () {
                 // 信息类导出 → POST /api/export/info
                 fetchResponse = await fetch('/api/export/info', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': token ? `Bearer ${token}` : ''
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         type: state.selectedType,
@@ -731,9 +730,9 @@ window.ExportDialog = (function () {
 
                 fetchResponse = await fetch('/api/export/schedule', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': token ? `Bearer ${token}` : ''
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(scheduleBody)
                 });
@@ -820,11 +819,7 @@ window.ExportDialog = (function () {
             if (exportBtn) {
                 exportBtn.disabled = false;
                 const btnHtml = '<span class="material-icons-round">download</span> 导出 Excel';
-                if (window.SecurityUtils) { 
-                    window.SecurityUtils.safeSetHTML(exportBtn, btnHtml); 
-                } else { 
-                    exportBtn.innerHTML = btnHtml; 
-                }
+                window.SecurityUtils.safeSetHTML(exportBtn, btnHtml);
             }
         }
     }
@@ -854,11 +849,15 @@ window.ExportDialog = (function () {
 
 
     /**
-     * 显示提示信息（使用右上角Toast组件）
+     * 显示提示信息（委托到统一 Toast 组件，带安全防护）
      */
     function showToast(message, type = 'info') {
-        if (window.Toast) {
-            window.Toast.show(message, { type: type, duration: 3000 });
+        if (window.Toast && typeof window.Toast.show === 'function') {
+            window.Toast.show(message, { type });
+        } else {
+            setTimeout(() => {
+                if (window.Toast) window.Toast.show(message, { type });
+            }, 200);
         }
     }
 
@@ -893,7 +892,7 @@ window.ExportDialog = (function () {
             progressMsg.textContent = '准备就绪';
             progressMsg.style.color = '#64748b';
             // remove any error html
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(progressMsg, '准备就绪'); } else { progressMsg.innerHTML = '准备就绪'; }
+            window.SecurityUtils.safeSetHTML(progressMsg, '准备就绪');
         }
 
         const overlay = document.getElementById('exportLoadingOverlay');
@@ -1365,10 +1364,12 @@ window.ExportDialog = (function () {
             .loading-content { text-align: center; }
             .spinner-box { margin-bottom: 16px; }
 
+            /* 统一加载视觉：尺寸/配色取自 global.css 的 --loading-* 令牌 */
             .export-spinner {
-                width: 36px; height: 36px;
-                border: 3px solid #e2e8f0;
-                border-top-color: #10b981;
+                width: var(--loading-spinner-size, 32px);
+                height: var(--loading-spinner-size, 32px);
+                border: var(--loading-spinner-border, 3px) solid var(--loading-track-color, rgba(46, 204, 113, 0.1));
+                border-top-color: var(--loading-accent-color, #2ECC71);
                 border-radius: 50%;
                 animation: spin 1s linear infinite;
                 margin: 0 auto;
@@ -1431,3 +1432,4 @@ window.ExportDialog = (function () {
     };
 
 })(); // End IIFE
+

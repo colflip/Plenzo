@@ -7,17 +7,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>管理员仪表盘 - Plenzo</title>
     <!-- 同步鉴权守卫：在任意脚本/接口调用前执行，避免非管理员或令牌缺失时加载后台并触发 403 误报 -->
-    <script>
-        (function () {
-            try {
-                var token = localStorage.getItem('token') || sessionStorage.getItem('tempToken');
-                var userType = localStorage.getItem('userType');
-                if (!token || userType !== 'admin') {
-                    window.location.replace('/index.html');
-                }
-            } catch (e) { /* 解析异常时交由后续逻辑处理 */ }
-        })();
-    </script>
+    <script src="/js/utils/admin-auth-guard.js"></script>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
     <link rel="stylesheet" href="/css/core/global.css">
@@ -56,17 +46,8 @@
             cursor: not-allowed;
         }
 
-        .btn-loading {
-            display: none;
-        }
-
-        .search-btn:disabled .btn-loading {
-            display: inline;
-        }
-
-        .search-btn:disabled .btn-text {
-            display: none;
-        }
+        /* .btn-loading / .search-btn:disabled 的显隐规则已统一到 core/global.css，
+           避免三个角色页面各自内联一份重复定义。 */
 
         /* 反馈消息样式 */
         .feedback {
@@ -454,14 +435,6 @@
         .fb-half-group > .priority-label {
             margin-left: 24px;
         }
-        /* === 反馈表格居中 === */
-        #feedbacksTable th,
-        #feedbacksTable td {
-            text-align: center;
-        }
-        #feedbacksTable td {
-            vertical-align: middle;
-        }
         /* === 反馈表单按钮间距 === */
         #feedbackFormContainer .form-actions {
             margin-top: 32px;
@@ -490,7 +463,7 @@
                     <span class="material-icons-round">dashboard</span>
                     <span class="nav-text">总览</span>
                 </a>
-                <a href="#" class="nav-item" data-section="users">
+                <a href="#" class="nav-item" data-section="users" data-min-level="2">
                     <span class="material-icons-round">people</span>
                     <span class="nav-text">用户管理</span>
                 </a>
@@ -510,7 +483,7 @@
                     <span class="material-icons-round">insights</span>
                     <span class="nav-text">数据统计</span>
                 </a>
-                <a href="#" class="nav-item" data-section="system-settings">
+                <a href="#" class="nav-item" data-section="system-settings" data-min-level="1">
                     <span class="material-icons-round">tune</span>
                     <span class="nav-text">系统设置</span>
                 </a>
@@ -635,9 +608,12 @@
                             </button>
                         </div>
                         <div id="todayScheduleList" class="overview-today-list">
-                            <div class="today-empty-state">
-                                <span class="material-icons-round">event_available</span>
-                                <p>加载中...</p>
+                            <!-- 统一加载视觉：与 shared/loading-ui.js 的 .inline-loading 一致 -->
+                            <div class="inline-loading inline-loading--compact">
+                                <div class="stats-loading-content">
+                                    <div class="stats-spinner-circle"></div>
+                                    <div class="stats-spinner-text">正在加载今日排课...</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -656,6 +632,9 @@
                                 <span class="material-icons-round">add</span> 添加用户
                             </button>
                         </div>
+                    </div>
+                    <div id="usersReadonlyBanner" style="display:none; margin: 0 0 10px; padding: 8px 12px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; font-size:13px;">
+                        您以受限级别查看用户信息（部分隐私字段已隐藏）；账号的增删改仅超级管理员可操作。
                     </div>
                     <div class="table-container">
                         <table id="usersTable" class="data-table">
@@ -698,7 +677,7 @@
                                 <label for="userId">用户ID
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('留空则自动生成，可手动指定', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="留空则自动生成，可手动指定" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="number" id="userId" min="1">
                             </div>
@@ -721,7 +700,7 @@
                                 <label for="userNickname">昵称
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('选填，不超过50个字符', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="选填，不超过50个字符" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="text" id="userNickname" maxlength="50" placeholder="选填">
                             </div>
@@ -729,7 +708,7 @@
                                 <label for="userPermissionLevel">权限级别
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('请输入权限级别(1-3)', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="请输入权限级别(1-3)" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="number" id="userPermissionLevel" min="1" max="3">
                             </div>
@@ -745,7 +724,7 @@
                                 <label for="userProfession">职业
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('教师/学生职业信息', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="教师/学生职业信息" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="text" id="userProfession">
                             </div>
@@ -753,7 +732,7 @@
                                 <label for="userWorkLocation">工作地点
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('仅教师填写', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="仅教师填写" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="text" id="userWorkLocation">
                             </div>
@@ -765,7 +744,7 @@
                                 <label for="userVisitLocation">探访地点
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('仅学生填写', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="仅学生填写" data-toast-type="info">help_outline</span>
                                 </label>
                                 <input type="text" id="userVisitLocation">
                             </div>
@@ -783,7 +762,7 @@
                                 <label for="userRestriction">排课限制
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        onclick="window.apiUtils.showToast('0=不限，1=需匹配空闲时段', 'info')">help_outline</span>
+                                        data-action="toast" data-toast-msg="0=不限，1=需匹配空闲时段" data-toast-type="info">help_outline</span>
                                 </label>
                                 <select id="userRestriction">
                                     <option value="0">无限制 (0)</option>
@@ -897,11 +876,11 @@
                             <table id="holidaysTable">
                                 <thead>
                                     <tr>
-                                        <th>年份</th>
-                                        <th>类型</th>
-                                        <th>优先级</th>
-                                        <th>日期范围</th>
-                                        <th>名称</th>
+                                        <th>所属年份</th>
+                                        <th>节假日类型</th>
+                                        <th>节假日名称</th>
+                                        <th>开始日期</th>
+                                        <th>结束日期</th>
                                         <th>操作</th>
                                     </tr>
                                 </thead>
@@ -961,69 +940,38 @@
                     <!-- AI 模型管理子视图 -->
                     <div id="ai-models-view" class="settings-view">
                         <div class="ai-models-container">
-                            <!-- 当前激活模型 -->
-                            <div class="current-model-card">
-                                <h4>当前使用的 AI 模型</h4>
-                                <div id="currentModelInfo">
-                                    <div class="model-info-row">
-                                        <span class="info-label">服务商：</span>
-                                        <span id="currentProvider">-</span>
-                                    </div>
-                                    <div class="model-info-row">
-                                        <span class="info-label">模型名称：</span>
-                                        <span id="currentModel">-</span>
-                                    </div>
-                                    <div class="model-info-row">
-                                        <span class="info-label">API 地址：</span>
-                                        <span id="currentBaseUrl">-</span>
-                                    </div>
-                                    <div class="model-info-row">
-                                        <span class="info-label">状态：</span>
-                                        <span id="currentModelStatus" class="status-badge">-</span>
-                                    </div>
+                            <!-- 当前配置摘要栏 -->
+                            <div class="ai-current-bar">
+                                <div class="ai-current-row">
+                                    <span class="ai-current-label">当前模型</span>
+                                    <span class="ai-current-value" id="currentModelDisplay">-</span>
+                                    <span class="ai-current-status" id="currentModelStatus">-</span>
+                                </div>
+                                <div class="ai-current-row ai-current-detail">
+                                    <span class="ai-current-tag" id="currentProtocol">-</span>
+                                    <span class="ai-current-tag" id="currentBaseUrl">-</span>
+                                    <span class="ai-current-tag" id="currentTimeout">-</span>
+                                    <span class="ai-current-tag" id="currentMaxTokens">-</span>
                                 </div>
                             </div>
 
-                            <!-- 系统预设模型列表 -->
-                            <div class="preset-models-section">
-                                <h4>系统预设模型</h4>
-                                <div class="table-container">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>服务商</th>
-                                                <th>模型名称</th>
-                                                <th>协议</th>
-                                                <th>状态</th>
-                                                <th>操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <!-- 通过 JS 动态加载 -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <!-- 自定义模型列表 -->
-                            <div class="custom-models-section">
-                                <h4>我的 AI 模型</h4>
-                                <div class="table-container">
-                                    <table id="customModelsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>名称</th>
-                                                <th>API 地址</th>
-                                                <th>模型</th>
-                                                <th>状态</th>
-                                                <th>操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="customModelsTableBody">
-                                            <!-- 通过 JS 动态加载 -->
-                                        </tbody>
-                                    </table>
-                                </div>
+                            <!-- 统一模型表格 -->
+                            <div class="table-container">
+                                <table class="ai-models-table">
+                                    <thead>
+                                        <tr>
+                                            <th>模型服务商</th>
+                                            <th>模型 ID</th>
+                                            <th>协议</th>
+                                            <th>能力</th>
+                                            <th>状态</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="aiModelsTableBody">
+                                        <!-- 通过 JS 动态加载 -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
@@ -1182,7 +1130,7 @@
                             <button id="addScheduleBtn" class="add-btn">
                                 <span class="material-icons-round">add</span> 添加排课
                             </button>
-                            <button id="toggleShowPlanBtn" class="add-btn schedule-visibility-toggle" aria-pressed="false" onclick="window.toggleAdminShowPlan()" style="margin-left: 10px;">
+                            <button id="toggleShowPlanBtn" class="add-btn schedule-visibility-toggle" aria-pressed="false" data-action="toggle-admin-show-plan" style="margin-left: 10px;">
                         <span class="material-icons-round">visibility</span>
                         <span id="showPlanBtnText">显示全部安排</span>
                     </button>
@@ -1425,7 +1373,7 @@
                             <button class="tab-btn" data-view="student" title="查看学生统计详情">学生统计</button>
                         </div>
                         <button id="openExportDialogBtn" class="export-data-btn" title="打开数据导出配置对话框"
-                            style="margin-left: 12px;">
+                            data-min-level="2" style="margin-left: 12px;">
                             <span class="material-icons-round">file_download</span>
                             <span>导出数据</span>
                         </button>
@@ -1449,7 +1397,7 @@
                                         <button class="search-btn" id="statisticsSearchBtn" title="查询该日期范围内的统计数据">
                                             <span class="material-icons-round">search</span>
                                             <span class="btn-text">查询</span>
-                                            <span class="btn-loading" style="display: none;">加载中...</span>
+                                            <span class="btn-loading">加载中...</span>
                                         </button>
 
                                         <div class="preset-buttons" data-target="stats">
@@ -1615,9 +1563,11 @@
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
     <script src="/js/core/api-client.js"></script>
+        <script src="/js/core/security.js"></script>
         <script src="/js/core/event-bus.js"></script>
         <script src="/js/core/sync-guards.js"></script>
         <script src="/js/utils/auth.js"></script>
+        <script src="/js/utils/permission.js"></script>
         <script src="/js/utils/color-utils.js"></script>
         <script src="/js/utils/format.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
@@ -1626,11 +1576,14 @@
         <script src="/js/utils/schedule-date-labels.js"></script>
         <script src="/js/utils/date-range-utils.js"></script>
         <script src="/js/core/schedule-types-store.js"></script>
+        <script src="/js/components/toast.js"></script>
+        <script src="/js/components/modal.js"></script>
         <script src="/js/utils/i18n-utils.js"></script>
         <script src="/js/utils/schedule-marker-policy.js?v=20260803-markers"></script>
         <script src="/js/components/export-manager.js?v=20260803-markers"></script>
         <script src="/js/components/export-dialog.js?v=20240121"></script>
         <script src="/js/components/weekly-view-export.js?v=20260803-markers"></script>
+        <script src="/js/core/action-delegate.js"></script>
         <script type="module" src="/js/modules/admin/stats-logic.js"></script>
         <script type="module" src="/js/modules/admin/user-logic.js"></script>
         <script type="module" src="/js/modules/admin/schedule-logic.js"></script>

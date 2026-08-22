@@ -4,6 +4,7 @@
 
 import { API_ENDPOINTS, STATUS_LABELS } from './constants.js';
 import { formatDateDisplay, showToast, handleApiError, setText, clearChildren, createElement, formatTimeRange } from './utils.js';
+import { createInlineLoading } from '../shared/loading-ui.js';
 
 let overviewData = null;
 
@@ -76,9 +77,8 @@ export async function loadOverview() {
         showStatsLoadingState();
 
         const response = await fetch(API_ENDPOINTS.OVERVIEW, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
+            credentials: 'include',
+            headers: {}
         });
 
         if (!response.ok) {
@@ -107,8 +107,8 @@ function showStatsLoadingState() {
 
     const list = todayListEl();
     if (list) {
-        clearChildren(list);
-        list.appendChild(createElement('div', 'today-empty-state', { textContent: '正在加载今日课程...' }));
+        // 统一加载视觉：紧凑横向 spinner + 文案
+        list.replaceChildren(createInlineLoading('正在加载今日课程...', { compact: true }));
     }
 }
 
@@ -145,7 +145,7 @@ function createRewardModal() {
             <span class="material-icons-round reward-icon" id="rewardIcon">emoji_events</span>
             <div class="reward-title" id="rewardTitle">Title</div>
             <div class="reward-value" id="rewardValue">0</div>
-            <button class="reward-close-btn" onclick="document.getElementById('rewardModal').classList.remove('active')">Awesome!</button>
+            <button class="reward-close-btn" data-action="reward-close">Awesome!</button>
         </div>
     `;
     document.body.appendChild(modal);

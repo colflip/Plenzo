@@ -91,19 +91,15 @@ export function isPast(date) {
 }
 
 /**
- * Show toast notification
+ * 显示Toast提示（委托到统一 Toast 组件，带安全防护）
  */
 export function showToast(message, type = 'info') {
     if (window.Toast && typeof window.Toast.show === 'function') {
         window.Toast.show(message, { type });
     } else {
-        // Fallback if Toast component not loaded
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toast.style.cssText = `position:fixed;top:20px;right:20px;padding:12px 24px;background:${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};color:white;border-radius:4px;z-index:100002;`;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+        setTimeout(() => {
+            if (window.Toast) window.Toast.show(message, { type });
+        }, 200);
     }
 }
 
@@ -133,7 +129,7 @@ export function createElement(tag, className, props = {}) {
     if (className) el.className = className;
     Object.entries(props).forEach(([key, value]) => {
         if (key === 'textContent') el.textContent = value;
-        else if (key === 'innerHTML') if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(el, value); } else { el.innerHTML = value; }
+        else if (key === 'innerHTML') window.SecurityUtils.safeSetHTML(el, value);
         else el.setAttribute(key, value);
     });
     return el;

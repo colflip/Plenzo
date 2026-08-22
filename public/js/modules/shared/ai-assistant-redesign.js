@@ -1476,7 +1476,15 @@ function renderMarkdown(text) {
     html = html.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
 
     // 链接（escapeHtml 已经转义了引号，需要还原链接部分）
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    // 安全：仅允许 http/https/mailto 协议与相对链接，阻断 javascript:/vbscript: 等。
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, text, url) => {
+        const decoded = url.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const trimmed = decoded.trim();
+        const isSafeScheme = /^(https?:|mailto:)/i.test(trimmed) ||
+            trimmed.startsWith('/') || trimmed.startsWith('#') || trimmed.startsWith('?');
+        if (!isSafeScheme) return text; // 危险协议：仅保留可见文本，丢弃链接
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    });
 
     // 换行
     html = html.replace(/\n/g, '<br>');
@@ -1872,7 +1880,63 @@ function renderSchedulePreviewMessage(msg) {
 }
 
 /**
- * 渲染排课操作预览消息（修改/删除预览）
+ * 渲染排课预览表格（行对象统一字段：classDate/startTime/endTime/teacherName/studentName/courseTypeCn/status/statusCn/dayOfWeek）
+ */
+function buildScheduleTable(rows) {
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['日期', '星期', '时间', '教师', '学生', '课程', '状态'].forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach(schedule => {
+        const tr = document.createElement('tr');
+
+        const tdDate = document.createElement('td');
+        tdDate.textContent = formatDate(schedule.classDate);
+        tr.appendChild(tdDate);
+
+        const tdDay = document.createElement('td');
+        tdDay.textContent = schedule.dayOfWeek || getDayOfWeekFromDate(schedule.classDate);
+        tr.appendChild(tdDay);
+
+        const tdTime = document.createElement('td');
+        tdTime.textContent = `${schedule.startTime || '-'} - ${schedule.endTime || '-'}`;
+        tr.appendChild(tdTime);
+
+        const tdTeacher = document.createElement('td');
+        tdTeacher.textContent = schedule.teacherName || '-';
+        tr.appendChild(tdTeacher);
+
+        const tdStudent = document.createElement('td');
+        tdStudent.textContent = schedule.studentName || '-';
+        tr.appendChild(tdStudent);
+
+        const tdCourse = document.createElement('td');
+        tdCourse.textContent = schedule.courseTypeCn || '-';
+        tr.appendChild(tdCourse);
+
+        const tdStatus = document.createElement('td');
+        const statusText = schedule.statusCn || translateStatus(schedule.status) || '-';
+        tdStatus.textContent = statusText;
+        tdStatus.style.color = getStatusColor(schedule.status);
+        tdStatus.style.fontWeight = '600';
+        tr.appendChild(tdStatus);
+
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+}
+
+/**
+ * 渲染排课操作预览消息（修改/删除/调整预览）
  */
 function renderScheduleOperationPreviewMessage(msg) {
     const wrapper = document.createElement('div');
@@ -1902,8 +1966,9 @@ function renderScheduleOperationPreviewMessage(msg) {
         previewCard.className = 'ai-preview-card';
 
         const isDelete = data.operationType === 'delete';
-        const icon = isDelete ? '🗑️' : '✏️';
-        const title = isDelete ? '删除预览' : '修改预览';
+        const isAdjust = data.operationType === 'adjust';
+        const icon = isDelete ? '🗑️' : isAdjust ? '🔄' : '✏️';
+        const title = isDelete ? '删除预览' : isAdjust ? '调整预览' : '修改预览';
 
         // 预览头部
         const previewHeader = document.createElement('div');
@@ -1931,65 +1996,56 @@ function renderScheduleOperationPreviewMessage(msg) {
             previewCard.appendChild(changesDiv);
         }
 
-        // 排课列表表格
+        // 排课列表表格（原记录）
+        if (isAdjust) {
+            const origLabel = document.createElement('div');
+            origLabel.style.cssText = 'margin: 8px 0 4px; font-size: 13px; font-weight: 600; color: #b45309;';
+            origLabel.textContent = '📦 原排课（确认后归档为已调整）';
+            previewCard.appendChild(origLabel);
+        }
+
+        const originalRows = data.schedules.map(s => ({
+            classDate: s.class_date,
+            startTime: s.start_time,
+            endTime: s.end_time,
+            teacherName: s.teacher_name,
+            studentName: s.student_name,
+            courseTypeCn: s.course_type_cn || s.course_type,
+            status: s.status,
+            statusCn: s.status_cn,
+            dayOfWeek: s.day_of_week
+        }));
         const tableContainer = document.createElement('div');
         tableContainer.className = 'ai-data-table';
         tableContainer.style.border = 'none';
         tableContainer.style.borderRadius = '0';
-
-        const table = document.createElement('table');
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-
-        ['日期', '星期', '时间', '教师', '学生', '课程', '状态'].forEach(text => {
-            const th = document.createElement('th');
-            th.textContent = text;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        data.schedules.forEach(schedule => {
-            const tr = document.createElement('tr');
-
-            const tdDate = document.createElement('td');
-            tdDate.textContent = formatDate(schedule.class_date);
-            tr.appendChild(tdDate);
-
-            const tdDay = document.createElement('td');
-            tdDay.textContent = schedule.day_of_week || getDayOfWeekFromDate(schedule.class_date);
-            tr.appendChild(tdDay);
-
-            const tdTime = document.createElement('td');
-            tdTime.textContent = `${schedule.start_time || '-'} - ${schedule.end_time || '-'}`;
-            tr.appendChild(tdTime);
-
-            const tdTeacher = document.createElement('td');
-            tdTeacher.textContent = schedule.teacher_name || '-';
-            tr.appendChild(tdTeacher);
-
-            const tdStudent = document.createElement('td');
-            tdStudent.textContent = schedule.student_name || '-';
-            tr.appendChild(tdStudent);
-
-            const tdCourse = document.createElement('td');
-            tdCourse.textContent = schedule.course_type_cn || schedule.course_type || '-';
-            tr.appendChild(tdCourse);
-
-            const tdStatus = document.createElement('td');
-            const statusText = schedule.status_cn || translateStatus(schedule.status) || '-';
-            tdStatus.textContent = statusText;
-            tdStatus.style.color = getStatusColor(schedule.status);
-            tdStatus.style.fontWeight = '600';
-            tr.appendChild(tdStatus);
-
-            tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-
-        tableContainer.appendChild(table);
+        tableContainer.appendChild(buildScheduleTable(originalRows));
         previewCard.appendChild(tableContainer);
+
+        // 调整课程：额外展示「新建课程」预览（后端 newSchedules）
+        if (isAdjust && data.newSchedules && data.newSchedules.length > 0) {
+            const newLabel = document.createElement('div');
+            newLabel.style.cssText = 'margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--ai-primary, #2f6fed);';
+            newLabel.textContent = '➕ 新建课程（调整后按新条件生成）';
+            previewCard.appendChild(newLabel);
+
+            const newRows = data.newSchedules.map(n => ({
+                classDate: n.classDate,
+                startTime: n.startTime,
+                endTime: n.endTime,
+                teacherName: n.teacherName,
+                studentName: n.studentName,
+                courseTypeCn: n.courseTypeCn,
+                status: n.status || 'confirmed',
+                statusCn: '已确认'
+            }));
+            const newTableContainer = document.createElement('div');
+            newTableContainer.className = 'ai-data-table';
+            newTableContainer.style.border = 'none';
+            newTableContainer.style.borderRadius = '0';
+            newTableContainer.appendChild(buildScheduleTable(newRows));
+            previewCard.appendChild(newTableContainer);
+        }
 
         // 确认按钮
         const actions = document.createElement('div');
@@ -1997,13 +2053,13 @@ function renderScheduleOperationPreviewMessage(msg) {
         const confirmBtn = document.createElement('button');
         confirmBtn.className = isDelete ? 'ai-btn-confirm' : 'ai-btn-confirm';
         confirmBtn.style.cssText = isDelete ? 'background: #ef4444;' : '';
-        confirmBtn.textContent = isDelete ? '✓ 确认删除' : '✓ 确认修改';
+        confirmBtn.textContent = isDelete ? '✓ 确认删除' : isAdjust ? '✓ 确认调整' : '✓ 确认修改';
         confirmBtn.onclick = () => {
             const operationId = data.operationId;
             if (operationId) {
                 confirmBtn.disabled = true;
-                confirmBtn.textContent = isDelete ? '正在删除...' : '正在修改...';
-                onSend({ type: 'confirm_operation', operationId, label: isDelete ? '已确认删除' : '已确认修改' });
+                confirmBtn.textContent = isDelete ? '正在删除...' : isAdjust ? '正在调整...' : '正在修改...';
+                onSend({ type: 'confirm_operation', operationId, label: isDelete ? '已确认删除' : isAdjust ? '已确认调整' : '已确认修改' });
             }
         };
         actions.appendChild(confirmBtn);
@@ -2325,12 +2381,12 @@ function hideTyping() {
 /**
  * 清空对话历史
  */
-function clearHistory() {
+async function clearHistory() {
     if (state.loading) return;
 
     if (state.messages.length === 0) return;
 
-    if (!confirm('确定要清空所有对话记录吗？')) return;
+    if (!await Modal.confirm('确定要清空所有对话记录吗？', { title: '清空对话', confirmText: '清空', confirmStyle: 'danger' })) return;
 
     state.messages = [];
     clearSelectedImages();
@@ -2490,9 +2546,9 @@ async function onSend(action) {
 
         const resp = await fetch('/api/ai/query', {
             method: 'POST',
+            credentials: 'include',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.apiUtils?.getAuthToken?.() || localStorage.getItem('token') || sessionStorage.getItem('tempToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestBody),
             signal: state.abortController.signal
@@ -2762,6 +2818,19 @@ export function open(role) {
     renderMessages();
     refreshStatus();
     fetchModelCapabilities();  // 获取模型能力
+
+    // 权限落地（Phase 3）：受限级别提示 AI 数据范围（仅 admin L3，非持久化，不写入会话历史）
+    try {
+        if (state.userRole === 'admin' && window.permissionUtils
+            && typeof window.permissionUtils.getLevel === 'function'
+            && window.permissionUtils.getLevel() === 3 && state.messagesEl && !document.getElementById('ai-scope-tip')) {
+            const tip = document.createElement('div');
+            tip.id = 'ai-scope-tip';
+            tip.textContent = '数据范围：统计与明细仅覆盖您创建的排课';
+            tip.style.cssText = 'margin:0 14px 8px;padding:6px 10px;font-size:12px;border-radius:8px;background:#e0f2fe;color:#0369a1;';
+            state.messagesEl.parentNode.insertBefore(tip, state.messagesEl);
+        }
+    } catch (_) { /* 提示注入失败不影响功能 */ }
 
     if (state.panelEl) {
         state.panelEl.classList.remove('hidden');

@@ -1,5 +1,6 @@
 import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
-import { isMobileView } from '../shared/schedule-helpers.js';
+import { isMobileView, getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { showTableLoading, hideTableLoading, showTableLoadingRow } from '../shared/loading-ui.js';
 import {
     clearChildren,
     createElement,
@@ -14,7 +15,7 @@ import {
     startOfWeek,
     getTimeSlotId
 } from './utils.js';
-import { escapeHtml, safeSetHTML } from '../../core/security.js';
+const { escapeHtml, safeSetHTML } = window.SecurityUtils;
 
 let currentWeekStart = null;
 let cachedSchedules = [];
@@ -98,24 +99,6 @@ function syncShowPlanButton() {
         btn.style.borderColor = color;
         btn.style.color = '#fff';
     }
-}
-
-function getAdjustmentType(rec) {
-    const raw = rec?.adjustment_type ?? rec?.is_temp;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : 0;
-}
-
-function getScheduleWatermarkText(group) {
-    const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
-    const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
-    const parts = [];
-    if (hasAdjusted) parts.push('调');
-    if (hasTemp) parts.push('加');
-    if (parts.length > 0) return parts.join('/');
-    if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
-    return '';
 }
 
 function appendScheduleWatermark(card, watermarkText) {
@@ -228,8 +211,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
     }
 
     // 2. 显示加载动画（与教师端保持一致）
-    if (showLoading && tableContainer && window.showTableLoading) {
-        window.showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
+    if (showLoading && tableContainer) {
+        showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
     }
 
     try {
@@ -253,8 +236,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
-            window.hideTableLoading(tableContainer);
+        if (requestId === scheduleLoadSeq && showLoading && tableContainer) {
+            hideTableLoading(tableContainer);
         }
     }
 }
@@ -468,12 +451,15 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     // 添加逗号
     card.appendChild(document.createTextNode('，'));
 
-    // 地点（灰色字体）
-    const loc = first.location || '';
+    // 地点（灰色字体）—— 纯文本 DB 字段用 textContent，避免任何 HTML 解析路径
     const locSpan = createElement('span', '', {
-        innerHTML: loc ? loc : '<span style="font-style: italic; color: #94a3b8;">地点待定</span>',
         style: 'color: #9CA3AF; font-size: 14px;'
     });
+    if (first.location) {
+        locSpan.textContent = first.location;
+    } else {
+        locSpan.innerHTML = '<span style="font-style: italic; color: #94a3b8;">地点待定</span>';
+    }
     card.appendChild(locSpan);
 
     return card;
@@ -811,19 +797,7 @@ function getDisplayStatus(schedule) {
 function showLoadingState() {
     const tbody = elements.body();
     if (!tbody) return;
-    clearChildren(tbody);
-
-    const row = document.createElement('tr');
-    row.className = 'schedule-loading-row';
-    const loadingCell = document.createElement('td');
-    loadingCell.colSpan = 7;
-    loadingCell.style.textAlign = 'center';
-    loadingCell.style.padding = '40px 0';
-    if (window.SecurityUtils) {
-        window.SecurityUtils.safeSetHTML(loadingCell, '<div class="loading-container flex flex-col items-center justify-center"><div class="loading-spinner" style="margin-bottom: 12px;"></div><div style="color: var(--color-gray-500); font-weight: 500;">加载中...</div></div>');
-    } else {
-        loadingCell.innerHTML = '<div class="loading-container flex flex-col items-center justify-center"><div class="loading-spinner" style="margin-bottom: 12px;"></div><div style="color: var(--color-gray-500); font-weight: 500;">加载中...</div></div>';
-    }
-    row.appendChild(loadingCell);
-    tbody.appendChild(row);
+    // 统一加载视觉：与遮罩同款 spinner + 文案（shared/loading-ui.js）
+    showTableLoadingRow(tbody, { colspan: 7, text: '正在加载课程安排数据...' });
 }
+

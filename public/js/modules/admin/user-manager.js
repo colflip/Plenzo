@@ -4,7 +4,7 @@
  */
 
 import { USER_FIELDS, FIELD_LABELS, TIME_ZONE, getUserStatusClass, getUserStatusLabel } from './constants.js';
-import { adjustSelectMinWidth, showTableLoading, hideTableLoading } from './ui-helper.js';
+import { adjustSelectMinWidth, showTableLoading, hideTableLoading, showBlockLoading } from './ui-helper.js';
 
 
 // Retry helper
@@ -58,7 +58,10 @@ async function handleUserFormSubmit(e) {
         const password = document.getElementById('userPassword').value.trim();
 
         // Construct body
-        const body = { userType: type, username, name };
+        // 权限落地（Phase 3）：编辑自己时不回传 username / permission_level（后端禁止自改，同值回显也会被拒）
+        const selfEdit = mode === 'edit' && form && form.dataset.selfEdit === '1';
+        const body = { userType: type, name };
+        if (!selfEdit) body.username = username;
 
         // 添加ID字段(如果有指定或修改)
         const userIdInput = document.getElementById('userId');
@@ -85,10 +88,12 @@ async function handleUserFormSubmit(e) {
             const permissionLevelInput = document.getElementById('userPermissionLevel');
             const emailInput = document.getElementById('userEmail');
 
-            if (!permissionLevelInput || !permissionLevelInput.value.trim()) throw new Error('请填写权限级别(1-3)');
-            const lvl = parseInt(permissionLevelInput.value, 10);
-            if (isNaN(lvl) || lvl < 1 || lvl > 3) throw new Error('权限级别范围为1-3');
-            body.permission_level = lvl;
+            if (!selfEdit) {
+                if (!permissionLevelInput || !permissionLevelInput.value.trim()) throw new Error('请填写权限级别(1-3)');
+                const lvl = parseInt(permissionLevelInput.value, 10);
+                if (isNaN(lvl) || lvl < 1 || lvl > 3) throw new Error('权限级别范围为1-3');
+                body.permission_level = lvl;
+            }
 
             const emailVal = emailInput ? emailInput.value.trim() : '';
             if (mode === 'add') {
@@ -152,7 +157,7 @@ async function handleUserFormSubmit(e) {
                 const conflictKeys = ['username', 'name', 'nickname', 'email', 'permission_level', 'profession', 'contact', 'work_location', 'home_address', 'visit_location'];
                 const changed = conflictKeys.some(k => String(latest[k] ?? '') !== String(snapshot[k] ?? ''));
                 if (changed) {
-                    const proceed = confirm('检测到该用户已被其他人修改，是否仍继续保存您的更改？');
+                    const proceed = await Modal.confirm('检测到该用户已被其他人修改，是否仍继续保存您的更改？', { title: '数据冲突', confirmText: '继续保存' });
                     if (!proceed) throw new Error('USER_CANCELLED');
                 }
             }
@@ -251,7 +256,7 @@ export async function loadUsers(type, opts = {}) {
             state.hasMore = true;
             state.loading = false;
             const tbody = document.getElementById('usersTableBody');
-            if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+            if (tbody) window.SecurityUtils.safeSetHTML(tbody, '');
             window.__usersCache = window.__usersCache || {};
             window.__usersCache[state.type] = [];
             state.sort = { key: 'id', direction: 'asc' };
@@ -269,7 +274,7 @@ export async function loadUsers(type, opts = {}) {
             state.hasMore = true;
             state.loading = false;
             const tbody = document.getElementById('usersTableBody');
-            if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+            if (tbody) window.SecurityUtils.safeSetHTML(tbody, '');
             window.__usersCache = window.__usersCache || {};
             window.__usersCache[state.type] = [];
         }
@@ -331,7 +336,7 @@ export async function loadUsers(type, opts = {}) {
         // 始终在第一页非追加模式时显示加载动画，确保首次和后续进入动画一致
         // 先清空tbody，确保动画位置一致
         if (state.page === 1 && !opts.append) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+            window.SecurityUtils.safeSetHTML(tbody, '');
             
             const typeLabels = {
                 teacher: '教师',
@@ -361,14 +366,14 @@ export async function loadUsers(type, opts = {}) {
 
         // 加载完成，如果是第一页或不追加模式，则清空容器（移除显示残余内容）
         if (!opts.append) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+            window.SecurityUtils.safeSetHTML(tbody, '');
         }
         
         // 隐藏加载动画
         hideTableLoading(tableContainer);
 
         if (state.page === 1 && users.length === 0) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`); } else { tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`; }
+            tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`;
             state.hasMore = false;
             state.loading = false;
             return;
@@ -417,8 +422,9 @@ export async function loadUsers(type, opts = {}) {
         const errorText = `加载${typeLabels[state.type] || ''}用户数据失败`;
         
         if (tbody) {
-            if (window.SecurityUtils) {
-                window.SecurityUtils.safeSetHTML(tbody, `
+            // 使用 innerHTML：safeSetHTML 的 DOMParser 会在 <body> 上下文中解析 <tr>/<td>
+            // 导致 table 结构丢失，行内元素垂直堆叠。
+            tbody.innerHTML = `
                     <tr>
                         <td colspan="${(USER_FIELDS[state.type] || []).length + 1}">
                             <div style="text-align: center; padding: 40px 20px;">
@@ -426,34 +432,14 @@ export async function loadUsers(type, opts = {}) {
                                     <span class="material-icons-round" style="font-size: 48px;">error_outline</span>
                                 </div>
                                 <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
-                                <button onclick="window.UserManager?.loadUsers('${state.type}', { reset: true })" 
+                                <button data-action="user-manager-load" data-type="${state.type}"
                                     style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                     <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
                                     点击重试
                                 </button>
                             </div>
                         </td>
-                    </tr>
-                `);
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="${(USER_FIELDS[state.type] || []).length + 1}">
-                            <div style="text-align: center; padding: 40px 20px;">
-                                <div style="color: #ef4444; margin-bottom: 12px;">
-                                    <span class="material-icons-round" style="font-size: 48px;">error_outline</span>
-                                </div>
-                                <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
-                                <button onclick="window.UserManager?.loadUsers('${state.type}', { reset: true })" 
-                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                                    <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
-                                    点击重试
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }
+                    </tr>`;
         }
         
         if (window.apiUtils) {
@@ -490,7 +476,7 @@ function renderFromCache(state, tbody) {
         return av > bv ? dir : -dir;
     });
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
     toRender.forEach(u => appendUserRow(state.type, u));
     const sentinel = document.getElementById('usersListSentinel');
     if (sentinel) sentinel.remove();
@@ -501,7 +487,7 @@ function setupSentinel(state, tbody) {
     if (!sentinel && state.hasMore) {
         sentinel = document.createElement('tr');
         sentinel.id = 'usersListSentinel';
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(sentinel, `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`); } else { sentinel.innerHTML = `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`; }
+        sentinel.innerHTML = `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`;
         tbody.appendChild(sentinel);
         const io = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -520,9 +506,13 @@ export function renderUsersTableHeader(type) {
     if (!thead) return;
     const tr = thead.querySelector('tr');
     if (!tr) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, ''); } else { tr.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tr, '');
 
-    const fields = USER_FIELDS[type] || USER_FIELDS['admin'];
+    // 权限落地（Phase 2）：表格列随操作者级别裁剪（与后端字段下发对齐）
+    const baseFields = USER_FIELDS[type] || USER_FIELDS['admin'];
+    const fields = (window.permissionUtils && window.permissionUtils.visibleFields)
+        ? window.permissionUtils.visibleFields(baseFields)
+        : baseFields;
     fields.forEach(field => {
         const th = document.createElement('th');
         th.classList.add(`col-${field}`);
@@ -538,14 +528,23 @@ export function renderUsersTableHeader(type) {
                 state.sort.key = field;
                 state.sort.direction = 'asc';
             }
-            loadUsers(state.type, { useCache: true, sortField: field });
+            // 重置分页并清空缓存，避免排序时出现重复行
+            state.page = 1;
+            state.hasMore = true;
+            window.__usersCache = window.__usersCache || {};
+            window.__usersCache[state.type] = [];
+            loadUsers(state.type, { reset: true });
         });
         tr.appendChild(th);
     });
 
-    const opsTh = document.createElement('th');
-    opsTh.textContent = '操作';
-    tr.appendChild(opsTh);
+    // 权限落地（Phase 3）：非 L1 不渲染「操作」列表头（与行内空操作单元格一致，消除空白列）
+    const canManageAccounts = !window.permissionUtils || window.permissionUtils.isSuperAdmin();
+    if (canManageAccounts) {
+        const opsTh = document.createElement('th');
+        opsTh.textContent = '操作';
+        tr.appendChild(opsTh);
+    }
 }
 
 /**
@@ -585,14 +584,18 @@ export function appendUserRow(type, user) {
     if (!tbody) return;
 
     const tr = document.createElement('tr');
-    const fields = USER_FIELDS[type] || USER_FIELDS['admin'];
+    // 权限落地（Phase 2）：行内列与表头使用同一份裁剪结果
+    const baseFields = USER_FIELDS[type] || USER_FIELDS['admin'];
+    const fields = (window.permissionUtils && window.permissionUtils.visibleFields)
+        ? window.permissionUtils.visibleFields(baseFields)
+        : baseFields;
 
     fields.forEach(field => {
         const td = document.createElement('td');
         td.classList.add(`col-${field}`);
         let value = user[field];
 
-        if (field === 'created_at') {
+        if (field === 'created_at' || field === 'last_login') {
             if (value) {
                 const date = new Date(value);
                 const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -624,21 +627,28 @@ export function appendUserRow(type, user) {
         tr.appendChild(td);
     });
 
-    const actionsCell = document.createElement('td');
-    actionsCell.classList.add('actions');
-    actionsCell.innerHTML = `
-        <button class="btn-icon edit-btn" title="编辑">
-            <span class="material-icons-round">edit</span>
-        </button>
-        <button class="btn-icon delete-btn" title="删除" style="color: #ef4444;">
-            <span class="material-icons-round">delete</span>
-        </button>
-    `;
-    // Bind events directly
-    actionsCell.querySelector('.edit-btn').addEventListener('click', () => showEditUserModal(user.id, type));
-    actionsCell.querySelector('.delete-btn').addEventListener('click', () => deleteUser(type, user.id));
-
-    tr.appendChild(actionsCell);
+    // 权限落地（Phase 2/3）：账号增删改仅 L1（后端路由门禁兜底），非 L1 不渲染操作单元格
+    const canManageAccounts = !window.permissionUtils || window.permissionUtils.isSuperAdmin();
+    if (canManageAccounts) {
+        // 权限落地（Phase 3）：不能删除自己的账号——自己的行不渲染删除按钮
+        let meId = '';
+        try { meId = String(JSON.parse(localStorage.getItem('userData') || '{}').id ?? ''); } catch (_) { /* ignore */ }
+        const isSelfRow = String(user.id) === meId;
+        actionsCell.innerHTML = `
+            <button class="btn-icon edit-btn" title="编辑">
+                <span class="material-icons-round">edit</span>
+            </button>
+            ${isSelfRow ? '' : `
+            <button class="btn-icon delete-btn" title="删除" style="color: #ef4444;">
+                <span class="material-icons-round">delete</span>
+            </button>`}
+        `;
+        // Bind events directly
+        actionsCell.querySelector('.edit-btn').addEventListener('click', () => showEditUserModal(user.id, type));
+        const delBtn = actionsCell.querySelector('.delete-btn');
+        if (delBtn) delBtn.addEventListener('click', () => deleteUser(type, user.id));
+        tr.appendChild(actionsCell);
+    }
     tbody.appendChild(tr);
 }
 
@@ -674,6 +684,14 @@ export function showAddUserModal() {
     form.reset();
     form.dataset.mode = 'add';
     form.dataset.id = '';
+    // 权限落地（Phase 3）：新增模式清除自我保护置灰状态
+    form.dataset.selfEdit = '';
+    ['userUsername', 'userPassword', 'userId', 'userPermissionLevel'].forEach(fid => {
+        const el = document.getElementById(fid);
+        if (el) { el.disabled = false; el.removeAttribute('title'); }
+    });
+    const userIdInputNew = document.getElementById('userId');
+    if (userIdInputNew) userIdInputNew.readOnly = false;
 
     // Default values
     document.getElementById('userType').value = 'admin';
@@ -703,6 +721,14 @@ export function showEditUserModal(id, userType) {
     form.dataset.mode = 'edit';
     form.dataset.id = id;
 
+    // 权限落地（Phase 3）：判断是否在编辑自己的账号（后端防提权③兜底）
+    let isSelfEdit = false;
+    try {
+        const me = JSON.parse(localStorage.getItem('userData') || '{}');
+        isSelfEdit = userType === 'admin' && String(user.id) === String(me.id);
+    } catch (_) { /* ignore */ }
+    form.dataset.selfEdit = isSelfEdit ? '1' : '';
+
     // Fill fields - simplified for brevity, assume elements exist
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
     setVal('userUsername', user.username);
@@ -712,7 +738,7 @@ export function showEditUserModal(id, userType) {
     // 设置ID (允许修改)
     setVal('userId', user.id);
     const userIdInput = document.getElementById('userId');
-    if (userIdInput) userIdInput.readOnly = false;
+    if (userIdInput) userIdInput.readOnly = isSelfEdit;
 
     if (userType === 'admin') {
         setVal('userPermissionLevel', user.permission_level);
@@ -736,6 +762,20 @@ export function showEditUserModal(id, userType) {
         passwordInput.required = false;
         passwordInput.placeholder = '留空表示不修改密码';
     }
+
+    // 权限落地（Phase 3）：自我保护——登录名/密码/主键/权限级别不可自改，置灰并提示
+    const selfGuardTargets = [
+        document.getElementById('userUsername'),
+        passwordInput,
+        userIdInput,
+        userType === 'admin' ? document.getElementById('userPermissionLevel') : null
+    ];
+    selfGuardTargets.forEach(el => {
+        if (!el) return;
+        el.disabled = isSelfEdit;
+        if (isSelfEdit) el.title = '不能修改自己的该字段（如需变更请联系其他超级管理员）';
+        else el.removeAttribute('title');
+    });
 
     const statusSelect = document.getElementById('userStatus');
     if (statusSelect && userType !== 'admin') statusSelect.value = String(user.status ?? 1);
@@ -796,6 +836,10 @@ export function setupUserEventListeners() {
 
     const addUserBtn = document.getElementById('addUserBtn');
     if (addUserBtn) {
+        // 权限落地（Phase 2）：新增账号仅 L1 可见可用
+        if (window.permissionUtils && !window.permissionUtils.isSuperAdmin()) {
+            addUserBtn.style.display = 'none';
+        }
         addUserBtn.addEventListener('click', showAddUserModal);
     }
 
@@ -833,7 +877,8 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
     const container = document.getElementById('userStudentIdsContainer');
     if (!container) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>'); } else { container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 10px;">加载中...</div>'; }
+    // 统一加载视觉：紧凑横向 spinner + 文案（shared/loading-ui.js）
+    showBlockLoading(container, '正在加载学生列表...', { compact: true });
 
     let students = window.__usersCache?.student || [];
     if (students.length === 0) {
@@ -844,22 +889,20 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
             window.__usersCache.student = students;
         } catch (err) {
             
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>'); } else { container.innerHTML = '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>'; }
+            window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>');
             return;
         }
     }
 
     if (students.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>'); } else { container.innerHTML = '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>'; }
+        window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>');
         return;
     }
 
     const selectedIds = (selectedIdsStr || '').split(',').map(s => String(s).trim()).filter(Boolean);
 
-    // XSS 安全：转义用户数据
-    const esc = (window.SecurityUtils && window.SecurityUtils.escapeHtml) || function(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
-    };
+    // XSS 安全：统一复用 core/security.js 的 escapeHtml（window.SecurityUtils 始终先加载）
+    const esc = window.SecurityUtils.escapeHtml;
 
     let html = '';
     [...students].sort((a, b) => a.id - b.id).forEach(s => {
@@ -872,7 +915,7 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
         `;
     });
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, html); } else { container.innerHTML = html; }
+    window.SecurityUtils.safeSetHTML(container, html);
 
     const checkboxes = container.querySelectorAll('.student-checkbox');
     const updateHiddenInput = () => {
@@ -930,7 +973,7 @@ function toggleContactFields(userType) {
 }
 
 export async function deleteUser(userType, userId) {
-    if (!confirm('确定要删除该用户吗？')) return;
+    if (!await Modal.confirm('确定要删除该用户吗？', { title: '删除用户', confirmText: '删除', confirmStyle: 'danger' })) return;
     try {
         await window.apiUtils.delete(`/admin/users/${userType}/${userId}`);
         invalidateUserCaches(userType, userId);
@@ -976,3 +1019,4 @@ if (typeof window !== 'undefined') {
     // 延迟 1 秒启动，避免抢占首屏关键资源
     setTimeout(() => refreshFullUserCache(), 1000);
 }
+

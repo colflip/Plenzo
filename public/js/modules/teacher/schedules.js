@@ -1,5 +1,6 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
-import { isMobileView } from '../shared/schedule-helpers.js';
+import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { showTableLoading, hideTableLoading, showTableLoadingRow } from '../shared/loading-ui.js';
 import {
     clearChildren,
     createElement,
@@ -13,7 +14,7 @@ import {
     showActionSheet,
     startOfWeek
 } from './utils.js';
-import { escapeHtml, safeSetHTML } from '../../core/security.js';
+const { escapeHtml, safeSetHTML } = window.SecurityUtils;
 
 
 
@@ -130,24 +131,6 @@ function bindNavigation() {
     }
 }
 
-function getAdjustmentType(rec) {
-    const raw = rec?.adjustment_type ?? rec?.is_temp;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : 0;
-}
-
-function getScheduleWatermarkText(group) {
-    const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
-    const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
-    const parts = [];
-    if (hasAdjusted) parts.push('调');
-    if (hasTemp) parts.push('加');
-    if (parts.length > 0) return parts.join('/');
-    if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
-    return '';
-}
-
 function appendScheduleWatermark(card, watermarkText) {
     if (!watermarkText) return;
     card.classList.add('is-temp-card');
@@ -228,8 +211,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
     }
 
     // 2. 显示加载动画
-    if (showLoading && tableContainer && window.showTableLoading) {
-        window.showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
+    if (showLoading && tableContainer) {
+        showTableLoading(tableContainer, '正在加载课程安排数据...', '#weeklyHeader');
     }
 
     try {
@@ -252,8 +235,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
-            window.hideTableLoading(tableContainer);
+        if (requestId === scheduleLoadSeq && showLoading && tableContainer) {
+            hideTableLoading(tableContainer);
         }
     }
 }
@@ -937,13 +920,8 @@ function renderScheduleErrorState(weekDates, weekStart) {
 function showLoadingState() {
     const tbody = elements.body();
     if (!tbody) return;
-    clearChildren(tbody);
-    const row = document.createElement('tr');
-    const cell = createElement('td', 'no-schedule', { textContent: '加载中...' });
-    cell.colSpan = 7;
-    cell.style.textAlign = 'center';
-    row.appendChild(cell);
-    tbody.appendChild(row);
+    // 统一加载视觉：与遮罩同款 spinner + 文案
+    showTableLoadingRow(tbody, { colspan: 7, text: '正在加载课程安排数据...' });
 }
 
 function updateWeekRangeLabel(weekDates) {

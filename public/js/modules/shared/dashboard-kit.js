@@ -128,9 +128,11 @@ export function applyChartFontFromCSSVars() {
  * @param {string} expectedUserType - 'admin' | 'teacher' | 'student'，传 null 表示只校验 token
  */
 export function ensureAuth(expectedUserType = null) {
-    const token = localStorage.getItem('token');
+    // 凭据现存储于 httpOnly Cookie（JS 不可读）；此处仅以 'authed' 标志判断 UX 登录态，
+    // 真实鉴权由后端基于 Cookie 强制执行（标志被篡改只会导致 API 401，不会越权）。
+    const authed = localStorage.getItem('authed') || sessionStorage.getItem('authed');
     const userType = localStorage.getItem('userType');
-    if (!token) { redirectToLogin(); return false; }
+    if (!authed) { redirectToLogin(); return false; }
     if (expectedUserType && userType !== expectedUserType) { redirectToLogin(); return false; }
     return true;
 }
@@ -330,8 +332,8 @@ export function createDashboardController(cfg) {
 
     function showInvalidRouteFeedback() {
         const message = '页面路径无效，已返回总览。';
-        if (window.toastManager && typeof window.toastManager.warning === 'function') {
-            window.toastManager.warning(message);
+        if (window.Toast && typeof window.Toast.warning === 'function') {
+            window.Toast.warning(message);
         } else if (typeof window.showToast === 'function') {
             window.showToast(message, 'warning');
         }

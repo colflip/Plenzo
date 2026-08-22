@@ -43,7 +43,7 @@ export async function loadScheduleTypes() {
         renderScheduleTypesTable(types);
     } catch (error) {
         
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>'; }
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>';
         if (window.apiUtils) window.apiUtils.showToast('加载课程类型失败', 'error');
     } finally {
         // 隐藏加载动画
@@ -57,10 +57,10 @@ export function renderScheduleTypesTable(types) {
     const tbody = document.getElementById('scheduleTypesTableBody');
     if (!tbody) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
 
     if (types.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #666;">暂无数据</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #666;">暂无数据</td></tr>'; }
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #666;">暂无数据</td></tr>';
         return;
     }
 
@@ -125,7 +125,7 @@ export function closeScheduleTypeFormModal() {
 
 // 处理删除课程类型
 export async function handleDeleteScheduleType(id) {
-    if (!confirm('确定要删除这个课程类型吗？如果已被现有排课引用，将无法删除。')) {
+    if (!await Modal.confirm('确定要删除这个课程类型吗？如果已被现有排课引用，将无法删除。', { title: '删除课程类型', confirmText: '删除', confirmStyle: 'danger' })) {
         return;
     }
 
@@ -172,7 +172,7 @@ export function setupScheduleTypeListeners() {
             const description = document.getElementById('scheduleTypeDescription').value.trim();
 
             if (!name) {
-                alert('类型名称不能为空');
+                window.Toast.warning('类型名称不能为空');
                 return;
             }
 
@@ -200,7 +200,7 @@ export function setupScheduleTypeListeners() {
                     const msg = error.message || (error.data && error.data.message) || '保存失败';
                     window.apiUtils.showToast(msg, 'error');
                 } else {
-                    alert('保存失败');
+                    window.Toast.error('保存失败');
                 }
             } finally {
                 submitBtn.disabled = false;
@@ -234,3 +234,4 @@ window.openScheduleTypeModal = openScheduleTypeModal;
 window.closeScheduleTypeFormModal = closeScheduleTypeFormModal;
 window.handleDeleteScheduleType = handleDeleteScheduleType;
 window.setupScheduleTypeListeners = setupScheduleTypeListeners;
+

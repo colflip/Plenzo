@@ -2,6 +2,7 @@ import { API_ENDPOINTS, TIME_SLOT_CONFIG, EMPTY_STATES } from './constants.js';
 
 let availabilityLoadSeq = 0;
 import { getWeekStart, isMobileView } from '../shared/schedule-helpers.js';
+import { showTableLoading, hideTableLoading, showTableLoadingRow } from '../shared/loading-ui.js';
 import {
     clearChildren,
     createElement,
@@ -73,8 +74,8 @@ export async function loadAvailability(baseDate, showLoading = true) {
     }
 
     // 2. 显示加载动画（与教师端保持一致）
-    if (showLoading && tableContainer && window.showTableLoading) {
-        window.showTableLoading(tableContainer, '正在加载时间安排数据...', '#weeklyHeaderAvail');
+    if (showLoading && tableContainer) {
+        showTableLoading(tableContainer, '正在加载时间安排数据...', '#weeklyHeaderAvail');
     }
 
     try {
@@ -103,8 +104,8 @@ export async function loadAvailability(baseDate, showLoading = true) {
         showInlineFeedback(elements.feedback(), '空闲时段加载失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (showLoading && tableContainer && window.hideTableLoading) {
-            window.hideTableLoading(tableContainer);
+        if (showLoading && tableContainer) {
+            hideTableLoading(tableContainer);
         }
     }
 }
@@ -474,18 +475,12 @@ async function saveAvailability() {
 function showLoadingState() {
     const tbody = elements.body();
     if (!tbody) return;
-    clearChildren(tbody);
-
-    // Add a loading row that spans all columns
-    const row = createElement('tr');
-    const labelCell = createElement('td', 'time-slot-cell', { textContent: '-' });
-    row.appendChild(labelCell);
-
-    const loadingCell = createElement('td', 'no-schedule', { textContent: '加载中...' });
-    loadingCell.colSpan = 7;
-    loadingCell.style.textAlign = 'center';
-    row.appendChild(loadingCell);
-    tbody.appendChild(row);
+    // 统一加载视觉：与遮罩同款 spinner + 文案（首列保留时段占位，避免列错位）
+    showTableLoadingRow(tbody, {
+        colspan: 7,
+        text: '正在加载时间安排数据...',
+        leadingCellText: '-'
+    });
 }
 
 function updateRangeLabel(weekDates) {

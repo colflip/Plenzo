@@ -1,301 +1,297 @@
-/* AI 模型管理样式 */
+/* AI 模型管理样式 — 复用 dashboard.css 全局 th/td 规则 */
 .ai-models-container {
     padding: 20px;
 }
 
-.current-model-card {
-    background: #fff;
-    border: 2px solid #2ECC71;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 30px;
-    box-shadow: 0 2px 8px rgba(46, 204, 113, 0.1);
-}
-
-.current-model-card h4 {
-    margin: 0 0 15px 0;
-    color: #2ECC71;
-    font-size: 16px;
-    font-weight: 600;
+/* 当前配置摘要栏 */
+.ai-current-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-}
-
-.current-model-card h4::before {
-    content: '✓';
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    background: #2ECC71;
-    color: white;
-    border-radius: 50%;
-    text-align: center;
-    line-height: 20px;
+    gap: 12px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    margin-bottom: 20px;
     font-size: 14px;
 }
 
-.model-info-row {
-    display: flex;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #f0f0f0;
+.ai-current-label {
+    font-weight: 600;
+    color: #16a34a;
+    white-space: nowrap;
+    font-size: 16px;
 }
 
-.model-info-row:last-child {
-    border-bottom: none;
+.ai-current-label::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: #22c55e;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
 }
 
-.info-label {
-    font-weight: 500;
-    color: #666;
-    min-width: 100px;
-}
-
-.model-info-row span:last-child {
-    color: #333;
+.ai-current-value {
     font-family: 'Monaco', 'Courier New', monospace;
-    font-size: 13px;
-}
-
-.status-badge {
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 500;
-}
-
-.status-badge.active {
-    background: #d4edda;
-    color: #155724;
-}
-
-.status-badge.inactive {
-    background: #f8d7da;
-    color: #721c24;
-}
-
-.preset-models-section,
-.custom-models-section {
-    margin-bottom: 30px;
-}
-
-.preset-models-section h4,
-.custom-models-section h4 {
-    margin: 0 0 15px 0;
-    color: #333;
+    color: #334155;
     font-size: 15px;
     font-weight: 600;
-}
-
-#presetModelsTable,
-#customModelsTable {
-    width: 100%;
-    border-collapse: collapse;
-    background: #fff;
-    border-radius: 8px;
+    flex: 1;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-#presetModelsTable thead,
-#customModelsTable thead {
-    background: #f8f9fa;
-}
-
-#presetModelsTable th,
-#customModelsTable th {
-    padding: 12px 16px;
-    text-align: left;
+.ai-current-status {
+    padding: 3px 12px;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 600;
-    color: #555;
-    font-size: 13px;
-    border-bottom: 2px solid #e9ecef;
+    white-space: nowrap;
 }
 
-#presetModelsTable td,
-#customModelsTable td {
-    padding: 12px 16px;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 13px;
+.ai-current-status.active {
+    background: #dcfce7;
+    color: #166534;
 }
 
-#presetModelsTable tbody tr:hover,
-#customModelsTable tbody tr:hover {
-    background: #f8f9fa;
+.ai-current-status.inactive {
+    background: #fee2e2;
+    color: #991b1b;
 }
 
-.model-provider {
-    font-weight: 500;
-    color: #2ECC71;
+.ai-current-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
-.model-name {
+.ai-current-detail {
+    margin-top: 8px;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ai-current-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid #d1fae5;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #475569;
     font-family: 'Monaco', 'Courier New', monospace;
-    color: #555;
 }
 
-.model-protocol {
+/* AI 模型表格：基础样式由 dashboard.css 全局 th/td 提供，此处仅定义特有样式 */
+.ai-models-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+/* 模型名称列 */
+.ai-model-name {
+    font-weight: 400;
+    color: #2C3E50;
+}
+
+.ai-model-source {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
     font-size: 11px;
-    font-weight: 500;
-    background: #e3f2fd;
-    color: #1976d2;
+    font-weight: 600;
+    margin-left: 8px;
+    vertical-align: middle;
 }
 
-.model-status {
+.ai-model-source.preset {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.ai-model-source.custom {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* 模型 ID 列 */
+.ai-model-id {
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 15px;
+    color: #64748b;
+}
+
+/* 协议标签 */
+.ai-protocol-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 15px;
+    font-weight: 500;
+    background: #f1f5f9;
+    color: #475569;
+}
+
+/* 能力标签 */
+.ai-caps {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ai-cap-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.ai-cap-tag.vision {
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+.ai-cap-tag.tools {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.ai-cap-tag.reasoning {
+    background: #fce7f3;
+    color: #be185d;
+}
+
+/* 状态指示 */
+.ai-status {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 15px;
+    font-weight: 500;
 }
 
-.model-status.in-use {
-    color: #2ECC71;
-    font-weight: 600;
-}
-
-.model-status.in-use::before {
-    content: '';
-    display: inline-block;
+.ai-status-dot {
     width: 8px;
     height: 8px;
-    background: #2ECC71;
     border-radius: 50%;
+    flex-shrink: 0;
 }
 
-.model-status.available {
-    color: #3b82f6;
+.ai-status.in-use .ai-status-dot {
+    background: #22c55e;
 }
 
-.model-status.available::before {
-    content: '';
-    display: inline-block;
-    width: 8px;
-    height: 8px;
+.ai-status.in-use {
+    color: #16a34a;
+}
+
+.ai-status.available .ai-status-dot {
     background: #3b82f6;
-    border-radius: 50%;
 }
 
-.model-status.unavailable {
-    color: #ef4444;
-    cursor: help;
+.ai-status.available {
+    color: #2563eb;
 }
 
-.model-status.unavailable::before {
-    content: '';
-    display: inline-block;
-    width: 8px;
-    height: 8px;
+.ai-status.unavailable .ai-status-dot {
     background: #ef4444;
-    border-radius: 50%;
 }
 
-.model-status.checking {
-    color: #f59e0b;
+.ai-status.unavailable {
+    color: #dc2626;
 }
 
-.model-status.checking::before {
-    content: '';
-    display: inline-block;
-    width: 8px;
-    height: 8px;
+.ai-status.checking .ai-status-dot {
     background: #f59e0b;
-    border-radius: 50%;
-    animation: pulse 1.5s ease-in-out infinite;
+    animation: ai-pulse 1.5s ease-in-out infinite;
 }
 
-.model-status.unknown {
-    color: #999;
-    cursor: help;
+.ai-status.checking {
+    color: #d97706;
 }
 
-@keyframes pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.3;
-    }
+.ai-status.unknown .ai-status-dot {
+    background: #94a3b8;
 }
 
-.model-actions {
+.ai-status.unknown {
+    color: #64748b;
+}
+
+@keyframes ai-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* 操作按钮组 */
+.ai-actions {
     display: flex;
     gap: 8px;
+    white-space: nowrap;
 }
 
-.btn-switch {
-    padding: 4px 12px;
-    border: 1px solid #2ECC71;
-    background: white;
-    color: #2ECC71;
-    border-radius: 6px;
+.ai-btn {
+    padding: 6px 12px;
+    border-radius: 10px;
     font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
+    border: none;
     transition: all 0.2s;
 }
 
-.btn-switch:hover {
-    background: #2ECC71;
-    color: white;
-}
-
-.btn-switch:disabled {
-    border-color: #ccc;
-    color: #ccc;
+.ai-btn:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
-.btn-edit {
-    padding: 4px 12px;
-    border: 1px solid #3b82f6;
-    background: white;
-    color: #3b82f6;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
+.ai-btn-switch {
+    background-color: #d4edda;
+    color: #28a745;
 }
 
-.btn-edit:hover {
-    background: #3b82f6;
+.ai-btn-switch:hover:not(:disabled) {
+    background-color: #28a745;
     color: white;
 }
 
-.btn-delete {
-    padding: 4px 12px;
-    border: 1px solid #ef4444;
-    background: white;
-    color: #ef4444;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
+.ai-btn-test {
+    background-color: #fff3cd;
+    color: #856404;
 }
 
-.btn-delete:hover {
-    background: #ef4444;
+.ai-btn-test:hover:not(:disabled) {
+    background-color: #856404;
     color: white;
 }
 
-.btn-test {
-    padding: 4px 12px;
-    border: 1px solid #f59e0b;
-    background: white;
-    color: #f59e0b;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
+.ai-btn-edit {
+    background-color: #d4edda;
+    color: #28a745;
 }
 
-.btn-test:hover {
-    background: #f59e0b;
+.ai-btn-edit:hover:not(:disabled) {
+    background-color: #28a745;
     color: white;
 }
 
-/* AI 模型表单样式 */
+.ai-btn-delete {
+    background-color: #FEF2F2;
+    color: #dc2626;
+}
+
+.ai-btn-delete:hover:not(:disabled) {
+    background-color: #dc2626;
+    color: white;
+}
+
+/* 表单样式 */
 #aiModelFormContainer {
     position: fixed;
     top: 50%;
@@ -306,7 +302,7 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     z-index: 1000;
     width: 90%;
-    max-width: 600px;
+    max-width: 520px;
     max-height: 80vh;
     overflow-y: auto;
 }
@@ -320,23 +316,22 @@
     margin-bottom: 6px;
     font-weight: 500;
     color: #333;
-    font-size: 13px;
+    font-size: 14px;
 }
 
 #aiModelForm input,
-#aiModelForm select,
-#aiModelForm textarea {
+#aiModelForm select {
     width: 100%;
     padding: 8px 12px;
     border: 1px solid #ddd;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 14px;
     transition: border-color 0.2s;
+    box-sizing: border-box;
 }
 
 #aiModelForm input:focus,
-#aiModelForm select:focus,
-#aiModelForm textarea:focus {
+#aiModelForm select:focus {
     outline: none;
     border-color: #2ECC71;
 }

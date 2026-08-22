@@ -3,6 +3,10 @@
  * @module student
  */
 
+// 统一加载视觉：先加载 shared/loading-ui.js，注册 window.LoadingUI / window.showTableLoading，
+// 供 components/ 下的经典脚本（如 fee-manager.js）复用同一套 spinner。
+import '../shared/loading-ui.js';
+
 import { initOverviewSection, loadOverview } from './overview.js';
 import { initProfileSection, loadProfile } from './profile.js';
 import { initAvailabilitySection, refreshAvailability } from './availability.js?v=20260806-toggle';

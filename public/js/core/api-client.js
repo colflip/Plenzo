@@ -12,41 +12,36 @@ class ApiUtils {
     }
 
     /**
-     * 获取认证token（同时检查localStorage和sessionStorage）
+     * 获取认证token
+     * @description JWT 现由后端写入 httpOnly Cookie（JS 不可读），
+     * 同源请求由浏览器自动携带 Cookie 完成鉴权，故此处不再持有令牌。
      */
     getAuthToken() {
-        // 优先检查 localStorage（持久化存储 - 记住我）
-        const token = localStorage.getItem('token');
-        if (token) return token;
-        // 其次检查 sessionStorage（会话存储 - 未记住我）
-        return sessionStorage.getItem('tempToken');
+        return null;
     }
 
     /**
      * 设置认证token
+     * @description 不再于前端存储 JWT；Cookie 由后端在登录/刷新时设置。
      */
     setAuthToken(token) {
-        localStorage.setItem('token', token);
+        // no-op：凭据存于 httpOnly Cookie
     }
 
     /**
      * 清除认证token
      */
     clearAuthToken() {
-        localStorage.removeItem('token');
-        sessionStorage.removeItem('tempToken');
+        localStorage.removeItem('authed');
+        sessionStorage.removeItem('authed');
     }
 
     /**
      * 获取请求头
+     * @description 不再注入 Authorization 头；Cookie 由浏览器随同源请求自动携带。
      */
     getHeaders(customHeaders = {}) {
-        const headers = { ...this.defaultHeaders, ...customHeaders };
-        const token = this.getAuthToken();
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-        return headers;
+        return { ...this.defaultHeaders, ...customHeaders };
     }
 
     /**
@@ -57,6 +52,7 @@ class ApiUtils {
         const { headers: customHeaders, ...restOptions } = options;
         const config = {
             method: 'GET',
+            credentials: 'include',
             ...restOptions,
             headers: this.getHeaders(customHeaders)
         };
@@ -217,6 +213,7 @@ class ApiUtils {
         switch (status) {
             case 400: return '数据验证失败，请检查填写内容';
             case 401: return '认证令牌已过期，请重新登录';
+            case 403: return '权限级别不足，无法执行此操作';
             case 404: return '接口不存在或资源未找到';
             case 409: return '存在冲突：已存在相同安排或时间段冲突';
             case 500: return '服务器错误，请稍后重试';
@@ -248,57 +245,30 @@ class ApiUtils {
     }
 
     /**
-     * 显示提示消息
+     * 显示提示消息（委托到统一 Toast 组件，带安全防护）
      */
     showToast(message, type = 'info') {
-        // 创建toast元素
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-
-        // 添加样式
-        Object.assign(toast.style, {
-            position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '12px 20px',
-            borderRadius: '4px',
-            color: 'white',
-            fontSize: '14px',
-            zIndex: '10000',
-            maxWidth: '380px',
-            wordWrap: 'break-word',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            transform: 'translateX(100%)',
-            transition: 'transform 0.3s ease-in-out'
-        });
-
-        // 设置背景色
-        const colors = {
-            success: '#4CAF50',
-            error: '#F44336',
-            warning: '#FF9800',
-            info: '#89C9B8' /* 统一去蓝化，使用青绿信息色 */
-        };
-        toast.style.backgroundColor = colors[type] || colors.info;
-
-        // 添加到页面
-        document.body.appendChild(toast);
-
-        // 显示动画
+        if (window.Toast && typeof window.Toast.show === 'function') {
+            return window.Toast.show(message, { type });
+        }
+        // Toast 组件尚未加载时的临时兜底
+        console.warn('[Toast] 组件未就绪，延迟重试:', message);
         setTimeout(() => {
-            toast.style.transform = 'translateX(0)';
-        }, 100);
+            if (window.Toast && typeof window.Toast.show === 'function') {
+                window.Toast.show(message, { type });
+            }
+        }, 200);
+    }
 
-        // 自动隐藏
-        setTimeout(() => {
-            toast.style.transform = 'translateX(100%)';
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 300);
-        }, 3000);
+    /**
+     * 隐藏提示消息
+     * @param {HTMLElement} toast - showToast 返回的 toast 元素
+     */
+    hideToast(toast) {
+        if (!toast) return;
+        if (window.Toast && typeof window.Toast.hide === 'function') {
+            window.Toast.hide(toast);
+        }
     }
 
     /**

@@ -212,8 +212,7 @@
 .weekly-schedule-table {
     width: 100%;
     border-collapse: separate;
-    /* Changed for border-radius on cells if needed, but usually collapse is better for grids */
-    border-collapse: collapse;
+    border-spacing: 0;
     table-layout: fixed;
 }
 
@@ -466,49 +465,9 @@
 */
 
 /* --- 7. Schedule Loading Overlay --- */
-/* 排课数据加载遮罩 */
-.schedule-loading-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.95);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-    border-radius: 12px;
-    backdrop-filter: blur(4px);
-    transition: opacity 0.3s ease;
-}
-
-.schedule-loading-overlay .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid #e2e8f0;
-    border-top: 3px solid #2ECC71;
-    border-radius: 50%;
-    animation: schedule-spin 1s linear infinite;
-    margin-bottom: 16px;
-}
-
-.schedule-loading-overlay .loading-text {
-    color: #64748b;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-@keyframes schedule-spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
-}
+/* 排课数据加载遮罩：已统一改用 global.css 的 .stats-loading-overlay
+   （由 shared/loading-ui.js 的 showTableLoading 注入），
+   原 .schedule-loading-overlay 一套定义在代码中已无任何引用，故删除，避免两套加载视觉并存。 */
 
 /* --- Availability Icon Styles (Migrated from legacy-adapter.js injection) --- */
 .availability-cell {

@@ -110,7 +110,7 @@ function renderOneToOneSchedules(schedules, container, showActions = true) {
     if (!container) return;
     
     if (!schedules || schedules.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-schedule">暂无1对1课程安排</div>'); } else { container.innerHTML = '<div class="no-schedule">暂无1对1课程安排</div>'; }
+        window.SecurityUtils.safeSetHTML(container, '<div class="no-schedule">暂无1对1课程安排</div>');
         return;
     }
     
@@ -121,10 +121,14 @@ function renderOneToOneSchedules(schedules, container, showActions = true) {
         return dateA - dateB;
     });
     
-    // 渲染卡片列表
-    container.innerHTML = sortedSchedules.map(schedule => 
-        createOneToOneScheduleCard(schedule, showActions)
-    ).join('');
+    // 渲染卡片列表（经 safeSetHTML 净化，防止 location/姓名等用户输入触发 XSS）
+    if (window.SecurityUtils) {
+        window.SecurityUtils.safeSetHTML(container, sortedSchedules.map(schedule =>
+            createOneToOneScheduleCard(schedule, showActions)
+        ).join(''));
+    } else {
+        container.textContent = '';
+    }
     
     // 设置事件监听器
     setupOneToOneScheduleCardListeners(container);
@@ -167,31 +171,46 @@ async function confirmOneToOneSchedule(scheduleId, isConfirmed) {
         });
         
         // 获取拒绝原因（如果拒绝）
-        const notes = isConfirmed ? '' : prompt('请输入拒绝原因');
-        if (!isConfirmed && !notes) {
-            // 恢复按钮状态
-            buttons.forEach(btn => {
-                btn.disabled = false;
-                btn.textContent = btn.classList.contains('confirm-btn') ? '确认' : '拒绝';
+        let notes = '';
+        if (!isConfirmed) {
+            notes = await Modal.prompt('请输入拒绝原因', {
+                title: '拒绝课程',
+                placeholder: '请输入拒绝原因',
+                required: true
             });
-            alert('请输入拒绝原因');
-            return;
+            if (notes === null) {
+                // 用户取消
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = btn.classList.contains('confirm-btn') ? '确认' : '拒绝';
+                });
+                return;
+            }
+            if (!notes) {
+                // 恢复按钮状态
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = btn.classList.contains('confirm-btn') ? '确认' : '拒绝';
+                });
+                window.Toast.warning('请输入拒绝原因');
+                return;
+            }
         }
-        
+
         // 发送确认请求
         await window.apiUtils.post(`/teacher/schedules/${scheduleId}/confirm`, {
             teacherConfirmed: isConfirmed,
             notes
         });
-        
+
         // 显示成功提示
-        alert(isConfirmed ? '课程已确认' : '课程已拒绝');
+        window.Toast.success(isConfirmed ? '课程已确认' : '课程已拒绝');
         
         // 重新加载课程数据
         loadOneToOneSchedules();
     } catch (error) {
         
-        alert(error.message || '操作失败，请重试');
+        window.Toast.error(error.message || '操作失败，请重试');
         
         // 恢复按钮状态
         const buttons = document.querySelectorAll(
@@ -213,7 +232,12 @@ async function loadOneToOneSchedules(baseDate = new Date()) {
         // 显示加载中状态
         const container = document.getElementById('oneToOneSchedulesContainer');
         if (container) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="loading">加载中...</div>'); } else { container.innerHTML = '<div class="loading">加载中...</div>'; }
+            // 统一加载视觉（shared/loading-ui.js）：与表格遮罩同款 spinner
+            if (window.LoadingUI) {
+                window.LoadingUI.showBlockLoading(container, '正在加载1对1课程安排...');
+            } else {
+                window.SecurityUtils.safeSetHTML(container, '<div class="inline-loading"><div class="stats-loading-content"><div class="stats-spinner-circle"></div><div class="stats-spinner-text">正在加载1对1课程安排...</div></div></div>');
+            }
         }
         
         // 计算日期范围（本周）
@@ -241,7 +265,7 @@ async function loadOneToOneSchedules(baseDate = new Date()) {
         
         const container = document.getElementById('oneToOneSchedulesContainer');
         if (container) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="error-message">加载失败，请刷新页面重试</div>'); } else { container.innerHTML = '<div class="error-message">加载失败，请刷新页面重试</div>'; }
+            window.SecurityUtils.safeSetHTML(container, '<div class="error-message">加载失败，请刷新页面重试</div>');
         }
     }
 }

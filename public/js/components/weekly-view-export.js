@@ -52,22 +52,26 @@
         return toISODate(dateLike) || null;
     }
 
-    // ---- 水印文本（与教师端 getScheduleWatermarkText 一致） -------------
+    // ---- 水印文本（与 schedule-helpers.js getScheduleWatermarkText 统一） ----
+    // 规则：adjustment_type===2 或 status==='modified_away' 即视为「已调整」（"调"水印）；
+    // 整组均为 modified_away+type0 时标记「原」；type===1 标记「加」。
     function getAdjustmentType(rec) {
         const raw = rec && (rec.adjustment_type != null ? rec.adjustment_type : rec.is_temp);
         const num = Number(raw);
         return Number.isFinite(num) ? num : 0;
     }
     function getScheduleWatermarkText(group) {
-        const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
-        const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
-        const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
+        const recs = Array.isArray(group) ? group : [group];
+        if (recs.length === 0 || !recs[0]) return '';
+        const statusOf = (r) => (r.status || '').toLowerCase();
+        const isOriginal = (r) => statusOf(r) === 'modified_away' && getAdjustmentType(r) === 0;
+        const isAdjusted = (r) => getAdjustmentType(r) === 2 || statusOf(r) === 'modified_away';
+        const isTemp = (r) => getAdjustmentType(r) === 1;
+        if (recs.every(isOriginal)) return '原';
         const parts = [];
-        if (hasAdjusted) parts.push('调');
-        if (hasTemp) parts.push('加');
-        if (parts.length > 0) return parts.join('/');
-        if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
-        return '';
+        if (recs.some(isAdjusted)) parts.push('调');
+        if (recs.some(isTemp)) parts.push('加');
+        return parts.join('/');
     }
 
     // ---- 表格视觉常量（与教师端 WEEKLY_VIEW_STYLE 1:1 对齐） ------------
@@ -75,7 +79,7 @@
         columnPx: {
             '日期': 96, '星期': 60,
             '计划安排': 480, '实际安排': 480,
-            '费用': 120, '周汇总': 110, '报销状态': 100
+            '费用': 120, '周汇总': 110
         },
         cellPaddingY: 1, cellPaddingX: 8,
         lineHeight: 1.1, minRowHeight: 22,
@@ -441,7 +445,7 @@
 
     // ---- 离屏表格构造（与教师端 buildWeeklyViewWrapper 1:1） -----------
     function buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows) {
-        const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总', '报销状态'];
+        const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
         const totalWidth = HEADERS.reduce((sum, h) => sum + (WEEKLY_VIEW_STYLE.columnPx[h] || 0), 0);
 
         const watermarkByDate = {};
@@ -493,7 +497,7 @@
             renderRows = weekDates.map(d => ({
                 '日期': toISODate(d),
                 '星期': days[d.getDay()],
-                '计划安排': '', '实际安排': '', '费用': '', '周汇总': '', '报销状态': '',
+                '计划安排': '', '实际安排': '', '费用': '', '周汇总': '',
                 _isSunday: d.getDay() === 0,
                 _weekNumber: getISOWeekStub(d)
             }));
@@ -504,13 +508,13 @@
         renderRows.forEach((r, i) => {
             const tr = document.createElement('tr');
             HEADERS.forEach(h => {
-                if (['日期', '星期', '费用', '报销状态'].includes(h) && !rowspans.dateFirst[i]) return;
+                if (['日期', '星期', '费用'].includes(h) && !rowspans.dateFirst[i]) return;
                 if (h === '周汇总' && !rowspans.weekFirst[i]) return;
 
                 const td = document.createElement('td');
                 const value = r[h] != null ? String(r[h]) : '';
 
-                if (['日期', '星期', '费用', '报销状态'].includes(h) && rowspans.dateSpan[i] > 1) {
+                if (['日期', '星期', '费用'].includes(h) && rowspans.dateSpan[i] > 1) {
                     td.rowSpan = rowspans.dateSpan[i];
                 }
                 if (h === '周汇总' && rowspans.weekSpan[i] > 1) {

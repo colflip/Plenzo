@@ -4,7 +4,12 @@ async function loadTodaySchedules() {
     const container = document.getElementById('todayScheduleList');
     if (!container) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">加载中...</div>'); } else { container.innerHTML = '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">加载中...</div>'; }
+    // 统一加载视觉：紧凑横向 spinner + 文案（shared/loading-ui.js 注册到 window.LoadingUI）
+    if (window.LoadingUI) {
+        window.LoadingUI.showBlockLoading(container, '正在加载今日排课...', { compact: true });
+    } else {
+        window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #64748b; padding: 20px;">正在加载今日排课...</div>');
+    }
 
     try {
         // Fix: Use local date instead of server UTC date to avoid 0:00 timezone issues
@@ -21,11 +26,11 @@ async function loadTodaySchedules() {
             end_date: dateStr
         });
 
-        const normalized = normalizeScheduleRows(Array.isArray(schedules) ? schedules : []);
+        const normalized = (window.normalizeScheduleRows || normalizeScheduleRows)(Array.isArray(schedules) ? schedules : []);
         renderTodaySchedules(normalized);
     } catch (error) {
 
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>'); } else { container.innerHTML = '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>'; }
+        window.SecurityUtils.safeSetHTML(container, '<div class="no-data" style="text-align: center; color: #ef4444; padding: 20px;">加载失败，请重试</div>');
     }
 }
 
@@ -49,7 +54,7 @@ function renderTodaySchedules(schedules) {
     const container = document.getElementById('todayScheduleList');
     if (!container) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(container, '');
 
     if (schedules.length === 0) {
         container.innerHTML = `
@@ -184,10 +189,13 @@ function buildTodayScheduleCard(schedule, items = []) {
     // 1. Time Column
     const timeCol = document.createElement('div');
     timeCol.className = 'today-card-time';
-    timeCol.innerHTML = `
-        <div class="time-range">${(schedule.start_time || '').substring(0, 5)} - ${(schedule.end_time || '').substring(0, 5)}</div>
-        <div class="time-slot-label">${slotLabel}</div>
-    `;
+    const startTime = window.SecurityUtils.escapeHtml((schedule.start_time || '').substring(0, 5));
+    const endTime = window.SecurityUtils.escapeHtml((schedule.end_time || '').substring(0, 5));
+    const safeSlotLabel = window.SecurityUtils.escapeHtml(slotLabel);
+    window.SecurityUtils.safeSetHTML(timeCol, `
+        <div class="time-range">${startTime} - ${endTime}</div>
+        <div class="time-slot-label">${safeSlotLabel}</div>
+    `);
     card.appendChild(timeCol);
 
     // 2. Info Column
@@ -233,7 +241,7 @@ function buildTodayScheduleCard(schedule, items = []) {
         // Let's use the class sc-merged-count from previous admin code or adapt. 
         // overview.js uses inline styles for merged badge. Let's replicate or use a clean class.
         // I'll use a class and ensure it is styled or inline if needed.
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(mergedBadge, `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`); } else { mergedBadge.innerHTML = `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`; }
+        window.SecurityUtils.safeSetHTML(mergedBadge, `<span style="background-color:#E0F2FE; color:#0284C7; padding:2px 6px; border-radius:4px; font-size:11px;">${items.length}个合并</span>`);
         titleDiv.appendChild(mergedBadge);
     }
 
@@ -296,7 +304,7 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     const teacherItem = document.createElement('div');
     teacherItem.className = 'today-card-detail-item';
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherItem, `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`); } else { teacherItem.innerHTML = `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`; }
+    window.SecurityUtils.safeSetHTML(teacherItem, `<i class="material-icons-round">person</i> <span>${teacherDisplay}</span>`);
     details.appendChild(teacherItem);
 
     // Location Info
@@ -308,7 +316,7 @@ function buildTodayScheduleCard(schedule, items = []) {
         `<span>${schedule.location}</span>` :
         `<span style="font-style: italic; color: #94a3b8;">地点待定</span>`;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locationItem, `<i class="material-icons-round">place</i> ${locationHtml}`); } else { locationItem.innerHTML = `<i class="material-icons-round">place</i> ${locationHtml}`; }
+    window.SecurityUtils.safeSetHTML(locationItem, `<i class="material-icons-round">place</i> ${locationHtml}`);
     details.appendChild(locationItem);
 
     infoCol.appendChild(details);
@@ -317,7 +325,7 @@ function buildTodayScheduleCard(schedule, items = []) {
     // 3. Status Column
     const statusCol = document.createElement('div');
     statusCol.className = 'today-card-status';
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statusCol, `<span class="status-pill ${status}">${displayStatus}</span>`); } else { statusCol.innerHTML = `<span class="status-pill ${status}">${displayStatus}</span>`; }
+    window.SecurityUtils.safeSetHTML(statusCol, `<span class="status-pill ${status}">${displayStatus}</span>`);
     card.appendChild(statusCol);
 
     // Interaction
@@ -329,3 +337,4 @@ function buildTodayScheduleCard(schedule, items = []) {
 
     return card;
 }
+

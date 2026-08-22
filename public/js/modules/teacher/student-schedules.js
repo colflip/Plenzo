@@ -2,7 +2,8 @@
 
 import { STATUS_LABELS } from '../student/constants.js';
 import { getScheduleTypeLabel } from './constants.js';
-import { isMobileView } from '../shared/schedule-helpers.js';
+import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import {
     clearChildren,
     createElement,
@@ -62,24 +63,6 @@ function syncShowPlanButton() {
     syncToggleButton(toggleBtn, window.teacherStudentShowPlan);
 }
 
-function getAdjustmentType(rec) {
-    const raw = rec?.adjustment_type ?? rec?.is_temp;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : 0;
-}
-
-function getScheduleWatermarkText(group) {
-    const hasTemp = group.some(rec => getAdjustmentType(rec) === 1);
-    const hasAdjusted = group.some(rec => getAdjustmentType(rec) === 2);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0);
-    const parts = [];
-    if (hasAdjusted) parts.push('调');
-    if (hasTemp) parts.push('加');
-    if (parts.length > 0) return parts.join('/');
-    if (hasOriginal && group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && getAdjustmentType(rec) === 0)) return '原';
-    return '';
-}
-
 function appendScheduleWatermark(card, watermarkText) {
     if (!watermarkText) return;
     card.classList.add('is-temp-card');
@@ -118,14 +101,7 @@ export async function initStudentSchedulesSection() {
     bindNavigation();
     bindFeeModalEvents();
 
-    // 绑定导出学生数据按钮
-    const exportBtn = document.getElementById('exportTeacherStudentsBtn');
-    if (exportBtn) {
-        if (!exportBtn.__exportBound) {
-            exportBtn.addEventListener('click', exportTeacherStudents);
-            exportBtn.__exportBound = true;
-        }
-    }
+    // 导出学生数据按钮的点击事件已由 action-delegate.js 通过 data-action="export-teacher-students" 统一委托处理
 
     // 绑定导出本周视图按钮
     const exportWeeklyBtn = document.getElementById('exportWeeklyViewBtn');
@@ -210,7 +186,7 @@ function bindFeeModalEvents() {
         const container = document.getElementById('dynamicFeeInputsContainer');
         if (container) {
             container.style.display = 'none';
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
+            window.SecurityUtils.safeSetHTML(container, '');
         }
     };
 
@@ -259,9 +235,9 @@ function bindFeeModalEvents() {
             try {
                 const response = await fetch('/api/teacher/batch-fees', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ updates })
                 });
@@ -271,21 +247,13 @@ function bindFeeModalEvents() {
                     throw new Error(data.message || '保存失败');
                 }
 
-                if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast('费用保存成功', 'success');
-                } else {
-                    alert('费用保存成功');
-                }
+                window.apiUtils.showToast('费用保存成功', 'success');
 
                 closeModal();
                 await loadSchedules(currentWeekStart); // reload
             } catch (error) {
 
-                if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast(error.message || '保存失败', 'error');
-                } else {
-                    alert('保存失败: ' + error.message);
-                }
+                window.apiUtils.showToast(error.message || '保存失败', 'error');
             } finally {
                 if (submitBtn) {
                     submitBtn.disabled = false;
@@ -350,12 +318,13 @@ function openFeeModal(group) {
         if (defaultOther) defaultOther.style.display = 'none';
         if (container) {
             container.style.display = 'block';
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, ''); } else { container.innerHTML = ''; }
+            window.SecurityUtils.safeSetHTML(container, '');
 
             activeScheduleGroup.forEach(schedule => {
                 const row = document.createElement('div');
                 row.style.cssText = 'padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;';
-                row.innerHTML = `
+                row.innerHTML = '';
+                window.SecurityUtils.safeSetHTML(row, `
                     <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b;">${schedule.teacher_name || '老师'} - ${schedule.schedule_type_cn || '课程'}</div>
                     <div style="display: flex; gap: 10px;">
                         <div class="form-group" style="flex: 1; margin-bottom: 0;">
@@ -367,7 +336,7 @@ function openFeeModal(group) {
                             <input type="number" class="dyn-other-input" data-id="${schedule.id}" step="0.01" min="0" value="${schedule.other_fee || ''}" placeholder="0.00" style="padding: 6px; height: 32px; font-size: 14px;">
                         </div>
                     </div>
-                `;
+                `);
                 container.appendChild(row);
             });
 
@@ -403,8 +372,8 @@ async function loadSchedules(baseDate, showLoading = true) {
     }
 
     // 2. 显示加载动画
-    if (showLoading && tableContainer && window.showTableLoading) {
-        window.showTableLoading(tableContainer, '正在加载学生课程安排数据...', '#ssWeeklyHeader');
+    if (showLoading && tableContainer) {
+        showTableLoading(tableContainer, '正在加载学生课程安排数据...', '#ssWeeklyHeader');
     }
 
     const feedback = document.getElementById('ssScheduleFeedback');
@@ -416,9 +385,8 @@ async function loadSchedules(baseDate, showLoading = true) {
         const response = await fetch(
             `/api/teacher/student-schedules?startDate=${startDate}&endDate=${endDate}${window.teacherStudentShowPlan ? '&show_plan=true' : ''}`,
             {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
+                credentials: 'include',
+                headers: {}
             }
         );
 
@@ -442,12 +410,12 @@ async function loadSchedules(baseDate, showLoading = true) {
         if (requestId !== scheduleLoadSeq) return;
 
         const body = document.getElementById('ssWeeklyBody');
-        if (body) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(body, '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'); } else { body.innerHTML = '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>'; }
+        if (body) window.SecurityUtils.safeSetHTML(body, '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>');
         showInlineFeedback(feedback, '加载课程安排失败', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
-        if (requestId === scheduleLoadSeq && showLoading && tableContainer && window.hideTableLoading) {
-            window.hideTableLoading(tableContainer);
+        if (requestId === scheduleLoadSeq && showLoading && tableContainer) {
+            hideTableLoading(tableContainer);
         }
     }
 }
@@ -595,7 +563,7 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
 
         // 第一列：学生姓名
         const nameCell = createElement('td', 'student-name-cell');
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(nameCell, `<div>${studentData.student_name}</div>`); } else { nameCell.innerHTML = `<div>${studentData.student_name}</div>`; }
+        window.SecurityUtils.safeSetHTML(nameCell, `<div>${studentData.student_name}</div>`);
         nameCell.title = "点击生成图片并复制";
         nameCell.style.cursor = 'copy';
         nameCell.addEventListener('click', (e) => {
@@ -654,7 +622,7 @@ function renderTableHeader(weekDates) {
     const headerRow = document.createElement('tr');
 
     const nameTh = createElement('th', 'date-header');
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(nameTh, `<div class="date-label">学生姓名</div>`); } else { nameTh.innerHTML = `<div class="date-label">学生姓名</div>`; }
+    window.SecurityUtils.safeSetHTML(nameTh, `<div class="date-label">学生姓名</div>`);
     headerRow.appendChild(nameTh);
 
     weekDates.forEach(date => {
@@ -820,21 +788,13 @@ function buildCompactMobileScheduleCard(group) {
     // 2. 时间行
     const timeRange = formatTimeRange(first.start_time, first.end_time);
     const timeLine = createElement('div', 'info-line');
-    if (window.SecurityUtils) { 
-        window.SecurityUtils.safeSetHTML(timeLine, `<span class="material-icons-round">schedule</span><span>${timeRange}</span>`); 
-    } else { 
-        timeLine.innerHTML = `<span class="material-icons-round">schedule</span><span>${timeRange}</span>`; 
-    }
+    window.SecurityUtils.safeSetHTML(timeLine, `<span class="material-icons-round">schedule</span><span>${timeRange}</span>`);
     card.appendChild(timeLine);
 
     // 3. 地点行
     const loc = first.location || '地点待定';
     const locLine = createElement('div', 'info-line');
-    if (window.SecurityUtils) { 
-        window.SecurityUtils.safeSetHTML(locLine, `<span class="material-icons-round">place</span><span>${loc}</span>`); 
-    } else { 
-        locLine.innerHTML = `<span class="material-icons-round">place</span><span>${loc}</span>`; 
-    }
+    window.SecurityUtils.safeSetHTML(locLine, `<span class="material-icons-round">place</span><span>${loc}</span>`);
     card.appendChild(locLine);
 
     // 4. 费用操作行
@@ -918,7 +878,7 @@ function buildScheduleCard(group) {
 
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(marqueeContent, `<span class="course-type-text">(${typeStr})</span>`); } else { marqueeContent.innerHTML = `<span class="course-type-text">(${typeStr})</span>`; }
+        window.SecurityUtils.safeSetHTML(marqueeContent, `<span class="course-type-text">(${typeStr})</span>`);
         
         
 
@@ -1263,7 +1223,7 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
         async fetchSchedules(startDate, endDate) {
             const response = await fetch(
                 `/api/teacher/student-schedules?startDate=${startDate}&endDate=${endDate}&show_plan=true`,
-                { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }
+                { credentials: 'include' }
             );
             if (!response.ok) throw new Error('获取学生课程安排失败');
             const data = await response.json();
@@ -1272,4 +1232,5 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
         }
     });
 }
+
 

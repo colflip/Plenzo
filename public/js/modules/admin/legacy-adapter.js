@@ -1,9 +1,3 @@
-// 工具函数
-const token = localStorage.getItem('token');
-const headers = {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-};
 // TIME_ZONE 常量定义
 const TIME_ZONE = 'Asia/Shanghai';
 
@@ -225,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentVal = filterSelect.value;
 
         // 清空现有选项（保留第一个"全部类型"）
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(filterSelect, '<option value="">全部类型</option>'); } else { filterSelect.innerHTML = '<option value="">全部类型</option>'; }
+        window.SecurityUtils.safeSetHTML(filterSelect, '<option value="">全部类型</option>');
 
         types.forEach(t => {
             const opt = document.createElement('option');
@@ -414,7 +408,7 @@ if (scheduleForm) {
                 if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
                     window.apiUtils.handleError(new window.ApiError(ve.message, 400, [{ field: 'form', message: ve.message }], '/admin/schedules'));
                 } else {
-                    alert(ve.message);
+                    window.Toast.warning(ve.message);
                 }
                 return;
             }
@@ -428,11 +422,7 @@ if (scheduleForm) {
             const sMin = toMinutes(startTime);
             const eMin = toMinutes(endTime);
             if (isNaN(sMin) || isNaN(eMin) || eMin <= sMin) {
-                if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
-                    window.apiUtils.showToast('结束时间必须晚于开始时间', 'error');
-                } else {
-                    alert('结束时间必须晚于开始时间');
-                }
+                window.apiUtils.showToast('结束时间必须晚于开始时间', 'warning');
                 return;
             }
             // 自动推断时段：优先使用选择的值，否则按开始时间计算
@@ -488,11 +478,7 @@ if (scheduleForm) {
             // 校验入户地点
             const locOk = location.length > 0 && location.length <= 100 && /^[\u4e00-\u9fa5A-Za-z0-9\s\-，,]+$/.test(location);
             if (!locOk) {
-                if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
-                    window.apiUtils.showToast('入户地点不合法：请填写1-100字符，允许中文、字母、数字、空格、连字符', 'error');
-                } else {
-                    alert('入户地点不合法：请填写1-100字符，允许中文、字母、数字、空格、连字符');
-                }
+                window.apiUtils.showToast('入户地点不合法：请填写1-100字符，允许中文、字母、数字、空格、连字符', 'warning');
                 return;
             }
 
@@ -547,8 +533,7 @@ if (scheduleForm) {
                     if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
                         window.apiUtils.handleError(err);
                     } else {
-                        
-                        alert('更新排课失败');
+                        window.Toast.error('更新排课失败');
                     }
                 } finally {
                     const submitBtn = document.getElementById('scheduleFormSubmit');
@@ -630,7 +615,7 @@ if (scheduleForm) {
             if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
                 window.apiUtils.handleError(err);
             } else {
-                alert('创建排课失败，请稍后重试');
+                window.Toast.error('创建排课失败，请稍后重试');
             }
         } finally {
             const submitBtn = document.getElementById('scheduleFormSubmit');
@@ -649,23 +634,32 @@ if (statsSearchBtn) {
     statsSearchBtn.addEventListener('click', async function () {
         if (isStatsLoading) return;
 
-        // 设置按钮为加载状态
+        // 设置按钮为加载状态（统一按钮 spinner：shared/loading-ui.js）
         isStatsLoading = true;
+        const useUnified = Boolean(window.LoadingUI?.setButtonLoading);
         const btnText = statsSearchBtn.querySelector('.btn-text');
         const btnLoading = statsSearchBtn.querySelector('.btn-loading');
 
-        if (btnText) btnText.style.display = 'none';
-        if (btnLoading) btnLoading.style.display = 'inline';
-        statsSearchBtn.disabled = true;
+        if (useUnified) {
+            window.LoadingUI.setButtonLoading(statsSearchBtn, true, '加载中...');
+        } else {
+            if (btnText) btnText.style.display = 'none';
+            if (btnLoading) btnLoading.style.display = 'inline';
+            statsSearchBtn.disabled = true;
+        }
 
         try {
             await loadStatistics();
         } finally {
             // 恢复按钮状态
             isStatsLoading = false;
-            if (btnText) btnText.style.display = 'inline';
-            if (btnLoading) btnLoading.style.display = 'none';
-            statsSearchBtn.disabled = false;
+            if (useUnified) {
+                window.LoadingUI.setButtonLoading(statsSearchBtn, false);
+            } else {
+                if (btnText) btnText.style.display = 'inline';
+                if (btnLoading) btnLoading.style.display = 'none';
+                statsSearchBtn.disabled = false;
+            }
         }
     });
 }
@@ -1632,33 +1626,33 @@ function renderTeacherTypePerTeacherCharts(rows, dayLabels, selected) {
 }
 
 function renderStudentTypePerStudentCharts(rows, dayLabels, selected) {
-    if (typeof window.renderStudentTypePerStudentCharts === 'function') {
-        return window.renderStudentTypePerStudentCharts(rows, dayLabels, selected);
+    if (window.StatsLogic && typeof window.StatsLogic.renderStudentTypePerStudentCharts === 'function') {
+        return window.StatsLogic.renderStudentTypePerStudentCharts(rows, dayLabels, selected);
     }
 }
 
 function setupTeacherChartsFilter(rows, dayLabels) {
-    if (typeof window.setupTeacherChartsFilter === 'function') {
-        return window.setupTeacherChartsFilter(rows, dayLabels);
+    if (window.StatsLogic && typeof window.StatsLogic.setupTeacherChartsFilter === 'function') {
+        return window.StatsLogic.setupTeacherChartsFilter(rows, dayLabels);
     }
 }
 
 function getSelectedTeacherForCharts() {
-    if (typeof window.getSelectedTeacherForCharts === 'function') {
-        return window.getSelectedTeacherForCharts();
+    if (window.StatsLogic && typeof window.StatsLogic.getSelectedTeacherForCharts === 'function') {
+        return window.StatsLogic.getSelectedTeacherForCharts();
     }
     return '';
 }
 
 function setupStudentChartsFilter(rows, dayLabels) {
-    if (typeof window.setupStudentChartsFilter === 'function') {
-        return window.setupStudentChartsFilter(rows, dayLabels);
+    if (window.StatsLogic && typeof window.StatsLogic.setupStudentChartsFilter === 'function') {
+        return window.StatsLogic.setupStudentChartsFilter(rows, dayLabels);
     }
 }
 
 function getSelectedStudentForCharts() {
-    if (typeof window.getSelectedStudentForCharts === 'function') {
-        return window.getSelectedStudentForCharts();
+    if (window.StatsLogic && typeof window.StatsLogic.getSelectedStudentForCharts === 'function') {
+        return window.StatsLogic.getSelectedStudentForCharts();
     }
     return '';
 }
@@ -1741,7 +1735,7 @@ async function loadScheduleFilterOptions() {
         const typeFilter = document.getElementById('typeFilter');
         if (!typeFilter) return;
         // 先置默认项
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeFilter, '<option value="">全部类型</option>'); } else { typeFilter.innerHTML = '<option value="">全部类型</option>'; }
+        window.SecurityUtils.safeSetHTML(typeFilter, '<option value="">全部类型</option>');
         let types = [];
         // 优先使用缓存
         if (ScheduleTypesStore.getAll().length === 0) {
@@ -2264,7 +2258,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
 function renderWeeklyHeader(weekDates) {
     const thead = document.getElementById('weeklyHeader');
     if (!thead) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, ''); } else { thead.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(thead, '');
     const tr = document.createElement('tr');
     const thStudent = document.createElement('th');
     thStudent.textContent = '学生';
@@ -2285,7 +2279,7 @@ function renderWeeklyHeader(weekDates) {
 function renderWeeklyBody(students, schedules, weekDates) {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
     const dateKeys = weekDates.map(toISODate);
 
     // 建立索引避免每个单元格重复过滤：key = `${studentId}|${dateISO}` -> [rows]
@@ -2326,7 +2320,7 @@ function renderWeeklyBody(students, schedules, weekDates) {
             const items = cellIndex.get(`${String(student.id)}|${dateKey}`) || [];
 
             if (items.length === 0) {
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">暂无排课</div>'); } else { td.innerHTML = '<div class="no-schedule">暂无排课</div>'; }
+                window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">暂无排课</div>');
             } else {
                 renderGroupedMergedSlots(td, items, student, dateKey);
             }
@@ -2531,3 +2525,4 @@ document.addEventListener('DOMContentLoaded', () => {
  * ==========================================================================
  */
 // --- Admin reward moved to admin-reward.js ---
+
