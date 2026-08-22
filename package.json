@@ -26,7 +26,7 @@
     "dev": "nodemon src/server/app.js",
     "test": "jest",
     "test:unit": "jest --passWithNoTests",
-    "test:integration": "jest --testPathPattern 'tests/(integration|performance)/'",
+    "test:integration": "jest --testMatch '**/tests/(integration|performance)/**/*.test.js' --setupFilesAfterEnv '<rootDir>/tests/setup.js'",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:visual:chromium": "BROWSER=chromium backstop test",
