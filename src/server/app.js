@@ -1,3 +1,4 @@
+const logger = require('./utils/logger.js');
 /**
  * 应用入口文件
  * @description 初始化 Express 应用，配置中间件、路由和全局错误处理
@@ -17,7 +18,8 @@ const {
     apiLimiter,
     securityHeaders,
     additionalSecurityHeaders,
-    corsOptions
+    corsOptions,
+    getJwtSecret
 } = require('./middleware');
 
 const initScheduler = require('./jobs/scheduler');
@@ -37,14 +39,15 @@ app.set('trust proxy', 1);
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-// P0 安全检查：生产环境拒绝使用默认 JWT 密钥
+// P0 安全检查：生产环境拒绝使用默认/缺失 JWT 密钥。
+// 直接复用 auth.js 的单一来源校验（getJwtSecret 在生产环境弱/缺失密钥时抛出）。
 (function checkJwtSecret() {
-    const secret = process.env.JWT_SECRET;
-    const weakSecrets = ['your-secret-key-change-this-in-production', 'dev-insecure-secret', ''];
-    if (isProduction && (!secret || weakSecrets.includes(secret))) {
-        console.error('🚨 致命安全错误: 生产环境检测到弱或缺失的 JWT_SECRET！');
-        console.error('   请在 .env 中设置一个强随机密钥（至少 32 字符）');
-        console.error('   生成方法: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+    try {
+        getJwtSecret();
+    } catch (e) {
+        logger.error('🚨 致命安全错误: 生产环境检测到弱或缺失的 JWT_SECRET！');
+        logger.error('   请在 .env 中设置一个强随机密钥（至少 32 字符）');
+        logger.error('   生成方法: node -e "logger.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
         process.exit(1);
     }
 })();
@@ -133,7 +136,7 @@ function buildDashboardSections() {
             let m;
             while ((m = re.exec(html))) set.add(m[1]);
         } catch (err) {
-            console.warn(`[dashboard] 解析 ${role} 导航区块失败，回退内置白名单:`, err.message);
+            logger.warn(`[dashboard] 解析 ${role} 导航区块失败，回退内置白名单:`, err.message);
         }
         result[role] = set.size ? set : new Set(DASHBOARD_SECTIONS_FALLBACK[role]);
     }
@@ -188,7 +191,7 @@ function serveDashboardSection(role) {
         try {
             await sendVersionedDashboard(res, dashboardPages[role]);
         } catch (err) {
-            console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+            logger.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
             res.sendFile(dashboardPages[role]);
         }
     };
@@ -198,7 +201,7 @@ function serveDashboardSection(role) {
 // 由前端按 pathname 激活对应页面，以便刷新、深链接和浏览器前进/后退均可用。
 app.get(['/admin/dashboard', '/admin/dashboard.html', '/admin/'], (req, res) => {
     sendVersionedDashboard(res, dashboardPages.admin).catch(err => {
-        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        logger.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
         res.sendFile(dashboardPages.admin);
     });
 });
@@ -206,19 +209,38 @@ app.get(['/admin/dashboard/:section', '/admin/dashboard.html/:section'], serveDa
 
 app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, res) => {
     sendVersionedDashboard(res, dashboardPages.teacher).catch(err => {
-        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        logger.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
         res.sendFile(dashboardPages.teacher);
     });
 });
 // 隐藏酬劳彩蛋：点击"数据统计"标题 5 次后跳转的 JSON 页（直接返回 JSON，无 HTML）。
-// 直接导航无法带 Authorization 头，故允许 token 经 URL 传递（隐藏调试页，非敏感操作）。
-// 无有效 token 时优雅降级为空数据 JSON，不报错。
+// 同站直接导航会自动携带 httpOnly Cookie 中的 JWT，故不再接受 URL 中的 token，
+// 避免 token 经 Referer / 访问日志泄露（P2 调试路由修复）。无有效 token 时优雅降级为空数据 JSON。
 const jwt = require('jsonwebtoken');
 const rewardCalc = require('./services/rewardCalc');
-app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
-    const { start, end, token } = req.query;
+
+/**
+ * 从请求中提取 JWT：优先 httpOnly Cookie（同站导航自动携带），兜底 Authorization 头。
+ */
+function getTokenFromRequest(req) {
+    const cookieHeader = req.headers.cookie;
+    if (cookieHeader) {
+        const pair = cookieHeader.split(';').map(s => s.trim()).find(s => s.startsWith('token='));
+        if (pair) {
+            try { return decodeURIComponent(pair.slice('token='.length)); } catch (_) { /* ignore */ }
+        }
+    }
     const authHeader = req.headers.authorization;
-    const raw = token || (authHeader && authHeader.split(' ')[1]);
+    if (authHeader) {
+        const parts = authHeader.split(' ');
+        if (parts.length === 2 && /^[Bb]earer$/i.test(parts[0])) return parts[1];
+    }
+    return null;
+}
+
+app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
+    const { start, end } = req.query;
+    const raw = getTokenFromRequest(req);
     let user = null;
     if (raw) {
         try {
@@ -237,7 +259,7 @@ app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
             return res.json(payload);
         }
     } catch (err) {
-        console.error('[goodluck] 计算失败，降级空数据:', err && err.message);
+        logger.error('[goodluck] 计算失败，降级空数据:', err && err.message);
     }
     res.json(rewardCalc.buildEmptyPayload('未知', start, end));
 });
@@ -245,7 +267,7 @@ app.get(['/teacher/dashboard/:section', '/teacher/dashboard.html/:section'], ser
 
 app.get(['/student/dashboard', '/student/dashboard.html', '/student/'], (req, res) => {
     sendVersionedDashboard(res, dashboardPages.student).catch(err => {
-        console.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
+        logger.error('[dashboard] 版本化服务失败，回退 sendFile:', err && err.message);
         res.sendFile(dashboardPages.student);
     });
 });
@@ -263,7 +285,7 @@ const PORT = process.env.PORT || 3001;
 // 改为在模块加载时触发（测试环境跳过），使所有部署形态都能拿到最新表结构。
 if (process.env.NODE_ENV !== 'test') {
     runDatabaseMigrations().catch(err => {
-        console.error('❌ 数据库迁移启动失败:', err.message);
+        logger.error('❌ 数据库迁移启动失败:', err.message);
     });
 }
 
@@ -273,20 +295,20 @@ if (process.env.VERCEL) {
     module.exports = app;
 } else {
     app.listen(PORT, () => {
-        console.log(``);
-        console.log(`🚀 Plenzo 服务已启动 | ${process.env.NODE_ENV || 'development'} | 端口 ${PORT}`);
+        logger.log(``);
+        logger.log(`🚀 Plenzo 服务已启动 | ${process.env.NODE_ENV || 'development'} | 端口 ${PORT}`);
 
         // 预热数据库连接（减少首次请求的重试）
         dbWarmup().then(() => {
-            console.log(`[DB] 连接预热成功`);
+            logger.log(`[DB] 连接预热成功`);
         }).catch(err => {
-            console.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', err.message);
+            logger.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', err.message);
         });
 
         try {
             initScheduler();
         } catch (err) {
-            console.error('❌ 定时任务启动失败:', err.message);
+            logger.error('❌ 定时任务启动失败:', err.message);
         }
     });
 }

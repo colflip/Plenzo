@@ -9,28 +9,29 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOnly, anyAuthenticated } = require('../middleware/role');
 const { strictLimiter } = require('../middleware/rate-limit');
+const { validate, passwordChangeValidation, teacherProfileValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, feeBatchValidation, teacherConfirmValidation, teacherStatusUpdateValidation, teacherAvailabilitySetValidation, teacherAvailabilityDeleteValidation, teacherAvailabilityReplaceValidation } = require('../middleware/validation');
 const teacherController = require('../controllers/teacher-controller');
 
 // 个人信息管理
 router.get('/profile', authMiddleware, teacherOnly, teacherController.getProfile);
-router.put('/profile', authMiddleware, teacherOnly, teacherController.updateProfile);
-router.put('/password', authMiddleware, teacherOnly, teacherController.changePassword);
+router.put('/profile', authMiddleware, teacherOnly, validate(teacherProfileValidation), teacherController.updateProfile);
+router.put('/password', authMiddleware, teacherOnly, validate(passwordChangeValidation), teacherController.changePassword);
 
 // 时间安排管理
 router.get('/availability', authMiddleware, teacherOnly, teacherController.getAvailability);
-router.post('/availability', authMiddleware, teacherOnly, teacherController.setAvailability);
-router.delete('/availability', authMiddleware, teacherOnly, teacherController.deleteAvailability);
+router.post('/availability', authMiddleware, teacherOnly, validate(teacherAvailabilitySetValidation), teacherController.setAvailability);
+router.delete('/availability', authMiddleware, teacherOnly, validate(teacherAvailabilityDeleteValidation), teacherController.deleteAvailability);
 // R2（选项 B）：原子保存。单事务内 upsert 提及项 + DELETE 提及项，未提及保留。
-router.put('/availability', authMiddleware, teacherOnly, teacherController.replaceAvailability);
+router.put('/availability', authMiddleware, teacherOnly, validate(teacherAvailabilityReplaceValidation), teacherController.replaceAvailability);
 
 // 课程安排
 router.get('/schedules', authMiddleware, teacherOnly, teacherController.getSchedules);
-router.post('/schedules/:id/confirm', authMiddleware, teacherOnly, teacherController.confirmSchedule);
-router.put('/schedules/:id/status', authMiddleware, teacherOnly, teacherController.updateScheduleStatus);
-router.patch('/schedules/:id', authMiddleware, teacherOnly, teacherController.updateScheduleStatus);
-router.patch('/schedules/:id/fees', authMiddleware, teacherOnly, teacherController.updateScheduleFees);
-router.patch('/schedules/:id/fee-status', authMiddleware, teacherOnly, teacherController.updateScheduleFeeStatus);
-router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, teacherController.batchUpdateScheduleFeeStatus);
+router.post('/schedules/:id/confirm', authMiddleware, teacherOnly, validate(teacherConfirmValidation), teacherController.confirmSchedule);
+router.put('/schedules/:id/status', authMiddleware, teacherOnly, validate(teacherStatusUpdateValidation), teacherController.updateScheduleStatus);
+router.patch('/schedules/:id', authMiddleware, teacherOnly, validate(teacherStatusUpdateValidation), teacherController.updateScheduleStatus);
+router.patch('/schedules/:id/fees', authMiddleware, teacherOnly, validate(feeUpdateValidation), teacherController.updateScheduleFees);
+router.patch('/schedules/:id/fee-status', authMiddleware, teacherOnly, validate(feeStatusUpdateValidation), teacherController.updateScheduleFeeStatus);
+router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, validate(feeStatusBatchValidation), teacherController.batchUpdateScheduleFeeStatus);
 
 // 班主任管理关联学生
 router.get('/student-schedules', authMiddleware, teacherOnly, teacherController.getHeadTeacherStudentSchedules);
@@ -39,7 +40,7 @@ router.get('/associated-students', authMiddleware, teacherOnly, teacherControlle
 router.get('/associated-students/detail', authMiddleware, teacherOnly, teacherController.getAssociatedStudentsDetail);
 router.put('/associated-students/:id', authMiddleware, teacherOnly, teacherController.updateAssociatedStudent);
 router.get('/all-teachers', authMiddleware, anyAuthenticated, teacherController.getAllTeachers);
-router.post('/batch-fees', authMiddleware, teacherOnly, teacherController.batchUpdateScheduleFees);
+router.post('/batch-fees', authMiddleware, teacherOnly, validate(feeBatchValidation), teacherController.batchUpdateScheduleFees);
 
 // 总览数据
 router.get('/overview', authMiddleware, teacherOnly, teacherController.getOverview);

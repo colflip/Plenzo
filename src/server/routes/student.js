@@ -9,17 +9,18 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const { studentOnly } = require('../middleware/role');
 const { strictLimiter } = require('../middleware/rate-limit');
+const { validate, passwordChangeValidation, studentProfileValidation, studentAvailabilitySetValidation, studentAvailabilityDeleteValidation } = require('../middleware/validation');
 const studentController = require('../controllers/student-controller');
 
 // 个人信息管理
 router.get('/profile', authMiddleware, studentOnly, studentController.getProfile);
-router.put('/profile', authMiddleware, studentOnly, studentController.updateProfile);
-router.put('/password', authMiddleware, studentOnly, studentController.changePassword);
+router.put('/profile', authMiddleware, studentOnly, validate(studentProfileValidation), studentController.updateProfile);
+router.put('/password', authMiddleware, studentOnly, validate(passwordChangeValidation), studentController.changePassword);
 
 // 时间安排管理
 router.get('/availability', authMiddleware, studentOnly, studentController.getAvailability);
-router.post('/availability', authMiddleware, studentOnly, studentController.setAvailability);
-router.delete('/availability', authMiddleware, studentOnly, studentController.deleteAvailability);
+router.post('/availability', authMiddleware, studentOnly, validate(studentAvailabilitySetValidation), studentController.setAvailability);
+router.delete('/availability', authMiddleware, studentOnly, validate(studentAvailabilityDeleteValidation), studentController.deleteAvailability);
 
 // 课程安排
 router.get('/schedules', authMiddleware, studentOnly, studentController.getSchedules);

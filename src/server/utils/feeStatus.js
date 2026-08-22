@@ -1,6 +1,8 @@
 // 费用报销状态：枚举、流转校验与审计（管理员 / 班主任 / 教师三档权限）
 // 与前端 public/js/components/fee-manager.js 的 FEE_STATUS 展示名保持一致。
 
+const SchemaHelper = require('../utils/schema-helper');
+
 const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
 
 // 前端展示名（状态名与角色无关，身份在后端的 fee_status_logs.actor_type 区分）
@@ -18,6 +20,31 @@ const TEACHER_ALLOWED = {
     draft: ['teacher_submitted'],
     returned: ['teacher_submitted'],
 };
+
+// 「保存并提交」费用后的自动流转规则（按操作端区分目标状态）：
+// - 教师端（/teacher/dashboard/fees 与 /sd-fees，普通教师与班主任同规则）→ teacher_submitted（待审核）
+// - 管理员端（/admin 费用管理）→ admin_submitted（已审核，提交即视为已审核）
+// from 白名单只含「尚未进入报销结果」的状态：已报销 / 退回报销 不因编辑金额而回退，
+// 避免自动流转撤销财务结果；已是目标状态的记录亦无需流转。
+const FEE_AUTO_SUBMIT = {
+    teacher: { target: 'teacher_submitted', from: ['draft', 'returned'] },
+    headteacher: { target: 'teacher_submitted', from: ['draft', 'returned'] },
+    admin: { target: 'admin_submitted', from: ['draft', 'teacher_submitted', 'returned'] },
+};
+
+/**
+ * 计算「保存并提交」后的自动目标状态。
+ * @param {string} actorType - 'admin' | 'headteacher' | 'teacher'
+ * @param {string} from - 当前 fee_status（null/未知按 draft 处理）
+ * @returns {string|null} 目标状态；null 表示无需流转
+ */
+function resolveAutoFeeStatus(actorType, from) {
+    const rule = FEE_AUTO_SUBMIT[actorType];
+    if (!rule) return null;
+    const cur = normalizeStatus(from);
+    if (cur === rule.target) return null;
+    return rule.from.includes(cur) ? rule.target : null;
+}
 
 function normalizeStatus(s) {
     return FEE_STATUSES.includes(s) ? s : 'draft';
@@ -49,11 +76,8 @@ function validateFeeStatusTransition(role, from, to) {
 // 在事务内写入费用状态流转审计（q 为事务 query 或 db.query，均接受 (text, params)）
 async function writeFeeStatusLog(q, { scheduleId, oldStatus, newStatus, operatorId, actorType, note }) {
     try {
-        const tableCheck = await q(`
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'fee_status_logs'
-        `);
-        if (tableCheck.rows.length === 0) return;
+        // 审计表存在性检查统一走 SchemaHelper（全局 db，schema 级检测与事务无关）
+        if (!(await SchemaHelper.hasTable('fee_status_logs'))) return;
         await q(
             `INSERT INTO fee_status_logs
              (schedule_id, old_status, new_status, operator_id, actor_type, note, created_at)
@@ -78,14 +102,16 @@ function parseStudentIds(studentIdsStr) {
 async function resolveActor(db, teacherId) {
     const r = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
     const ids = parseStudentIds(r.rows[0] && r.rows[0].student_ids);
-    return { actorType: ids.length > 0 ? 'headteacher' : 'teacher', studentIds: ids };
+    return { id: teacherId, actorType: ids.length > 0 ? 'headteacher' : 'teacher', studentIds: ids };
 }
 
 module.exports = {
     FEE_STATUSES,
     FEE_STATUS_LABELS,
     TEACHER_ALLOWED,
+    FEE_AUTO_SUBMIT,
     normalizeStatus,
+    resolveAutoFeeStatus,
     validateFeeStatusTransition,
     writeFeeStatusLog,
     parseStudentIds,

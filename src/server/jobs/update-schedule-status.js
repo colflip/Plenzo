@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const crypto = require('crypto');
 const SchemaHelper = require('../utils/schema-helper');
@@ -109,16 +110,16 @@ async function updateScheduleStatus() {
                 });
             });
 
-            console.log(`[job:updateScheduleStatus] 批次 ${batchNo}: 更新 ${ids.length} 条记录`);
+            logger.log(`[job:updateScheduleStatus] 批次 ${batchNo}: 更新 ${ids.length} 条记录`);
         }
 
         if (updatedCount > 0) {
-            console.log(`[job:updateScheduleStatus] 完成，共更新 ${updatedCount} 条记录`);
+            logger.log(`[job:updateScheduleStatus] 完成，共更新 ${updatedCount} 条记录`);
         }
         return { success: true, updatedCount, runId };
 
     } catch (err) {
-        console.error('[job:updateScheduleStatus] 执行失败:', err.message);
+        logger.error('[job:updateScheduleStatus] 执行失败:', err.message);
         // Optional: Alerting hook could go here
         return { success: false, error: err.message, runId };
     }

@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 全局错误处理中间件
  * @description 统一处理Express应用中的所有错误
@@ -5,18 +6,9 @@
  */
 
 /**
- * 标准化错误响应格式
- * @param {boolean} success - 是否成功
- * @param {string} message - 错误消息
- * @param {Array} errors - 详细错误信息
- * @returns {Object} 标准化响应对象
+ * 标准化错误响应格式（单一来源见 utils/response.js）
  */
-const errorResponse = (success, message, errors = null) => ({
-    success,
-    message,
-    errors,
-    timestamp: new Date().toISOString()
-});
+const { errorResponse } = require('../utils/response');
 
 /**
  * 自定义应用错误类
@@ -103,7 +95,7 @@ const errorHandler = (err, req, res, next) => {
 
     // 非生产环境记录详细错误
     if (process.env.NODE_ENV !== 'production') {
-        console.error('[Error]', {
+        logger.error('[Error]', {
             message: err.message,
             stack: err.stack,
             code: err.code

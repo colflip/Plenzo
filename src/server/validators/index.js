@@ -5,7 +5,6 @@
  */
 
 const authValidator = require('./auth-validator');
-const scheduleValidator = require('./schedule-validator');
 
 module.exports = {
     // 认证验证
@@ -14,13 +13,6 @@ module.exports = {
     changePasswordSchema: authValidator.changePasswordSchema,
     refreshTokenSchema: authValidator.refreshTokenSchema,
 
-    // 排课验证
-    scheduleCreateSchema: scheduleValidator.createSchema,
-    scheduleUpdateSchema: scheduleValidator.updateSchema,
-    scheduleQuerySchema: scheduleValidator.querySchema,
-    batchStatusSchema: scheduleValidator.batchStatusSchema,
-
     // 模块导出
-    authValidator,
-    scheduleValidator
+    authValidator
 };

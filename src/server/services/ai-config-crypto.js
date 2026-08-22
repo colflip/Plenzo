@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * AI 配置字段级加密（api_key at rest）
  * @description
@@ -58,7 +59,7 @@ function encrypt(plain) {
     const key = resolveKey();
     if (!key) {
         if (!warnedNoKey) {
-            console.warn(
+            logger.warn(
                 '[AIConfigCrypto] 未配置 AI_CONFIG_ENCRYPTION_KEY，API Key 将以明文写入数据库。' +
                 '生产环境请设置 32 字节密钥（hex/base64）或口令以启用加密。'
             );
@@ -89,7 +90,7 @@ function decrypt(stored) {
     const key = resolveKey();
     if (!key) {
         // 有密文但当前实例未配置密钥：无法解密，告警并返回空串
-        console.error('[AIConfigCrypto] 数据库中存在加密的 API Key，但本实例未配置 AI_CONFIG_ENCRYPTION_KEY，无法解密。');
+        logger.error('[AIConfigCrypto] 数据库中存在加密的 API Key，但本实例未配置 AI_CONFIG_ENCRYPTION_KEY，无法解密。');
         return '';
     }
 
@@ -97,7 +98,7 @@ function decrypt(stored) {
         const rest = stored.slice(PREFIX.length);
         const [ivB64, tagB64, ctB64] = rest.split(':');
         if (!ivB64 || !tagB64 || !ctB64) {
-            console.error('[AIConfigCrypto] 密文格式非法，无法解密。');
+            logger.error('[AIConfigCrypto] 密文格式非法，无法解密。');
             return '';
         }
         const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivB64, 'base64'));
@@ -106,7 +107,7 @@ function decrypt(stored) {
         return plain.toString('utf8');
     } catch (err) {
         // 密钥轮换 / 数据损坏：绝不返回乱码
-        console.error('[AIConfigCrypto] 解密 API Key 失败（密钥不匹配或数据损坏）:', err && err.message ? err.message : err);
+        logger.error('[AIConfigCrypto] 解密 API Key 失败（密钥不匹配或数据损坏）:', err && err.message ? err.message : err);
         return '';
     }
 }

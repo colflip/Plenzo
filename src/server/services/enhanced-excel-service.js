@@ -55,6 +55,7 @@ class EnhancedExcelService {
             '实际安排': 60,
             '费用': 20,
             '周汇总': 15,
+            '报销状态': 12,
             '时间段': 12,
             '教师': 10,
             '学生': 10,
@@ -484,8 +485,8 @@ class EnhancedExcelService {
                 });
             }
 
-            // 费用、周汇总列：右对齐
-            if ((header === '费用' || header === '周汇总') && kind === 'detail') {
+            // 费用、周汇总、报销状态列：右对齐
+            if ((header === '费用' || header === '周汇总' || header === '报销状态') && kind === 'detail') {
                 worksheet.getColumn(colIndex).eachCell({ includeEmpty: false }, (cell, rowNumber) => {
                     if (rowNumber > 1) {
                         cell.alignment = { ...cell.alignment, horizontal: 'right', vertical: 'bottom' };
@@ -563,8 +564,8 @@ class EnhancedExcelService {
                 };
             }
 
-            // 1. 费用列和周汇总列：靠右靠下，保持一致的右边距和下边距
-            if (key === '费用' || key === '周汇总') {
+            // 1. 费用列、周汇总列、报销状态列：靠右靠下，保持一致的右边距和下边距
+            if (key === '费用' || key === '周汇总' || key === '报销状态') {
                 cell.alignment = {
                     horizontal: 'right',
                     vertical: 'bottom',

@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 // 在主应用启动时运行数据库迁移
 const db = require('./db');
 
@@ -41,7 +42,7 @@ async function runDatabaseMigrations() {
                 EXECUTE FUNCTION update_updated_at()
             `);
 
-            console.log('数据库迁移完成：添加更新时间字段');
+            logger.log('数据库迁移完成：添加更新时间字段');
         }
 
         // 添加 course_arrangement 的费用字段 和 teachers 的 student_ids 字段
@@ -60,7 +61,7 @@ async function runDatabaseMigrations() {
             await db.query(`COMMENT ON COLUMN course_arrangement.transport_fee IS '交通费'`);
             await db.query(`COMMENT ON COLUMN course_arrangement.other_fee IS '其他费用'`);
             await db.query(`COMMENT ON COLUMN teachers.student_ids IS '关联学生ID列表 (逗号分隔)'`);
-            console.log('数据库迁移完成：添加 transport_fee, other_fee 和 student_ids 字段');
+            logger.log('数据库迁移完成：添加 transport_fee, other_fee 和 student_ids 字段');
         }
 
         // 让 transport_fee / other_fee 能区分「未填写」(NULL) 与「填写 0」(0)
@@ -77,7 +78,7 @@ async function runDatabaseMigrations() {
         if (needsDropDefault) {
             await db.query(`ALTER TABLE course_arrangement ALTER COLUMN transport_fee DROP DEFAULT`);
             await db.query(`ALTER TABLE course_arrangement ALTER COLUMN other_fee DROP DEFAULT`);
-            console.log('数据库迁移完成：transport_fee/other_fee 移除默认值（NULL=未填写，0=已填0）');
+            logger.log('数据库迁移完成：transport_fee/other_fee 移除默认值（NULL=未填写，0=已填0）');
         }
 
         // 检查是否需要添加 fee_audit_logs 表
@@ -105,7 +106,7 @@ async function runDatabaseMigrations() {
             await db.query(`CREATE INDEX idx_fee_audit_logs_schedule ON public.fee_audit_logs(schedule_id)`);
             await db.query(`CREATE INDEX idx_fee_audit_logs_operator ON public.fee_audit_logs(operator_id, operator_role)`);
             await db.query(`COMMENT ON TABLE public.fee_audit_logs IS '排课费用修改审计日志表'`);
-            console.log('数据库迁移完成：添加 fee_audit_logs 表');
+            logger.log('数据库迁移完成：添加 fee_audit_logs 表');
         }
 
         // 检查是否需要添加 holidays 表
@@ -131,7 +132,7 @@ async function runDatabaseMigrations() {
             `);
             await db.query(`CREATE INDEX idx_holidays_year ON public.holidays(year)`);
             await db.query(`COMMENT ON TABLE public.holidays IS '节假日/调休补班配置表'`);
-            console.log('数据库迁移完成：添加 holidays 表');
+            logger.log('数据库迁移完成：添加 holidays 表');
         }
 
         // 检查是否需要添加 feedbacks 表（用户反馈/Bug 报告/新功能需求）
@@ -161,7 +162,7 @@ async function runDatabaseMigrations() {
             await db.query(`CREATE INDEX idx_feedbacks_status ON public.feedbacks(status)`);
             await db.query(`CREATE INDEX idx_feedbacks_submitter ON public.feedbacks(submitter_id, submitter_role)`);
             await db.query(`COMMENT ON TABLE public.feedbacks IS '用户反馈/Bug/新功能需求表'`);
-            console.log('数据库迁移完成：添加 feedbacks 表');
+            logger.log('数据库迁移完成：添加 feedbacks 表');
         }
 
         // Migration: Add nickname column to teachers, students and administrators
@@ -176,7 +177,7 @@ async function runDatabaseMigrations() {
             `);
             if ((nicknameResult.rows || []).length === 0) {
                 await db.query(`ALTER TABLE ${table} ADD COLUMN nickname VARCHAR(50)`);
-                console.log(`[Migration] Added nickname column to ${table}`);
+                logger.log(`[Migration] Added nickname column to ${table}`);
             }
         }
 
@@ -207,7 +208,7 @@ async function runDatabaseMigrations() {
                 )
             `);
             await db.query(`COMMENT ON TABLE public.ai_config IS 'AI 运行时配置（管理后台动态切换模型，持久化以跨 Serverless 实例生效）'`);
-            console.log('数据库迁移完成：添加 ai_config 表');
+            logger.log('数据库迁移完成：添加 ai_config 表');
         }
 
         // 费用报销状态：course_arrangement.fee_status 字段 + fee_status_logs 审计表
@@ -222,7 +223,7 @@ async function runDatabaseMigrations() {
             await db.query(`ALTER TABLE course_arrangement ADD COLUMN IF NOT EXISTS fee_status VARCHAR(20) DEFAULT 'draft'`);
             await db.query(`CREATE INDEX IF NOT EXISTS idx_ca_fee_status_date ON course_arrangement(fee_status, class_date)`);
             await db.query(`COMMENT ON COLUMN course_arrangement.fee_status IS '费用报销状态: draft 待提交 / teacher_submitted 待审核 / admin_submitted 已审核 / reimbursed 已报销 / returned 已退回 / reimbursement_returned 退回报销'`);
-            console.log('数据库迁移完成：添加 course_arrangement.fee_status 字段');
+            logger.log('数据库迁移完成：添加 course_arrangement.fee_status 字段');
         }
         // 确保 CHECK 约束覆盖最新枚举（先删后建，幂等；兼容已部署旧约束）
         await db.query(`ALTER TABLE course_arrangement DROP CONSTRAINT IF EXISTS chk_ca_fee_status`);
@@ -249,11 +250,36 @@ async function runDatabaseMigrations() {
             `);
             await db.query(`CREATE INDEX IF NOT EXISTS idx_fee_status_logs_sid ON public.fee_status_logs(schedule_id)`);
             await db.query(`COMMENT ON TABLE public.fee_status_logs IS '费用状态流转审计日志（可分辨 admin/headteacher/teacher 操作身份）'`);
-            console.log('数据库迁移完成：添加 fee_status_logs 表');
+            logger.log('数据库迁移完成：添加 fee_status_logs 表');
+        }
+
+        // 权限落地（Phase 1）：availability 两表增加 created_by 创建者追踪。
+        // L3 操作员的数据范围过滤依赖此列（仅自己创建 + 无主存量全员可见）。幂等。
+        const availabilityOwnerTables = ['teacher_daily_availability', 'student_daily_availability'];
+        for (const table of availabilityOwnerTables) {
+            const ownerColResult = await db.query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '${table}'
+                  AND column_name = 'created_by'
+            `);
+            if ((ownerColResult.rows || []).length === 0) {
+                await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS created_by INTEGER`);
+                // 管理员被删时不级联清理可用性数据，置空即可（NO ACTION 默认行为）
+                try {
+                    await db.query(`ALTER TABLE ${table} ADD CONSTRAINT fk_${table}_created_by FOREIGN KEY (created_by) REFERENCES administrators(id) ON UPDATE CASCADE`);
+                } catch (fkErr) {
+                    // 约束已存在或创建失败不阻断迁移（列已就位即可）
+                    logger.warn(`[Migration] ${table} created_by 外键创建跳过:`, fkErr.message);
+                }
+                await db.query(`CREATE INDEX IF NOT EXISTS idx_${table}_created_by ON ${table}(created_by)`);
+                logger.log(`[Migration] ${table} 增加 created_by 列（权限级别数据范围过滤）`);
+            }
         }
 
     } catch (error) {
-        console.error('数据库迁移失败:', error);
+        logger.error('数据库迁移失败:', error);
         // 不要因为迁移失败而中断应用启动
     }
 }

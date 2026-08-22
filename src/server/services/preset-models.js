@@ -26,45 +26,45 @@ function getPresetModels(includeApiKey = false) {
     }
 
     // LLM2 (Agnes AI)
-    if (process.env.LLM_ALT_API_KEY && process.env.LLM_ALT_BASE_URL) {
+    if (process.env.LLM2_API_KEY && process.env.LLM2_BASE_URL) {
         presets.push({
             id: 'agnes',
-            name: process.env.LLM_ALT_LABEL || 'Agnes AI',
+            name: process.env.LLM2_LABEL || 'Agnes AI',
             provider: 'agnes',
-            protocol: process.env.LLM_ALT_PROTOCOL || 'openai',
-            apiKey: includeApiKey ? process.env.LLM_ALT_API_KEY : '***已配置***',
-            baseUrl: process.env.LLM_ALT_BASE_URL,
-            model: process.env.LLM_ALT_MODEL || 'agnes-2.0-flash',
+            protocol: process.env.LLM2_PROTOCOL || 'openai',
+            apiKey: includeApiKey ? process.env.LLM2_API_KEY : '***已配置***',
+            baseUrl: process.env.LLM2_BASE_URL,
+            model: process.env.LLM2_MODEL || 'agnes-2.0-flash',
             timeout: 30000,
             maxTokens: 3000
         });
     }
 
     // LLM3 (OpenModel API)
-    if (process.env.LLM_ALT2_API_KEY && process.env.LLM_ALT2_BASE_URL) {
+    if (process.env.LLM3_API_KEY && process.env.LLM3_BASE_URL) {
         presets.push({
             id: 'openmodel',
-            name: process.env.LLM_ALT2_LABEL || 'OpenModel API',
+            name: process.env.LLM3_LABEL || 'OpenModel API',
             provider: 'openmodel',
-            protocol: process.env.LLM_ALT2_PROTOCOL || 'messages',
-            apiKey: includeApiKey ? process.env.LLM_ALT2_API_KEY : '***已配置***',
-            baseUrl: process.env.LLM_ALT2_BASE_URL,
-            model: process.env.LLM_ALT2_MODEL || 'deepseek-v4-flash',
+            protocol: process.env.LLM3_PROTOCOL || 'messages',
+            apiKey: includeApiKey ? process.env.LLM3_API_KEY : '***已配置***',
+            baseUrl: process.env.LLM3_BASE_URL,
+            model: process.env.LLM3_MODEL || 'deepseek-v4-flash',
             timeout: 30000,
             maxTokens: 3000
         });
     }
 
     // LLM4 (SenseNova)
-    if (process.env.LLM_ALT3_API_KEY && process.env.LLM_ALT3_BASE_URL) {
+    if (process.env.LLM4_API_KEY && process.env.LLM4_BASE_URL) {
         presets.push({
             id: 'sensenova',
-            name: process.env.LLM_ALT3_LABEL || 'SenseNova',
+            name: process.env.LLM4_LABEL || 'SenseNova',
             provider: 'sensenova',
-            protocol: process.env.LLM_ALT3_PROTOCOL || 'openai',
-            apiKey: includeApiKey ? process.env.LLM_ALT3_API_KEY : '***已配置***',
-            baseUrl: process.env.LLM_ALT3_BASE_URL,
-            model: process.env.LLM_ALT3_MODEL || 'sensenova-6.7-flash-lite',
+            protocol: process.env.LLM4_PROTOCOL || 'openai',
+            apiKey: includeApiKey ? process.env.LLM4_API_KEY : '***已配置***',
+            baseUrl: process.env.LLM4_BASE_URL,
+            model: process.env.LLM4_MODEL || 'sensenova-6.7-flash-lite',
             timeout: 30000,
             maxTokens: 3000
         });

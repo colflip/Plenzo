@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 const db = require('../db/db');
 
 /**
@@ -27,7 +28,7 @@ async function recordAudit(req, { op, entityType, entityId, details = {} }) {
     if (err && err.message && err.message.includes('does not exist')) {
       // operation_logs 表不存在，首次静默
     } else {
-      console.warn('记录审计日志失败:', err && err.message ? err.message : err);
+      logger.warn('记录审计日志失败:', err && err.message ? err.message : err);
     }
   }
 }

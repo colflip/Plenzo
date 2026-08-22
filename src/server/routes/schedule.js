@@ -7,7 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const scheduleController = require('../controllers/schedule-controller');
-const { authMiddleware, adminOnly } = require('../middleware');
+const { authMiddleware, adminOnly, teacherOnly } = require('../middleware');
 const { validate, scheduleValidation } = require('../middleware');
 
 // ==========================================
@@ -68,7 +68,7 @@ router.post(
  * @description 教师确认排课
  * @access Teacher
  */
-router.post('/:id/confirm/teacher', authMiddleware, scheduleController.confirmTeacher);
+router.post('/:id/confirm/teacher', authMiddleware, teacherOnly, scheduleController.confirmTeacher);
 
 /**
  * @route POST /api/schedule/:id/confirm/admin

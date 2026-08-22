@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 导出错误处理中间件
  * 统一处理导出功能的错误响应和日志记录
@@ -15,7 +16,7 @@ function handleExportError(error, req, res) {
     const errorMessage = error.message || '导出失败，请稍后重试';
 
     // 统一错误日志格式
-    console.error(`[Export Error] [${userType}:${userId}] ${errorMessage}`, {
+    logger.error(`[Export Error] [${userType}:${userId}] ${errorMessage}`, {
         error: error.message,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
         query: req.query,

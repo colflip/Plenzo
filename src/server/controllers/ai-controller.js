@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * AI 控制器 (AI Controller) - 全新重构版本
  * @description 处理 AI 相关请求：数据查询、智能排课
@@ -9,8 +10,7 @@ const { AppError, asyncHandler } = require('../middleware/error');
 const aiService = require('../services/ai-service');
 const db = require('../db/db');
 const scheduleService = require('../services/schedule-service');
-const { getPresetModels } = require('../services/preset-models');
-const aiConfigManager = require('../services/ai-config-manager');
+const aiConfigService = require('../services/ai-config-service');
 const fs = require('fs');
 const path = require('path');
 
@@ -30,6 +30,7 @@ const getStatus = (req, res) => {
  * 状态的中英文映射（统一使用 sharedUtils.STATUS_MAP 作为权威来源）
  */
 const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus } = require('../utils/shared-utils');
+const { requiresOwnDataScope, canTouchRecord } = require('../utils/admin-permissions');
 
 /**
  * 课程类型映射缓存
@@ -646,17 +647,23 @@ async function executeDataTool(toolName, args, req) {
 
     const userId = req.user.id;
 
+    // 权限落地（Phase 1.5）：L3 操作员的 AI 数据问答仅覆盖自己创建 + 无主存量的排课。
+    // 冲突检测/找空闲时段类工具除外（功能上必须看到该师生全部占用，与已批准例外一致）。
+    const selfScoped = requiresOwnDataScope(req.user);
+
     switch (toolName) {
         case 'query_overview': {
             if (userType !== 'admin') throw new AppError('权限不足', 403);
 
+            const scopeSql = selfScoped ? ' AND (created_by=$1 OR created_by IS NULL)' : '';
+            const scopeParams = selfScoped ? [userId] : [];
             const [teachers, students, monthSchedules, pending] = await Promise.all([
                 db.query('SELECT COUNT(*) as count FROM teachers WHERE status=1'),
                 db.query('SELECT COUNT(*) as count FROM students WHERE status=1'),
                 db.query(`SELECT COUNT(*) as count FROM course_arrangement
                     WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
-                    AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)`),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE status='pending'`)
+                    AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)${scopeSql}`, scopeParams),
+                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE status='pending'${scopeSql}`, scopeParams)
             ]);
 
             return {
@@ -702,6 +709,11 @@ async function executeDataTool(toolName, args, req) {
             if (args.status) {
                 query += ` AND ca.status=$${paramCount++}`;
                 params.push(args.status);
+            }
+            // 权限落地：L3 仅见自己创建 + 无主存量
+            if (selfScoped) {
+                query += ` AND (ca.created_by=$${paramCount++} OR ca.created_by IS NULL)`;
+                params.push(userId);
             }
 
             query += ' ORDER BY ca.class_date DESC, ca.start_time DESC LIMIT 50';
@@ -821,6 +833,11 @@ async function executeDataTool(toolName, args, req) {
             if (endDate) {
                 query += ` AND ca.class_date<=$${paramCount++}`;
                 params.push(endDate);
+            }
+            // 权限落地：L3 仅统计自己创建 + 无主存量
+            if (selfScoped) {
+                query += ` AND (ca.created_by=$${paramCount++} OR ca.created_by IS NULL)`;
+                params.push(userId);
             }
 
             query += ' GROUP BY category ORDER BY count DESC LIMIT 20';
@@ -1173,12 +1190,13 @@ async function executeDataTool(toolName, args, req) {
             for (const group of groups) {
                 const { teacherId, studentId, courseId, location, slots } = group;
                 for (const slot of slots) {
+                    // 权限落地（Phase 1.5）：记录创建者归属（L3 后续可见自己创建的数据）
                     const result = await db.query(
                         `INSERT INTO course_arrangement
-                        (teacher_id, student_id, course_id, class_date, start_time, end_time, status, location, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        (teacher_id, student_id, course_id, class_date, start_time, end_time, status, location, created_by, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         RETURNING id`,
-                        [teacherId, studentId, courseId, slot.date, slot.startTime, slot.endTime, slot.status || 'confirmed', location || null]
+                        [teacherId, studentId, courseId, slot.date, slot.startTime, slot.endTime, slot.status || 'confirmed', location || null, userId]
                     );
                     insertedIds.push(result.rows[0].id);
                 }
@@ -1216,10 +1234,11 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError('请提供要修改的字段', 400);
             }
 
-            // 检查排课是否存在并获取详细信息
+            // 检查排课是否存在并获取详细信息（含 created_by 归属）
             const existingSchedules = await db.query(
                 `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
                         ca.location, ca.family_participants, ca.transport_fee, ca.other_fee,
+                        ca.created_by,
                         t.name as teacher_name, t.id as teacher_id,
                         s.name as student_name, s.id as student_id,
                         st.name as course_type, st.description as course_type_cn
@@ -1241,8 +1260,13 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
             }
 
+            // 权限落地（Phase 1.5）：L3 只能修改自己创建或无主的排课，任一越权则整批拒绝
+            if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
+                throw new AppError('所选排课包含您无权操作的记录', 403);
+            }
+
             // 验证新值的合法性
-            let newTeacherName, newStudentName, newCourseTypeCn;
+            let newTeacherName, newStudentName, newCourseTypeCn, newCourseTypeId;
 
             if (fields.teacherId) {
                 const teacherCheck = await db.query('SELECT id, name, status FROM teachers WHERE id=$1', [fields.teacherId]);
@@ -1262,6 +1286,29 @@ async function executeDataTool(toolName, args, req) {
                 const courseTypeResult = await db.query('SELECT id, name, description FROM schedule_types WHERE name=$1', [fields.courseType]);
                 if (courseTypeResult.rows.length === 0) throw new AppError(`课程类型 ${fields.courseType} 不存在`, 404);
                 newCourseTypeCn = courseTypeResult.rows[0].description;
+                newCourseTypeId = courseTypeResult.rows[0].id;
+            }
+
+            // 调整课程：status=modified_away → 原记录归档 + 按新条件新建
+            const isAdjust = fields.status === 'modified_away';
+            let newSchedulesPreview = null;
+            if (isAdjust) {
+                newSchedulesPreview = existingSchedules.rows.map(row => ({
+                    originalId: row.id,
+                    teacherId: fields.teacherId ?? row.teacher_id,
+                    studentId: fields.studentId ?? row.student_id,
+                    teacherName: fields.teacherId ? newTeacherName : row.teacher_name,
+                    studentName: fields.studentId ? newStudentName : row.student_name,
+                    courseId: newCourseTypeId ?? row.course_id,
+                    courseTypeCn: fields.courseType ? newCourseTypeCn : row.course_type_cn,
+                    classDate: fields.classDate ?? row.class_date,
+                    startTime: fields.startTime ?? row.start_time,
+                    endTime: fields.endTime ?? row.end_time,
+                    location: fields.location !== undefined ? fields.location : row.location,
+                    familyParticipants: fields.familyParticipants !== undefined ? fields.familyParticipants : row.family_participants,
+                    status: 'confirmed',
+                    adjustmentType: 2
+                }));
             }
 
             // 生成操作ID
@@ -1296,6 +1343,12 @@ async function executeDataTool(toolName, args, req) {
                 changes.push({ field: fieldLabel, newValue });
             });
 
+            // 调整课程：在变更对比里追加“原记录归档+新建”说明
+            if (isAdjust) {
+                changes.push({ field: '原记录', newValue: '归档为已调整 (modified_away, adjustment_type=0)' });
+                changes.push({ field: '新课程', newValue: '按新条件新建 (adjustment_type=2, status=confirmed)' });
+            }
+
             // 存储待确认操作
             pendingOperationStore.set(operationId, {
                 type: 'update',
@@ -1303,6 +1356,9 @@ async function executeDataTool(toolName, args, req) {
                 fields,
                 schedules: existingSchedules.rows,
                 changes,
+                isAdjust,
+                newSchedulesPreview,
+                newCourseTypeId,
                 createdAt: Date.now()
             });
 
@@ -1311,14 +1367,17 @@ async function executeDataTool(toolName, args, req) {
 
             return {
                 type: 'schedule_operation_preview',
-                title: '修改预览',
+                title: isAdjust ? '调整预览' : '修改预览',
                 data: {
                     operationId,
-                    operationType: 'update',
+                    operationType: isAdjust ? 'adjust' : 'update',
                     affectedCount: scheduleIds.length,
                     schedules: existingSchedules.rows,
                     changes,
-                    message: `将修改 ${scheduleIds.length} 条排课的${changes.map(c => c.field).join('、')}`
+                    newSchedules: newSchedulesPreview,
+                    message: isAdjust
+                        ? `将调整 ${scheduleIds.length} 条排课（原记录归档为已调整，并按新条件新建课程）`
+                        : `将修改 ${scheduleIds.length} 条排课的${changes.map(c => c.field).join('、')}`
                 }
             };
         }
@@ -1332,9 +1391,10 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError('请提供要删除的排课ID', 400);
             }
 
-            // 检查排课是否存在并获取详细信息
+            // 检查排课是否存在并获取详细信息（含 created_by 归属）
             const existingSchedules = await db.query(
                 `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
+                        ca.created_by,
                         t.name as teacher_name, s.name as student_name,
                         st.name as course_type, st.description as course_type_cn
                  FROM course_arrangement ca
@@ -1353,6 +1413,11 @@ async function executeDataTool(toolName, args, req) {
                 const foundIds = existingSchedules.rows.map(r => r.id);
                 const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
                 throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
+            }
+
+            // 权限落地（Phase 1.5）：L3 只能删除自己创建或无主的排课，任一越权则整批拒绝
+            if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
+                throw new AppError('所选排课包含您无权操作的记录', 403);
             }
 
             // 生成操作ID
@@ -1400,11 +1465,93 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError('操作ID无效或已过期（5分钟有效期），请重新预览', 400);
             }
 
+            // 权限落地（Phase 1.5）：执行前再次核验归属（防止跨账号确认他人预览的操作）
+            if ((operation.type === 'update' || operation.type === 'delete')
+                && Array.isArray(operation.scheduleIds) && requiresOwnDataScope(req.user)) {
+                const ownRes = await db.query(
+                    'SELECT COUNT(*)::int AS count FROM course_arrangement WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
+                    [operation.scheduleIds, userId]
+                );
+                const ownedCount = ownRes.rows && ownRes.rows[0] ? Number(ownRes.rows[0].count) : 0;
+                if (ownedCount !== operation.scheduleIds.length) {
+                    throw new AppError('所选排课包含您无权操作的记录，请重新发起', 403);
+                }
+            }
+
             // 根据操作类型执行相应逻辑
             if (operation.type === 'update') {
                 // 执行修改操作
                 const { scheduleIds, fields } = operation;
 
+                // 调整课程：status=modified_away → 原记录归档 + 按新条件新建课程
+                if (operation.isAdjust) {
+                    const newIds = await db.runInTransaction(async (client, usePool) => {
+                        const q = usePool ? db.query.bind(db) : client.query.bind(client);
+                        const created = [];
+                        for (const sid of scheduleIds) {
+                            // 读原课程（行级锁，防并发）
+                            const curRes = await q(
+                                `SELECT teacher_id, student_id, course_id, class_date, start_time, end_time,
+                                        location, family_participants, status, adjustment_type
+                                 FROM course_arrangement WHERE id = $1 FOR UPDATE`,
+                                [sid]
+                            );
+                            if (curRes.rows.length === 0) throw new AppError(`排课 ${sid} 不存在`, 404);
+                            const c = curRes.rows[0];
+                            if (c.status === 'modified_away') throw new AppError(`排课 ${sid} 已被调整过，不能再次调整`, 409);
+                            if (Number(c.adjustment_type || 0) === 2) throw new AppError(`排课 ${sid} 是增补记录，不能再次被调整`, 409);
+
+                            // 生效值：新条件覆盖，其余沿用原课程
+                            const effTeacherId = fields.teacherId ?? c.teacher_id;
+                            const effStudentId = fields.studentId ?? c.student_id;
+                            const effCourseId = operation.newCourseTypeId ?? c.course_id;
+                            const effDate = fields.classDate ?? c.class_date;
+                            const effStart = fields.startTime ?? c.start_time;
+                            const effEnd = fields.endTime ?? c.end_time;
+                            const effLocation = fields.location !== undefined ? (fields.location || null) : c.location;
+                            const effFamily = fields.familyParticipants !== undefined
+                                ? Number(fields.familyParticipants) : (c.family_participants ?? 4);
+
+                            // 1. 标记原课程为「已调整」(modified_away, adjustment_type=0)
+                            await q(`UPDATE course_arrangement SET status='modified_away', adjustment_type=0 WHERE id=$1`, [sid]);
+
+                            // 2. 冲突检测（原课程已 modified_away，落入 NOT IN 排除集，不会自冲突）
+                            const conflict = await scheduleService.checkConflicts(
+                                effTeacherId, effStudentId, effDate, null, effStart, effEnd,
+                                usePool ? null : client
+                            );
+                            if (conflict.hasConflicts) {
+                                // 抛错 → 事务回滚 → 原课程标记一并撤销
+                                throw new AppError(`新课程与现有排课冲突：${conflict.message}`, 409);
+                            }
+
+                            // 3. 新建课程 adjustment_type=2（增补），status=confirmed
+                            const ins = await q(
+                                `INSERT INTO course_arrangement
+                                 (teacher_id, student_id, course_id, class_date, start_time, end_time,
+                                  location, family_participants, status, created_by, adjustment_type)
+                                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'confirmed',$9,2) RETURNING id`,
+                                [effTeacherId, effStudentId, effCourseId, effDate, effStart, effEnd,
+                                 effLocation, effFamily, req.user.id]
+                            );
+                            created.push(ins.rows[0].id);
+                        }
+                        return created;
+                    });
+
+                    pendingOperationStore.delete(operationId);
+                    return {
+                        type: 'text',
+                        title: '调整成功',
+                        data: {
+                            message: `已调整 ${scheduleIds.length} 条排课（原记录归档为已调整，新建 ${newIds.length} 条课程）`,
+                            originalIds: scheduleIds,
+                            newIds
+                        }
+                    };
+                }
+
+                // 普通改课：直接 UPDATE 原记录字段
                 const updateFields = [];
                 const params = [];
                 let paramCount = 1;
@@ -1620,7 +1767,7 @@ const query = asyncHandler(async (req, res) => {
 
     // 结构化日志：便于线上定位「没调工具/调错工具/截断/解析失败」哪一环
     const logPrefix = `[AI][${userType}#${req.user.id}]`;
-    const log = (...args) => console.log(logPrefix, ...args);
+    const log = (...args) => logger.log(logPrefix, ...args);
     log(isAction
         ? `action=${action.type}`
         : `question="${(question || '').slice(0, 120).replace(/\n/g, ' ')}" history=${Array.isArray(history) ? history.length : 0} images=${Array.isArray(images) ? images.length : 0}`);
@@ -1707,12 +1854,33 @@ const query = asyncHandler(async (req, res) => {
           `  → 生成三条 group，同日期同时间同地点：①周老师+review_record ②高老师+review ③金老师+review\n` +
           `【反例】不要给"周老师记录"既生成 review 又生成 review_record（重复）。\n` +
           `\n============================\n` +
-          `# 8. 改课 / 删课流程\n` +
+          `# 8. 调整课程流程（改期/换教师/换地点，保留原记录归档）\n` +
+          `============================\n` +
+          `定义：「调整课程」= 将原课程记录标记为「已调整」状态(status=modified_away)，同时按新条件新建一门课程；原课程的教师、教室、学生、时间段等所有未被显式修改的属性保持不变，复制到新课程。\n` +
+          `与普通改课的区别：普通改课（不传 status）直接覆盖原记录字段；调整课程（传 status=modified_away）把原记录归档(adjustment_type=0)，另起一条新记录(adjustment_type=2)承载新条件。原记录不再占时段、不计入统计，但可在「全部安排/报销单」视图回看。\n` +
+          `后端处理逻辑（系统自动完成，你无需手写 SQL）：\n` +
+          `1. 将原课程 status 置为 modified_away、adjustment_type 置为 0；\n` +
+          `2. 以「新条件覆盖、其余沿用原课程」生成新课程，adjustment_type=2，status 默认 confirmed（可指定 pending）；\n` +
+          `3. 操作原子完成：若新条件与其它有效排课冲突则整体回滚，原记录保持不变。\n` +
+          `何时使用（默认规则·关键）：只要对已有课程的【内容属性】做任何修改——改日期/改时间/换教师/换学生/换地点/换课程类型——一律走本「调整课程」，fields 必须带 status:"modified_away"。这是修改课程的默认方式，无需用户特意要求"保留痕迹"。\n` +
+          `例外：仅当用户只修改【状态】本身（如 pending→confirmed、标记 completed/cancelled）且没有改任何内容属性时，才用 # 9 普通改课（不传 status，直接覆盖原记录）。\n` +
+          `操作步骤：\n` +
+          `(1) query_schedules 查到目标排课 ID。\n` +
+          `(2) 涉及改时间时调用 resolve_datetime 得精确日期时间。\n` +
+          `(3) preview_schedule_update(scheduleIds:[id], fields:{ 需修改的字段, status:"modified_away" }) 生成调整预览。\n` +
+          `(4) 系统返回预览（原记录归档 + 新课程对比），交由用户点击确认按钮执行。\n` +
+          `【正例】"把浩浩下周四 19-21 的入户调整到周五同一时段"：\n` +
+          `  → query_schedules 找到该排课 id；resolve_datetime("下周五 19-21") 得 date=下周五, 19:00:00-21:30:00\n` +
+          `  → preview_schedule_update(scheduleIds:[id], fields:{ classDate:"下周五", status:"modified_away" })\n` +
+          `  → 确认后：原记录归档为已调整，新建一条下周五 19-21 的入户（教师/学生/地点等沿用原记录）。\n` +
+          `【反例】不要用普通改课（不传 status）来"调整"——那会直接覆盖原记录，丢失原排课痕迹，且不会生成新课程。\n` +
+          `\n============================\n` +
+          `# 9. 改课 / 删课流程\n` +
           `============================\n` +
           `改课：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
           `删课：query_schedules 查到目标 → preview_schedule_deletion(scheduleIds) → 用户按钮确认。\n` +
           `\n============================\n` +
-          `# 9. 回复格式\n` +
+          `# 10. 回复格式\n` +
           `============================\n` +
           `文本简短（1-2 句），不要长篇解释。表格数据由系统渲染，你无需在文本里重复罗列。\n` +
           `支持多轮上下文："他/那个"指代前文的教师/学生/课程；追问可补充信息（如先"取消浩浩周四的课"再"改成周五"=改期）。`
@@ -1757,7 +1925,7 @@ const query = asyncHandler(async (req, res) => {
                     allInsertedIds.push(...result.data.scheduleIds);
                 }
             } catch (err) {
-                console.warn('[AI][confirm_create] previewId 执行失败:', pid, err.message);
+                logger.warn('[AI][confirm_create] previewId 执行失败:', pid, err.message);
             }
         }
         const answerText = allInsertedIds.length > 0
@@ -1785,7 +1953,7 @@ const query = asyncHandler(async (req, res) => {
 
     // 优先走结构化 action 字段
     if (action && action.type) {
-        console.log('[AI][query] action:', action.type, 'user:', req.user.id, req.user.userType);
+        logger.log('[AI][query] action:', action.type, 'user:', req.user.id, req.user.userType);
         try {
             let responseData;
             if (action.type === 'confirm_create' && action.previewId) {
@@ -2038,17 +2206,8 @@ const query = asyncHandler(async (req, res) => {
  * GET /api/ai/config
  */
 const getConfig = asyncHandler(async (req, res) => {
-    const config = aiService.getAIConfig();
-    res.json(standardResponse(true, {
-        enabled: config.enabled,
-        provider: config.provider,
-        protocol: config.protocol,
-        baseUrl: config.baseUrl,
-        model: config.model,
-        timeout: config.timeout,
-        maxTokens: config.maxTokens,
-        apiKey: config.apiKey ? '***已配置***' : null
-    }));
+    const out = await aiConfigService.getConfig(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2056,8 +2215,8 @@ const getConfig = asyncHandler(async (req, res) => {
  * GET /api/ai/presets
  */
 const getPresets = asyncHandler(async (req, res) => {
-    const presets = getPresetModels(false); // 不包含真实 API Key
-    res.json(standardResponse(true, { presets }));
+    const out = await aiConfigService.getPresets(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2065,39 +2224,8 @@ const getPresets = asyncHandler(async (req, res) => {
  * PUT /api/ai/config
  */
 const updateConfig = asyncHandler(async (req, res) => {
-    const { provider, protocol, apiKey, baseUrl, model, timeout, maxTokens, presetId } = req.body;
-
-    // 如果是预设模型切换，从环境变量获取真实的 API Key
-    let realApiKey = apiKey;
-    if (presetId) {
-        const presets = getPresetModels(true); // 包含真实 API Key
-        const preset = presets.find(p => p.id === presetId);
-        if (preset) {
-            realApiKey = preset.apiKey;
-        }
-    }
-
-    if (!provider || !realApiKey || !baseUrl || !model) {
-        throw new AppError('缺少必要的配置参数', 400);
-    }
-
-    // 使用配置管理器更新配置（持久化到数据库，跨实例立即生效，无需重启）
-    try {
-        await aiConfigManager.updateAIConfig({
-            provider,
-            protocol: protocol || 'openai',
-            apiKey: realApiKey,
-            baseUrl,
-            model,
-            timeout: timeout || 30000,
-            maxTokens: maxTokens || 3000
-        });
-    } catch (err) {
-        console.error('[AI] 更新配置失败:', err && err.message ? err.message : err);
-        throw new AppError('配置保存失败，请稍后重试', 500);
-    }
-
-    res.json(standardResponse(true, { message: '配置已更新并立即生效！' }));
+    const out = await aiConfigService.updateConfig(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2105,53 +2233,8 @@ const updateConfig = asyncHandler(async (req, res) => {
  * POST /api/ai/check
  */
 const checkModel = asyncHandler(async (req, res) => {
-    const { provider, protocol, apiKey, baseUrl, model, presetId } = req.body;
-
-    // 如果是预设模型，从环境变量获取真实的 API Key
-    let realApiKey = apiKey;
-    if (presetId) {
-        const presets = getPresetModels(true);
-        const preset = presets.find(p => p.id === presetId);
-        if (preset) {
-            realApiKey = preset.apiKey;
-        }
-    }
-
-    if (!realApiKey || !baseUrl || !model) {
-        return res.json(standardResponse(false, {
-            available: false,
-            error: '缺少必要的参数'
-        }));
-    }
-
-    try {
-        // 快速检测：使用临时配置，避免修改全局 process.env（消除竞态条件）
-        const testConfig = {
-            enabled: true,
-            provider: provider || 'custom',
-            protocol: protocol || 'openai',
-            apiKey: realApiKey,
-            baseUrl,
-            model,
-            timeout: 8000, // 8秒超时
-            maxTokens: 20  // 20 token 足够返回简短响应
-        };
-
-        // 发送极简测试请求（通过 configOverride 传入临时配置）
-        await aiService.chat([
-            { role: 'user', content: 'test' }
-        ], { configOverride: testConfig });
-
-        res.json(standardResponse(true, {
-            available: true
-        }));
-    } catch (error) {
-        console.error('[AI] 可用性检查失败:', error.message || error);
-        res.json(standardResponse(true, {
-            available: false,
-            error: '服务暂不可用'
-        }));
-    }
+    const out = await aiConfigService.checkModel(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2159,58 +2242,8 @@ const checkModel = asyncHandler(async (req, res) => {
  * POST /api/ai/test
  */
 const testModel = asyncHandler(async (req, res) => {
-    const { provider, protocol, apiKey, baseUrl, model, timeout, maxTokens, presetId } = req.body;
-
-    // 如果是预设模型测试，从环境变量获取真实的 API Key
-    let realApiKey = apiKey;
-    if (presetId) {
-        const presets = getPresetModels(true); // 包含真实 API Key
-        const preset = presets.find(p => p.id === presetId);
-        if (preset) {
-            realApiKey = preset.apiKey;
-        }
-    }
-
-    if (!realApiKey || !baseUrl || !model) {
-        throw new AppError('缺少必要的测试参数', 400);
-    }
-
-    // 使用临时配置（通过 configOverride 传入，避免修改全局 process.env）
-    const testConfig = {
-        enabled: true,
-        provider: provider || 'custom',
-        protocol: protocol || 'openai',
-        apiKey: realApiKey,
-        baseUrl,
-        model,
-        timeout: timeout || 30000,
-        maxTokens: 100  // 增加到 100 token，确保完整响应
-    };
-
-    try {
-        const startTime = Date.now();
-
-        // 发送测试消息（通过 configOverride 传入临时配置）
-        const response = await aiService.chat([
-            { role: 'user', content: '请简单回复"测试成功"' }
-        ], { configOverride: testConfig });
-
-        const latency = Date.now() - startTime;
-        const text = aiService.extractText(response);
-
-        res.json(standardResponse(true, {
-            success: true,
-            latency,
-            model: testConfig.model,
-            response: text
-        }));
-    } catch (error) {
-        console.error('[AI] 模型测试失败:', error.message || error);
-        res.json(standardResponse(false, {
-            success: false,
-            error: 'AI 服务请求失败'
-        }));
-    }
+    const out = await aiConfigService.testModel(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2218,17 +2251,8 @@ const testModel = asyncHandler(async (req, res) => {
  * GET /api/ai/models
  */
 const getAvailableModels = asyncHandler(async (req, res) => {
-    const modelsFilePath = path.join(__dirname, '../data/ai-models.json');
-
-    try {
-        const modelsData = fs.readFileSync(modelsFilePath, 'utf8');
-        const models = JSON.parse(modelsData);
-
-        res.json(standardResponse(true, { models }));
-    } catch (error) {
-        // 如果文件不存在，返回空对象
-        res.json(standardResponse(true, { models: {} }));
-    }
+    const out = await aiConfigService.getAvailableModels(req);
+    return res.status(out.status).json(out.body);
 });
 
 /**
@@ -2236,41 +2260,8 @@ const getAvailableModels = asyncHandler(async (req, res) => {
  * GET /api/ai/capabilities
  */
 const getModelCapabilities = asyncHandler(async (req, res) => {
-    const config = aiService.getAIConfig();
-    const modelsFilePath = path.join(__dirname, '../data/ai-models.json');
-
-    try {
-        const modelsData = fs.readFileSync(modelsFilePath, 'utf8');
-        const allModels = JSON.parse(modelsData);
-
-        // 根据当前配置查找对应的模型能力
-        let capabilities = {
-            vision: false,
-            tools: false,
-            reasoning: false
-        };
-
-        // 查找匹配的 provider
-        for (const [provider, models] of Object.entries(allModels)) {
-            const model = models.find(m => m.id === config.model);
-            if (model) {
-                capabilities = model.capabilities;
-                break;
-            }
-        }
-
-        res.json(standardResponse(true, { capabilities, model: config.model }));
-    } catch (error) {
-        // 默认返回不支持任何高级功能
-        res.json(standardResponse(true, {
-            capabilities: {
-                vision: false,
-                tools: false,
-                reasoning: false
-            },
-            model: config.model
-        }));
-    }
+    const out = await aiConfigService.getModelCapabilities(req);
+    return res.status(out.status).json(out.body);
 });
 
 module.exports = {
@@ -2291,6 +2282,10 @@ module.exports = {
         parseClock,
         summarizeToolResult,
         isWeakModel,
-        resolveModelCapabilities
+        resolveModelCapabilities,
+        // 集成测试用：驱动 preview_schedule_update / confirm_operation 完整链路
+        executeDataTool,
+        pendingOperationStore,
+        schedulePreviewStore
     }
 };

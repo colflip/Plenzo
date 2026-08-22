@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 require('dotenv').config();
 
 const connectionString = process.env.DATABASE_URL || '';
@@ -44,6 +45,10 @@ const isConnectionError = (err) => {
     message.includes('fetch failed');
 };
 
+// Neon HTTP 在 fullResults:false 时只返回行数组，rowCount 只能按 rows.length 推断，
+// 导致 UPDATE / DELETE（无 RETURNING）永远报 0 行——调用方用 `rowCount === 0` 判断
+// "记录不存在"时会误判（如 student setAvailability 会反复走 INSERT 触发唯一键冲突）。
+// 因此 Neon 驱动统一开启 fullResults，本函数只兜底处理裸数组返回。
 const normalizeResult = (res) => {
   if (res && res.rows) return res;
   const rows = Array.isArray(res) ? res : [];
@@ -58,7 +63,8 @@ const createNeonHttpDriver = () => {
   const cleanConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/gi, '').replace(/\?$/, '');
   const sql = neon(cleanConnectionString, {
     fetchOptions: { timeout: fetchTimeout },
-    connectionCache: true
+    connectionCache: true,
+    fullResults: true
   });
   let tzInitialized = false;
 
@@ -75,7 +81,7 @@ const createNeonHttpDriver = () => {
         try {
           await sql`SET TIME ZONE 'UTC'`;
         } catch (e) {
-          console.warn('设置会话时区失败(Neon)：', e?.message || e);
+          logger.warn('设置会话时区失败(Neon)：', e?.message || e);
         }
         tzInitialized = true;
       }
@@ -86,7 +92,7 @@ const createNeonHttpDriver = () => {
           return await executeQuery(text, params);
         } catch (err) {
           if (isConnectionError(err) && attempt < maxRetries) {
-            console.warn(`[DB] Neon HTTP 查询失败 (尝试 ${attempt}/${maxRetries}): ${err.message}。正在 ${delay}ms 后重试...`);
+            logger.warn(`[DB] Neon HTTP 查询失败 (尝试 ${attempt}/${maxRetries}): ${err.message}。正在 ${delay}ms 后重试...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             delay = Math.min(delay * 2, 10000);
             continue;
@@ -101,6 +107,10 @@ const createNeonHttpDriver = () => {
     close: async () => {}
   };
 };
+
+// 保留 pg Pool 的 query 方法引用：pool.connect() 可能因连接超时失败，
+// 但 pool.query()（自动借还连接）仍可用。事务降级时直接用此方法，避免绕道 Neon HTTP。
+let pgPoolQuery = null;
 
 const createPgPoolDriver = () => {
   const { Pool } = require('pg');
@@ -129,14 +139,17 @@ const pool = new Pool({
     try {
       await client.query(`SET TIME ZONE '${TIME_ZONE}'`);
     } catch (e) {
-      console.warn('设置会话时区失败(pg)：', e?.message || e);
+      logger.warn('设置会话时区失败(pg)：', e?.message || e);
     }
   });
-  pool.on('error', (err) => console.error('数据库连接池错误:', err.message));
+  pool.on('error', (err) => logger.error('数据库连接池错误:', err.message));
+
+  const poolQuery = (text, params) => pool.query(text, params);
+  pgPoolQuery = poolQuery; // 保存引用供事务降级使用
 
   return {
     name: 'pg Pool',
-    query: (text, params) => pool.query(text, params),
+    query: poolQuery,
     getClient: () => pool.connect(),
     close: () => pool.end()
   };
@@ -144,7 +157,14 @@ const pool = new Pool({
 
 let activeDriver = httpOnlyMode ? createNeonHttpDriver() : createPgPoolDriver();
 let fallbackPromise = null;
-console.log(`[DB] 默认连接方式: ${activeDriver.name}${allowNeonFallback ? '（连接失败时回退 Neon HTTP）' : ''}`);
+logger.log(`[DB] 默认连接方式: ${activeDriver.name}${allowNeonFallback ? '（连接失败时回退 Neon HTTP）' : ''}`);
+
+// 可观测性：若生产环境直接使用 Neon HTTP 驱动（DB_CONNECTION_TYPE=http/neon），
+// 交互式事务（runInTransaction）将不可用，所有事务型写接口会失败。显式告警以便运维排查。
+if (activeDriver.name === 'Neon HTTP' && isProduction) {
+    logger.warn('[DB] ⚠️ 生产环境使用 Neon HTTP 驱动：交互式事务（runInTransaction）不可用。' +
+        '若业务依赖事务写操作，请设置 DB_CONNECTION_TYPE=pool 改用 pg Pool 连接（Neon 连接池器）。');
+}
 
 const switchToNeonHttp = async (err) => {
   if (activeDriver.name === 'Neon HTTP') return activeDriver;
@@ -153,13 +173,13 @@ const switchToNeonHttp = async (err) => {
   if (!fallbackPromise) {
     const failedDriver = activeDriver;
     fallbackPromise = Promise.resolve().then(async () => {
-      console.warn(`[DB] pg Pool 连接失败，切换到 Neon HTTP: ${err.message}`);
+      logger.warn(`[DB] pg Pool 连接失败，切换到 Neon HTTP: ${err.message}`);
       const nextDriver = createNeonHttpDriver();
       activeDriver = nextDriver;
       try {
         await failedDriver.close();
       } catch (closeErr) {
-        console.warn('[DB] 关闭失效 pg Pool 时发生错误:', closeErr.message);
+        logger.warn('[DB] 关闭失效 pg Pool 时发生错误:', closeErr.message);
       }
       return nextDriver;
     });
@@ -202,8 +222,16 @@ const runInTransaction = async function (workFn) {
       try {
         await clientLocal.query('ROLLBACK');
       } catch (rollbackErr) {
-        console.error('回滚事务时发生错误:', rollbackErr);
+        logger.error('回滚事务时发生错误:', rollbackErr);
       }
+    }
+    // pool.connect() 失败但 pool.query() 仍可用：降级为顺序执行（无 BEGIN/COMMIT）。
+    // 适用于单记录 UPDATE + 可选 INSERT 审计等不需要严格原子性的场景。
+    // 直接用 pgPoolQuery 绕过 activeDriver（已切到 Neon HTTP），避免 Neon HTTP 重试延迟。
+    if (err.message && err.message.includes('pg Pool 不可用')) {
+      const fallbackQuery = pgPoolQuery || ((text, params) => query(text, params));
+      logger.warn('[DB] 事务降级：pool.connect() 不可用，以 pool.query() 顺序执行（无事务保护）');
+      return await workFn({ query: fallbackQuery }, true);
     }
     throw err;
   } finally {
@@ -211,7 +239,7 @@ const runInTransaction = async function (workFn) {
       try {
         clientLocal.release();
       } catch (releaseErr) {
-        console.warn('释放事务 client 时发生错误:', releaseErr);
+        logger.warn('释放事务 client 时发生错误:', releaseErr);
       }
     }
   }

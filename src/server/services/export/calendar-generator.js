@@ -51,15 +51,38 @@ class CalendarGenerator {
     static calculateFees(rawData, dates, isSingleStudent) {
         const dailyFees = new Map();
         const weeklyFees = new Map();
+        const weeklyReimburse = new Map(); // 每周报销状态：'已报销' / '未报销' / '-'（该周无课）
 
         // 按日期和学生分组统计费用
         const feesByDateStudent = new Map();
+        // 按日期跟踪费用提交/报销状态
+        const dayFlags = new Map();
+        // 按周跟踪报销状态（本周是否全部已报销）
+        const weekFlags = new Map();
 
         rawData.forEach(row => {
             const dateStr = DataTransformer.formatLocaleDate(
                 row.date || row.class_date || row.arr_date
             );
             if (!dateStr) return;
+
+            if (!dayFlags.has(dateStr)) {
+                dayFlags.set(dateStr, { anyUnsubmitted: false, allReimbursed: true, total: 0 });
+            }
+            const dayFlag = dayFlags.get(dateStr);
+            const feeStatus = String(row.fee_status || '').toLowerCase();
+            if (feeStatus === 'draft') dayFlag.anyUnsubmitted = true;
+            if (feeStatus !== 'reimbursed') dayFlag.allReimbursed = false;
+
+            // 按周跟踪报销状态：本周出现任意课程则 anyRow=true；
+            // 出现非 reimbursed 的课程则 allReimbursed=false
+            const rowWeekNum = CalendarGenerator.getISOWeek(new Date(dateStr));
+            if (!weekFlags.has(rowWeekNum)) {
+                weekFlags.set(rowWeekNum, { anyRow: false, allReimbursed: true });
+            }
+            const weekFlag = weekFlags.get(rowWeekNum);
+            weekFlag.anyRow = true;
+            if (feeStatus !== 'reimbursed') weekFlag.allReimbursed = false;
 
             const studentId = row.student_id;
             const studentName = row.student_name || '未知';
@@ -80,6 +103,9 @@ class CalendarGenerator {
             const feeData = feesByDateStudent.get(key);
             const transportFee = parseFloat(row.transport_fee) || 0;
             const otherFee = parseFloat(row.other_fee) || 0;
+
+            // 按日期累计费用合计（用于费用列规则判断），含当天所有学生/教师
+            dayFlag.total += transportFee + otherFee;
 
             // 按教师累计交通费
             if (transportFee > 0) {
@@ -106,39 +132,59 @@ class CalendarGenerator {
             feesByWeek.get(weekNum).push(f);
         }
 
-        // 生成每日费用文本
+        // 生成每日费用文本（应用费用列显示规则）
         dates.forEach(dateStr => {
-            const studentFees = feesByDate.get(dateStr);
+            const dayFlag = dayFlags.get(dateStr);
 
-            if (!studentFees || studentFees.length === 0) {
+            // 费用列显示规则（报销单 视图/文件 统一）：
+            //   没课（当天无排课）→ '/'
+            //   有课且存在未提交(draft)费用 → '-'
+            //   有课且已提交：费用合计为 0 → '0'；否则保留费用明细
+            if (!dayFlag) {
                 dailyFees.set(dateStr, '/');
                 return;
             }
 
-            if (isSingleStudent) {
-                const total = studentFees.reduce((sum, f) => sum + f.totalTransport, 0);
-                const other = studentFees.reduce((sum, f) => sum + f.totalOther, 0);
-
-                if (total === 0 && other === 0) {
-                    dailyFees.set(dateStr, '/');
-                } else {
+            if (dayFlag.anyUnsubmitted) {
+                dailyFees.set(dateStr, '-');
+            } else if (dayFlag.total === 0) {
+                dailyFees.set(dateStr, '0');
+            } else {
+                const studentFees = feesByDate.get(dateStr) || [];
+                if (isSingleStudent) {
+                    const total = studentFees.reduce((sum, f) => sum + f.totalTransport, 0);
+                    const other = studentFees.reduce((sum, f) => sum + f.totalOther, 0);
                     const parts = [];
                     if (total > 0) parts.push(String(Math.ceil(total * 100) / 100));
                     if (other > 0) parts.push(`其他费用${Math.ceil(other * 100) / 100}`);
                     dailyFees.set(dateStr, parts.join('，'));
-                }
-            } else {
-                const lines = [];
-                studentFees.forEach(f => {
-                    const teacherParts = [];
-                    f.teacherFees.forEach((fee, teacher) => {
-                        teacherParts.push(`${teacher}${Math.ceil(fee * 100) / 100}`);
+                } else {
+                    const lines = [];
+                    studentFees.forEach(f => {
+                        const teacherParts = [];
+                        f.teacherFees.forEach((fee, teacher) => {
+                            teacherParts.push(`${teacher}${Math.ceil(fee * 100) / 100}`);
+                        });
+                        if (teacherParts.length > 0) {
+                            lines.push(`${f.studentName}：${teacherParts.join('，')}`);
+                        }
                     });
-                    if (teacherParts.length > 0) {
-                        lines.push(`${f.studentName}：${teacherParts.join('，')}`);
-                    }
-                });
-                dailyFees.set(dateStr, lines.length > 0 ? lines.join('；') : '/');
+                    dailyFees.set(dateStr, lines.length > 0 ? lines.join('；') : '0');
+                }
+            }
+        });
+
+        // 计算每周报销状态（按周，而非按天）：
+        //   该周无课 → '-'；该周全部课程已报销 → '已报销'；否则 '未报销'
+        dates.forEach(dateStr => {
+            const dateObj = new Date(dateStr);
+            const weekNumber = CalendarGenerator.getISOWeek(dateObj);
+            if (weeklyReimburse.has(weekNumber)) return;
+            const weekFlag = weekFlags.get(weekNumber);
+            if (!weekFlag || !weekFlag.anyRow) {
+                weeklyReimburse.set(weekNumber, '-');
+            } else {
+                weeklyReimburse.set(weekNumber, weekFlag.allReimbursed ? '已报销' : '未报销');
             }
         });
 
@@ -181,7 +227,7 @@ class CalendarGenerator {
             }
         });
 
-        return { dailyFees, weeklyFees };
+        return { dailyFees, weeklyFees, weeklyReimburse };
     }
 
     /**
@@ -204,7 +250,7 @@ class CalendarGenerator {
         const isSingleStudent = uniqueStudents.size === 1 || Boolean(studentId);
 
         // 4. 预计算费用数据
-        const { dailyFees, weeklyFees } = CalendarGenerator.calculateFees(
+        const { dailyFees, weeklyFees, weeklyReimburse } = CalendarGenerator.calculateFees(
             rawData,
             dates,
             isSingleStudent
@@ -248,6 +294,8 @@ class CalendarGenerator {
                         '实际安排': '',
                         '费用': index === 0 ? dailyFees.get(dateStr) || '/' : '',
                         '周汇总': index === 0 ? weeklyFees.get(weekNumber) || '/' : '',
+                        // 报销状态不在按周合并，仅在该周最后一个单元格显示（见下方后处理）
+                        '报销状态': '',
 
                         // 内部标记字段
                         '_weekNumber': weekNumber,
@@ -274,6 +322,8 @@ class CalendarGenerator {
                     '实际安排': '',
                     '费用': '/',
                     '周汇总': weeklyFees.get(weekNumber) || '/',
+                    // 报销状态不在按周合并，仅在该周最后一个单元格显示（见下方后处理）
+                    '报销状态': '',
                     '_weekNumber': weekNumber,
                     '_isSunday': isSunday,
                     '_isRedRow': false,
@@ -281,6 +331,17 @@ class CalendarGenerator {
                     '_actualTextParts': []
                 });
             }
+        });
+
+        // 5.5 报销状态：不按周合并，仅在该周最后一个单元格显示
+        // 找到每个 ISO 周在 calendarData 中出现的最后一行下标，只在其上写值，
+        // 其余单元格留空。无课周的值为 '-'（语义：该周无费用，等同 N/A）。
+        const lastRowIndexByWeek = new Map();
+        calendarData.forEach((row, idx) => {
+            lastRowIndexByWeek.set(row._weekNumber, idx);
+        });
+        lastRowIndexByWeek.forEach((idx, weekNumber) => {
+            calendarData[idx]['报销状态'] = weeklyReimburse.get(weekNumber) || '-';
         });
 
         // 6. 学生端移除费用和周汇总列

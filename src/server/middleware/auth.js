@@ -1,3 +1,4 @@
+const logger = require('../utils/logger.js');
 /**
  * 认证中间件
  * @description 提供JWT认证、权限检查等功能
@@ -10,31 +11,63 @@ const jwt = require('jsonwebtoken');
  * 获取JWT密钥
  * @returns {string} JWT密钥
  */
+// 弱/默认密钥清单（单一来源；app.js 启动时复用本函数做校验）
+const WEAK_SECRETS = ['your-secret-key-change-this-in-production', 'dev-insecure-secret'];
+
 function getJwtSecret() {
     const secret = process.env.JWT_SECRET;
-    if (!secret || secret === 'your-secret-key-change-this-in-production') {
+    if (!secret || WEAK_SECRETS.includes(secret)) {
         if (process.env.NODE_ENV === 'production') {
             throw new Error('致命错误: 生产环境未设置有效的 JWT_SECRET 环境变量');
         }
-        console.warn('[AUTH] 警告: 使用默认 JWT 密钥，仅限开发环境');
+        logger.warn('[AUTH] 警告: 使用默认 JWT 密钥，仅限开发环境');
         return 'dev-insecure-secret';
     }
     return secret;
 }
 
 /**
+ * 解析 Cookie 头（避免引入额外依赖）
+ * @param {object} req - Express 请求对象
+ * @returns {Object} cookie 名值映射
+ */
+function parseCookies(req) {
+    const header = req.headers.cookie;
+    const cookies = {};
+    if (!header) return cookies;
+    header.split(';').forEach(pair => {
+        const idx = pair.indexOf('=');
+        if (idx === -1) return;
+        const key = pair.slice(0, idx).trim();
+        const value = pair.slice(idx + 1).trim();
+        if (key) cookies[key] = decodeURIComponent(value);
+    });
+    return cookies;
+}
+
+/**
  * 认证中间件
  * @description 验证 JWT 令牌并注入真实用户身份
+ * 令牌来源优先级：httpOnly Cookie（推荐，防 XSS 窃取）> Authorization 头（兼容旧客户端）
  */
 const authMiddleware = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
+        let token = null;
+        const cookies = parseCookies(req);
+        if (cookies.token) {
+            token = cookies.token;
+        } else if (req.headers.authorization) {
+            const parts = req.headers.authorization.split(' ');
+            if (parts.length === 2 && /^[Bb]earer$/i.test(parts[0])) {
+                token = parts[1];
+            }
+        }
+
+        if (!token) {
             return res.status(401).json({ message: '未提供认证令牌' });
         }
 
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, getJwtSecret());
+        const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
 
         req.user = {
             id: decoded.id,
@@ -72,5 +105,6 @@ const { adminOnly } = require('./role');
 module.exports = {
     authMiddleware,
     adminOnly,
-    checkPermissionLevel
+    checkPermissionLevel,
+    getJwtSecret
 };

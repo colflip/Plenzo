@@ -5,6 +5,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 
 /**
  * 登录接口速率限制
@@ -37,9 +38,17 @@ const apiLimiter = rateLimit({
         message: '请求过于频繁，请稍后再试'
     },
     keyGenerator: (req) => {
-        const token = req.headers.authorization;
         const clientIp = req['i' + 'p'] || (req.socket && req.socket.remoteAddress) || 'unknown';
-        return token ? `${clientIp}-${token.substring(0, 20)}` : clientIp;
+        // 已登录：用令牌哈希作 key，避免明文令牌落入限流存储/日志，且同一用户跨 IP 仍被正确限流
+        const token = req.headers.authorization;
+        if (token) {
+            const tokenHash = crypto.createHash('sha256').update(token).digest('base64').slice(0, 24);
+            return `t:${tokenHash}`;
+        }
+        // 未登录：IP + UA 指纹，降低共享 NAT/代理下的互误伤，也削弱伪造 XFF 绕过限流的可能
+        const ua = req.headers['user-agent'] || 'no-ua';
+        const uaHash = crypto.createHash('sha256').update(ua).digest('base64').slice(0, 16);
+        return `ip:${clientIp}:${uaHash}`;
     }
 });
 
