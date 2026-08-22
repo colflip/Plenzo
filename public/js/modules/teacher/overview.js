@@ -1,5 +1,6 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, EMPTY_STATES, getScheduleTypeLabel, getStatusLabel } from './constants.js';
 import { clearChildren, createElement, formatTimeRange, setText, toISODate } from './utils.js';
+import { createInlineLoading } from '../shared/loading-ui.js';
 
 const weeklyLessonsEl = () => document.getElementById('weeklyLessons');
 const monthlyLessonsEl = () => document.getElementById('monthlyLessons');
@@ -54,8 +55,8 @@ function showStatsLoadingState() {
 
     const list = todayListEl();
     if (list) {
-        clearChildren(list);
-        list.appendChild(createElement('div', 'today-empty-state', { textContent: '正在加载今日排课...' }));
+        // 统一加载视觉：紧凑横向 spinner + 文案
+        list.replaceChildren(createInlineLoading('正在加载今日排课...', { compact: true }));
     }
 }
 
@@ -89,7 +90,7 @@ function createRewardModal() {
             <span class="material-icons-round reward-icon" id="rewardIcon">emoji_events</span>
             <div class="reward-title" id="rewardTitle">Title</div>
             <div class="reward-value" id="rewardValue">0</div>
-            <button class="reward-close-btn" onclick="document.getElementById('rewardModal').classList.remove('active')">Awesome!</button>
+            <button class="reward-close-btn" data-action="reward-close">Awesome!</button>
         </div>
     `;
     document.body.appendChild(modal);

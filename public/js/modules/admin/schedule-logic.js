@@ -318,7 +318,7 @@ export async function editSchedule(scheduleId) {
 }
 
 export async function deleteSchedule(scheduleId) {
-    if (confirm('确定要删除此排课吗？')) {
+    if (await Modal.confirm('确定要删除此排课吗？', { title: '删除排课', confirmText: '删除', confirmStyle: 'danger' })) {
         try {
             // 使用新的API工具类删除排课
             await window.apiUtils.delete(`/admin/schedules/${scheduleId}`);
@@ -373,7 +373,7 @@ export async function loadScheduleFormOptions() {
         if (typeSel && window.ScheduleTypesStore) {
             const currentTypeVal = typeSel.value;
             const types = window.ScheduleTypesStore.getAll();
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
+            window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
             types.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.id; // Use ID for backend submission
@@ -401,7 +401,7 @@ export async function loadScheduleFormOptions() {
             if (!teacherSel) return;
             // 如果传入了 preservedVal 则使用，否则获取当前值
             const currentVal = preservedVal !== null ? preservedVal : teacherSel.value;
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>'); } else { teacherSel.innerHTML = '<option value="">选择教师</option>'; }
+            window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>');
 
             // 基础排序权重：正常(1) -> 暂停(0) -> 删除/其他
             const statusWeight = (v) => { const n = Number(v); if (n === 1) return 0; if (n === 0) return 1; return 2; };
@@ -617,7 +617,7 @@ export async function loadScheduleFormOptions() {
         }
 
         if (studentSel) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>'); } else { studentSel.innerHTML = '<option value="">选择学生</option>'; }
+            window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>');
             const sortedStudents = (students || []).filter(s => Number(s.status ?? 1) === 1).sort((a, b) => {
                 const an = String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
                 return an;
@@ -652,7 +652,7 @@ export async function loadScheduleFormOptions() {
             });
         }
         if (typeSel) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
+            window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
             let types = ScheduleTypesStore.getAll();
             const hasAdvisory = types.some(t => (t.name || '').includes('advisory') || (t.description || '').includes('咨询'));
 
@@ -667,7 +667,7 @@ export async function loadScheduleFormOptions() {
                 } catch (error) { console.warn('[ScheduleForm] 加载课程类型失败:', error.message); }
             }
 
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
+            window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
             types.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t.id;
@@ -691,7 +691,7 @@ export async function loadScheduleFormOptions() {
 
         // 教师筛选器（仅用于列表页筛选，无需可用性逻辑）
         if (teacherFilterSel) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherFilterSel, '<option value="">全部教师</option>'); } else { teacherFilterSel.innerHTML = '<option value="">全部教师</option>'; }
+            window.SecurityUtils.safeSetHTML(teacherFilterSel, '<option value="">全部教师</option>');
             // 复用缓存的教师列表
             const weight = (v) => { const n = Number(v); if (n === 1) return 0; if (n === 0) return 1; if (n === -1) return 2; return 3; };
             const filterTeachers = (teachers || []).filter(t => Number(t?.status) !== -1).sort((a, b) => {
@@ -846,10 +846,8 @@ export function showScheduleSelector(items) {
     list.style.overflowY = 'auto';
     list.style.flex = '1';
 
-    // XSS 安全：转义用户数据
-    const esc = (window.SecurityUtils && window.SecurityUtils.escapeHtml) || function(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
-    };
+    // XSS 安全：统一复用 core/security.js 的 escapeHtml（window.SecurityUtils 始终先加载）
+    const esc = window.SecurityUtils.escapeHtml;
 
     items.forEach(item => {
         const row = document.createElement('div');
@@ -925,3 +923,4 @@ export function showScheduleSelector(items) {
 
 // Global exposure
 window.showScheduleSelector = showScheduleSelector;
+

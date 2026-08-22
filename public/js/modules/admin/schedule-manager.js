@@ -5,6 +5,7 @@
 
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 
 
 // --- Global State ---
@@ -43,7 +44,7 @@ window.toggleAdminShowPlan = async function () {
             hideTableLoading();
         }
     }
-},
+};
 
 // 挂载顶层全局显隐费用按钮的初始绘制UI
 // This part needs to be called when the page initializes or data is loaded.
@@ -53,9 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const showPlanBtnText = document.getElementById('showPlanBtnText');
     if (showPlanBtnText) showPlanBtnText.textContent = window.adminShowPlan ? '隐藏全部安排' : '显示全部安排';
     syncToggleButton(showPlanBtn, window.adminShowPlan);
-
-    // 绑定事件
-    if (showPlanBtn) showPlanBtn.onclick = window.toggleAdminShowPlan;
+    // 点击事件已由 action-delegate.js 通过 data-action="toggle-admin-show-plan" 统一委托处理
 });
 
 
@@ -321,7 +320,7 @@ function rollbackOperation(backup, operation) {
                 // 重新插入卡片
                 if (backup.parent) {
                     const tempDiv = document.createElement('div');
-                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tempDiv, backup.originalHTML); } else { tempDiv.innerHTML = backup.originalHTML; }
+                    window.SecurityUtils.safeSetHTML(tempDiv, backup.originalHTML);
                     const restoredCard = tempDiv.firstElementChild;
 
                     if (backup.nextSibling) {
@@ -591,9 +590,9 @@ export async function refreshCell(studentId, dateKey) {
         });
 
         // 执行局部重绘
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, ''); } else { td.innerHTML = ''; }
+        window.SecurityUtils.safeSetHTML(td, '');
         if (cellItems.length === 0) {
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>'); } else { td.innerHTML = '<div class="no-schedule">-</div>'; }
+            window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>');
         } else {
             // 获取学生信息
             const studentList = await WeeklyDataStore.getStudents();
@@ -673,12 +672,12 @@ export async function loadSchedules(force = false, showLoading = true) {
         }
 
         // Removed filters: status, type, teacherId
-        const force = !!window.__weeklyForceRefresh;
+        const useForce = !!window.__weeklyForceRefresh;
 
         // Parallel load: Students (usually small) and Schedules (Cached)
         const [students, schedules] = await Promise.all([
-            WeeklyDataStore.getStudents(force),
-            WeeklyDataStore.getSchedules(startDateISO, endDateISO, null, null, null, force)
+            WeeklyDataStore.getStudents(useForce),
+            WeeklyDataStore.getSchedules(startDateISO, endDateISO, null, null, null, useForce)
         ]);
 
         window.__weeklyForceRefresh = false;
@@ -714,7 +713,7 @@ function buildDatesArray(start, end) {
 function renderWeeklyLoading() {
     const tbody = document.getElementById('weeklyBody');
     if (tbody) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+        window.SecurityUtils.safeSetHTML(tbody, '');
         // Create 5 skeleton rows
         for (let i = 0; i < 5; i++) {
             const tr = document.createElement('tr');
@@ -745,15 +744,15 @@ function renderWeeklyLoading() {
 
 function renderWeeklyError(msg) {
     const tbody = document.getElementById('weeklyBody');
-    if (tbody) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`); } else { tbody.innerHTML = `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`; }
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`;
 }
 
 function renderWeeklyHeader(weekDates) {
     const thead = document.getElementById('weeklyHeader');
     if (!thead) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, ''); } else { thead.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(thead, '');
     const tr = document.createElement('tr');
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<th class="sticky-col student-cell" style="text-align: center;">学生姓名/日期</th>'); } else { tr.innerHTML = '<th class="sticky-col student-cell" style="text-align: center;">学生姓名/日期</th>'; }
+    tr.innerHTML = '<th class="sticky-col student-cell" style="text-align: center;">学生</th>';
 
     const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
     weekDates.forEach(d => {
@@ -767,12 +766,21 @@ function renderWeeklyHeader(weekDates) {
         const metaHtml = window.ScheduleDateLabels?.getHeaderMetaHtml(d) || '';
 
         // Match Teacher Availability Table Header Style
-        th.innerHTML = `
-            <div class="th-content">
-                <span class="th-date" style="line-height:1.2;">${dateStr}</span>
-                <span class="th-day">${dayName}</span>
-                ${metaHtml}
-            </div>`;
+        if (window.SecurityUtils) {
+            window.SecurityUtils.safeSetHTML(th, `
+                <div class="th-content">
+                    <span class="th-date" style="line-height:1.2;">${dateStr}</span>
+                    <span class="th-day">${dayName}</span>
+                    ${metaHtml}
+                </div>`);
+        } else {
+            th.innerHTML = `
+                <div class="th-content">
+                    <span class="th-date" style="line-height:1.2;">${dateStr}</span>
+                    <span class="th-day">${dayName}</span>
+                    ${metaHtml}
+                </div>`;
+        }
         th.dataset.date = iso;
         tr.appendChild(th);
     });
@@ -782,7 +790,7 @@ function renderWeeklyHeader(weekDates) {
 function renderWeeklyBody(students, schedules, weekDates) {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
 
     // Performance: Use Fragment
     const fragment = document.createDocumentFragment();
@@ -843,7 +851,7 @@ function renderWeeklyBody(students, schedules, weekDates) {
 
             const items = cellIndex.get(`${student.id}|${dateKey}`) || [];
             if (items.length === 0) {
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>'); } else { td.innerHTML = '<div class="no-schedule">-</div>'; }
+                window.SecurityUtils.safeSetHTML(td, '<div class="no-schedule">-</div>');
             } else {
                 renderGroupedMergedSlots(td, items, student, dateKey);
             }
@@ -1152,23 +1160,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
         card.classList.add('status-cancelled');
     }
 
-    const hasTemp = group.some(rec => rec.adjustment_type == 1);
-    const hasAdjusted = group.some(rec => rec.adjustment_type == 2);
-    const hasOriginal = group.some(rec => (rec.status || '').toLowerCase() === 'modified_away' && rec.adjustment_type == 0);
-
-    // 构建水印文本：调=加 > 原
-    const watermarkParts = [];
-    if (hasAdjusted) watermarkParts.push('调');
-    if (hasTemp) watermarkParts.push('加');
-
-    let watermarkText = '';
-    if (watermarkParts.length > 0) {
-        watermarkText = watermarkParts.join('/');
-    } else if (hasOriginal) {
-        // 仅当组内所有记录都是原课程时才显示「原」水印
-        const allOriginal = group.every(rec => (rec.status || '').toLowerCase() === 'modified_away' && rec.adjustment_type == 0);
-        if (allOriginal) watermarkText = '原';
-    }
+    // 水印文本（与全校视图统一：adjustment_type===2 或 status==='modified_away' 即视为已调整）
+    const watermarkText = getScheduleWatermarkText(group);
 
     if (watermarkText) {
         card.classList.add('is-temp-card');
@@ -1228,7 +1221,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
         const typeStr = (rec.schedule_type_cn || rec.schedule_types || '').toString();
         let typeLabel = `(${typeStr})`;
 
-        left.innerHTML = `
+        const leftHtml = `
             <span class="teacher-name" style="flex-shrink: 0; white-space: nowrap;">${rec.teacher_name || '未分配'}</span>
             <div class="marquee-wrapper" style="flex: 1; min-width: 0; max-width: none;">
                 <div class="marquee-content" style="padding-right: 0;">
@@ -1236,6 +1229,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
                 </div>
             </div>
         `;
+        if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(left, leftHtml);
+        else left.innerHTML = leftHtml;
         row.appendChild(left);
 
         // Right: Status Select (Quick Change)
@@ -1297,10 +1292,12 @@ function buildAdminScheduleCard(group, student, dateKey) {
         `<div class="location-text">${loc}</div>` :
         `<div class="location-text" style="font-style: italic; color: #94a3b8;">地点待定</div>`;
 
-    footer.innerHTML = `
+    const footerHtml = `
         <div class="time-text">${timeRange}</div>
         ${locHtml}
     `;
+    if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(footer, footerHtml);
+    else footer.innerHTML = footerHtml;
     content.appendChild(footer);
     card.appendChild(content);
 
@@ -1343,7 +1340,7 @@ export async function updateScheduleStatus(id, newStatus) {
 }
 
 export async function deleteSchedule(id) {
-    if (!confirm('确定要删除此排课吗？')) return;
+    if (!await Modal.confirm('确定要删除此排课吗？', { title: '删除排课', confirmText: '删除', confirmStyle: 'danger' })) return;
 
     // 先从缓存中获取记录信息（在乐观删除之前，确保能获取到数据）
     let dateKey = null;
@@ -1564,8 +1561,12 @@ export async function editSchedule(id) {
         updateTeacherStatusHints();
 
     } catch (err) {
-
-        window.apiUtils.showToast('加载详情失败', 'error');
+        // 权限落地（Phase 3）：受限级别打开不在可见范围内的排课时给出明确解释
+        if (err && err.status === 404) {
+            window.apiUtils.showToast('该排课不在您的可见范围内或已被删除', 'warning');
+        } else {
+            window.apiUtils.showToast('加载详情失败', 'error');
+        }
     }
 }
 
@@ -1573,7 +1574,7 @@ async function loadScheduleFormOptions() {
     const typeSel = document.getElementById('scheduleTypeSelect');
     if (typeSel && window.ScheduleTypesStore) {
         const types = window.ScheduleTypesStore.getAll();
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>'); } else { typeSel.innerHTML = '<option value="">选择类型</option>'; }
+        window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
         types.forEach(t => {
             const o = document.createElement('option');
             o.value = t.id; o.textContent = t.description || t.name;
@@ -1586,7 +1587,7 @@ async function loadScheduleFormOptions() {
     const [teachers, students] = await Promise.all([WeeklyDataStore.getTeachers(), WeeklyDataStore.getStudents()]);
 
     if (teacherSel) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>'); } else { teacherSel.innerHTML = '<option value="">选择教师</option>'; }
+        window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>');
         const restricted = [];
         const normal = [];
 
@@ -1613,7 +1614,7 @@ async function loadScheduleFormOptions() {
     }
 
     if (studentSel) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>'); } else { studentSel.innerHTML = '<option value="">选择学生</option>'; }
+        window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>');
         students.forEach(s => {
             if (String(s.status) == '-1') return;
             const o = document.createElement('option');
@@ -1782,7 +1783,12 @@ export async function setupScheduleEventListeners() {
                 type_ids: courseId ? [Number(courseId)] : [], // 统一使用 type_ids 数组
                 status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed',
                 resolve_strategy: 'override', // 默认覆盖
-                adjustment_type: document.getElementById('scheduleIsTemp') ? (document.getElementById('scheduleIsTemp').checked ? 1 : 0) : 0
+                // adjustment_type：1=临时加课（勾选框），2=「调整」流程生成的增补记录（溯源标记，非用户可编辑属性）。
+                // 编辑 adjustment_type=2 的记录时必须原样带回，否则会被表单默认值 0 覆盖，
+                // 导致该记录丢失「调」水印与报销/统计口径。
+                adjustment_type: (document.getElementById('scheduleIsTemp') && document.getElementById('scheduleIsTemp').checked)
+                    ? 1
+                    : (Number(snapshot.adjustment_type) === 2 ? 2 : 0)
             };
 
             if (!body.student_ids.length || !body.date || !body.start_time || !body.end_time) {
@@ -1844,7 +1850,7 @@ export async function setupScheduleEventListeners() {
                     //                         if (cDiv && cName) cDiv.textContent = cName;
                     // 
                     //                         const locP = currentCard.querySelector('.location-text');
-                    //                         if (locP && body.location) if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`); } else { locP.innerHTML = `<span class="material-icons-round">place</span>${body.location}`; }
+                    //                         window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`);
                     //                     }
 
                     // 异步请求后端
@@ -1914,7 +1920,7 @@ export async function setupScheduleEventListeners() {
                     rollbackOperation(backup, 'add');
                 } else if (mode === 'edit' && currentCard && originalCardHtml) {
                     // 悲观恢复原来的DOM卡片
-                    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(currentCard, originalCardHtml); } else { currentCard.innerHTML = originalCardHtml; }
+                    window.SecurityUtils.safeSetHTML(currentCard, originalCardHtml);
                     currentCard.classList.remove('optimistic-updating');
                 }
 
@@ -1995,7 +2001,7 @@ async function initScheduleFilters() {
         try {
             const teachers = await WeeklyDataStore.getTeachers();
             const current = tf.value;
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tf, '<option value="">全部教师</option>'); } else { tf.innerHTML = '<option value="">全部教师</option>'; }
+            window.SecurityUtils.safeSetHTML(tf, '<option value="">全部教师</option>');
             teachers.forEach(t => {
                 if (String(t.status) == '-1') return;
                 const o = document.createElement('option');
@@ -2045,3 +2051,4 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
 }
 
 // Expose required methods to window for legacy code
+

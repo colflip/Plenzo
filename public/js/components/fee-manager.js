@@ -180,10 +180,11 @@
                             <span class="material-icons-round">chevron_right</span>
                         </button>
                     </div>
+                    ${(config.canExport !== false && (!window.permissionUtils || window.permissionUtils.atLeast(2))) ? `
                     <button class="add-btn" data-fm="export" title="导出报销单">
                         <span class="material-icons-round">image</span>
                         <span>导出报销单</span>
-                    </button>
+                    </button>` : ''}
                 </div>
                 <div class="fm-toolbar-right">
                     ${config.feeStatusFilter ? `
@@ -271,7 +272,9 @@
 
         mountEl.querySelector('[data-fm="prev"]').addEventListener('click', () => shiftRange(-7));
         mountEl.querySelector('[data-fm="next"]').addEventListener('click', () => shiftRange(7));
-        mountEl.querySelector('[data-fm="export"]').addEventListener('click', () => doExport(config));
+        // 权限落地（Phase 3）：L3 不渲染导出按钮（按钮可能不存在，需判空）
+        const exportBtn = mountEl.querySelector('[data-fm="export"]');
+        if (exportBtn) exportBtn.addEventListener('click', () => doExport(config));
 
         // 费用状态筛选
         const filterSel = mountEl.querySelector('[data-fm="feeStatusFilter"]');
@@ -462,21 +465,8 @@
         };
         const clamp = td.querySelector('.fm-cell-clamp');
 
-        // 日期时间列（idx=1）：强制在「~」处两行显示，不随列宽塌回单行、也不进跑马灯
-        if (idx === 1) {
-            td.style.whiteSpace = 'normal';
-            td.style.overflow = 'hidden';
-            td.style.textOverflow = '';
-            if (clamp) {
-                clamp.style.display = 'inline';      // 解除 -webkit-box，使 <br> 生效
-                clamp.style.webkitLineClamp = 'unset';
-                clamp.style.whiteSpace = 'normal';
-                clamp.style.overflow = 'visible';
-            }
-            td.style.fontSize = BASE + 'px';
-            if (clamp) clamp.style.fontSize = BASE + 'px';
-            return;
-        }
+        // 日期时间列（idx=1）与老师/地点/费用状态列一致：单行优先，放不下再缩字号（最小 13px），
+        // 仍放不下才双行截断。列宽由明细行决定，汇总区间 MM-DD~MM-DD 短于明细日期，单行可放下。
 
         // 阶段 1：单行，字号逐步压缩到 13px
         const oneLine = () => {
@@ -527,7 +517,7 @@
     function fitSummaryRows(mountEl) {
         const tbody = mountEl.querySelector('[data-fm="tbody"]');
         if (!tbody) return;
-        const ADAPTIVE = new Set([1, 2, 4, 5]); // 日期时间 / 老师 / 上课地点 / 费用状态（排课及状态为自定义双行，单独处理）
+        const ADAPTIVE = new Set([1, 2, 4]); // 日期时间 / 老师 / 上课地点（费用状态列固定 14px，排课及状态为自定义双行，单独处理）
 
         // 按列收集汇总行单元格（排除操作列）
         const colCells = {};
@@ -544,6 +534,14 @@
             if (idx === 3) {
                 // 排课及状态：汇总行自定义双行（类型一行 + 状态一行），字号收缩适配
                 cells.forEach(td => fitMergedCell(td));
+                return;
+            }
+            if (idx === 5) {
+                // 费用状态：字号固定 14px（反馈），不参与任何自适应缩放，清除历史内联字号
+                cells.forEach(td => {
+                    td.style.fontSize = '';
+                    td.querySelectorAll('*').forEach(el => { el.style.fontSize = ''; });
+                });
                 return;
             }
             if (ADAPTIVE.has(idx)) {
@@ -618,8 +616,7 @@
             else fitSummaryRows(mountEl);
         } catch (err) {
             const errHtml = `<tr><td colspan="${STUDENT_COLS}" style="text-align:center; padding:32px; color:#ef4444;">加载失败，请重试</td></tr>`;
-            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(tbody, errHtml);
-            else tbody.innerHTML = errHtml;
+            tbody.innerHTML = errHtml;
             updateSummary(mountEl, { schedules: [], startDate: st.startDate, endDate: st.endDate });
         } finally {
             // 无论成功或失败，均淡出隐藏加载遮罩
@@ -759,17 +756,29 @@
             const addCell = (cls, html, extra) => {
                 const td = document.createElement('td');
                 td.className = 'fm-detail-td fm-d-' + cls + (extra ? ' ' + extra : '');
-                td.innerHTML = html;
+                if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(td, html);
+                else td.innerHTML = html;
                 tr.appendChild(td);
             };
-            // 交通 / 其他：未填写显示灰色「—」，填 0 显示 ¥0.00，正数 ¥X.XX
-            const tDisp = feeDisplay(r.transport_fee);
-            const oDisp = feeDisplay(r.other_fee);
-            const tUnfilled = isUnfilled(r.transport_fee);
-            const oUnfilled = isUnfilled(r.other_fee);
-            const totalDisp = (tUnfilled && oUnfilled)
-                ? { text: '—', cls: 'fm-fee-empty' }
-                : { text: '¥' + money(total), cls: 'fm-fee-set' };
+            // 费用列显示规则（与 Excel 导出「费用」列一致）：
+            //   费用管理页每行均为「有课」记录；
+            //   显式 fee_status='draft' → 各费用列显示 '-'（隐藏未提交金额）；
+            //   fee_status 为 null/undefined（历史记录未设置状态）→ 按原 feeDisplay 显示实际金额；
+            //   已提交 → 交通/其他按原 feeDisplay 显示（未填写→—，0→¥0.00，正数→¥X.XX）；
+            //   已提交且费用合计为 0 → 总计 '0'；已提交且合计 >0 → 总计显示原费用明细(¥合计)。
+            const isDraft = r.fee_status === 'draft';
+            let tDisp, oDisp, totalDisp;
+            if (isDraft) {
+                const dash = { text: '-', cls: 'fm-fee-empty' };
+                tDisp = dash; oDisp = dash; totalDisp = dash;
+            } else {
+                tDisp = feeDisplay(r.transport_fee);
+                oDisp = feeDisplay(r.other_fee);
+                // 已提交：费用合计为 0 → '0'（与导出一致），否则明细金额
+                totalDisp = (total === 0)
+                    ? { text: '0', cls: 'fm-fee-zero' }
+                    : { text: '¥' + money(total), cls: 'fm-fee-set' };
+            };
             // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
             addCell('datetime', isDup ? '' : dtText);
             addCell('teacher', teacher);
@@ -788,7 +797,8 @@
             addCell('summary', totalDisp.text, 'fm-num ' + totalDisp.cls);
             const opTd = document.createElement('td');
             opTd.className = 'fm-detail-td fm-d-op fm-ops';
-            opTd.innerHTML = `<button class="fm-edit-one" data-fm="edit-one" data-id="${r.id}">编辑</button>`;
+            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(opTd, `<button class="fm-edit-one" data-fm="edit-one" data-id="${r.id}">编辑</button>`);
+            else opTd.innerHTML = `<button class="fm-edit-one" data-fm="edit-one" data-id="${r.id}">编辑</button>`;
             tr.appendChild(opTd);
 
             frag.appendChild(tr);
@@ -822,7 +832,8 @@
             const nameTd = document.createElement('td');
             nameTd.className = 'sticky-col student-cell fm-stu-name-cell';
             // 明细默认展开，箭头初始为收起方向（▾）
-            nameTd.innerHTML = `<span class="fm-expand-toggle" data-fm="toggle" title="展开/收起明细">▾</span><span class="fm-stu-name" data-fm="toggle">${name}</span>`;
+            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(nameTd, `<span class="fm-expand-toggle" data-fm="toggle" title="展开/收起明细">▾</span><span class="fm-stu-name" data-fm="toggle">${name}</span>`);
+            else nameTd.innerHTML = `<span class="fm-expand-toggle" data-fm="toggle" title="展开/收起明细">▾</span><span class="fm-stu-name" data-fm="toggle">${name}</span>`;
             tr.appendChild(nameTd);
 
             // 日期范围（MM-DD~MM-DD）：与表头「日期时间」列对应（汇总为区间）
@@ -833,8 +844,8 @@
             const tdDate = document.createElement('td');
             const dateClamp = document.createElement('span');
             dateClamp.className = 'fm-cell-clamp';
-            // 日期范围强制在「~」处折成两行（无论列宽，不塌回单行）；fitAdaptiveCell 对日期列走强制两行分支
-            dateClamp.innerHTML = esc(dateRange).replace(/~/, '~<br>');
+            // 日期范围同行显示（MM-DD~MM-DD）；列宽由明细行（周X（MM-DD，HH:MM - HH:MM））决定，区间短于明细日期，单行可放下
+            dateClamp.textContent = dateRange;
             tdDate.appendChild(dateClamp);
             tr.appendChild(tdDate);
 
@@ -912,10 +923,17 @@
 
             const tdOps = document.createElement('td');
             tdOps.className = 'fm-ops';
-            tdOps.innerHTML = `
-                <button class="fm-btn fm-btn-edit" data-fm="edit-stu">编辑</button>
-                <button class="fm-btn fm-btn-clear" data-fm="clear-stu">清除</button>
-            `;
+            if (window.SecurityUtils) {
+                window.SecurityUtils.safeSetHTML(tdOps, `
+                    <button class="fm-btn fm-btn-edit" data-fm="edit-stu">编辑</button>
+                    <button class="fm-btn fm-btn-clear" data-fm="clear-stu">清除</button>
+                `);
+            } else {
+                tdOps.innerHTML = `
+                    <button class="fm-btn fm-btn-edit" data-fm="edit-stu">编辑</button>
+                    <button class="fm-btn fm-btn-clear" data-fm="clear-stu">清除</button>
+                `;
+            }
             tr.appendChild(tdOps);
 
             tbody.appendChild(tr);
@@ -1015,7 +1033,7 @@
         else tfoot.innerHTML = '';
         const tr = document.createElement('tr');
         // 汇总行靠右显示，数字加粗（与学生数/课时/金额对应）
-        tr.innerHTML = `<td colspan="${STUDENT_COLS}" style="padding:12px 16px; text-align:right; background:#ffffff; font-weight:500; color:#475569; border-top:2px solid #e5e7eb;">
+        tr.innerHTML = `<td colspan="${STUDENT_COLS}" style="padding:12px 16px; text-align:right; background:#ffffff; font-weight:500; color:#475569; border-top:2px solid #e5e7eb; white-space:nowrap;">
             共 <strong>${studentCount}</strong> 名学生 / <strong>${schedules.length}</strong> 课时（${rangeText}）｜
             交通 <strong>¥${money(t)}</strong> / 其他 <strong>¥${money(o)}</strong> / 总计 <strong>¥${money(t + o)}</strong>
         </td>`;
@@ -1040,7 +1058,8 @@
     function esc(str) {
         return String(str == null ? '' : str)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+            .replace(/`/g, '&#96;').replace(/=/g, '&#x3D;').replace(/\//g, '&#x2F;');
     }
 
     // 轻量确认弹窗（视觉风格与 .modal / .modal-content 一致），返回 Promise<boolean>。
@@ -1048,7 +1067,7 @@
     function fmConfirm({ title = '确认操作', message = '', confirmText = '确定', cancelText = '取消', danger = false } = {}) {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);z-index:10000;display:flex;align-items:center;justify-content:center;';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);z-index:100003;display:flex;align-items:center;justify-content:center;';
             const box = document.createElement('div');
             box.style.cssText = 'background:#fff;border-radius:12px;padding:22px 24px;max-width:380px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);font-family:inherit;';
             const confirmColor = danger ? '#E74C3C' : '#2ECC71';
@@ -1191,7 +1210,7 @@
                     item.className = 'fm-day-item';
                     const typeText = s.schedule_type_cn || s.schedule_type || '课程';
                     const timeText = s.start_time ? ' ' + s.start_time.substring(0, 5) : '';
-                    item.innerHTML = `
+                    const itemHtml = `
                         <div class="fm-day-item-title">${esc(s.student_name || '学生')} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}</div>
                         <div class="fm-day-item-inputs">
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
@@ -1204,6 +1223,11 @@
                             </div>
                         </div>
                     `;
+                    if (window.SecurityUtils) {
+                        window.SecurityUtils.safeSetHTML(item, itemHtml);
+                    } else {
+                        item.innerHTML = itemHtml;
+                    }
                     items.appendChild(item);
                 });
                 group.appendChild(items);

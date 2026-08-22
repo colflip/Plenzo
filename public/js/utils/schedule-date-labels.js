@@ -55,14 +55,7 @@
         return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
     }
 
-    function escapeHtml(value) {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
+    // escapeHtml 统一复用 window.SecurityUtils.escapeHtml（core/security.js 始终先加载）
 
     function getLunarLabel(dateLike) {
         try {
@@ -119,7 +112,7 @@
             .map((part, index) => {
                 const delimiter = index > 0 ? '<span class="date-meta-separator">，</span>' : '';
                 const labelClass = part.type === 'lunar' ? 'lunar-label' : 'holiday-label';
-                return `${delimiter}<span class="${labelClass}">${escapeHtml(part.text)}</span>`;
+                return `${delimiter}<span class="${labelClass}">${window.SecurityUtils.escapeHtml(part.text)}</span>`;
             })
             .join('');
         return `<span class="schedule-date-meta">${html}</span>`;

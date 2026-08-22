@@ -55,9 +55,8 @@ export async function loadDataSummary() {
         const response = await fetch(
             `${API_ENDPOINTS.DATA_SUMMARY}?startDate=${startDate}&endDate=${endDate}`,
             {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
+                credentials: 'include',
+                headers: {}
             }
         );
 
@@ -107,16 +106,18 @@ function updateTypeStatsGrid(typeStats) {
     const grid = document.getElementById('summaryTypeStats');
     if (!grid) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(grid, ''); } else { grid.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(grid, '');
 
     const types = Object.keys(typeStats);
     if (types.length === 0) {
-        grid.innerHTML = `
+        if (window.SecurityUtils) {
+            window.SecurityUtils.safeSetHTML(grid, `
             <div class="type-stat-card">
                 <h3>总课程数</h3>
                 <div class="count-value">0</div>
             </div>
-        `;
+        `);
+        } else { grid.textContent = ''; }
         return;
     }
 
@@ -124,10 +125,12 @@ function updateTypeStatsGrid(typeStats) {
         const count = typeStats[type];
         const card = document.createElement('div');
         card.className = 'type-stat-card';
-        card.innerHTML = `
+        if (window.SecurityUtils) {
+            window.SecurityUtils.safeSetHTML(card, `
             <h3>${type}</h3>
             <div class="count-value">${count}</div>
-        `;
+        `);
+        } else { card.textContent = String(type); }
         grid.appendChild(card);
     });
 }
@@ -139,23 +142,25 @@ function updateDetailsTable(schedules) {
     const tbody = document.getElementById('summaryDetailsBody');
     if (!tbody) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
 
     if (schedules.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>'; }
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无课程记录</td></tr>';
         return;
     }
 
     schedules.forEach(schedule => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${formatDateDisplay(schedule.date || schedule.lesson_date)}</td>
-            <td>${schedule.start_time} - ${schedule.end_time}</td>
-            <td>${schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '--'}</td>
-            <td>${schedule.teacher_name || '--'}</td>
-            <td>${schedule.location || '--'}</td>
-            <td>${STATUS_LABELS[schedule.status] || schedule.status || '未知'}</td>
-        `;
+        const cells = [
+            formatDateDisplay(schedule.date || schedule.lesson_date),
+            `${schedule.start_time} - ${schedule.end_time}`,
+            schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '--',
+            schedule.teacher_name || '--',
+            schedule.location || '--',
+            STATUS_LABELS[schedule.status] || schedule.status || '未知'
+        ].map(c => `<td>${window.SecurityUtils.escapeHtml(c)}</td>`).join('');
+        // 使用 innerHTML：safeSetHTML 的 DOMParser 会在 <body> 上下文中解析 <td> 导致结构丢失
+        tr.innerHTML = cells;
         tbody.appendChild(tr);
     });
 }
@@ -197,3 +202,4 @@ function exportSummaryData() {
 
     showToast('数据导出成功', 'success');
 }
+

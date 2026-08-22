@@ -13,7 +13,7 @@ export function createAdminRewardModal() {
             <span class="material-icons-round reward-icon" id="adminRewardIcon">emoji_events</span>
             <div class="reward-title" id="adminRewardTitle">Title</div>
             <div class="reward-value" id="adminRewardValue">0</div>
-            <button class="reward-close-btn" onclick="document.getElementById('adminRewardModal').classList.remove('active')">Awesome!</button>
+            <button class="reward-close-btn" data-action="reward-close" data-target="adminRewardModal">Awesome!</button>
         </div>
     `;
     document.body.appendChild(modal);

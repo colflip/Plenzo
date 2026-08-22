@@ -39,17 +39,8 @@
             cursor: not-allowed;
         }
 
-        .btn-loading {
-            display: none;
-        }
-
-        .search-btn:disabled .btn-loading {
-            display: inline;
-        }
-
-        .search-btn:disabled .btn-text {
-            display: none;
-        }
+        /* .btn-loading / .search-btn:disabled 的显隐规则已统一到 core/global.css，
+           避免三个角色页面各自内联一份重复定义。 */
 
         /* 反馈消息样式 */
         .feedback {
@@ -951,7 +942,7 @@
                                             <button class="search-btn primary-btn" id="teachingQueryBtn" title="查询该日期范围内的统计数据">
                                                 <span class="material-icons-round">search</span>
                                                 <span class="btn-text">查询</span>
-                                                <span class="btn-loading" style="display: none;">加载中...</span>
+                                                <span class="btn-loading">加载中...</span>
                                             </button>
 
                                             <div class="preset-buttons" data-target="teaching">
@@ -976,7 +967,7 @@
                                 </div>
 
                                 <!-- Teaching Type Stats Cards Area -->
-                                <div class="stats-component-card"
+                                <div class="stats-component-card" id="typeStatsCard"
                                     style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
                                     <div id="teachingTypeStats" class="stats-grid">
                                         <!-- Dynamic Stats -->
@@ -984,9 +975,11 @@
                                 </div>
 
                                 <!-- Daily Statistics Bar Chart Area -->
-                                <div class="stats-component-card"
+                                <div class="stats-component-card" id="dailyTeachingChartCard"
                                     style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日学习统计
+                                    <h3
+                                        style="margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; font-size: 16px; font-weight: 600; color: #1e293b;">
+                                        每日学习统计
                                     </h3>
                                     <div style="height: 300px;">
                                         <canvas id="dailyTeachingChart"></canvas>
@@ -994,9 +987,11 @@
                                 </div>
 
                                 <!-- Detailed Teaching Information Table Area -->
-                                <div class="stats-component-card"
+                                <div class="stats-component-card" id="teachingDetailsCard"
                                     style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
-                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体课程信息
+                                    <h3
+                                        style="margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; font-size: 16px; font-weight: 600; color: #1e293b;">
+                                        具体课程信息
                                     </h3>
                                     <div class="table-container"
                                         style="margin-top:0; border:none; box-shadow:none; background:transparent;">
@@ -1070,6 +1065,7 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
     <script src="/js/core/api-client.js"></script>
+    <script src="/js/core/security.js"></script>
     <script src="/js/core/event-bus.js"></script>
     <script src="/js/core/sync-guards.js"></script>
     <script src="/js/utils/schedule-marker-policy.js?v=20260803-markers"></script>
@@ -1079,6 +1075,9 @@
     <script src="/js/utils/schedule-date-labels.js"></script>
     <script src="/js/utils/date-range-utils.js"></script>
     <script src="/js/core/schedule-types-store.js"></script>
+    <script src="/js/components/toast.js"></script>
+    <script src="/js/components/modal.js"></script>
+    <script src="/js/core/action-delegate.js"></script>
     <script type="module" src="/js/modules/student/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>
 

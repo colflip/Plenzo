@@ -15,6 +15,14 @@ function isValidSection(sectionId) {
     return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
 }
 
+// 权限落地（Phase 2）：区块是否对当前级别开放（users 仅 L2+，system-settings 仅 L1）
+function sectionAllowed(sectionId) {
+    if (window.permissionUtils && typeof window.permissionUtils.canSeeSection === 'function') {
+        return window.permissionUtils.canSeeSection(sectionId);
+    }
+    return true;
+}
+
 function sectionFromLocation() {
     const pathname = normalizePath(window.location.pathname);
     if (pathname === ADMIN_ROUTE_BASE) return DEFAULT_SECTION;
@@ -34,6 +42,16 @@ function showInvalidRouteFeedback() {
 
 function activateFromLocation({ replace = false, showFeedback = false } = {}) {
     const requestedSection = sectionFromLocation();
+    // 权限守卫：直达 URL 指向越权区块时，提示并回落总览
+    if (requestedSection && isValidSection(requestedSection) && !sectionAllowed(requestedSection)) {
+        showToast('权限级别不足，已返回总览。', 'warning');
+        const fallback = DEFAULT_SECTION;
+        if ((replace || window.history) && window.history) {
+            window.history.replaceState({ sectionId: fallback }, '', routeForSection(fallback));
+        }
+        showSection(fallback);
+        return;
+    }
     const sectionId = isValidSection(requestedSection) ? requestedSection : DEFAULT_SECTION;
     if (showFeedback && sectionId !== requestedSection) showInvalidRouteFeedback();
     if ((replace || sectionId !== requestedSection) && window.history) {
@@ -44,6 +62,10 @@ function activateFromLocation({ replace = false, showFeedback = false } = {}) {
 
 // 设置导航
 export function setupNavigation() {
+    // 权限落地（Phase 2）：按 data-min-level 隐藏越权导航项与功能按钮
+    if (window.permissionUtils && typeof window.permissionUtils.applyPermissionGating === 'function') {
+        window.permissionUtils.applyPermissionGating(document);
+    }
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
         const section = item.dataset.section;
@@ -155,6 +177,24 @@ export function setupSettingsTabs() {
     });
 }
 
+// 权限落地（Phase 3）：L3 在数据范围受限的区块标题旁显示徽章
+const SCOPED_SECTIONS = new Set(['overview', 'schedule', 'finance', 'statistics', 'availability-mgmt']);
+
+function applyScopeBadge(sectionId) {
+    const headerTitle = document.querySelector('.dashboard-header h2');
+    if (!headerTitle) return;
+    const stale = headerTitle.parentElement.querySelector('.scope-badge');
+    if (stale) stale.remove();
+    if (!SCOPED_SECTIONS.has(sectionId)) return;
+    if (!window.permissionUtils || typeof window.permissionUtils.getLevel !== 'function') return;
+    if (window.permissionUtils.getLevel() !== 3) return;
+    const badge = document.createElement('span');
+    badge.className = 'scope-badge';
+    badge.textContent = '范围：我创建的排课';
+    badge.style.cssText = 'display:inline-block;margin-left:10px;padding:2px 10px;font-size:12px;font-weight:400;border-radius:999px;background:#e0f2fe;color:#0369a1;vertical-align:middle;';
+    headerTitle.insertAdjacentElement('afterend', badge);
+}
+
 // 显示指定部分
 export function showSection(sectionId) {
     const sections = document.querySelectorAll('.dashboard-section');
@@ -179,8 +219,14 @@ export function showSection(sectionId) {
             if (window.loadTodaySchedules) window.loadTodaySchedules();
             setHeaderTitle('管理员总览');
             break;
-        case 'users':
+        case 'users': {
             setHeaderTitle('用户管理');
+            // 权限落地（Phase 3）：L2 只读横幅提示
+            const readonlyBanner = document.getElementById('usersReadonlyBanner');
+            if (readonlyBanner) {
+                const isSuper = !window.permissionUtils || window.permissionUtils.isSuperAdmin();
+                readonlyBanner.style.display = isSuper ? 'none' : 'block';
+            }
             // 立即激活 Tab 样式（教师 Tab 默认激活）
             const teacherTabForSection = document.querySelector('#userRoleTabs .tab-btn[data-type="teacher"]');
             if (teacherTabForSection) {
@@ -192,6 +238,7 @@ export function showSection(sectionId) {
             if (window.UserManager && window.UserManager.loadUsers) window.UserManager.loadUsers('teacher', { reset: true });
             else if (window.loadUsers) window.loadUsers('teacher', { reset: true });
             break;
+        }
         case 'schedule':
             if (window.ScheduleManager && window.ScheduleManager.loadSchedules) window.ScheduleManager.loadSchedules();
             else if (window.loadSchedules) window.loadSchedules();
@@ -257,6 +304,9 @@ export function showSection(sectionId) {
             setHeaderTitle('教师空闲时段');
             break;
     }
+
+    // 权限落地（Phase 3）：切换区块后刷新范围徽章
+    applyScopeBadge(sectionId);
 }
 
 // 设置头部标题
@@ -267,52 +317,20 @@ export function setHeaderTitle(title) {
 }
 
 // --- Extracted from legacy-adapter.js ---
-export function showToast(message, type = 'info') {
-    // 创建toast元素
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-
-    // 添加样式
-    toast.style.position = 'fixed';
-    toast.style.top = '20px';
-    toast.style.right = '20px';
-    toast.style.padding = '12px 20px';
-    toast.style.borderRadius = '4px';
-    toast.style.color = '#fff';
-    toast.style.zIndex = '100002';
-    toast.style.opacity = '0.9';
-    toast.style.transition = 'opacity 0.3s';
-
-    // 根据类型设置背景色
-    switch (type) {
-        case 'success':
-            toast.style.backgroundColor = '#4CAF50';
-            break;
-        case 'error':
-            toast.style.backgroundColor = '#F44336';
-            break;
-        case 'warning':
-            toast.style.backgroundColor = '#FF9800';
-            break;
-        default:
-            toast.style.backgroundColor = '#2196F3';
+/**
+ * 显示Toast提示（委托到统一 Toast 组件，带安全防护）
+ * @param {string} message - 消息
+ * @param {string} [type='info'] - 类型
+ * @param {number} [duration] - 持续时间(ms)
+ */
+export function showToast(message, type = 'info', duration) {
+    if (window.Toast && typeof window.Toast.show === 'function') {
+        return window.Toast.show(message, { type, duration });
     }
-
-    // 添加到页面
-    document.body.appendChild(toast);
-
-    // 3秒后自动消失
+    // Toast 组件尚未加载时的临时兜底
     setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => {
-            if (document.body.contains(toast)) {
-                document.body.removeChild(toast);
-            }
-        }, 300);
-    }, 3000);
-
-    return toast;
+        if (window.Toast) window.Toast.show(message, { type, duration });
+    }, 200);
 }
 
 // Global exposure

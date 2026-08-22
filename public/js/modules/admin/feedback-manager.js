@@ -78,7 +78,8 @@ function renderFeedbacksTable(data) {
         const statusLabel = STATUS_LABELS[item.status] || item.status;
         const submitter = item.submitter_name || item.submitter_role || '-';
         const time = formatDateTime(item.created_at);
-        const title = escapeHtml(item.title || '');
+        const esc = window.SecurityUtils.escapeHtml;
+        const title = esc(item.title || '');
         return `
             <tr data-id="${item.id}">
                 <td>#${item.id}</td>
@@ -86,15 +87,11 @@ function renderFeedbacksTable(data) {
                 <td>${PRIORITY_LABELS[item.priority] || item.priority || '-'}</td>
                 <td title="${title}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</td>
                 <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size:12px;font-weight:500;">${statusLabel}</span></td>
-                <td>${escapeHtml(submitter)}</td>
+                <td>${esc(submitter)}</td>
                 <td>${time}</td>
                 <td>
-                    <button class="edit-btn" data-id="${item.id}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
-                        <span class="material-icons-round" style="font-size:18px;">edit</span>
-                    </button>
-                    <button class="delete-btn" data-id="${item.id}" title="删除" style="background:none;border:none;color:#ef4444;cursor:pointer;">
-                        <span class="material-icons-round" style="font-size:18px;">delete</span>
-                    </button>
+                    <button class="edit-btn" data-id="${item.id}">编辑</button>
+                    <button class="delete-btn" data-id="${item.id}">删除</button>
                 </td>
             </tr>
         `;
@@ -116,13 +113,7 @@ function formatDateTime(s) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function escapeHtml(s) {
-    return String(s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
+// escapeHtml 统一复用 window.SecurityUtils.escapeHtml（core/security.js 始终先加载）
 
 // ========================
 // 打开/关闭表单
@@ -210,7 +201,7 @@ async function editFeedback(id) {
 }
 
 async function deleteFeedback(id) {
-    if (!id || !confirm('确定删除此反馈？')) return;
+    if (!id || !await Modal.confirm('确定删除此反馈？', { title: '删除反馈', confirmText: '删除', confirmStyle: 'danger' })) return;
     try {
         await window.apiUtils.delete(`/admin/feedbacks/${id}`);
         window.showToast('反馈已删除', 'success');

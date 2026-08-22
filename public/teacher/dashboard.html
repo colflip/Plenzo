@@ -40,17 +40,8 @@
             cursor: not-allowed;
         }
 
-        .btn-loading {
-            display: none;
-        }
-
-        .search-btn:disabled .btn-loading {
-            display: inline;
-        }
-
-        .search-btn:disabled .btn-text {
-            display: none;
-        }
+        /* .btn-loading / .search-btn:disabled 的显隐规则已统一到 core/global.css，
+           避免三个角色页面各自内联一份重复定义。 */
 
         /* 反馈消息样式 */
         .feedback {
@@ -564,13 +555,26 @@
             display: flex;
         }
 
+        /* 侧边栏宽度与管理端保持一致：管理端 admin-desktop.css 在 ≥769px 固定 220px，
+           而 dashboard.css 的 >1441px 断点会把未覆盖的教师端放宽到 260px。此处补齐同一口径。 */
+        @media (min-width: 769px) {
+            .sidebar {
+                width: 220px;
+            }
+
+            .sidebar.collapsed {
+                width: 80px;
+            }
+        }
+
+        /* 一级菜单：分组头部（学生管理）与普通 .nav-item 同色，避免出现深浅不一 */
         .nav-group-header {
             display: flex;
             align-items: center;
             gap: 12px;
             padding: 12px 20px;
             margin: 0;
-            color: var(--text-secondary);
+            color: #2C3E50;
             text-decoration: none;
             cursor: pointer;
             font-size: var(--font-size-base);
@@ -636,22 +640,24 @@
             display: none;
         }
 
-        /* 二级菜单：图标缩小、左侧留缩进，形成清晰子层级 */
+        /* 二级菜单：字号与一级菜单一致，仅用更浅的字色区分层级；左侧缩进减半（46px → 23px） */
         .nav-subitem {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 10px 20px 10px 46px !important;
+            gap: 12px;
+            padding: 10px 20px 10px 23px !important;
             margin: 0 !important;
             margin-left: 0 !important;
-            font-size: 13.5px;
+            color: #6B7280;
+            font-size: var(--font-size-base);
             font-weight: 500;
             border-radius: 12px;
         }
 
+        /* 图标占 22px 槽位（与一级菜单图标同宽），使二级文字与一级文字近似左对齐 */
         .nav-subitem .material-icons-round {
             font-size: 18px;
-            width: 18px;
+            width: 22px;
             height: 18px;
             display: inline-flex;
             align-items: center;
@@ -661,7 +667,7 @@
         }
 
         .nav-subitem .nav-text {
-            font-size: 13.5px;
+            font-size: var(--font-size-base);
             white-space: nowrap;
         }
 
@@ -704,12 +710,13 @@
             }
 
             .sidebar .nav-subitem {
-                font-size: 15.5px !important;
+                font-size: 16px !important;
                 font-weight: 500 !important;
+                color: #6B7280 !important;
             }
 
             .sidebar .nav-subitem .nav-text {
-                font-size: 15.5px !important;
+                font-size: 16px !important;
             }
 
             .sidebar .nav-group-header.active,
@@ -1111,7 +1118,7 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="toggleTeacherShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" onclick="window.toggleTeacherShowPlan && window.toggleTeacherShowPlan()">
+                            <button id="toggleTeacherShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" data-action="toggle-teacher-show-plan">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
                                 <span id="teacherShowPlanBtnText">显示全部安排</span>
                             </button>
@@ -1146,7 +1153,7 @@
                                             <button class="search-btn primary-btn" id="teachingQueryBtn" title="查询该日期范围内的统计数据">
                                                 <span class="material-icons-round">search</span>
                                                 <span class="btn-text">查询</span>
-                                                <span class="btn-loading" style="display: none;">加载中...</span>
+                                                <span class="btn-loading">加载中...</span>
                                             </button>
 
                                             <div class="preset-buttons" data-target="teaching">
@@ -1181,7 +1188,9 @@
                                 <!-- Daily Statistics Bar Chart Area -->
                                 <div id="dailyTeachingChartCard" class="stats-component-card"
                                     style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">每日授课统计
+                                    <h3
+                                        style="margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; font-size: 16px; font-weight: 600; color: #1e293b;">
+                                        每日授课统计
                                     </h3>
                                     <div style="height: 300px;">
                                         <canvas id="dailyTeachingChart"></canvas>
@@ -1189,9 +1198,12 @@
                                 </div>
 
                                 <!-- Detailed Teaching Information Table Area -->
-                                <div class="stats-component-card"
+                                <!-- id 供 statistics.js 挂载统一加载遮罩（此前缺失，遮罩一直没生效） -->
+                                <div class="stats-component-card" id="teachingDetailsCard"
                                     style="padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow:hidden;">
-                                    <h3 style="margin-bottom:16px; font-size: 16px; font-weight: 600; color: #1e293b;">具体授课信息
+                                    <h3
+                                        style="margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #e2e8f0; font-size: 16px; font-weight: 600; color: #1e293b;">
+                                        具体授课信息
                                     </h3>
                                     <div class="table-container"
                                         style="margin-top:0; border:none; box-shadow:none; background:transparent;">
@@ -1233,12 +1245,12 @@
                                     <span class="material-icons-round">chevron_right</span>
                                 </button>
                             </div>
-                            <button id="toggleTeacherStudentShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" onclick="window.toggleTeacherStudentShowPlan && window.toggleTeacherStudentShowPlan()">
+                            <button id="toggleTeacherStudentShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" data-action="toggle-teacher-student-show-plan">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
                                 <span id="teacherStudentShowPlanBtnText">显示全部安排</span>
                             </button>
                             <button id="exportTeacherStudentsBtn" class="primary-btn"
-                                style="margin-left: 8px;" onclick="window.exportTeacherStudents && window.exportTeacherStudents()">
+                                style="margin-left: 8px;" data-action="export-teacher-students">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
                                 导出数据
                             </button>
@@ -1261,8 +1273,14 @@
                                 </tr>
                             </thead>
                             <tbody id="ssWeeklyBody">
-                                <tr>
-                                    <td style="padding:40px;text-align:center;color:#9CA3AF;font-size:14px;" colspan="8">加载中...</td>
+                                <!-- 统一加载视觉：与 shared/loading-ui.js 生成的骨架保持一致 -->
+                                <tr class="table-loading-row">
+                                    <td class="table-loading-cell" colspan="8">
+                                        <div class="stats-loading-content">
+                                            <div class="stats-spinner-circle"></div>
+                                            <div class="stats-spinner-text">正在加载学生课程安排数据...</div>
+                                        </div>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1368,22 +1386,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
 
     <!-- html2canvas: 优先本地文件，失败时自动回退到 CDN -->
-    <script>
-        (function() {
-            var script = document.createElement('script');
-            script.src = '/js/libs/html2canvas.min.js';
-            script.onerror = function() {
-                var cdnScript = document.createElement('script');
-                cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-                cdnScript.crossOrigin = 'anonymous';
-                cdnScript.integrity = 'sha384-ZZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H';
-                document.head.appendChild(cdnScript);
-            };
-            document.head.appendChild(script);
-        })();
-    </script>
+    <script src="/js/utils/load-html2canvas.js"></script>
 
     <script src="/js/core/api-client.js"></script>
+    <script src="/js/core/security.js"></script>
     <script src="/js/core/event-bus.js"></script>
     <script src="/js/core/sync-guards.js"></script>
     <script src="/js/utils/color-utils.js"></script>
@@ -1391,12 +1397,14 @@
     <script src="/js/utils/date-range-utils.js"></script>
     <script src="/js/core/schedule-types-store.js"></script>
     <script src="/js/components/toast.js"></script>
+    <script src="/js/components/modal.js"></script>
     <script src="/js/utils/schedule-marker-policy.js?v=20260803-markers"></script>
     <script src="/js/components/export-manager.js?v=20260803-markers"></script>
     <script src="/js/components/export-dialog.js"></script>
     <script src="/js/components/weekly-view-export.js?v=20260803-markers"></script>
     <script src="/js/components/fee-manager.js"></script>
 
+    <script src="/js/core/action-delegate.js"></script>
     <script type="module" src="/js/modules/teacher/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>
 

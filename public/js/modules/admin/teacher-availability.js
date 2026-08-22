@@ -115,13 +115,9 @@ export async function loadAvailability() {
         const errorMessage = error.message || '加载失败，请重试';
         const errorHtml = `<tr><td colspan="8" class="error-cell" style="text-align: center; padding: 40px 0; color: #dc2626;">
             <div style="margin-bottom: 12px;">⚠️ ${errorMessage}</div>
-            <button onclick="window.initTeacherAvailability()" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">重新加载</button>
+            <button data-action="init-teacher-availability" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">重新加载</button>
         </td></tr>`;
-        if (window.SecurityUtils) { 
-            window.SecurityUtils.safeSetHTML(tableBody, errorHtml); 
-        } else { 
-            tableBody.innerHTML = errorHtml; 
-        }
+        tableBody.innerHTML = errorHtml;
         
         if (window.apiUtils && window.apiUtils.showToast) {
             window.apiUtils.showToast('教师空闲时段加载失败: ' + errorMessage, 'error');
@@ -139,7 +135,7 @@ export function renderAvailabilityHeader(dates) {
     const days = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     const today = new Date().toDateString();
 
-    let html = '<tr style="vertical-align: middle;"><th style="width: 120px; min-width: 120px; text-align: center; vertical-align: middle;">教师姓名/日期</th>';
+    let html = '<tr style="vertical-align: middle;"><th style="width: 120px; min-width: 120px; text-align: center; vertical-align: middle;">教师</th>';
     dates.forEach((date, i) => {
         const isToday = date.toDateString() === today;
 
@@ -162,7 +158,9 @@ export function renderAvailabilityHeader(dates) {
         </th>`;
     });
     html += '</tr>';
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, html); } else { thead.innerHTML = html; }
+    // 使用 innerHTML 而非 safeSetHTML：DOMParser 在 <body> 上下文中解析 <tr>/<th>
+    // 会丢失 table 结构，导致日期列垂直堆叠。表头内容为开发者生成（日期），无 XSS 风险。
+    thead.innerHTML = html;
 }
 
 export function renderAvailabilityBody(teachers, dates) {
@@ -170,7 +168,7 @@ export function renderAvailabilityBody(teachers, dates) {
     if (!tbody) return;
 
     if (!teachers || teachers.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="8" class="no-data">暂无教师数据</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无教师数据</td></tr>'; }
+        tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无教师数据</td></tr>';
         return;
     }
 
@@ -193,7 +191,8 @@ export function renderAvailabilityBody(teachers, dates) {
         html += `</tr>`;
     });
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, html); } else { tbody.innerHTML = html; }
+    // 同 thead，使用 innerHTML 避免 DOMParser 丢失 table 结构
+    tbody.innerHTML = html;
 }
 
 // 内部渲染逻辑
@@ -212,9 +211,9 @@ export function renderInnerCell(data, teacherId, dateKey) {
     };
 
     return `
-        <span class="${getIconClass('morning', data.morning)}" onclick="toggleAvailability(${teacherId}, '${dateKey}', 'morning')" title="上午">wb_sunny</span>
-        <span class="${getIconClass('afternoon', data.afternoon)}" onclick="toggleAvailability(${teacherId}, '${dateKey}', 'afternoon')" title="下午">brightness_6</span>
-        <span class="${getIconClass('evening', data.evening)}" onclick="toggleAvailability(${teacherId}, '${dateKey}', 'evening')" title="晚上">nights_stay</span>
+        <span class="${getIconClass('morning', data.morning)}" data-action="toggle-availability" data-id="${teacherId}" data-date="${dateKey}" data-period="morning" title="上午">wb_sunny</span>
+        <span class="${getIconClass('afternoon', data.afternoon)}" data-action="toggle-availability" data-id="${teacherId}" data-date="${dateKey}" data-period="afternoon" title="下午">brightness_6</span>
+        <span class="${getIconClass('evening', data.evening)}" data-action="toggle-availability" data-id="${teacherId}" data-date="${dateKey}" data-period="evening" title="晚上">nights_stay</span>
     `;
 }
 
@@ -293,7 +292,7 @@ window.toggleAvailability = function (teacherId, dateKey, period) {
 
     const newState = PendingChangesManager.toggle(teacherId, dateKey, period, original);
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(cellEl, renderInnerCell(newState, teacherId, dateKey)); } else { cellEl.innerHTML = renderInnerCell(newState, teacherId, dateKey); }
+    window.SecurityUtils.safeSetHTML(cellEl, renderInnerCell(newState, teacherId, dateKey));
 };
 
 // 保存更改
@@ -374,8 +373,8 @@ window.saveAvailabilityChanges = async function () {
     }
 };
 
-window.cancelAvailabilityChanges = function () {
-    if (confirm('确定放弃所有未保存的更改吗？')) {
+window.cancelAvailabilityChanges = async function () {
+    if (await Modal.confirm('确定放弃所有未保存的更改吗？', { title: '放弃更改', confirmText: '放弃' })) {
         const affectedKeys = Array.from(PendingChangesManager.changes.keys());
         PendingChangesManager.clear();
         affectedKeys.forEach(key => {
@@ -405,64 +404,25 @@ export function ensureFloatingBar() {
         bar.innerHTML = `
             <span style="font-weight:500; color:#334155" id="availabilityChangeCount">0 处更改</span>
             <div style="flex:1"></div>
-            <button class="btn btn-secondary btn-sm" onclick="cancelAvailabilityChanges()">取消</button>
-            <button class="btn btn-primary btn-sm" id="saveAvailabilityBtn" onclick="saveAvailabilityChanges()">保存更改</button>
+            <button class="btn btn-secondary btn-sm" data-action="cancel-teacher-availability">取消</button>
+            <button class="btn btn-primary btn-sm" id="saveAvailabilityBtn" data-action="save-teacher-availability">保存更改</button>
         `;
         document.body.appendChild(bar);
     }
 }
 ensureFloatingBar();
 
-// CSS 样式
+// 浮动栏动画样式（其余样式已在 admin-schedule.css 和 dashboard.css 中定义）
 const style = document.createElement('style');
 style.textContent = `
-    .availability-cell { padding: 4px !important; text-align: center; }
-    .slot-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        height: 100%;
-    }
-    .icon-slot {
-        font-size: 20px; 
-        color: #e2e8f0;
-        transition: all 0.2s;
-        user-select: none;
-    }
-    .icon-slot.interactive {
-        cursor: pointer;
-    }
-    .icon-slot.interactive:hover {
-        transform: scale(1.15);
-    }
-    .icon-slot.available {
-        color: #10b981;
-    }
-    .icon-slot.busy {
-        color: #cbd5e1;
-    }
-    .icon-slot.changed {
-        filter: drop-shadow(0 0 2px #3b82f6);
-    }
-    
     #availabilitySaveBar {
         position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
         background: white; padding: 12px 24px; border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: none; 
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: none;
         align-items: center; gap: 16px; z-index: 1000;
         min-width: 300px; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
     @keyframes slideUp { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-    
-    .th-content {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2px;
-    }
-    .th-date { font-weight: 500; font-size: 14px; }
-    .th-day { font-size: 12px; color: #64748b; font-weight: normal; }
 `;
 document.head.appendChild(style);
 
@@ -471,3 +431,4 @@ window.initTeacherAvailability = initTeacherAvailability;
 window.toggleAvailability = toggleAvailability;
 window.saveAvailabilityChanges = saveAvailabilityChanges;
 window.cancelAvailabilityChanges = cancelAvailabilityChanges;
+

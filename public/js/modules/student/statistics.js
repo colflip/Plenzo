@@ -3,6 +3,7 @@
  * Displays total learning count within a selected date range
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
+import { setButtonLoading, showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 
 import { API_ENDPOINTS, STATUS_LABELS, getScheduleTypeLabel } from './constants.js';
 import { formatDateDisplay, handleApiError } from './utils.js';
@@ -70,16 +71,13 @@ function setupEventListeners() {
 
     if (queryBtn) {
         queryBtn.addEventListener('click', async () => {
-            // Show loading state
-            queryBtn.disabled = true;
-            const originalHTML = queryBtn.innerHTML;
-            if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(queryBtn, '<span class="material-icons-round rotate">hourglass_empty</span><span>加载中...</span>'); } else { queryBtn.innerHTML = '<span class="material-icons-round rotate">hourglass_empty</span><span>加载中...</span>'; }
+            // 按钮加载态：与三端统一的小号 spinner（shared/loading-ui.js）
+            setButtonLoading(queryBtn, true, '加载中...');
 
             try {
                 if (typeof loadLearningStats === 'function') await loadLearningStats();
             } finally {
-                queryBtn.disabled = false;
-                if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(queryBtn, originalHTML); } else { queryBtn.innerHTML = originalHTML; }
+                setButtonLoading(queryBtn, false);
             }
         });
     }
@@ -144,6 +142,14 @@ export async function loadLearningStats() {
         return;
     }
 
+    // 统一加载视觉：与管理端排课管理同款遮罩（shared/loading-ui.js）
+    const typeStatsCard = document.getElementById('typeStatsCard');
+    const chartCard = document.getElementById('dailyTeachingChartCard');
+    const detailsCard = document.getElementById('teachingDetailsCard');
+    if (typeStatsCard) showTableLoading(typeStatsCard, '正在加载统计数据...', null);
+    if (chartCard) showTableLoading(chartCard, '正在生成分析图表...', 'h3');
+    if (detailsCard) showTableLoading(detailsCard, '正在读取明细数据...', 'thead');
+
     try {
         // 使用 AbortController 设置超时
         const controller = new AbortController();
@@ -152,9 +158,8 @@ export async function loadLearningStats() {
         const response = await fetch(
             `${API_ENDPOINTS.STATISTICS}?startDate=${startDate}&endDate=${endDate}`,
             {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
+                credentials: 'include',
+                headers: {},
                 signal: controller.signal
             }
         );
@@ -195,6 +200,10 @@ export async function loadLearningStats() {
         }
         handleApiError(error, '加载学习统计失败');
         updateDisplay({ schedules: [], typeStats: {} });
+    } finally {
+        if (typeStatsCard) hideTableLoading(typeStatsCard);
+        if (chartCard) hideTableLoading(chartCard);
+        if (detailsCard) hideTableLoading(detailsCard);
     }
 }
 
@@ -205,7 +214,7 @@ function updateDisplay(data) {
     // 使用与教师端一致的淡色渐变卡片样式
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(statsGrid, ''); } else { statsGrid.innerHTML = ''; }
+        window.SecurityUtils.safeSetHTML(statsGrid, '');
 
         const uiColors = [
             { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
@@ -253,7 +262,7 @@ function updateDisplay(data) {
                 card.style.justifyContent = 'center';
                 card.style.minHeight = '120px';
 
-                card.innerHTML = `
+                const cardHtml = `
                     <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
                         <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
                     </div>
@@ -262,6 +271,8 @@ function updateDisplay(data) {
                         <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
                     </div>
                 `;
+                if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(card, cardHtml);
+                else card.innerHTML = cardHtml;
                 statsGrid.appendChild(card);
             });
         }
@@ -278,11 +289,11 @@ function renderDetailsTable(schedules) {
     const tbody = document.getElementById('teachingDetailsBody');
     if (!tbody) return;
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, ''); } else { tbody.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(tbody, '');
 
     if (!schedules || schedules.length === 0) {
         const tr = document.createElement('tr');
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tr, '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>'); } else { tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>'; }
+        tr.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #888;">暂无学习记录</td>';
         tbody.appendChild(tr);
         return;
     }
@@ -291,7 +302,7 @@ function renderDetailsTable(schedules) {
     const fragment = document.createDocumentFragment();
     schedules.forEach(schedule => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
+        const trHtml = `
             <td>${formatDateDisplay(schedule.date || schedule.lesson_date)}</td>
             <td>${schedule.start_time} - ${schedule.end_time}</td>
             <td>${getScheduleTypeLabel(schedule.schedule_type)}</td>
@@ -299,6 +310,8 @@ function renderDetailsTable(schedules) {
             <td>${schedule.location || '--'}</td>
             <td>${STATUS_LABELS[schedule.status] || schedule.status}</td>
         `;
+        // 使用 innerHTML：safeSetHTML 的 DOMParser 会在 <body> 上下文中解析 <td> 导致结构丢失
+        tr.innerHTML = trHtml;
         fragment.appendChild(tr);
     });
     tbody.appendChild(fragment);
@@ -480,5 +493,6 @@ function renderDailyLearningChart(schedules) {
         }
     });
 }
+
 
 

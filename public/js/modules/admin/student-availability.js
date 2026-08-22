@@ -97,11 +97,7 @@ async function loadStudentAvailability() {
     } catch (error) {
         if (requestId !== studentAvailabilityState.loadSeq) return;
         // Availability request failure must not be represented as an all-empty schedule.
-        if (window.SecurityUtils) {
-            window.SecurityUtils.safeSetHTML(tableBody, '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>');
-        } else {
-            tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>';
-        }
+        tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>';
         window.apiUtils?.showToast(error.message || '学生空闲时段加载失败', 'error');
     } finally {
         // 隐藏加载动画
@@ -117,7 +113,7 @@ function renderStudentAvailabilityHeader(dates) {
     const days = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     const today = new Date().toDateString();
 
-    let html = '<tr style="vertical-align: middle;"><th style="width: 120px; min-width: 120px; text-align: center; vertical-align: middle;">学生姓名/日期</th>';
+    let html = '<tr style="vertical-align: middle;"><th style="width: 120px; min-width: 120px; text-align: center; vertical-align: middle;">学生</th>';
     dates.forEach((date, i) => {
         const isToday = date.toDateString() === today;
         let lunarLabel = '';
@@ -138,7 +134,9 @@ function renderStudentAvailabilityHeader(dates) {
         </th>`;
     });
     html += '</tr>';
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(thead, html); } else { thead.innerHTML = html; }
+    // 使用 innerHTML 而非 safeSetHTML：DOMParser 在 <body> 上下文中解析 <tr>/<th>
+    // 会丢失 table 结构，导致日期列垂直堆叠。表头内容为开发者生成（日期），无 XSS 风险。
+    thead.innerHTML = html;
 }
 
 function renderStudentAvailabilityBody(students, dates) {
@@ -146,7 +144,7 @@ function renderStudentAvailabilityBody(students, dates) {
     if (!tbody) return;
 
     if (!students || students.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>'); } else { tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>'; }
+        tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无学生数据</td></tr>';
         return;
     }
 
@@ -169,7 +167,8 @@ function renderStudentAvailabilityBody(students, dates) {
         html += `</tr>`;
     });
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, html); } else { tbody.innerHTML = html; }
+    // 同 thead，使用 innerHTML 避免 DOMParser 丢失 table 结构
+    tbody.innerHTML = html;
 }
 
 function renderStudentAvailabilityCell(data, studentId, dateKey) {
@@ -202,9 +201,9 @@ function renderStudentInnerCell(data, studentId, dateKey) {
     };
 
     return `
-        <span class="${getIconClass('morning', data.morning)}" onclick="toggleStudentAvailability(${studentId}, '${dateKey}', 'morning')" title="上午">wb_sunny</span>
-        <span class="${getIconClass('afternoon', data.afternoon)}" onclick="toggleStudentAvailability(${studentId}, '${dateKey}', 'afternoon')" title="下午">brightness_6</span>
-        <span class="${getIconClass('evening', data.evening)}" onclick="toggleStudentAvailability(${studentId}, '${dateKey}', 'evening')" title="晚上">nights_stay</span>
+        <span class="${getIconClass('morning', data.morning)}" data-action="toggle-student-availability" data-id="${studentId}" data-date="${dateKey}" data-period="morning" title="上午">wb_sunny</span>
+        <span class="${getIconClass('afternoon', data.afternoon)}" data-action="toggle-student-availability" data-id="${studentId}" data-date="${dateKey}" data-period="afternoon" title="下午">brightness_6</span>
+        <span class="${getIconClass('evening', data.evening)}" data-action="toggle-student-availability" data-id="${studentId}" data-date="${dateKey}" data-period="evening" title="晚上">nights_stay</span>
     `;
 }
 
@@ -267,7 +266,7 @@ window.toggleStudentAvailability = function (studentId, dateKey, period) {
 
     const newState = StudentPendingChangesManager.toggle(studentId, dateKey, period, original);
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(cellEl, renderStudentInnerCell(newState, studentId, dateKey)); } else { cellEl.innerHTML = renderStudentInnerCell(newState, studentId, dateKey); }
+    window.SecurityUtils.safeSetHTML(cellEl, renderStudentInnerCell(newState, studentId, dateKey));
 };
 
 window.saveStudentAvailabilityChanges = async function () {
@@ -347,8 +346,8 @@ window.saveStudentAvailabilityChanges = async function () {
     }
 };
 
-window.cancelStudentAvailabilityChanges = function () {
-    if (confirm('确定放弃所有未保存的学生时间安排更改吗？')) {
+window.cancelStudentAvailabilityChanges = async function () {
+    if (await Modal.confirm('确定放弃所有未保存的学生时间安排更改吗？', { title: '放弃更改', confirmText: '放弃' })) {
         const affectedKeys = Array.from(StudentPendingChangesManager.changes.keys());
         StudentPendingChangesManager.clear();
 
@@ -395,9 +394,10 @@ function ensureStudentFloatingBar() {
         bar.innerHTML = `
             <span style="font-weight:500; color:#334155" id="studentAvailabilityChangeCount">0 处更改</span>
             <div style="flex:1"></div>
-            <button class="btn btn-secondary btn-sm" onclick="cancelStudentAvailabilityChanges()">取消</button>
-            <button class="btn btn-primary btn-sm" id="saveStudentAvailabilityBtn" onclick="saveStudentAvailabilityChanges()">保存更改</button>
+            <button class="btn btn-secondary btn-sm" data-action="cancel-student-availability">取消</button>
+            <button class="btn btn-primary btn-sm" id="saveStudentAvailabilityBtn" data-action="save-student-availability">保存更改</button>
         `;
         document.body.appendChild(bar);
     }
 }
+

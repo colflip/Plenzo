@@ -1,6 +1,6 @@
 /**
  * Modal弹窗组件
- * @description 通用弹窗组件，支持确认框、表单、自定义内容
+ * @description 通用弹窗组件，使用 theme.css 设计令牌，支持确认框/提示框/输入框/自定义内容
  * @module components/modal
  */
 
@@ -10,7 +10,10 @@
 class ModalManager {
     constructor() {
         this.modals = new Map();
-        this.zIndex = 9000;
+        // 必须高于页面级弹窗层（dashboard.css 中 .modal-overlay=100000、
+        // .form-container/#scheduleFormContainer/.modal=100001、export-dialog=100001），
+        // 否则 confirm/alert/prompt 会被打开中的编辑窗口遮挡（如排课删除确认）
+        this.zIndex = 200000;
         this.init();
     }
 
@@ -33,7 +36,7 @@ class ModalManager {
     }
 
     /**
-     * 注入CSS样式
+     * 注入CSS样式（使用 theme.css 设计令牌，带 fallback）
      */
     injectStyles() {
         if (document.getElementById('modal-styles')) return;
@@ -47,115 +50,112 @@ class ModalManager {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background-color: rgba(0, 0, 0, 0.5);
+                background-color: rgba(0, 0, 0, 0.45);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 opacity: 0;
-                transition: opacity 0.3s ease;
-                backdrop-filter: blur(2px);
+                transition: opacity 0.2s ease;
                 pointer-events: auto;
                 user-select: none;
                 -webkit-user-select: none;
             }
             .modal-overlay.visible { opacity: 1; }
-
             .modal-container {
                 background: #fff;
-                border-radius: 12px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+                border-radius: var(--radius-xl, 12px);
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
                 max-width: 90vw;
                 max-height: 90vh;
                 overflow: hidden;
                 display: flex;
                 flex-direction: column;
-                transform: scale(0.9) translateY(-20px);
-                transition: transform 0.3s ease;
+                transform: translateY(-10px);
+                transition: transform 0.2s ease;
                 pointer-events: auto;
                 user-select: text;
                 -webkit-user-select: text;
+                font-family: var(--font-family-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
             }
             .modal-overlay.visible .modal-container {
-                transform: scale(1) translateY(0);
+                transform: translateY(0);
             }
-
             .modal-header {
                 padding: 16px 20px;
-                border-bottom: 1px solid #eee;
+                border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
             }
-
             .modal-title {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: 600;
-                color: #333;
+                color: var(--color-gray-800, #1f2937);
                 margin: 0;
             }
-
             .modal-close {
-                width: 32px;
-                height: 32px;
+                width: 28px;
+                height: 28px;
                 border: none;
-                background: #f5f5f5;
-                border-radius: 50%;
+                background: none;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 18px;
-                color: #666;
-                transition: all 0.2s;
+                font-size: 20px;
+                color: var(--color-gray-400, #9ca3af);
+                transition: color 0.2s;
+                padding: 0;
             }
             .modal-close:hover {
-                background: #e0e0e0;
-                color: #333;
+                color: var(--color-gray-600, #4b5563);
             }
-
             .modal-body {
                 padding: 20px;
                 overflow-y: auto;
                 flex: 1;
+                color: var(--color-gray-600, #4b5563);
+                font-size: 14px;
+                line-height: 1.6;
             }
-
             .modal-footer {
                 padding: 16px 20px;
-                border-top: 1px solid #eee;
+                border-top: 1px solid var(--color-gray-200, #e5e7eb);
                 display: flex;
-                gap: 12px;
+                gap: 10px;
                 justify-content: flex-end;
             }
-
             .modal-btn {
-                padding: 10px 20px;
-                border-radius: 8px;
+                padding: 8px 20px;
+                border-radius: 6px;
                 font-size: 14px;
                 font-weight: 500;
                 cursor: pointer;
-                transition: all 0.2s;
-                border: none;
+                transition: background 0.2s;
+                border: 1px solid transparent;
+                font-family: inherit;
             }
-
             .modal-btn-primary {
-                background: linear-gradient(135deg, #4a90d9 0%, #357abd 100%);
+                background: var(--color-primary-600, #059669);
                 color: #fff;
             }
             .modal-btn-primary:hover {
-                background: linear-gradient(135deg, #357abd 0%, #2c6aa0 100%);
+                background: var(--color-primary-700, #047857);
             }
-
             .modal-btn-secondary {
-                background: #f5f5f5;
-                color: #666;
+                background: #fff;
+                color: var(--color-gray-600, #4b5563);
+                border-color: var(--color-gray-300, #d1d5db);
             }
             .modal-btn-secondary:hover {
-                background: #e0e0e0;
+                background: var(--color-gray-50, #f9fafb);
             }
-
             .modal-btn-danger {
-                background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+                background: var(--color-error, #ef4444);
                 color: #fff;
+            }
+            .modal-btn-danger:hover {
+                background: #dc2626;
             }
 
             /* 尺寸 */
@@ -163,6 +163,24 @@ class ModalManager {
             .modal-md .modal-container { width: 560px; }
             .modal-lg .modal-container { width: 800px; }
             .modal-xl .modal-container { width: 1000px; }
+
+            .modal-input {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid var(--color-gray-300, #d1d5db);
+                border-radius: 6px;
+                font-size: 14px;
+                font-family: inherit;
+                color: var(--color-gray-800, #1f2937);
+                background: #fff;
+                transition: border-color 0.2s;
+                box-sizing: border-box;
+                margin-top: 12px;
+            }
+            .modal-input:focus {
+                outline: none;
+                border-color: var(--color-primary-500, #10b981);
+            }
         `;
         document.head.appendChild(style);
     }
@@ -182,6 +200,7 @@ class ModalManager {
             showFooter = true,
             confirmText = '确定',
             cancelText = '取消',
+            confirmStyle = 'primary',
             onConfirm = null,
             onCancel = null,
             onClose = null
@@ -228,14 +247,18 @@ class ModalManager {
         if (showFooter) {
             const footer = document.createElement('div');
             footer.className = 'modal-footer';
-            const cancelBtn = document.createElement('button');
-            cancelBtn.className = 'modal-btn modal-btn-secondary modal-cancel';
-            cancelBtn.textContent = cancelText;
-            const confirmBtn = document.createElement('button');
-            confirmBtn.className = 'modal-btn modal-btn-primary modal-confirm';
-            confirmBtn.textContent = confirmText;
-            footer.appendChild(cancelBtn);
-            footer.appendChild(confirmBtn);
+            if (cancelText) {
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'modal-btn modal-btn-secondary modal-cancel';
+                cancelBtn.textContent = cancelText;
+                footer.appendChild(cancelBtn);
+            }
+            if (confirmText) {
+                const confirmBtn = document.createElement('button');
+                confirmBtn.className = `modal-btn modal-btn-${confirmStyle} modal-confirm`;
+                confirmBtn.textContent = confirmText;
+                footer.appendChild(confirmBtn);
+            }
             container.appendChild(footer);
         }
 
@@ -316,12 +339,20 @@ class ModalManager {
     }
 
     /**
-     * 关闭最上层弹窗
+     * 关闭最上层弹窗（按实际 z-index 取最高者，而非插入顺序）
      */
     closeTop() {
-        const keys = Array.from(this.modals.keys());
-        if (keys.length > 0) {
-            this.close(keys[keys.length - 1]);
+        let topId = null;
+        let topZ = -Infinity;
+        this.modals.forEach((modal, id) => {
+            const z = parseInt(modal.overlay.style.zIndex, 10) || 0;
+            if (z > topZ) {
+                topZ = z;
+                topId = id;
+            }
+        });
+        if (topId !== null) {
+            this.close(topId);
         }
     }
 
@@ -341,14 +372,15 @@ class ModalManager {
     confirm(message, options = {}) {
         return new Promise((resolve) => {
             const p = document.createElement('p');
-            p.style.cssText = 'margin: 0; color: #666;';
+            p.style.cssText = 'margin: 0;';
             p.textContent = message;
             this.create({
                 title: options.title || '确认',
                 content: p,
-                size: 'sm',
+                size: options.size || 'sm',
                 confirmText: options.confirmText || '确定',
                 cancelText: options.cancelText || '取消',
+                confirmStyle: options.confirmStyle || 'primary',
                 onConfirm: () => resolve(true),
                 onCancel: () => resolve(false),
                 onClose: () => resolve(false)
@@ -357,28 +389,90 @@ class ModalManager {
     }
 
     /**
-     * 警告框
-     * @param {string} message - 警告消息
+     * 提示框（单按钮）
+     * @param {string} message - 提示消息
      * @param {Object} options - 配置选项
      * @returns {Promise<void>}
      */
     alert(message, options = {}) {
         return new Promise((resolve) => {
             const p = document.createElement('p');
-            p.style.cssText = 'margin: 0; color: #666;';
+            p.style.cssText = 'margin: 0;';
             p.textContent = message;
             this.create({
                 title: options.title || '提示',
                 content: p,
-                size: 'sm',
+                size: options.size || 'sm',
                 showFooter: true,
-                confirmText: '确定',
+                confirmText: options.confirmText || '确定',
                 cancelText: '',
                 onConfirm: () => resolve(),
                 onClose: () => resolve()
             });
-            // 隐藏取消按钮
-            document.querySelector('.modal-cancel')?.remove();
+        });
+    }
+
+    /**
+     * 输入框弹窗
+     * @param {string} message - 提示消息
+     * @param {Object} options - 配置选项
+     * @returns {Promise<string|null>} 用户输入的文本，取消返回 null
+     */
+    prompt(message, options = {}) {
+        return new Promise((resolve) => {
+            const wrapper = document.createElement('div');
+            const p = document.createElement('p');
+            p.style.cssText = 'margin: 0;';
+            p.textContent = message;
+
+            const input = document.createElement(options.multiline ? 'textarea' : 'input');
+            if (!options.multiline) {
+                input.type = 'text';
+            }
+            input.className = 'modal-input';
+            if (options.placeholder) input.placeholder = options.placeholder;
+            if (options.defaultValue) input.value = options.defaultValue;
+            if (options.multiline) {
+                input.rows = options.rows || 3;
+            }
+
+            wrapper.appendChild(p);
+            wrapper.appendChild(input);
+
+            const modal = this.create({
+                title: options.title || '请输入',
+                content: wrapper,
+                size: options.size || 'sm',
+                confirmText: options.confirmText || '确定',
+                cancelText: options.cancelText || '取消',
+                onConfirm: () => {
+                    const value = input.value.trim();
+                    if (options.required && !value) {
+                        input.style.borderColor = 'var(--color-error, #ef4444)';
+                        input.focus();
+                        return false; // 阻止关闭
+                    }
+                    resolve(value);
+                },
+                onCancel: () => resolve(null),
+                onClose: () => resolve(null)
+            });
+
+            // 自动聚焦输入框
+            requestAnimationFrame(() => {
+                input.focus();
+                if (!options.multiline) input.select();
+            });
+
+            // 回车确认（非 textarea 时）
+            if (!options.multiline) {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        modal.overlay.querySelector('.modal-confirm')?.click();
+                    }
+                });
+            }
         });
     }
 }

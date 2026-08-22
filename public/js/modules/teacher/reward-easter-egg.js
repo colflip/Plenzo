@@ -25,13 +25,11 @@ function injectStyle() {
 function gotoRewardPage() {
     const start = document.getElementById('teachingStartDate')?.value || '';
     const end = document.getElementById('teachingEndDate')?.value || '';
-    const token = localStorage.getItem('token') || '';
     const q = [];
     if (start && end) {
         q.push(`start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
     }
-    // 直接导航无法带 Authorization 头，故把 token 带入 URL（隐藏调试页，非敏感操作）。
-    if (token) q.push(`token=${encodeURIComponent(token)}`);
+    // 凭据现由 httpOnly Cookie 携带；同源直接导航浏览器会自动发送 Cookie，无需（也不应）写入 URL。
     window.location.href = REWARD_PAGE + (q.length ? '?' + q.join('&') : '');
 }
 

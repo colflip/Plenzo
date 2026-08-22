@@ -3,6 +3,8 @@
  * 包含排课相关的通用工具函数，如格式化、获取数据、合并渲染等
  */
 
+import { showTableLoadingRow } from '../shared/loading-ui.js';
+
 /**
  * 统排课单行数据标准化
  */
@@ -209,12 +211,19 @@ export async function updateScheduleStatus(id, newStatus) {
 export function renderWeeklyLoading() {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, '<tr><td class="sticky-col">加载中...</td><td colspan="7">请稍候</td></tr>'); } else { tbody.innerHTML = '<tr><td class="sticky-col">加载中...</td><td colspan="7">请稍候</td></tr>'; }
+    // 统一加载视觉：与表格遮罩同款 spinner + 文案（shared/loading-ui.js）
+    showTableLoadingRow(tbody, {
+        colspan: 7,
+        text: '正在加载排课信息数据...',
+        leadingCellText: '-',
+        leadingCellClass: 'sticky-col'
+    });
 }
 
 export function renderWeeklyError(message) {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
     const msg = (message && message.toString) ? message.toString() : '加载失败';
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tbody, `<tr><td class="sticky-col">错误</td><td colspan="7">${msg}</td></tr>`); } else { tbody.innerHTML = `<tr><td class="sticky-col">错误</td><td colspan="7">${msg}</td></tr>`; }
+    tbody.innerHTML = `<tr><td class="sticky-col">错误</td><td colspan="7">${msg}</td></tr>`;
 }
+

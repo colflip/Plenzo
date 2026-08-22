@@ -1867,32 +1867,8 @@
     position: relative;
 }
 
-.chart-loading-state {
-    position: absolute;
-    inset: 0;
-    background-color: rgba(255, 255, 255, 0.88);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    border-radius: 12px;
-    font-size: 14px;
-    color: #475569;
-}
-
-.chart-loading-state[hidden] {
-    display: none;
-}
-
-.chart-loading-spinner {
-    border: 3px solid rgba(0, 0, 0, 0.1);
-    border-radius: 50%;
-    border-top: 3px solid var(--brand-primary, #2ECC71);
-    width: 36px;
-    height: 36px;
-    animation: spin 1s linear infinite;
-}
+/* .chart-loading-state / .chart-loading-spinner 已无任何引用（图表加载改用
+   shared/loading-ui.js 的统一遮罩），删除以避免第二套加载视觉。 */
 
 .chart-feedback {
     margin-top: 12px;
@@ -2235,75 +2211,8 @@
     gap: 10px;
 }
 
-/* 通知系统样式 */
-.notification-container {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 100002;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-width: 350px;
-}
-
-.notification {
-    background-color: white;
-    padding: 15px 20px;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-left: 4px solid var(--color-gray-600);
-    transform: translateX(calc(100% + 20px));
-    opacity: 0;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.notification.show {
-    transform: translateX(0);
-    opacity: 1;
-}
-
-.notification.info {
-    border-left-color: #2196F3;
-    background-color: #e3f2fd;
-}
-
-.notification.success {
-    border-left-color: var(--brand-primary, #2ECC71);
-    background-color: #e8f5e9;
-}
-
-.notification.error {
-    border-left-color: #f44336;
-    background-color: #ffebee;
-}
-
-.notification.warning {
-    border-left-color: #ff9800;
-    background-color: #fff3e0;
-}
-
-/* 加载指示器 */
-.loading-indicator {
-    display: none;
-    text-align: center;
-    padding: 20px;
-    background-color: rgba(255, 255, 255, 0.8);
-    border-radius: 4px;
-}
-
-.loading-spinner {
-    border: 3px solid rgba(0, 0, 0, 0.1);
-    border-radius: 50%;
-    border-top: 3px solid var(--brand-primary, #2ECC71);
-    width: 30px;
-    height: 30px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 10px;
-}
+/* 加载指示器：.loading-indicator / .loading-spinner 已统一到 css/core/global.css
+   的「统一数据加载过渡动画」区块，这里的第三套 30px spinner 定义已删除。 */
 
 /* 响应式设计 */
 @media (max-width: 768px) {
@@ -2375,16 +2284,6 @@
 
     .time-inputs {
         grid-template-columns: 1fr;
-    }
-
-    .notification-container {
-        right: 10px;
-        left: 10px;
-        max-width: none;
-    }
-
-    .notification {
-        padding: 12px 15px;
     }
 
     .calendar-controls {

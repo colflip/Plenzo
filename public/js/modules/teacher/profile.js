@@ -460,7 +460,7 @@ function renderStudentList(students) {
         </table>
     `;
     
-    container.innerHTML = tableHTML;
+    window.SecurityUtils.safeSetHTML(container, tableHTML);
     
     container.querySelectorAll('.edit-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {

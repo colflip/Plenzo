@@ -750,7 +750,7 @@ export function renderAllTeachersScheduleBarChart(rows, dayLabels) {
         globalChartCard.className = 'all-teachers-schedule-card chart-card';
         container.insertBefore(globalChartCard, container.firstChild);
     }
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(globalChartCard, ''); } else { globalChartCard.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(globalChartCard, '');
 
     // 过滤掉已删除的教师（status=-1）
     const statusMapRaw = window.__teacherStatusMap || new Map();
@@ -1043,7 +1043,7 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
     rows = (rows || []).filter(isCountableSchedule);
 
     if (rows.length === 0) {
-        if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(container, '<div style="padding: 20px; text-align: center; color: #64748b;">暂无排课数据</div>'); } else { container.innerHTML = '<div style="padding: 20px; text-align: center; color: #64748b;">暂无排课数据</div>'; }
+        window.SecurityUtils.safeSetHTML(container, '<div style="padding: 20px; text-align: center; color: #64748b;">暂无排课数据</div>');
         return;
     }
 
@@ -1220,7 +1220,12 @@ window.StatsLogic = {
     renderAllTeachersScheduleBarChart,
     aggregateCountsByDate,
     renderTeacherTypePerTeacherCharts,
-    renderTeacherScheduleChart
+    renderTeacherScheduleChart,
+    renderStudentTypePerStudentCharts,
+    setupTeacherChartsFilter,
+    setupStudentChartsFilter,
+    getSelectedTeacherForCharts,
+    getSelectedStudentForCharts
 };
 
 // --- Extracted from legacy-adapter.js ---
@@ -1232,7 +1237,7 @@ export function getSelectedTeacherForCharts() {
 export function setupTeacherChartsFilter(rows, dayLabels) {
     const sel = document.getElementById('statsTeacherSelect');
     if (!sel) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(sel, ''); } else { sel.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(sel, '');
     const optAll = document.createElement('option'); optAll.value = ''; optAll.textContent = '全部教师'; sel.appendChild(optAll);
     // 通过接口加载教师状态，统一排序并隐藏已删除
     (async () => {
@@ -1378,7 +1383,7 @@ export function setupStatsTooltip(scheduleRows, titleId, tooltipId) {
         tooltipHTML += '<div style="margin: 4px 0;">暂无数据</div>';
     }
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML); } else { tooltipEl.innerHTML = tooltipHTML; }
+    window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML);
 
     // 添加鼠标悬停事件 (如果未绑定)
     if (!titleEl.__tooltipBound) {
@@ -1413,7 +1418,7 @@ export function getSelectedStudentForCharts() {
 export function setupStudentChartsFilter(rows, dayLabels) {
     const sel = document.getElementById('statsStudentSelect');
     if (!sel) return;
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(sel, ''); } else { sel.innerHTML = ''; }
+    window.SecurityUtils.safeSetHTML(sel, '');
     const optAll = document.createElement('option'); optAll.value = ''; optAll.textContent = '全部学生'; sel.appendChild(optAll);
     (async () => {
         try {
@@ -1558,7 +1563,7 @@ export function setupStudentSummaryChartTitleTooltip(scheduleRows) {
         tooltipHTML += '<div style="margin: 4px 0;">暂无数据</div>';
     }
 
-    if (window.SecurityUtils) { window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML); } else { tooltipEl.innerHTML = tooltipHTML; }
+    window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML);
 
     // 添加鼠标悬停事件
     titleEl.addEventListener('mouseenter', () => {
@@ -1719,3 +1724,4 @@ window.setupStudentSummaryChartTitleTooltip = setupStudentSummaryChartTitleToolt
 window.renderStudentTypePerStudentCharts = renderStudentTypePerStudentCharts;
 window.getSelectedTeacherForCharts = getSelectedTeacherForCharts;
 window.getSelectedStudentForCharts = getSelectedStudentForCharts;
+

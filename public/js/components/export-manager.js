@@ -227,7 +227,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
     // --- 预计算每周与每日的费用聚合 ---
     const weeklyFees = {};
     const dailyFees = {};
-    const dailyReimburse = {}; // 每日报销状态：'已报销' / '未报销' / '-'（没课）
 
     fullDateList.forEach(date => {
         const dayRows = dataByDate[date] || [];
@@ -237,7 +236,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         const groups = {}; // { sName: { teacherTransports: { tName: number }, otherSum: number } }
         let dailyHasCompletedOrCancelled = false;
         let dayAnyUnsubmitted = false;   // 当天存在未提交(draft)费用
-        let dayAllReimbursed = true;     // 当天全部已报销（默认 true，出现非报销即 false）
         let dayTotal = 0;
 
         dayRows.forEach(item => {
@@ -252,13 +250,10 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 dailyHasCompletedOrCancelled = true;
             }
 
-            // 费用提交状态：draft=待提交(未提交)；reimbursed=已报销
+            // 费用提交状态：draft=待提交(未提交)
             const feeStatusVal = String(item.fee_status || item['费用状态'] || '').toLowerCase();
             if (feeStatusVal === 'draft') {
                 dayAnyUnsubmitted = true;
-            }
-            if (feeStatusVal !== 'reimbursed') {
-                dayAllReimbursed = false;
             }
 
             if (!groups[sName]) {
@@ -366,17 +361,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         }
         dailyFees[date] = dailyFeeStr;
 
-        // 报销状态列：没课 → '-'；有课且当天全部已报销 → '已报销'；否则 '未报销'
-        let reimburseStr;
-        if (dayRows.length === 0) {
-            reimburseStr = '-';
-        } else if (dayAllReimbursed) {
-            reimburseStr = '已报销';
-        } else {
-            reimburseStr = '未报销';
-        }
-        dailyReimburse[date] = reimburseStr;
-
         const dObj = new Date(date);
         const weekNumber = getISOWeekNumber(dObj);
         const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
@@ -408,7 +392,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
 
         const feeStr = dailyFees[date] || '';
-        const reimburseStr = dailyReimburse[date] || '-';
 
         const weekData = weeklyFees[weekKey] || { total: 0, hasValidStatus: false, studentGroups: {} };
         let weekSumStr = '';
@@ -446,7 +429,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 '实际安排': '',
                 '费用': feeStr,
                 '周汇总': weekSumStr,
-                '报销状态': reimburseStr,
                 '_isRedRow': false,
                 '_isSunday': isSunday,
                 '_weekNumber': weekNumber,
@@ -464,7 +446,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             '星期': weekStr,
             '费用': feeStr,
             '周汇总': weekSumStr,
-            '报销状态': reimburseStr,
             '_isRedRow': false,
             '_isSunday': isSunday,
             '_weekNumber': weekNumber,
@@ -734,7 +715,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 '实际安排': actualText,
                 '费用': resultRows.filter(r => r['日期'] === date).length === 0 ? feeStr : '',
                 '周汇总': resultRows.filter(r => r['日期'] === date).length === 0 ? weekSumStr : '',
-                '报销状态': resultRows.filter(r => r['日期'] === date).length === 0 ? reimburseStr : '',
                 '_isRedRow': rowIsRed,
                 '_planIsRed': pObj ? pObj.isRed : false,
                 '_actualIsRed': aObj ? aObj.isRed : false,

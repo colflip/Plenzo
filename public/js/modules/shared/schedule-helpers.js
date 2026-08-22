@@ -162,17 +162,49 @@ export function getLegendColor(type) {
 }
 
 /**
- * 水印文本生成
- * @param {object} schedule
- * @returns {string}
+ * 读取排课记录的「调整类型」
+ * 兼容 adjustment_type（权威字段）与历史别名 is_temp。
+ * 0 = 原课程 / 已调整调走的原记录；1 = 临时加课；2 = 调整后的新记录
+ * @param {object} rec
+ * @returns {number} 0 | 1 | 2
  */
-export function getScheduleWatermarkText(schedule) {
-    if (!schedule) return '';
-    const type = schedule.schedule_type || schedule.scheduleType || '';
-    const status = schedule.status || '';
-    if (status === 'cancelled') return '已取消';
-    if (status === 'modified_away') return '已调整';
-    return '';
+export function getAdjustmentType(rec) {
+    if (!rec) return 0;
+    const raw = rec.adjustment_type != null ? rec.adjustment_type : rec.is_temp;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : 0;
+}
+
+/**
+ * 水印文本生成（组感知）
+ *
+ * 统一全校各类视图（教师端 / 学生端 / 班主任 / 管理员 / 周视图导出）的判定规则：
+ *   - 「已调整」判定必须与导出逻辑保持一致：adjustment_type === 2 或 status === 'modified_away'
+ *     任一成立即视为已调整（"调"水印）。旧实现只认 adjustment_type === 2，导致
+ *     modified_away 原记录（adjustment_type = 0）在混合分组（如「全部安排」视图下与原
+ *     课程同槽）中无法触发水印。
+ *   - 整组均为 modified_away + adjustment_type=0（即全部为被调走的原课程）时标记「原」。
+ *   - adjustment_type === 1 标记「加」（临时加课）。
+ *
+ * @param {object|Array<object>} scheduleOrGroup 单条记录或同槽记录组
+ * @returns {string} '' | '原' | '调' | '加' | '调/加'
+ */
+export function getScheduleWatermarkText(scheduleOrGroup) {
+    const recs = Array.isArray(scheduleOrGroup) ? scheduleOrGroup : [scheduleOrGroup];
+    if (recs.length === 0 || !recs[0]) return '';
+
+    const statusOf = (r) => (r.status || '').toLowerCase();
+    const isOriginal = (r) => statusOf(r) === 'modified_away' && getAdjustmentType(r) === 0;
+    const isAdjusted = (r) => getAdjustmentType(r) === 2 || statusOf(r) === 'modified_away';
+    const isTemp = (r) => getAdjustmentType(r) === 1;
+
+    // 整组均为「已调整调走」的原课程时，标记「原」
+    if (recs.every(isOriginal)) return '原';
+
+    const parts = [];
+    if (recs.some(isAdjusted)) parts.push('调');
+    if (recs.some(isTemp)) parts.push('加');
+    return parts.join('/');
 }
 
 /**

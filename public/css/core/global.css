@@ -19,6 +19,12 @@
 
 :root {
     --loading-unified-height: 360px;
+    /* 统一加载视觉令牌：所有 spinner / 文案都从这里取值，避免各模块各写一套 */
+    --loading-spinner-size: 32px;
+    --loading-spinner-border: 3px;
+    --loading-accent-color: #2ECC71;
+    --loading-track-color: rgba(46, 204, 113, 0.1);
+    --loading-text-color: #475569;
 }
 
 /* 统一的表格加载遮罩层 - 全屏 Inset + Padding 精准居中方案 */
@@ -67,21 +73,127 @@
 }
 
 .stats-spinner-circle {
-    width: 32px;
-    height: 32px;
-    border: 3px solid rgba(46, 204, 113, 0.1);
-    border-top: 3px solid #2ECC71;
+    width: var(--loading-spinner-size);
+    height: var(--loading-spinner-size);
+    border: var(--loading-spinner-border) solid var(--loading-track-color);
+    border-top: var(--loading-spinner-border) solid var(--loading-accent-color);
     border-radius: 50%;
     animation: stats-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     margin-bottom: 12px;
 }
 
 .stats-spinner-text {
-    color: #475569;
+    color: var(--loading-text-color);
     font-size: 13px;
     font-weight: 500;
     letter-spacing: 0.02em;
     margin: 0;
+}
+
+/* ---- 表格内加载占位行（无法使用遮罩的场景，如首屏 tbody 占位） ---- */
+.table-loading-row .table-loading-cell {
+    padding: 40px 0 !important;
+    text-align: center;
+    border-bottom: none;
+}
+
+.table-loading-row .stats-spinner-circle {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* ---- 行内加载块（列表 / 卡片占位） ---- */
+.inline-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    min-height: 120px;
+}
+
+/* 紧凑横向版：用于「今日排课」等窄列表占位 */
+.inline-loading--compact {
+    padding: 18px 12px;
+    min-height: 0;
+}
+
+.inline-loading--compact .stats-loading-content {
+    flex-direction: row !important;
+    gap: 10px;
+}
+
+.inline-loading--compact .stats-spinner-circle {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+    margin-bottom: 0;
+}
+
+/* ---- 按钮加载态（查询按钮等） ---- */
+.btn-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: stats-spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.btn-loading-text {
+    vertical-align: middle;
+}
+
+/* 历史标记：部分页面用 .btn-loading/.btn-text 两个 span 手动切换显隐 */
+.btn-loading {
+    display: none;
+}
+
+.search-btn:disabled .btn-loading {
+    display: inline;
+}
+
+.search-btn:disabled .btn-text {
+    display: none;
+}
+
+/* ---- 兼容别名：历史类名统一到同一套视觉，避免出现第二种 spinner ---- */
+.loading-container,
+.loading-state,
+.loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--loading-text-color);
+    transition: opacity 0.2s ease-out;
+}
+
+.loading-container.hidden {
+    opacity: 0;
+    pointer-events: none;
+    display: flex !important; /* 保留占位直到 JS 真正隐藏 */
+}
+
+.loading-spinner {
+    width: var(--loading-spinner-size);
+    height: var(--loading-spinner-size);
+    border: var(--loading-spinner-border) solid var(--loading-track-color);
+    border-top: var(--loading-spinner-border) solid var(--loading-accent-color);
+    border-radius: 50%;
+    animation: stats-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.loading-text {
+    color: var(--loading-text-color);
+    font-size: 13px;
+    font-weight: 500;
+    margin-top: 12px;
 }
 
 /* Modern CSS Reset & Base Styles */
@@ -337,31 +449,8 @@ label {
     display: none !important;
 }
 
-/* Loading SpinnerContainer */
-.loading-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: var(--spacing-6);
-    opacity: 1;
-    transition: opacity 0.2s ease-out; /* 让 loading 的消失不再生硬 */
-}
-
-.loading-container.hidden {
-    opacity: 0;
-    pointer-events: none;
-    display: flex !important; /* 保留占位直到 JS 真正隐藏 */
-}
-
-/* Loading Spinner */
-.loading-spinner {
-    width: 2rem;
-    height: 2rem;
-    border: 3px solid var(--color-gray-100);
-    border-top-color: var(--color-primary-600);
-    border-radius: 50%;
-    animation: spin 0.75s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
+/* Loading 容器与 spinner 的定义已统一到文件顶部「统一数据加载过渡动画」区块，
+   此处原有的第二套 .loading-container / .loading-spinner 定义已删除，避免同一类名两种视觉。 */
 
 @keyframes spin {
     0% {

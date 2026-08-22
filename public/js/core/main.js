@@ -185,16 +185,13 @@ function initLogin() {
             }
 
             // Success
-            if (data.token) {
+            if (data.token || data.user) {
+                // P1-5：JWT 由后端写入 httpOnly Cookie，前端不再将令牌存入 localStorage。
+                // 'authed' 仅作 JS 侧登录态标志（UX 判断），真实凭据不可被 JS 读取。
                 if (rememberMe) {
-                    // Use localStorage for persistent session
-                    localStorage.setItem('token', data.token);
-                    // Remove sessionStorage token if it exists, to avoid confusion
-                    sessionStorage.removeItem('tempToken');
+                    localStorage.setItem('authed', '1');
                 } else {
-                    // Use sessionStorage for session-only (clears on browser close)
-                    sessionStorage.setItem('tempToken', data.token);
-                    localStorage.removeItem('token');
+                    sessionStorage.setItem('authed', '1');
                 }
 
                 localStorage.setItem('userType', userType);
@@ -238,8 +235,8 @@ function initLogin() {
                 card.classList.add('shake');
                 setTimeout(() => card.classList.remove('shake'), 500);
             }
-        } else {
-            alert(msg);
+        } else if (window.Toast) {
+            window.Toast.error(msg);
         }
     }
 

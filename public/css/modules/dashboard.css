@@ -1009,6 +1009,7 @@ body {
 .data-table th,
 #usersTable th,
 #scheduleTypesTable th,
+#feedbacksTable th,
 #teachingDetailsTable th {
     background-color: #F8F9FA;
     /* Unified header bg across all data tables */
@@ -1025,6 +1026,7 @@ body {
 .data-table td,
 #usersTable td,
 #scheduleTypesTable td,
+#feedbacksTable td,
 #teachingDetailsTable td {
     padding: 16px 20px;
     color: var(--admin-text-main);
@@ -1036,6 +1038,7 @@ body {
 .data-table tbody tr:last-child td,
 #usersTable tbody tr:last-child td,
 #scheduleTypesTable tbody tr:last-child td,
+#feedbacksTable tbody tr:last-child td,
 #teachingDetailsTable tbody tr:last-child td {
     border-bottom: none;
 }
@@ -1043,6 +1046,7 @@ body {
 .data-table tr:hover,
 #usersTable tbody tr:hover,
 #scheduleTypesTable tbody tr:hover,
+#feedbacksTable tbody tr:hover,
 #teachingDetailsTable tbody tr:hover {
     background-color: #F8F9FA;
 }
@@ -1053,7 +1057,9 @@ body {
 #usersTable .edit-btn,
 #usersTable .delete-btn,
 #scheduleTypesTable .edit-btn,
-#scheduleTypesTable .delete-btn {
+#scheduleTypesTable .delete-btn,
+#feedbacksTable .edit-btn,
+#feedbacksTable .delete-btn {
     padding: 6px 12px;
     border-radius: 10px;
     font-size: 12px;
@@ -1066,28 +1072,32 @@ body {
 
 .data-table .edit-btn,
 #usersTable .edit-btn,
-#scheduleTypesTable .edit-btn {
+#scheduleTypesTable .edit-btn,
+#feedbacksTable .edit-btn {
     background-color: var(--admin-primary-light);
     color: var(--admin-primary);
 }
 
 .data-table .edit-btn:hover,
 #usersTable .edit-btn:hover,
-#scheduleTypesTable .edit-btn:hover {
+#scheduleTypesTable .edit-btn:hover,
+#feedbacksTable .edit-btn:hover {
     background-color: var(--admin-primary);
     color: white;
 }
 
 .data-table .delete-btn,
 #usersTable .delete-btn,
-#scheduleTypesTable .delete-btn {
+#scheduleTypesTable .delete-btn,
+#feedbacksTable .delete-btn {
     background-color: #FEF2F2;
     color: var(--admin-danger);
 }
 
 .data-table .delete-btn:hover,
 #usersTable .delete-btn:hover,
-#scheduleTypesTable .delete-btn:hover {
+#scheduleTypesTable .delete-btn:hover,
+#feedbacksTable .delete-btn:hover {
     background-color: var(--admin-danger);
     color: white;
 }
@@ -1148,49 +1158,6 @@ body {
 #holidaysTable .delete-btn {
     padding: 3px 8px;
     font-size: 12px;
-}
-
-/* 消息样式 */
-#messageContainer {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 100002;
-}
-
-.message {
-    padding: 12px 20px;
-    margin-bottom: 10px;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-.message.success {
-    background-color: #2ecc71;
-    color: white;
-}
-
-.message.error {
-    background-color: #e74c3c;
-    color: white;
-}
-
-.message.info {
-    background-color: #3498db;
-    color: white;
 }
 
 /* 密码强度指示器样式 */
@@ -1347,38 +1314,9 @@ body {
     min-width: 80px;
 }
 
-/* 加载状态 */
-.loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px;
-    color: #2C3E50;
-    text-align: center;
-}
-
-.loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid #E9ECEF;
-    border-radius: 50%;
-    border-top-color: #2ECC71;
-    animation: spinner 0.8s ease infinite;
-    margin-bottom: 16px;
-}
-
-@keyframes spinner {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.loading-text {
-    font-size: var(--font-size-base);
-    color: #2C3E50;
-    margin-top: 8px;
-}
+/* 加载状态：.loading-state / .loading-spinner / .loading-text 已统一到
+   css/core/global.css 的「统一数据加载过渡动画」区块（与管理端排课管理页同款）。
+   此处原有的 40px 蓝绿 spinner + spinner 关键帧属于第二套实现，已删除以免覆盖统一样式。 */
 
 /* 空状态 */
 .empty-state {
@@ -1626,8 +1564,8 @@ body {
 
 /* Specific size for Overview top cards */
 #overview .stats-grid .stat-card {
-    min-height: 140px;
-    /* Increased height by ~50% */
+    min-height: 110px;
+    /* 8 列一行时降低高度避免过瘦高 */
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -2512,6 +2450,12 @@ tr:last-child td {
     align-items: center;
 }
 
+/* 空闲时段日期导航：恢复 min-height 避免被 header-toolbar 40px 覆盖 */
+.header-toolbar .week-navigation {
+    height: auto !important;
+    min-height: 48px !important;
+}
+
 .header-toolbar span:not(.material-icons-round) {
     height: 40px;
     display: flex;
@@ -2893,7 +2837,8 @@ tr:last-child td {
 
 .weekly-schedule-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     table-layout: fixed;
 }
 
@@ -6507,7 +6452,9 @@ svg {
 
 #availabilityBody td,
 #scheduleTypesTable tbody td,
-#weeklyBody td {
+#feedbacksTable tbody td,
+#weeklyBody td,
+.ai-models-table tbody td {
     font-size: 16px !important;
     /* Small 4 */
 }
@@ -6524,7 +6471,9 @@ svg {
     color: #2C3E50;
 }
 
-#scheduleTypesTable thead th {
+#scheduleTypesTable thead th,
+#feedbacksTable thead th,
+.ai-models-table thead th {
     font-size: 14px !important;
     font-weight: 600 !important;
     background-color: #F8F9FA;
@@ -7241,6 +7190,11 @@ svg {
     border-collapse: separate !important;
     border-spacing: 0 !important;
     table-layout: fixed !important;
+}
+
+/* 费用表使用 table-layout:auto 以配合 <colgroup> 列宽定义 */
+.fm-table-card .weekly-schedule-table {
+    table-layout: auto !important;
 }
 
 .weekly-schedule-table th.date-header {
@@ -9131,11 +9085,7 @@ svg {
     border-color: #2ECC71;
 }
 
-/* 加载动画 - 绿色主题 */
-.statistics-container .loading-spinner {
-    border: 3px solid rgba(46, 204, 113, 0.2);
-    border-top-color: #2ECC71;
-}
+/* 加载动画：配色已由 core/global.css 的 --loading-* 令牌统一提供，此处不再重复覆写 */
 
 /* 平板端响应式 (1024px以下) */
 @media (max-width: 1024px) {
@@ -9293,7 +9243,7 @@ svg {
     flex-direction: column;
     justify-content: center;
     align-items: flex-start;
-    padding: 24px;
+    padding: 14px;
     border-radius: 16px;
     border: none;
     position: relative;
@@ -9324,14 +9274,15 @@ svg {
 
 .overview-gradient-card .gradient-content h3 {
     opacity: 0.95;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     font-weight: 600;
-    font-size: 15px;
+    font-size: 13px;
+    white-space: nowrap;
 }
 
 .overview-gradient-card .gradient-content .gradient-value {
     margin: 0;
-    font-size: 32px;
+    font-size: 26px;
     font-weight: 700;
     line-height: 1;
 }
@@ -9435,6 +9386,14 @@ svg {
     border-bottom: 1px solid #E9ECEF !important;
     padding: 16px 20px !important;
     height: auto !important;
+}
+
+/* 空闲时段单元格：覆盖上方通用 padding，保留小间距给图标 */
+#studentAvailabilityTable .availability-cell,
+#availabilityTable .availability-cell {
+    padding: 4px !important;
+    text-align: center !important;
+    height: 85px !important;
 }
 
 #studentAvailabilityTable tbody tr:last-child td,
@@ -9640,17 +9599,20 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) {
+    /* 反馈：费用状态列字号固定 14px，不参与自适应收缩 */
     font-size: 14px;
     white-space: normal;
     overflow: hidden;
     max-width: 85px;
 }
 
-/* 状态迷你标签 15px（反馈 #3） */
+/* 状态迷你标签 14px（反馈 #3） */
 #finance .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini {
-    font-size: 15px;
+    font-size: 14px;
+    /* 反馈：费用状态不加粗（覆盖 .fm-status-mini 的 font-weight:500） */
+    font-weight: 400;
 }
 
 /* 金额列（第7/8/9列）15px（反馈 #4-6）；单行不换行，超长省略；汇总行统一居中 */
@@ -9906,18 +9868,24 @@ svg {
 }
 
 .fm-btn-edit {
-    color: #2563eb;
-    border-color: #bfdbfe;
+    color: #000000;
+    border-color: #d1d5db;
 }
 
 .fm-btn-edit:hover {
-    border-color: #2563eb;
-    color: #1d4ed8;
+    border-color: #000000;
+    color: #000000;
+}
+
+/* 「清除」按钮：红色文字（破坏性操作的常规视觉信号） */
+.fm-btn-clear {
+    color: #ef4444;
+    border-color: #fecaca;
 }
 
 .fm-btn-clear:hover {
     border-color: #ef4444;
-    color: #ef4444;
+    color: #dc2626;
 }
 
 /* 明细记录已改为按列对齐的真实表格行（每条课时一行，字段与表头列一一对应），
@@ -9973,7 +9941,7 @@ svg {
 .fm-edit-one {
     border: none;
     background: none;
-    color: #2563eb;
+    color: #64748b;
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
@@ -10222,7 +10190,9 @@ svg {
 /* 明细行「费用状态」单元格 */
 .fm-d-feestatus { text-align: center; font-size: 14px; }
 .fm-d-feestatus .status-select {
-    font-size: 14px;
+    /* !important 覆盖整站 .status-select 的 11px/600 !important 与移动端 12px !important */
+    font-size: 14px !important;
+    font-weight: 400 !important;
     height: 24px;
     padding: 0 10px;
     line-height: 1.4;
