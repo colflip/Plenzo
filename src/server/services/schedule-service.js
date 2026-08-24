@@ -1533,10 +1533,12 @@ class ScheduleService {
             let todayQuery = `
                 SELECT
                     ca.id,
+                    ca.student_id,
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
                     ca.adjustment_type AS is_temp,
+                    t.name as teacher_name,
                     s.name as student_name,
                     sty.name as schedule_type
                 FROM course_arrangement ca
