@@ -344,24 +344,31 @@ export function buildTodayScheduleRow(schedule, options = {}) {
             return;
         }
         if (part.merged) {
-            // 合并段：类别徽章（可选）+ 多个老师子段（子段间用「，」连接）
+            // 合并段：教师列表（记录类老师带类型徽章）+ 类别徽章（列表之后）
             if (index > 0 && !parts[index - 1].placeholderHidden) {
                 cell.appendChild(document.createTextNode(SEPARATOR));
             }
             const wrapper = createElement('span', part.className);
-            if (part.badge) {
-                wrapper.appendChild(createElement('span', `today-schedule-type ${part.badge.typeClass}`, {
-                    textContent: part.badge.label,
-                    title: part.badge.label
-                }));
-            }
             part.children.forEach((child, childIndex) => {
                 if (childIndex > 0) wrapper.appendChild(document.createTextNode('，'));
                 wrapper.appendChild(createElement('span', child.className, {
                     textContent: child.text,
                     title: child.text
                 }));
+                if (child.badge) {
+                    wrapper.appendChild(createElement('span', `today-schedule-type ${child.badge.typeClass}`, {
+                        textContent: child.badge.label,
+                        title: child.badge.label
+                    }));
+                }
             });
+            if (part.badge) {
+                wrapper.appendChild(document.createTextNode(SEPARATOR));
+                wrapper.appendChild(createElement('span', `today-schedule-type ${part.badge.typeClass}`, {
+                    textContent: part.badge.label,
+                    title: part.badge.label
+                }));
+            }
             cell.appendChild(wrapper);
             return;
         }
@@ -431,8 +438,8 @@ function mergeReviewCounseling(items, groupFields) {
 
 /**
  * 合并段教师列表：普通老师在前、「记录」类老师（评审记录/咨询记录）最后；
- * 记录类标注（评审记录）/（咨询记录），临时加课标注（临时加课）。
- * 类别（评审/咨询）单独返回，由渲染器绘制成类型徽章
+ * 记录类老师名称后跟随类型徽章（评审记录/咨询记录），临时加课为文本标注（临时加课）。
+ * 类别徽章（评审/咨询）由渲染器放在教师列表之后
  */
 function buildMergedParts(courses) {
     const category = getMergeCategory(getScheduleTypeLabel(courses[0]));
@@ -446,11 +453,14 @@ function buildMergedParts(courses) {
     const parts = withMeta.map(({ course, label, isRecord }) => {
         const name = course.teacher_name || '未分配教师';
         const annotations = [];
-        if (isRecord) annotations.push(label);
         if (Number(course.is_temp ?? course.adjustment_type) === 1) annotations.push('临时加课');
         return {
             text: annotations.length ? `${name}（${annotations.join('，')}）` : name,
-            className: ''
+            className: '',
+            badge: isRecord ? {
+                label,
+                typeClass: label.includes('咨询') ? 'type-counseling' : 'type-review'
+            } : null
         };
     });
 
