@@ -2,9 +2,16 @@
  * Student Overview Module
  */
 
-import { API_ENDPOINTS, STATUS_LABELS } from './constants.js';
-import { formatDateDisplay, showToast, handleApiError, setText, clearChildren, createElement, formatTimeRange } from './utils.js';
-import { createInlineLoading } from '../shared/loading-ui.js';
+import { API_ENDPOINTS } from './constants.js';
+import { setText } from './utils.js';
+import {
+    renderGroupedTodayScheduleList,
+    showTodayScheduleLoading,
+    showTodayScheduleError,
+    getTodayStr,
+    shiftDateStr,
+    formatDateCn
+} from '../shared/today-schedule.js';
 
 let overviewData = null;
 
@@ -19,34 +26,26 @@ const totalCancelledEl = () => document.getElementById('totalCancelled');
 const todayListEl = () => document.getElementById('todayScheduleList');
 const refreshBtnEl = () => document.getElementById('refreshTodaySchedulesBtn');
 
-/**
- * 统一的教师排序函数
- * 规则:
- * 1. 咨询记录/评审记录类型的教师排在最后
- * 2. 其他教师按ID由小到大排序
- */
-function sortTeachersByIdAndType(scheduleA, scheduleB) {
-    const getTypeName = (item) => (
-        item.schedule_type_name ||
-        item.type_name ||
-        item.schedule_type_cn ||
-        item.schedule_types ||
-        item.schedule_type || ''
-    ).toString();
+// 当前查看的日期（'YYYY-MM-DD'），null 表示今天
+let viewDate = null;
 
-    const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
+function getViewDate() {
+    if (!viewDate) viewDate = getTodayStr();
+    return viewDate;
+}
 
-    const typeA = getTypeName(scheduleA);
-    const typeB = getTypeName(scheduleB);
-    const recordA = isRecord(typeA);
-    const recordB = isRecord(typeB);
-
-    // 咨询记录/评审记录排在最后
-    if (recordA && !recordB) return 1;
-    if (!recordA && recordB) return -1;
-
-    // 其他按教师ID由小到大排序
-    return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
+// 按日期查询课程（学生端列表接口，返回数组）
+async function fetchSchedulesForDate(dateStr) {
+    const url = `${API_ENDPOINTS.SCHEDULES}?startDate=${encodeURIComponent(dateStr)}&endDate=${encodeURIComponent(dateStr)}`;
+    const response = await fetch(url, {
+        credentials: 'include',
+        headers: {}
+    });
+    if (!response.ok) {
+        throw new Error('获取课程数据失败');
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
 }
 
 /**
@@ -65,6 +64,20 @@ export async function initOverviewSection() {
             });
         });
     }
+
+    // 上一天 / 下一天 导航
+    const navigate = async (delta) => {
+        viewDate = shiftDateStr(getViewDate(), delta);
+        updateTodayTitle();
+        showTodayScheduleLoading(todayListEl(), '正在加载今日课程...');
+        try {
+            renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
+        } catch (error) {
+            showTodayScheduleError(todayListEl(), '今日课程加载失败，请稍后重试');
+        }
+    };
+    document.getElementById('prevDayBtn')?.addEventListener('click', () => navigate(-1));
+    document.getElementById('nextDayBtn')?.addEventListener('click', () => navigate(1));
 
     await loadOverview();
 }
@@ -89,6 +102,15 @@ export async function loadOverview() {
         overviewData = data;
 
         updateOverviewDisplay(data);
+
+        updateTodayTitle();
+
+        // 当前查看的是今天时直接用总览接口附带的数据，否则按查看日期查询
+        if (getViewDate() === getTodayStr()) {
+            renderTodaySchedules(data.todaySchedules || []);
+        } else {
+            renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
+        }
     } catch (error) {
 
         showStatsErrorState();
@@ -107,8 +129,8 @@ function showStatsLoadingState() {
 
     const list = todayListEl();
     if (list) {
-        // 统一加载视觉：紧凑横向 spinner + 文案
-        list.replaceChildren(createInlineLoading('正在加载今日课程...', { compact: true }));
+        // 统一加载视觉：紧凑横向 spinner + 文案（复用共享模块）
+        showTodayScheduleLoading(list, '正在加载今日课程...');
     }
 }
 
@@ -123,10 +145,7 @@ function showStatsErrorState() {
 
     const list = todayListEl();
     if (list) {
-        clearChildren(list);
-        list.appendChild(createElement('div', 'today-empty-state', {
-            textContent: '今日课程加载失败，请稍后重试'
-        }));
+        showTodayScheduleError(list, '今日课程加载失败，请稍后重试');
     }
 }
 
@@ -222,216 +241,30 @@ function updateOverviewDisplay(data) {
         }
     });
 
-    // Update today's schedules
-    renderTodaySchedules(data.todaySchedules || []);
+        // Update today's schedules
+        // （改由 loadOverview 按当前查看日期渲染，见下方）
+    }
+
+// 「今日课程」标题：非今天日期时显示「当前课程」
+function updateTodayTitle() {
+    const titleEl = document.getElementById('todayScheduleTitle');
+    if (titleEl) titleEl.textContent = getViewDate() === getTodayStr() ? '今日课程' : '当前课程';
 }
 
 /**
- * Render today's schedules list with grouping
+ * Render today's schedules list
+ * 「今日课程」渲染复用三端共享模块（shared/today-schedule.js，教师端表格实现），
+ * 行内展示授课教师（teacher_name）
  */
 function renderTodaySchedules(schedules) {
-    const container = todayListEl();
-    if (!container) return;
-
-    clearChildren(container);
-
-    if (!Array.isArray(schedules) || schedules.length === 0) {
-        container.appendChild(createElement('div', 'today-empty-state', {
-            textContent: '今日无课程安排'
-        }));
-        return;
-    }
-
-    // 1. Grouping Logic
-    const groups = {};
-    schedules.forEach(schedule => {
-        const key = `${schedule.start_time}-${schedule.end_time}-${schedule.location || 'unknown'}`;
-        if (!groups[key]) {
-            groups[key] = {
-                base: schedule,
-                items: []
-            };
-        }
-        groups[key].items.push(schedule);
+    const isToday = getViewDate() === getTodayStr();
+    // 与管理端/教师端一致的分组渲染；学生端按教师分组，姓名显示教师
+    renderGroupedTodayScheduleList(todayListEl(), schedules, {
+        emptyText: isToday ? '今日暂无课程安排' : '该日暂无课程安排',
+        dateText: isToday ? '' : formatDateCn(getViewDate()),
+        groupFields: { id: 'teacher_id', name: 'teacher_name' },
+        nameField: 'teacher_name',
+        fallbackName: '未分配教师',
+        nameFirst: true
     });
-
-    // 2. Sort and Render
-    const groupedSchedules = Object.values(groups).sort((a, b) => {
-        return (a.base.start_time || '').localeCompare(b.base.start_time || '');
-    });
-
-    const fragment = document.createDocumentFragment();
-    groupedSchedules.forEach(group => {
-        // 使用统一的排序函数
-        group.items.sort(sortTeachersByIdAndType);
-        fragment.appendChild(buildTodayScheduleCard(group.base, group.items));
-    });
-
-    container.appendChild(fragment);
-
-    // 检查溢出并添加跑马灯类
-    setTimeout(() => checkLocationOverflow(container), 0);
-}
-
-function checkLocationOverflow(container) {
-    const locations = container.querySelectorAll('.today-card-bottom .location');
-    locations.forEach(el => {
-        if (el.scrollWidth > el.offsetWidth) {
-            el.classList.add('animate-marquee');
-        } else {
-            el.classList.remove('animate-marquee');
-        }
-    });
-}
-
-/**
- * Build today schedule card
- */
-function buildTodayScheduleCard(schedule, items = []) {
-    const isMerged = items.length > 1;
-    const status = (schedule.status || 'pending').toLowerCase();
-
-    // Status localization map
-    const statusMap = {
-        'pending': '待确认',
-        'confirmed': '已确认',
-        'completed': '已完成',
-        'cancelled': '已取消'
-    };
-    const displayStatus = statusMap[status] || status;
-
-    const timeStr = schedule.start_time;
-    const h = parseInt((timeStr || '00:00').substring(0, 2), 10);
-    let slotId = 'morning';
-    let slotLabel = '上午';
-    if (h >= 12) {
-        slotId = 'afternoon';
-        slotLabel = '下午';
-    }
-    if (h >= 18) {
-        slotId = 'evening';
-        slotLabel = '晚上';
-    }
-    const slotClass = `slot-${slotId}`;
-
-    // Get Type Info
-    let typeLabel = schedule.schedule_type_cn;
-    if (!typeLabel) {
-        if (window.ScheduleTypesStore && window.ScheduleTypesStore.getAll) {
-            const allTypes = window.ScheduleTypesStore.getAll();
-            const found = allTypes.find(t =>
-                (schedule.course_id && t.id == schedule.course_id) ||
-                (schedule.schedule_type && t.name === schedule.schedule_type)
-            );
-            if (found) typeLabel = found.description || found.name;
-        }
-        if (!typeLabel) typeLabel = schedule.schedule_type || '课程';
-    }
-
-    let typeClass = 'type-default';
-    if (typeLabel.includes('入户')) typeClass = 'type-visit';
-    else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-    else if (typeLabel.includes('评审')) typeClass = 'type-review';
-
-    // Create Card Container
-    const card = createElement('div', `today-card-modern ${slotClass} ${typeClass} sc-status-${status}`);
-    card.setAttribute('role', 'listitem');
-
-    // 上部分容器：3.5:4.5:2 三栏布局
-    const topPart = createElement('div', 'today-card-top');
-
-    // 1. Time Column - 左侧时间段显示区
-    const timeCol = createElement('div', 'today-card-time');
-
-    const timeText = createElement('div', 'time-range', {
-        textContent: formatTimeRange(schedule.start_time, schedule.end_time)
-    });
-
-    const slotLabelEl = createElement('div', 'time-slot-label', { textContent: slotLabel });
-
-    timeCol.appendChild(timeText);
-    timeCol.appendChild(slotLabelEl);
-    topPart.appendChild(timeCol);
-
-    // 2. Info Column - 中间课程信息显示区
-    const infoCol = createElement('div', 'today-card-info');
-
-    // Teacher Name + Type
-    const titleDiv = createElement('div', 'today-card-title');
-
-    // Teacher Name
-    let teacherNameText = schedule.teacher_name || '未分配教师';
-    if (isMerged) {
-        const tNames = [...new Set(items.map(i => i.teacher_name))];
-        teacherNameText = tNames.join('、');
-    }
-
-    const nameSpan = createElement('span', 'sc-student-name', { textContent: teacherNameText });
-    if (isMerged) nameSpan.title = items.map(i => i.teacher_name).join(', ');
-    titleDiv.appendChild(nameSpan);
-
-    const typeBadge = createElement('span', 'today-card-type', { textContent: typeLabel });
-    titleDiv.appendChild(typeBadge);
-
-    // Merged Badge
-    if (isMerged) {
-        const mergedBadge = createElement('span', 'today-card-type', {
-            textContent: `${items.length}个合并`,
-            style: 'background-color:#E0F2FE; color:#0284C7; border-color:#BAE6FD;'
-        });
-        titleDiv.appendChild(mergedBadge);
-    }
-
-    infoCol.appendChild(titleDiv);
-
-    // 2.2 Location Row (PC 专用显示区) - 新增
-    const isMobile = window.innerWidth <= 768;
-    if (!isMobile) {
-        const locationRow = createElement('div', 'today-card-detail-item location pc-location');
-        const pcLocIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
-        const pcLocText = createElement('span', 'location-text', {
-            textContent: schedule.location || '地点待定'
-        });
-        if (!schedule.location) {
-            pcLocText.style.fontStyle = 'italic';
-            pcLocText.style.color = '#94a3b8';
-        }
-        locationRow.appendChild(pcLocIcon);
-        locationRow.appendChild(pcLocText);
-        infoCol.appendChild(locationRow);
-    }
-
-    topPart.appendChild(infoCol);
-
-    // 3. Status Column - 右侧状态显示区
-    const statusCol = createElement('div', 'today-card-status');
-    const statusPill = createElement('span', `status-pill ${status}`, { textContent: displayStatus });
-    statusCol.appendChild(statusPill);
-    topPart.appendChild(statusCol);
-
-    card.appendChild(topPart);
-
-    // 下部分容器：上课地点靠右显示
-    const bottomPart = createElement('div', 'today-card-bottom');
-
-    const details = createElement('div', 'today-card-details');
-
-    const locationItem = createElement('div', 'today-card-detail-item location');
-    const locIcon = createElement('i', 'material-icons-round', { textContent: 'location_on' });
-
-    locationItem.appendChild(locIcon);
-
-    const locSpan = createElement('span', 'location-text', {
-        textContent: schedule.location || '地点待定'
-    });
-    if (!schedule.location) {
-        locSpan.style.fontStyle = 'italic';
-        locSpan.style.color = '#94a3b8';
-    }
-    locationItem.appendChild(locSpan);
-    details.appendChild(locationItem);
-    bottomPart.appendChild(details);
-    card.appendChild(bottomPart);
-
-    return card;
 }
