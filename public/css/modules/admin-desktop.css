@@ -63,7 +63,7 @@
     /* 5b. Admin overview: 8 统计卡片强制一行 (minmax(0,1fr) 防内容撑列) */
     #overview .stats-grid {
         grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
-        gap: 6px !important;
+        gap: 5px !important;
     }
 
     /* 6. Admin Specific Overrides */

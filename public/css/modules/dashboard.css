@@ -1126,7 +1126,7 @@ body {
 #scheduleTypesTable .edit-btn,
 #scheduleTypesTable .delete-btn {
     padding: 3px 8px;
-    font-size: 12px;
+    font-size: 14px;
 }
 
 /* 节假日表格：完全仿照课程类型表格的样式（背景、边框、阴影、字体、行高） */
@@ -1157,7 +1157,14 @@ body {
 #holidaysTable .edit-btn,
 #holidaysTable .delete-btn {
     padding: 3px 8px;
-    font-size: 12px;
+    font-size: 14px;
+}
+
+/* 反馈表操作列文字按钮：14px（后置覆盖上方共享规则中的 12px，
+   不动共享块以免影响用户管理等其他页面） */
+#feedbacksTable .edit-btn,
+#feedbacksTable .delete-btn {
+    font-size: 14px;
 }
 
 /* 密码强度指示器样式 */
@@ -7071,10 +7078,304 @@ svg {
     font-size: 16px;
 }
 
+/* 右侧操作区：上一天/下一天 导航 + 刷新，靠右排列（导航在刷新左侧） */
+.overview-today-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.overview-today-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 图标按钮（无文字）适当收窄 */
+.overview-today-nav .overview-today-refresh {
+    padding: 8px 10px;
+}
+
 .overview-today-list {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+/* 今日排课表格（教师端） */
+.today-schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.today-schedule-table th,
+.today-schedule-table td {
+    padding: 18px 24px;
+    vertical-align: middle;
+}
+
+/* 行分隔线仅用于非分组表格（教师端/学生端）；管理端分组表格由下方背景线规则接管 */
+.today-schedule-table:not(.grouped) tbody tr {
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s ease;
+}
+
+.today-schedule-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.today-schedule-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.today-schedule-table .today-schedule-cell-main {
+    text-align: left;
+    padding-left: 10%;
+    line-height: 1.9;
+}
+
+/* 管理端分组表格：文本起始位置 = 分割线起点(100px)再向右 100px */
+.today-schedule-table.grouped .today-schedule-cell-main {
+    padding-left: 200px;
+}
+
+.today-schedule-slot {
+    font-weight: 400;
+    color: #475569;
+}
+
+/* 查看非今天日期时显示的行内日期（如 8月24日（周一）） */
+.today-schedule-date {
+    font-weight: 400;
+    color: #0369a1;
+}
+
+.today-schedule-slot.slot-morning {
+    color: #B45309;
+}
+
+.today-schedule-slot.slot-afternoon {
+    color: #1D4ED8;
+}
+
+.today-schedule-slot.slot-evening {
+    color: #6D28D9;
+}
+
+.today-schedule-time {
+    font-weight: 400;
+    color: #1e293b;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.today-schedule-student {
+    font-weight: 700;
+    color: #334155;
+}
+
+/* 同学生续行：学生姓名+分隔符隐藏但占位，保持与首行对齐 */
+.today-schedule-placeholder {
+    visibility: hidden;
+}
+
+/* 今日排课次要人员（管理端补充展示授课教师，颜色与主要人员一致） */
+.today-schedule-teacher {
+    font-weight: 700;
+    color: #334155;
+}
+
+/* 评审/咨询合并段：多课程合并显示的教师列表，加粗与教师姓名一致 */
+.today-schedule-merged {
+    font-weight: 700;
+}
+
+/* 不同学生排课之间的分割线（管理端按学生分组） */
+.today-schedule-table tbody tr.today-schedule-group-start {
+    border-top: 1px solid #cbd5e1;
+}
+
+/* 管理端分组表格：分割线用 td 背景绘制，左右各留 100px；
+   学生之间 0.5px 线 + 上下留白共 5px 高、列表顶底 1px；行高固定 65px */
+.today-schedule-table.grouped tbody tr {
+    height: 65px;
+    border-bottom: none;
+}
+
+/* 行高固定 65px：去掉上下内边距，靠 height + vertical-align 居中；
+   徽章压缩为 line-height:1 + middle 对齐，避免撑高行盒（否则行高会变成 73px） */
+.today-schedule-table.grouped tbody td {
+    height: 65px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.today-schedule-table.grouped .today-schedule-type,
+.today-schedule-table.grouped .today-schedule-cell-main .status-pill {
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* 分组表格改用 td 背景绘制分割线，覆盖通用边框规则 */
+.today-schedule-table.grouped tbody tr.today-schedule-group-start {
+    border-top: none;
+}
+
+/* 覆盖全局 th/td 边框（border-collapse 下会合并成整行浅灰线） */
+.today-schedule-table.grouped tbody td {
+    border-bottom: none;
+}
+
+/* 不同学生之间：0.5px 分割线（行顶），上下留白构成 5px 高的分割带 */
+.today-schedule-table.grouped tbody tr.today-schedule-group-start:not(:last-child) td {
+    background-image: linear-gradient(to bottom,
+        transparent 0,
+        transparent 2px,
+        #94a3b8 2px,
+        #94a3b8 2.5px,
+        transparent 2.5px,
+        transparent 100%);
+    background-repeat: no-repeat;
+    background-position: 100px top;
+    background-size: calc(100% - 200px) 5px;
+}
+
+/* 列表顶部：1px */
+.today-schedule-table.grouped tbody tr:first-child:not(:last-child) td {
+    background-image: linear-gradient(#94a3b8, #94a3b8);
+    background-repeat: no-repeat;
+    background-position: 100px top;
+    background-size: calc(100% - 200px) 1px;
+}
+
+/* 列表底部：1px */
+.today-schedule-table.grouped tbody tr:last-child:not(:first-child) td {
+    background-image: linear-gradient(#94a3b8, #94a3b8);
+    background-repeat: no-repeat;
+    background-position: 100px bottom;
+    background-size: calc(100% - 200px) 1px;
+}
+
+/* 末组首行（学生分隔 + 最底部）：上 5px 分割带（含 0.5px 线）+ 下 1px 双层背景 */
+.today-schedule-table.grouped tbody tr.today-schedule-group-start:last-child td {
+    background-image:
+        linear-gradient(to bottom,
+            transparent 0,
+            transparent 2px,
+            #94a3b8 2px,
+            #94a3b8 2.5px,
+            transparent 2.5px,
+            transparent 100%),
+        linear-gradient(#94a3b8, #94a3b8);
+    background-repeat: no-repeat, no-repeat;
+    background-position: 100px top, 100px bottom;
+    background-size: calc(100% - 200px) 5px, calc(100% - 200px) 1px;
+}
+
+/* 仅一行数据：上下各一条 1px */
+.today-schedule-table.grouped tbody tr:only-child td {
+    background-image:
+        linear-gradient(#94a3b8, #94a3b8),
+        linear-gradient(#94a3b8, #94a3b8);
+    background-repeat: no-repeat, no-repeat;
+    background-position: 100px top, 100px bottom;
+    background-size: calc(100% - 200px) 1px, calc(100% - 200px) 1px;
+}
+
+.today-schedule-location {
+    color: #64748b;
+}
+
+/* 备注标记：纯文本样式 */
+.today-schedule-remark {
+    margin: 0 4px;
+    color: #C2410C;
+}
+
+.today-schedule-remark.remark-adjusted {
+    color: #4338CA;
+}
+
+.today-schedule-type {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 4px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.today-schedule-type.type-visit {
+    background: #FEF3C7;
+    color: #B45309;
+}
+
+.today-schedule-type.type-trial {
+    background: #DBEAFE;
+    color: #1D4ED8;
+}
+
+.today-schedule-type.type-review {
+    background: #EDE9FE;
+    color: #6D28D9;
+}
+
+/* 合并段咨询类徽章（与其他类型徽章风格一致） */
+.today-schedule-type.type-counseling {
+    background: #CCFBF1;
+    color: #0F766E;
+}
+
+.today-schedule-cell-main .status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 4px;
+    padding: 4px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.today-schedule-cell-main .status-pill.pending {
+    background: #FFFBEB;
+    color: #B45309;
+    border: 1px solid #FCD34D;
+}
+
+.today-schedule-cell-main .status-pill.confirmed {
+    background: #ECFDF5;
+    color: #047857;
+    border: 1px solid #6EE7B7;
+}
+
+.today-schedule-cell-main .status-pill.completed {
+    background: #F8FAFC;
+    color: #475569;
+    border: 1px solid #E2E8F0;
+}
+
+@media (max-width: 768px) {
+    .today-schedule-table th,
+    .today-schedule-table td {
+        padding: 12px 12px;
+    }
+
+    .today-schedule-table .today-schedule-cell-main {
+        padding-left: 8px;
+    }
 }
 
 /* 统一空状态样式 */
@@ -8109,7 +8410,7 @@ svg {
 .overview-stats-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    gap: 16px;
+    gap: 5px;
     margin: 0 auto 24px auto;
     width: 90%;
     /* 左右留出 5% 宽度 */
@@ -8121,7 +8422,8 @@ svg {
     flex-direction: column;
     justify-content: space-between;
     align-items: flex-start;
-    padding: 24px;
+    padding: 24px 20px;
+    width: 180px;
     background: #FFFFFF;
     border-radius: 12px;
     border: 1px solid #E2E8F0;
@@ -9276,13 +9578,13 @@ svg {
     opacity: 0.95;
     margin-bottom: 6px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 16px;
     white-space: nowrap;
 }
 
 .overview-gradient-card .gradient-content .gradient-value {
     margin: 0;
-    font-size: 26px;
+    font-size: 30px;
     font-weight: 700;
     line-height: 1;
 }
@@ -9599,14 +9901,40 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) {
-    /* 反馈：费用状态列字号固定 14px，不参与自适应收缩 */
+    /* 基准 14px；「最多 2 行 + 省略」由下方 .fm-cell-clamp !important 规则强制
+       （fitFeeStatusCell 已不再做字号自适应/写内联样式），任意聚合状态数下行高恒定。 */
     font-size: 14px;
     white-space: normal;
     overflow: hidden;
     max-width: 85px;
 }
 
-/* 状态迷你标签 14px（反馈 #3） */
+/* 费用状态列强制「最多 2 行 + 省略」：!important 压过任何 JS 内联残留，
+   配合 td 固定 60px 行高，汇总行高度恒定不抖动；悬浮全量见 title。 */
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp,
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    white-space: normal !important;
+}
+
+/* 状态计数 pill 在钳制容器内必须为行内展示：inline-block 是原子盒子，其内部换行
+   不参与外层 -webkit-box 计行，会导致超出两行且无省略号；改行内后换行发生在钳制
+   容器自身，「最多两行 + 剩余省略」在任意状态数下可靠生效。
+   同时去掉底色/圆角/内边距（多行片段下底色断裂不美观），保留状态绿色文字。 */
+#finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp .fm-status-mini,
+#fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp .fm-status-mini,
+#sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) .fm-cell-clamp .fm-status-mini {
+    display: inline !important;
+    padding: 0 !important;
+    background: none !important;
+    border-radius: 0 !important;
+}
+
+/* 状态迷你标签基准 14px（费用状态列已固定两行钳制，无 JS 内联字号覆盖） */
 #finance .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini {
@@ -9759,6 +10087,18 @@ svg {
     padding-bottom: 0 !important;
     vertical-align: middle;
     border-bottom: none !important;
+}
+
+/* 明细行：已取消课程整行斜体显示（费用状态下拉为表单控件，保持默认不继承斜体） */
+#finance .weekly-schedule-table tr.fm-detail.fm-cancelled td,
+#fees .weekly-schedule-table tr.fm-detail.fm-cancelled td,
+#sd-fees .weekly-schedule-table tr.fm-detail.fm-cancelled td {
+    font-style: italic;
+}
+#finance .weekly-schedule-table tr.fm-detail.fm-cancelled td select,
+#fees .weekly-schedule-table tr.fm-detail.fm-cancelled td select,
+#sd-fees .weekly-schedule-table tr.fm-detail.fm-cancelled td select {
+    font-style: normal;
 }
 
 /* ============================================
@@ -10170,13 +10510,30 @@ svg {
 
 /* ===== 费用报销状态（待提交/待审核/已审核/已报销/已退回/退回报销） =====
    复用整站 .status-select（无边框彩色胶囊）作为费用状态展示与可编辑下拉，
-   颜色类 .fm-fee-* 与排课状态 .status-select.<state> 同语言。 */
-.fm-fee-draft            { background: rgba(100,116,139,.14); color: #475569; }
-.fm-fee-submitted        { background: rgba(37,99,235,.12);  color: #1d4ed8; }
-.fm-fee-reviewed         { background: rgba(217,119,6,.14);  color: #b45309; }
-.fm-fee-reimbursed       { background: rgba(16,128,67,.14);  color: #108043; }
-.fm-fee-returned         { background: rgba(220,38,38,.12);  color: #b91c1c; }
-.fm-fee-reimbursement-returned { background: rgba(124,45,18,.16); color: #7c2d12; }
+   颜色类 .fm-fee-* 与排课状态 .status-select.<state> 同语言。
+   !important 保证覆盖整站 .status-select 系列的 !important 规则（select/只读 pill 均分色）。 */
+.fm-fee-draft            { background: rgba(100,116,139,.14) !important; color: #475569 !important; }
+.fm-fee-submitted        { background: rgba(37,99,235,.12)  !important; color: #1d4ed8 !important; }
+.fm-fee-reviewed         { background: rgba(217,119,6,.14)  !important; color: #b45309 !important; }
+.fm-fee-reimbursed       { background: rgba(16,128,67,.14)  !important; color: #108043 !important; }
+.fm-fee-returned         { background: rgba(220,38,38,.12)  !important; color: #b91c1c !important; }
+.fm-fee-reimbursement-returned { background: rgba(124,45,18,.16) !important; color: #7c2d12 !important; }
+
+/* 汇总行费用状态：各状态独立分色小胶囊（颜色复用上方 .fm-fee-*） */
+.fm-cell-clamp .fm-fee-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-weight: 400;
+    white-space: nowrap;
+}
+/* 胶囊之间用间距分隔，不显示「/」文本分隔符 */
+.fm-cell-clamp .fm-fee-pill + .fm-fee-pill {
+    margin-left: 4px;
+}
+.fm-cell-clamp .fm-fee-pill + .fm-fee-pill::before {
+    content: none;
+}
 
 /* 明细行「排课及状态」合并单元格：一行内「类型，状态」 */
 .fm-d-merged {
@@ -10191,7 +10548,7 @@ svg {
 .fm-d-feestatus { text-align: center; font-size: 14px; }
 .fm-d-feestatus .status-select {
     /* !important 覆盖整站 .status-select 的 11px/600 !important 与移动端 12px !important */
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-weight: 400 !important;
     height: 24px;
     padding: 0 10px;
@@ -10209,9 +10566,9 @@ svg {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* 反馈 #2/#3：类型行与状态行统一 13px；
-       !important 覆盖 fitMergedCell 起始写入的内联 font-size（实测为 14px）。 */
-    font-size: 13px !important;
+    /* 反馈：类型行与状态行统一 14px；
+       !important 覆盖 fitMergedCell 写入的内联 font-size（该列固定 14px，不参与收缩）。 */
+    font-size: 14px !important;
 }
 .fm-merged-summary .fm-ms-type { color: #475569; }
 .fm-merged-summary .fm-ms-status { color: #94a3b8; }
