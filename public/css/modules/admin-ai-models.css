@@ -14,6 +14,9 @@
     border-radius: 8px;
     margin-bottom: 20px;
     font-size: 14px;
+    /* 全部信息同行显示：不换行，过长时横向滚动 */
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
 .ai-current-label {
@@ -70,9 +73,10 @@
 }
 
 .ai-current-detail {
-    margin-top: 8px;
+    /* 去掉 margin-top：与「当前模型」同行显示，竖直方向由父级 align-items:center 居中 */
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 .ai-current-tag {
@@ -81,9 +85,11 @@
     background: rgba(255, 255, 255, 0.7);
     border: 1px solid #d1fae5;
     border-radius: 6px;
-    font-size: 12px;
+    /* 反馈：字体至少 14px */
+    font-size: 14px;
     color: #475569;
     font-family: 'Monaco', 'Courier New', monospace;
+    white-space: nowrap;
 }
 
 /* AI 模型表格：基础样式由 dashboard.css 全局 th/td 提供，此处仅定义特有样式 */
@@ -239,7 +245,7 @@
 .ai-btn {
     padding: 6px 12px;
     border-radius: 10px;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     border: none;
