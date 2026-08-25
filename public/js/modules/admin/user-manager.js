@@ -634,6 +634,8 @@ export function appendUserRow(type, user) {
         let meId = '';
         try { meId = String(JSON.parse(localStorage.getItem('userData') || '{}').id ?? ''); } catch (_) { /* ignore */ }
         const isSelfRow = String(user.id) === meId;
+        const actionsCell = document.createElement('td');
+        actionsCell.classList.add('actions');
         actionsCell.innerHTML = `
             <button class="btn-icon edit-btn" title="编辑">
                 <span class="material-icons-round">edit</span>

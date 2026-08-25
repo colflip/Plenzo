@@ -67,11 +67,14 @@ class CalendarGenerator {
             if (!dateStr) return;
 
             if (!dayFlags.has(dateStr)) {
-                dayFlags.set(dateStr, { anyUnsubmitted: false, allReimbursed: true, total: 0 });
+                dayFlags.set(dateStr, { anyUnsubmitted: false, hasSubmitted: false, allReimbursed: true, total: 0 });
             }
             const dayFlag = dayFlags.get(dateStr);
             const feeStatus = String(row.fee_status || '').toLowerCase();
-            if (feeStatus === 'draft') dayFlag.anyUnsubmitted = true;
+            const isDraftFee = feeStatus === 'draft';
+            // 待提交(draft)：仅当天全部记录都待提交时费用列才显示 '-'（见下方规则）
+            if (isDraftFee) dayFlag.anyUnsubmitted = true;
+            else dayFlag.hasSubmitted = true;
             if (feeStatus !== 'reimbursed') dayFlag.allReimbursed = false;
 
             // 按周跟踪报销状态：本周出现任意课程则 anyRow=true；
@@ -104,17 +107,21 @@ class CalendarGenerator {
             const transportFee = parseFloat(row.transport_fee) || 0;
             const otherFee = parseFloat(row.other_fee) || 0;
 
-            // 按日期累计费用合计（用于费用列规则判断），含当天所有学生/教师
-            dayFlag.total += transportFee + otherFee;
+            // 待提交(draft)记录金额未定：不计入合计与明细（避免未提交金额进入报销单），
+            // 仅已提交记录参与统计；同天部分待提交不再隐藏整天费用
+            if (!isDraftFee) {
+                // 按日期累计费用合计（用于费用列规则判断），含当天所有学生/教师
+                dayFlag.total += transportFee + otherFee;
 
-            // 按教师累计交通费
-            if (transportFee > 0) {
-                const current = feeData.teacherFees.get(teacherName) || 0;
-                feeData.teacherFees.set(teacherName, current + transportFee);
+                // 按教师累计交通费
+                if (transportFee > 0) {
+                    const current = feeData.teacherFees.get(teacherName) || 0;
+                    feeData.teacherFees.set(teacherName, current + transportFee);
+                }
+
+                feeData.totalTransport += transportFee;
+                feeData.totalOther += otherFee;
             }
-
-            feeData.totalTransport += transportFee;
-            feeData.totalOther += otherFee;
         });
 
         // 预索引：按日期和按周分组，避免 O(dates × data) 嵌套循环
@@ -138,14 +145,15 @@ class CalendarGenerator {
 
             // 费用列显示规则（报销单 视图/文件 统一）：
             //   没课（当天无排课）→ '/'
-            //   有课且存在未提交(draft)费用 → '-'
-            //   有课且已提交：费用合计为 0 → '0'；否则保留费用明细
+            //   有课且当天全部记录均为待提交(draft) → '-'（整天未提交）
+            //   有课且存在已提交记录：费用合计为 0 → '0'；否则保留费用明细
+            //   （部分待提交不再隐藏整天费用：待提交金额不参与合计，已提交部分正常显示）
             if (!dayFlag) {
                 dailyFees.set(dateStr, '/');
                 return;
             }
 
-            if (dayFlag.anyUnsubmitted) {
+            if (dayFlag.anyUnsubmitted && !dayFlag.hasSubmitted) {
                 dailyFees.set(dateStr, '-');
             } else if (dayFlag.total === 0) {
                 dailyFees.set(dateStr, '0');

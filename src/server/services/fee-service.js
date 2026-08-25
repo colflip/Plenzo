@@ -12,7 +12,7 @@
  */
 
 const SchemaHelper = require('../utils/schema-helper');
-const { validateFeeStatusTransition, writeFeeStatusLog, resolveAutoFeeStatus } = require('../utils/feeStatus');
+const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/feeStatus');
 
 /**
  * 费用金额归一：空值/未传 → null（NULL，表示未填）；数字字符串 → number；
@@ -118,16 +118,30 @@ async function autoSubmitFeeStatus(tx, { id, from, actorType, operatorId, note }
  * actor：可选，传入后对非 admin 身份逐条做范围授权（越权记录跳过，与历史行为一致）。
  * skipStatus：跳过已是该状态的记录（避免重复审计）。
  * 返回实际更新条数。
+ *
+ * 性能约定：Neon HTTP 驱动下每条 SQL 都是一次网络往返（本机实测 ~300ms/次），
+ * 旧实现逐条 SELECT+UPDATE+INSERT 在整周记录上可达数十秒，前端表现为点击后长时间无响应。
+ * 此处压缩为固定 3 次往返：批量读 → 批量写 → 批量审计；逐条校验逻辑保持不变。
  */
 async function batchTransitionFeeStatus(tx, { targetIds, target, note, operatorId, actorType, skipStatus, actor }) {
-    let updated = 0;
-    for (const sid of targetIds) {
-        const cur = await tx(
-            'SELECT fee_status, student_id, teacher_id FROM course_arrangement WHERE id = $1',
-            [sid]
-        );
-        if (cur.rows.length === 0) continue;
-        const row = cur.rows[0];
+    if (!Array.isArray(targetIds) || targetIds.length === 0) return 0;
+
+    // 去重：与旧实现语义一致（同 id 二次出现时 from===to 必然被状态机拒绝，不应产生重复审计）
+    const ids = [...new Set(targetIds.map(Number).filter(n => !Number.isNaN(n)))];
+    if (ids.length === 0) return 0;
+
+    const cur = await tx(
+        'SELECT id, fee_status, student_id, teacher_id FROM course_arrangement WHERE id = ANY($1)',
+        [ids]
+    );
+    const byId = new Map();
+    (cur.rows || []).forEach(r => byId.set(Number(r.id), r));
+
+    const updatableIds = [];
+    const auditItems = [];
+    for (const sid of ids) {
+        const row = byId.get(Number(sid));
+        if (!row) continue;
         if (actor) {
             const scopeMsg = checkScheduleScope(actor, row, sid);
             if (scopeMsg) continue; // 越权记录跳过
@@ -136,17 +150,19 @@ async function batchTransitionFeeStatus(tx, { targetIds, target, note, operatorI
         if (skipStatus && from === skipStatus) continue;
         const check = validateFeeStatusTransition(actorType, from, target);
         if (!check.ok) continue;
-        await tx(
-            `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-            [target, sid]
-        );
-        await writeFeeStatusLog(tx, {
-            scheduleId: sid, oldStatus: from, newStatus: target,
-            operatorId, actorType, note
-        });
-        updated++;
+        updatableIds.push(Number(row.id));
+        auditItems.push({ scheduleId: Number(row.id), oldStatus: from });
     }
-    return updated;
+    if (updatableIds.length === 0) return 0;
+
+    await tx(
+        `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2)`,
+        [target, updatableIds]
+    );
+    await writeBatchFeeStatusLogs(tx, {
+        items: auditItems, newStatus: target, operatorId, actorType, note
+    });
+    return updatableIds.length;
 }
 
 /**

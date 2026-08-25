@@ -236,6 +236,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         const groups = {}; // { sName: { teacherTransports: { tName: number }, otherSum: number } }
         let dailyHasCompletedOrCancelled = false;
         let dayAnyUnsubmitted = false;   // 当天存在未提交(draft)费用
+        let dayHasSubmitted = false;     // 当天存在已提交（非 draft）费用的记录
         let dayTotal = 0;
 
         dayRows.forEach(item => {
@@ -252,8 +253,11 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
             // 费用提交状态：draft=待提交(未提交)
             const feeStatusVal = String(item.fee_status || item['费用状态'] || '').toLowerCase();
-            if (feeStatusVal === 'draft') {
+            const isDraftFee = feeStatusVal === 'draft';
+            if (isDraftFee) {
                 dayAnyUnsubmitted = true;
+            } else {
+                dayHasSubmitted = true;
             }
 
             if (!groups[sName]) {
@@ -264,11 +268,15 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 groups[sName].teacherTransports[tName] = 0;
                 groups[sName].otherFees[tName] = 0;
             }
-            groups[sName].teacherTransports[tName] += tFee;
-            groups[sName].otherFees[tName] += oFee;
-            groups[sName].otherSum += oFee;
+            // 待提交(draft)记录金额未定：不计入费用明细与合计（避免未提交金额进入报销单），
+            // 仅已提交记录参与统计；同天部分待提交不再隐藏整天费用（如评审等无费用记录常年待提交）
+            if (!isDraftFee) {
+                groups[sName].teacherTransports[tName] += tFee;
+                groups[sName].otherFees[tName] += oFee;
+                groups[sName].otherSum += oFee;
 
-            dayTotal += (tFee + oFee);
+                dayTotal += (tFee + oFee);
+            }
         });
 
         // 如果某天没有课程，不能说“全部课程已完成/取消”
@@ -350,11 +358,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
         // 费用列显示规则（报销单 视图/文件 统一）：
         //   没课（当天无排课）→ '/'
-        //   有课且存在未提交(draft)费用 → '-'
-        //   有课且已提交：费用合计为 0 → '0'；否则保留上面算出的费用明细 dailyFeeStr
+        //   有课且当天全部记录均为待提交(draft) → '-'（整天未提交）
+        //   有课且存在已提交记录：费用合计为 0 → '0'；否则保留上面算出的费用明细 dailyFeeStr
+        //   （部分待提交不再隐藏整天费用：待提交金额不参与合计，已提交部分正常显示）
         if (dayRows.length === 0) {
             dailyFeeStr = '/';
-        } else if (dayAnyUnsubmitted) {
+        } else if (dayAnyUnsubmitted && !dayHasSubmitted) {
             dailyFeeStr = '-';
         } else if (dayTotal === 0) {
             dailyFeeStr = '0';
