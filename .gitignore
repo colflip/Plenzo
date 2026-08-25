@@ -9,6 +9,7 @@ node_modules/
 # Local assistant project data (keep locally; never commit)
 .workbuddy/
 .claude/
+.opencode/
 CLAUDE.md
 
 # IDE and editor state
@@ -34,8 +35,6 @@ build/
 # Tests and test tooling (local only; not required for production deployment)
 tests/
 src/server/**/__tests__/
-!src/server/db/__tests__/
-!src/server/db/__tests__/db-connection-fallback.test.js
 e2e/
 jest.config.js
 playwright.config.js
