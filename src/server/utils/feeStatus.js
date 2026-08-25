@@ -89,6 +89,31 @@ async function writeFeeStatusLog(q, { scheduleId, oldStatus, newStatus, operator
     }
 }
 
+// 批量写入费用状态流转审计：单条多值 INSERT 替代逐条写入。
+// Neon HTTP 驱动下每次查询都是一次网络往返，批量场景逐条写审计会显著拖慢响应。
+// 审计失败不阻断主流程（与 writeFeeStatusLog 一致）。
+async function writeBatchFeeStatusLogs(q, { items, newStatus, operatorId, actorType, note }) {
+    try {
+        if (!Array.isArray(items) || items.length === 0) return;
+        if (!(await SchemaHelper.hasTable('fee_status_logs'))) return;
+        const valueRows = [];
+        const params = [];
+        items.forEach((it, i) => {
+            const b = i * 6;
+            valueRows.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, CURRENT_TIMESTAMP)`);
+            params.push(it.scheduleId, normalizeStatus(it.oldStatus), newStatus, operatorId, actorType || 'admin', note || null);
+        });
+        await q(
+            `INSERT INTO fee_status_logs
+             (schedule_id, old_status, new_status, operator_id, actor_type, note, created_at)
+             VALUES ${valueRows.join(', ')}`,
+            params
+        );
+    } catch (_) {
+        // 审计失败不阻断主流程
+    }
+}
+
 // 解析班主任绑定的学生 ID 列表
 function parseStudentIds(studentIdsStr) {
     if (!studentIdsStr) return [];
@@ -114,6 +139,7 @@ module.exports = {
     resolveAutoFeeStatus,
     validateFeeStatusTransition,
     writeFeeStatusLog,
+    writeBatchFeeStatusLogs,
     parseStudentIds,
     resolveActor,
 };

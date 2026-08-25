@@ -83,10 +83,10 @@ function renderFeedbacksTable(data) {
         return `
             <tr data-id="${item.id}">
                 <td>#${item.id}</td>
-                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${typeColor}1a;color:${typeColor};font-size:12px;font-weight:500;">${typeLabel}</span></td>
+                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${typeColor}1a;color:${typeColor};font-size:15px;font-weight:500;">${typeLabel}</span></td>
                 <td>${PRIORITY_LABELS[item.priority] || item.priority || '-'}</td>
                 <td title="${title}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</td>
-                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size:12px;font-weight:500;">${statusLabel}</span></td>
+                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size:15px;font-weight:500;">${statusLabel}</span></td>
                 <td>${esc(submitter)}</td>
                 <td>${time}</td>
                 <td>

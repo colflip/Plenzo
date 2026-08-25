@@ -366,6 +366,8 @@
             payload = { ids, fee_status: target, note };
         }
         const msg = bar.querySelector('[data-fm="batchMsg"]');
+        const applyBtn = bar.querySelector('[data-fm="batchApply"]');
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.style.opacity = '0.6'; }
         msg.textContent = '处理中...';
         try {
             const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, payload);
@@ -374,6 +376,8 @@
             loadData(config, mountEl);
         } catch (err) {
             msg.textContent = '失败：' + (err.message || '未知错误');
+        } finally {
+            if (applyBtn) { applyBtn.disabled = false; applyBtn.style.opacity = ''; }
         }
     }
 
@@ -387,6 +391,8 @@
             confirmText: '确认报销',
         });
         if (!ok) return;
+        const btn = mountEl.querySelector('[data-fm="completeReimburse"]');
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
         try {
             const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
                 scope: { startDate: st.startDate, endDate: st.endDate },
@@ -400,6 +406,8 @@
         } catch (err) {
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
             else if (window.showToast) window.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.style.opacity = ''; }
         }
     }
 
@@ -413,6 +421,8 @@
             confirmText: '确认退回',
         });
         if (!ok) return;
+        const btn = mountEl.querySelector('[data-fm="returnReimburse"]');
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
         try {
             const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
                 scope: { startDate: st.startDate, endDate: st.endDate, fee_status: 'reimbursed' },
@@ -426,6 +436,8 @@
         } catch (err) {
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
             else if (window.showToast) window.showToast('操作失败：' + (err.message || '未知错误'), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.style.opacity = ''; }
         }
     }
 
@@ -447,15 +459,20 @@
     function feeStatusInfo(s) { return FEE_STATUS[s] || FEE_STATUS.draft; }
 
     // 汇总行高度固定 60px。不同列采用不同适配策略：
-    //  · 日期时间 / 老师 / 课程类型 / 上课地点 / 状态（列索引 1~5）：【自适应】——
+    //  · 日期时间 / 上课地点（列索引 1/4）：【自适应】——
     //    字号随内容收缩（最小 13px）；单行放下则单行；放不下→双行截断（最多 2 行 + 省略）。不做跑马灯。
+    //  · 老师（列索引 2）：保持 14px 不缩字号；单行放下则单行，放不下→双行截断（14px + 省略）。
+    //  · 排课及状态（列索引 3）：自定义双行（类型一行 + 状态一行），固定 14px 不缩字号（fitMergedCell）。
+    //  · 费用状态（列索引 5）：固定 14px，任何情况下强制「最多两行 + 剩余省略」（fitFeeStatusCell）。
     //  · 学生 / 交通 / 其他 / 总计：沿用原【按列统一】压缩（最小 12px），保持汇总行格式统一。
     // 列宽基准仍由【明细行】决定（colgroup 已设基础宽度），汇总行长文本只被动省略，不撑宽列。
+    // 所有被省略/裁切的汇总单元格统一由 applySummaryTitles() 悬浮显示全量信息。
 
     // 自适应单元格（列索引 1~5）：字号收缩 → 单行 → 双行截断
     function fitAdaptiveCell(td, idx) {
         const BASE = idx === 1 ? 15 : 14; // 日期时间 15px，其余 14px
-        const MIN = 13;                   // 字号下限 13px
+        // 老师列（idx=2）不缩字号，保持 14px（反馈）；其余列字号下限 13px
+        const MIN = idx === 2 ? 14 : 13;
         if (td._fmOrig === undefined) td._fmOrig = td.innerHTML;
         else td.innerHTML = td._fmOrig;   // resize 重排时从原始内容重新判定
 
@@ -465,10 +482,11 @@
         };
         const clamp = td.querySelector('.fm-cell-clamp');
 
-        // 日期时间列（idx=1）与老师/地点/费用状态列一致：单行优先，放不下再缩字号（最小 13px），
+        // 日期时间列（idx=1）与地点列：单行优先，放不下再缩字号（最小 13px），
         // 仍放不下才双行截断。列宽由明细行决定，汇总区间 MM-DD~MM-DD 短于明细日期，单行可放下。
+        // 老师列（idx=2）：单行放下则 14px 单行；放不下直接双行截断（14px + 省略），不缩字号。
 
-        // 阶段 1：单行，字号逐步压缩到 13px
+        // 阶段 1：单行，字号逐步压缩到下限
         const oneLine = () => {
             td.style.whiteSpace = 'nowrap';
             td.style.overflow = 'hidden';
@@ -514,10 +532,22 @@
         while (size > MIN && td.scrollHeight > td.clientHeight + 1) { size--; setFont(size); }
     }
 
+    // 汇总行「费用状态」列：不做字号自适应——任何情况下强制「最多两行 + 省略」，
+    // 两行放不下的内容以省略号收起；行高保持固定 60px 不变。
+    // 钳制样式（display/-webkit-line-clamp/overflow/white-space）由 dashboard.css 的
+    // !important 规则统一保证，这里仅清空历史内联残留；悬浮全量提示由 applySummaryTitles() 处理。
+    function fitFeeStatusCell(td) {
+        td.style.fontSize = '';
+        td.querySelectorAll('*').forEach(el => { el.style.fontSize = ''; });
+        const clamp = td.querySelector('.fm-cell-clamp');
+        if (!clamp) return;
+        ['display', 'webkitLineClamp', 'whiteSpace', 'overflow'].forEach(p => { clamp.style[p] = ''; });
+    }
+
     function fitSummaryRows(mountEl) {
         const tbody = mountEl.querySelector('[data-fm="tbody"]');
         if (!tbody) return;
-        const ADAPTIVE = new Set([1, 2, 4]); // 日期时间 / 老师 / 上课地点（费用状态列固定 14px，排课及状态为自定义双行，单独处理）
+        const ADAPTIVE = new Set([1, 2, 4]); // 日期时间 / 老师 / 上课地点（费用状态与排课及状态单独处理）
 
         // 按列收集汇总行单元格（排除操作列）
         const colCells = {};
@@ -537,11 +567,8 @@
                 return;
             }
             if (idx === 5) {
-                // 费用状态：字号固定 14px（反馈），不参与任何自适应缩放，清除历史内联字号
-                cells.forEach(td => {
-                    td.style.fontSize = '';
-                    td.querySelectorAll('*').forEach(el => { el.style.fontSize = ''; });
-                });
+                // 费用状态：固定 14px，任何情况下最多两行，放不下→剩余省略（行高恒定 60px）
+                cells.forEach(td => fitFeeStatusCell(td));
                 return;
             }
             if (ADAPTIVE.has(idx)) {
@@ -577,6 +604,65 @@
                 apply(size);
             }
         });
+
+        // 适配完成后统一检测截断并挂悬浮提示（title 显示全量信息）
+        applySummaryTitles(mountEl);
+    }
+
+    // 汇总行悬浮提示：任何被省略/裁切的汇总单元格，鼠标悬浮时经 title 默认显示该字段全量信息
+    function applySummaryTitles(mountEl) {
+        const tbody = mountEl.querySelector('[data-fm="tbody"]');
+        if (!tbody) return;
+        tbody.querySelectorAll('tr.fm-stu-row').forEach(row => {
+            row.querySelectorAll('td:not(.fm-ops)').forEach(td => {
+                const info = summaryCellTitleInfo(td);
+                if (info.truncated && info.text) td.setAttribute('title', info.text);
+                else td.removeAttribute('title');
+            });
+        });
+    }
+
+    // 单个汇总单元格的截断判定与全量文本
+    function summaryCellTitleInfo(td) {
+        const msLines = td.querySelectorAll('.fm-ms-line');
+        if (msLines.length) { // 排课及状态：两行各自省略
+            const lines = Array.from(msLines);
+            return {
+                truncated: lines.some(l => l.scrollWidth > l.clientWidth + 1),
+                text: lines.map(l => l.textContent.trim()).filter(Boolean).join('\n')
+            };
+        }
+        const nameSpan = td.querySelector('.fm-stu-name');
+        if (nameSpan) { // 学生名（span 自身省略）
+            return { truncated: nameSpan.scrollWidth > nameSpan.clientWidth + 1, text: nameSpan.textContent.trim() };
+        }
+        const clamp = td.querySelector('.fm-cell-clamp');
+        if (clamp) {
+            // 多值 token 单元格：分隔符是 CSS ::before 生成，不在 textContent 里，需按 token 拼接
+            const tokens = Array.from(clamp.querySelectorAll('.fm-token')).map(t => t.textContent.trim());
+            const text = tokens.length ? tokens.join(' ') : (clamp.textContent || '').replace(/\s+/g, ' ').trim();
+            return {
+                truncated: clampOverflowed(clamp) || td.scrollWidth > td.clientWidth + 1,
+                text
+            };
+        }
+        return {
+            truncated: td.scrollWidth > td.clientWidth + 1,
+            text: (td.textContent || '').replace(/\s+/g, ' ').trim()
+        };
+    }
+
+    // 判定 -webkit-line-clamp 是否截断：临时放大允许行数测自然高度，与钳制后实际高度比较。
+    // 注意：dashboard.css 对费用状态列钳制使用了 !important，普通内联覆盖无效，
+    // 必须以内联 !important 临时改写（内联 important 优先级高于样式表 important）。
+    function clampOverflowed(clamp) {
+        if (!clamp) return false;
+        const prev = clamp.style.webkitLineClamp;
+        clamp.style.setProperty('-webkit-line-clamp', '99', 'important');
+        const naturalH = clamp.scrollHeight;
+        if (prev) clamp.style.webkitLineClamp = prev;
+        else clamp.style.removeProperty('-webkit-line-clamp');
+        return naturalH > clamp.clientHeight + 2;
     }
 
     async function loadData(config, mountEl) {
@@ -692,13 +778,14 @@
         return Object.keys(cnt).map(s => `${STATUS_SHORT[s] || s}${cnt[s]}`);
     }
 
+    // 汇总行费用状态迷你计数：返回 { code, text }，code 用于按状态分色（fm-fee-*）
     function feeStatusMini(list) {
         const cnt = {};
         list.forEach(r => {
             const s = r.fee_status || 'draft';
             cnt[s] = (cnt[s] || 0) + 1;
         });
-        return Object.keys(cnt).map(s => `${FEE_STATUS[s].label}${cnt[s]}`);
+        return Object.keys(cnt).map(s => ({ code: s, text: `${FEE_STATUS[s].label}${cnt[s]}` }));
     }
 
     // 将多个值渲染为独立 token 包入 .fm-cell-clamp 内层 span：汇总行「老师/课程类型/上课地点/状态」列
@@ -748,6 +835,8 @@
             const isDup = (prevDt !== null && dtText === prevDt);
             if (!isDup) prevDt = dtText;
             else tr.classList.add('fm-dup-row');
+            // 已取消课程：整行斜体显示（反馈）
+            if (String(r.status || '').toLowerCase() === 'cancelled') tr.classList.add('fm-cancelled');
 
             const tFee = parseFloat(r.transport_fee) || 0;
             const oFee = parseFloat(r.other_fee) || 0;
@@ -760,34 +849,34 @@
                 else td.innerHTML = html;
                 tr.appendChild(td);
             };
-            // 费用列显示规则（与 Excel 导出「费用」列一致）：
+            // 费用列显示规则（空数据统一显示灰色「—」，不再混用「-」/「—」/「0」）：
             //   费用管理页每行均为「有课」记录；
-            //   显式 fee_status='draft' → 各费用列显示 '-'（隐藏未提交金额）；
-            //   fee_status 为 null/undefined（历史记录未设置状态）→ 按原 feeDisplay 显示实际金额；
-            //   已提交 → 交通/其他按原 feeDisplay 显示（未填写→—，0→¥0.00，正数→¥X.XX）；
-            //   已提交且费用合计为 0 → 总计 '0'；已提交且合计 >0 → 总计显示原费用明细(¥合计)。
+            //   显式 fee_status='draft'（待提交）→ 金额未提交不展示，三列均显示灰色「—」；
+            //   已提交 → 交通/其他按 feeDisplay 显示（未填写→「—」，显式填 0→¥0.00，正数→¥X.XX）；
+            //   总计：交通与其他均未填写 → 「—」（无合计可展示）；任一项有值 → ¥合计（合计 0 即显式 0 → ¥0.00）。
             const isDraft = r.fee_status === 'draft';
             let tDisp, oDisp, totalDisp;
             if (isDraft) {
-                const dash = { text: '-', cls: 'fm-fee-empty' };
+                const dash = { text: '—', cls: 'fm-fee-empty' };
                 tDisp = dash; oDisp = dash; totalDisp = dash;
             } else {
                 tDisp = feeDisplay(r.transport_fee);
                 oDisp = feeDisplay(r.other_fee);
-                // 已提交：费用合计为 0 → '0'（与导出一致），否则明细金额
-                totalDisp = (total === 0)
-                    ? { text: '0', cls: 'fm-fee-zero' }
-                    : { text: '¥' + money(total), cls: 'fm-fee-set' };
-            };
+                totalDisp = (isUnfilled(r.transport_fee) && isUnfilled(r.other_fee))
+                    ? { text: '—', cls: 'fm-fee-empty' }
+                    : { text: '¥' + money(total), cls: total === 0 ? 'fm-fee-zero' : 'fm-fee-set' };
+            }
             // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
             addCell('datetime', isDup ? '' : dtText);
             addCell('teacher', teacher);
             addCell('merged', `${esc(typeStr)}，${esc(statusText(r.status))}`);
             addCell('location', locationText);
             // 费用状态：管理员/班主任可编辑（下拉）；普通教师只读 pill
+            // 下拉与只读 pill 统一用 fs.cls（fm-fee-*）分色：原始状态码（teacher_submitted 等）
+            // 与 CSS 类名（fm-fee-submitted 等）不一致，直接拼接会导致可编辑态无颜色
             const fs = feeStatusInfo(r.fee_status);
             const feeStatusHtml = config.canEditFeeStatus
-                ? `<select class="status-select fm-fee-${(r.fee_status || 'draft')}" data-fm-fs-id="${r.id}">`
+                ? `<select class="status-select ${fs.cls}" data-fm-fs-id="${r.id}">`
                     + FEE_STATUSES.map(code => `<option value="${code}"${code === (r.fee_status || 'draft') ? ' selected' : ''}>${FEE_STATUS[code].label}</option>`).join('')
                     + `</select>`
                 : `<span class="status-select ${fs.cls}">${fs.label}</span>`;
@@ -878,20 +967,17 @@
             setClampTokens(tdLoc, locs.length ? locs : ['-']);
             tr.appendChild(tdLoc);
 
-            // 费用状态（汇总：各状态计数）
+            // 费用状态（汇总：各状态独立分色胶囊，颜色与明细行 .fm-fee-* 一致）
             const tdFeeStatus = document.createElement('td');
             tdFeeStatus.className = 'fm-center';
             const fsClamp = document.createElement('span');
             fsClamp.className = 'fm-cell-clamp fm-center';
-            const fsPill = document.createElement('span');
-            fsPill.className = 'fm-status-mini fm-tokens';
-            feeStatusMini(list).forEach(t => {
+            feeStatusMini(list).forEach(({ code, text }) => {
                 const tk = document.createElement('span');
-                tk.className = 'fm-token';
-                tk.textContent = t;
-                fsPill.appendChild(tk);
+                tk.className = 'fm-token fm-fee-pill ' + feeStatusInfo(code).cls;
+                tk.textContent = text;
+                fsClamp.appendChild(tk);
             });
-            fsClamp.appendChild(fsPill);
             tdFeeStatus.appendChild(fsClamp);
             tr.appendChild(tdFeeStatus);
 
@@ -949,6 +1035,8 @@
             details.forEach(d => { d.style.display = willOpen ? 'table-row' : 'none'; });
             const arrow = row.querySelector('.fm-expand-toggle');
             if (arrow) arrow.textContent = willOpen ? '▾' : '▸';
+            // 明细行是列宽基准，展开/收起会改变列宽：重新执行汇总行字号适配与悬浮提示
+            if (window.requestAnimationFrame) window.requestAnimationFrame(() => fitSummaryRows(mountEl));
         };
         // 整行点击（按钮除外）展开/收起该学生的明细记录
         tbody.querySelectorAll('tr.fm-stu-row').forEach(row => {
