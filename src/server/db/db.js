@@ -131,7 +131,10 @@ const pool = new Pool({
     max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10),
     min: isVercel || isRender ? 0 : 2,
     idleTimeoutMillis: isVercel || isRender ? 5000 : 30000,
-    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT, 10) || 10000,
+    // 直连 Neon TCP 在本环境常因连接超时（默认 10s）才回退 Neon HTTP，反而更慢；
+    // 缩短到 3s：健康连接(<1s)不受影响，不健康时快速回退到 Neon HTTP（serverless 推荐驱动）。
+    // 启动 warmup 会在首个用户请求前完成切换，消除 10-24s 延迟。可用 DB_CONNECT_TIMEOUT 覆盖。
+    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT, 10) || 3000,
     allowExitOnIdle: isVercel || isRender
   });
 

@@ -8,6 +8,12 @@ let customModels = [];
 let currentConfig = null;
 let modelsCapabilities = {};
 
+// 状态检测编排：缓存 + 并发去重 + 去抖（避免每次进任意 admin 页都并发打 /api/ai/check）
+const STATUS_TTL = 5 * 60 * 1000; // 5 分钟内复用检测结果，不重复打 provider
+const statusCache = new Map();      // key -> { ts, available, error }
+const inFlightChecks = new Map();   // key -> Promise（并发去重）
+let detectTimer = null;
+
 const apiUtils = new ApiUtils();
 
 function escapeHtml(str) {
@@ -75,6 +81,17 @@ function initAIModelsManager() {
     loadCustomModels();
     loadModelsCapabilities();
     bindEvents();
+
+    // 监听 AI 区块可见性：区块切到前台（showSection 加 active）时才触发状态检测，
+    // 避免 dashboard/其他 admin 页加载时就并发打 /api/ai/check。
+    const tbody = document.getElementById('aiModelsTableBody');
+    const section = tbody ? tbody.closest('.dashboard-section') : null;
+    if (section && typeof MutationObserver !== 'undefined') {
+        const obs = new MutationObserver(() => {
+            if (section.classList.contains('active')) detectAllModelStatuses();
+        });
+        obs.observe(section, { attributes: true, attributeFilter: ['class'] });
+    }
 }
 
 /**
@@ -242,16 +259,8 @@ function renderModelsTable() {
         </tr>`;
     }).join('');
 
-    // 检测非使用中的模型状态
-    allModels.forEach(model => {
-        if (!isInUse(model)) {
-            if (model._type === 'preset') {
-                checkPresetStatus(model);
-            } else {
-                checkCustomStatus(model, model._index);
-            }
-        }
-    });
+    // 仅在 AI 区块可见时检测模型状态（去抖/缓存由 detectAllModelStatuses 统一处理）
+    detectAllModelStatuses();
 }
 
 /**
@@ -267,11 +276,29 @@ function renderCapsTags(caps) {
 }
 
 /**
- * 检测预设模型状态
+ * 应用模型状态到 DOM（供检测函数与缓存复用）
+ */
+function applyStatus(ref, status) {
+    const sel = ref._type === 'preset'
+        ? `.ai-status[data-preset-id="${ref.id}"]`
+        : `.ai-status[data-custom-index="${ref._index}"]`;
+    const statusEl = document.querySelector(sel);
+    if (!statusEl) return;
+    if (status.available) {
+        statusEl.className = 'ai-status available';
+        statusEl.innerHTML = '<span class="ai-status-dot"></span>可用';
+    } else {
+        statusEl.className = 'ai-status unavailable';
+        statusEl.innerHTML = '<span class="ai-status-dot"></span>不可用';
+        statusEl.title = status.error || '无法连接';
+    }
+}
+
+/**
+ * 检测预设模型状态（仅返回结果，DOM 由 applyStatus 统一处理）
  */
 async function checkPresetStatus(preset) {
-    const statusEl = document.querySelector(`.ai-status[data-preset-id="${preset.id}"]`);
-    if (!statusEl) return;
+    const ref = { _type: 'preset', id: preset.id };
     try {
         const response = await fetchWithAuth('/api/ai/check', {
             method: 'POST',
@@ -282,27 +309,21 @@ async function checkPresetStatus(preset) {
             })
         });
         const result = await response.json();
-        if (result.data && result.data.available) {
-            statusEl.className = 'ai-status available';
-            statusEl.innerHTML = '<span class="ai-status-dot"></span>可用';
-        } else {
-            statusEl.className = 'ai-status unavailable';
-            statusEl.innerHTML = '<span class="ai-status-dot"></span>不可用';
-            statusEl.title = result.data ? result.data.error : '无法连接';
-        }
+        const status = { available: !!(result.data && result.data.available), error: result.data ? result.data.error : '无法连接' };
+        applyStatus(ref, status);
+        return status;
     } catch (error) {
-        statusEl.className = 'ai-status unknown';
-        statusEl.innerHTML = '<span class="ai-status-dot"></span>未知';
-        statusEl.title = error.message;
+        const status = { available: false, error: error.message };
+        applyStatus(ref, status);
+        return status;
     }
 }
 
 /**
- * 检测自定义模型状态
+ * 检测自定义模型状态（仅返回结果，DOM 由 applyStatus 统一处理）
  */
 async function checkCustomStatus(custom, index) {
-    const statusEl = document.querySelector(`.ai-status[data-custom-index="${index}"]`);
-    if (!statusEl) return;
+    const ref = { _type: 'custom', _index: index };
     try {
         const response = await fetchWithAuth('/api/ai/check', {
             method: 'POST',
@@ -313,19 +334,56 @@ async function checkCustomStatus(custom, index) {
             })
         });
         const result = await response.json();
-        if (result.data && result.data.available) {
-            statusEl.className = 'ai-status available';
-            statusEl.innerHTML = '<span class="ai-status-dot"></span>可用';
-        } else {
-            statusEl.className = 'ai-status unavailable';
-            statusEl.innerHTML = '<span class="ai-status-dot"></span>不可用';
-            statusEl.title = result.data ? result.data.error : '无法连接';
-        }
+        const status = { available: !!(result.data && result.data.available), error: result.data ? result.data.error : '无法连接' };
+        applyStatus(ref, status);
+        return status;
     } catch (error) {
-        statusEl.className = 'ai-status unknown';
-        statusEl.innerHTML = '<span class="ai-status-dot"></span>未知';
-        statusEl.title = error.message;
+        const status = { available: false, error: error.message };
+        applyStatus(ref, status);
+        return status;
     }
+}
+
+/**
+ * 状态检测编排：去抖 + 缓存 + 并发去重 + 仅 AI 区块可见时触发
+ * 解决「每次进入任意 admin 页都并发打 /api/ai/check → 上游 429 / 8s 超时」的问题。
+ */
+function modelStatusKey(model) {
+    return [model._type, model.provider, model.baseUrl, model.model, model.protocol].join('|');
+}
+
+function isAiTableVisible() {
+    const tbody = document.getElementById('aiModelsTableBody');
+    return !!(tbody && tbody.offsetParent !== null);
+}
+
+function collectAllModels() {
+    return [
+        ...presetModels.map(p => ({ ...p, _type: 'preset' })),
+        ...customModels.map((c, i) => ({ ...c, _type: 'custom', _index: i }))
+    ];
+}
+
+function detectAllModelStatuses() {
+    if (!isAiTableVisible()) return;
+    clearTimeout(detectTimer);
+    detectTimer = setTimeout(() => {
+        if (!isAiTableVisible()) return;
+        collectAllModels().forEach(model => {
+            if (isInUse(model)) return;
+            const key = modelStatusKey(model);
+            const cached = statusCache.get(key);
+            if (cached && (Date.now() - cached.ts) < STATUS_TTL) {
+                applyStatus(model, cached);
+                return;
+            }
+            if (inFlightChecks.has(key)) return; // 并发去重：同一模型不重复打
+            const p = (model._type === 'preset' ? checkPresetStatus(model) : checkCustomStatus(model, model._index))
+                .then(status => { if (status) statusCache.set(key, { ts: Date.now(), ...status }); })
+                .finally(() => inFlightChecks.delete(key));
+            inFlightChecks.set(key, p);
+        });
+    }, 500);
 }
 
 /**

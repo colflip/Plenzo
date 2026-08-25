@@ -27,6 +27,19 @@ const aiLimiter = rateLimit({
     }
 });
 
+// 状态检测专用限流：避免单客户端并发轰 provider 触发上游 429
+const aiCheckLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: false,
+    message: {
+        success: false,
+        message: 'AI 状态检测请求过于频繁，请稍后再试'
+    }
+});
+
 // AI 状态检查
 router.get('/status', authMiddleware, aiController.getStatus);
 
@@ -40,7 +53,7 @@ router.get('/presets', authMiddleware, teacherOrAdmin, aiController.getPresets);
 router.put('/config', authMiddleware, teacherOrAdmin, validate(aiConfigUpdateValidation), aiController.updateConfig);
 
 // 检测 AI 模型状态（快速检测，只验证连接性）
-router.post('/check', authMiddleware, teacherOrAdmin, validate(aiConfigTestValidation), aiController.checkModel);
+router.post('/check', authMiddleware, teacherOrAdmin, aiCheckLimiter, validate(aiConfigTestValidation), aiController.checkModel);
 
 // 测试 AI 模型连接（完整测试，发送真实请求）
 router.post('/test', authMiddleware, teacherOrAdmin, validate(aiConfigTestValidation), aiController.testModel);

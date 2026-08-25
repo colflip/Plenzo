@@ -35,6 +35,8 @@ const app = express();
 // 这同时修复 express-rate-limit 的 ERR_ERL_FORWARDED_HEADER 校验错误，
 // 并使 req.ip 返回真实客户端 IP（loginLimiter/strictLimiter/apiLimiter 依赖此值）。
 app.set('trust proxy', 1);
+// API JSON 响应关闭 ETag：避免 dashboard 轮询命中 304 后仍重跑慢查询，且保证数据始终最新
+app.set('etag', false);
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
