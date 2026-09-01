@@ -12,7 +12,7 @@
  */
 
 const SchemaHelper = require('../utils/schema-helper');
-const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/feeStatus');
+const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/fee-status');
 
 /**
  * 费用金额归一：空值/未传 → null（NULL，表示未填）；数字字符串 → number；

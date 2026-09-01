@@ -35,7 +35,6 @@ router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, validate
 
 // 班主任管理关联学生
 router.get('/student-schedules', authMiddleware, teacherOnly, teacherController.getHeadTeacherStudentSchedules);
-router.get('/student-schedules/export', authMiddleware, teacherOnly, strictLimiter, teacherController.exportHeadTeacherStudentData);
 router.get('/associated-students', authMiddleware, teacherOnly, teacherController.getAssociatedStudents);
 router.get('/associated-students/detail', authMiddleware, teacherOnly, teacherController.getAssociatedStudentsDetail);
 router.put('/associated-students/:id', authMiddleware, teacherOnly, teacherController.updateAssociatedStudent);

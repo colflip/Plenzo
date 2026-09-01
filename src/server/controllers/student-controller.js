@@ -9,8 +9,8 @@ const { slotToColumn, mapRowToStudentAvailability } = require('../services/avail
 const { handleExportError } = require('../middleware/export-error-handler');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
-const AdvancedExportService = require('../services/advanced-export-service');
-const exportService = require('../services/export-service');
+const { pipeline, scheduleQueries } = require('../services/export');
+
 
 const studentController = {
     /**
@@ -121,7 +121,7 @@ const studentController = {
         try {
             const studentId = req.user.id;
             const { startDate, endDate } = req.query;
-            const out = await exportService.runRoleScheduleExport({
+            const out = await pipeline.runRoleScheduleExport({
                 startDate,
                 endDate,
                 userId: studentId,
@@ -129,7 +129,7 @@ const studentController = {
                 studentId,
                 exportType: 'student_schedule',
                 studentName: req.user.name || req.user.username,
-                queryRawData: () => new AdvancedExportService(db).queryStudentSchedule(startDate, endDate, { student_id: studentId })
+                queryRawData: () => scheduleQueries.queryStudentSchedule(startDate, endDate, { student_id: studentId })
             });
             if (out.buffer) {
                 res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

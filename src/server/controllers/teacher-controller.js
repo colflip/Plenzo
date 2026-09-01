@@ -1,15 +1,13 @@
 const logger = require('../utils/logger.js');
 const db = require('../db/db');
-const AdvancedExportService = require('../services/advanced-export-service');
-const { standardResponse } = require('../middleware/validation');
-const { handleExportError, ExportError } = require('../middleware/export-error-handler');
-const ExportLogService = require('../utils/export-log-service');
-const { resolveActor } = require('../utils/feeStatus');
+const { pipeline, scheduleQueries } = require('../services/export');
+const { handleExportError } = require('../middleware/export-error-handler');
+const { resolveActor } = require('../utils/fee-status');
 const FeeService = require('../services/fee-service');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
 const headTeacherService = require('../services/head-teacher-service');
-const exportService = require('../services/export-service');
+
 const {
     SLOT_COLUMNS,
     normalizeSlotKey,
@@ -124,7 +122,7 @@ const teacherController = {
             const teacherId = req.user.id;
             const teacherName = req.user.name || req.user.username || '教师';
             const { startDate, endDate } = req.query;
-            const out = await exportService.runRoleScheduleExport({
+            const out = await pipeline.runRoleScheduleExport({
                 startDate,
                 endDate,
                 userId: teacherId,
@@ -133,7 +131,7 @@ const teacherController = {
                 teacherId,
                 exportType: 'teacher_schedule',
                 studentName: '全部学生',
-                queryRawData: () => new AdvancedExportService(db).queryTeacherSchedule(startDate, endDate, { teacher_id: teacherId })
+                queryRawData: () => scheduleQueries.queryTeacherSchedule(startDate, endDate, { teacher_id: teacherId })
             });
             if (out.buffer) {
                 res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -645,229 +643,6 @@ const teacherController = {
     async getAllTeachers(req, res) {
         const out = await headTeacherService.getAllTeachers(req);
         return res.status(out.status).json(out.body);
-    },
-
-    /**
-     * 班主任导出其关联的学生数据
-     */
-    async exportHeadTeacherStudentData(req, res) {
-        let logId = null;
-        const startTime = Date.now();
-        const logService = new ExportLogService(db);
-
-        try {
-            const { startDate, endDate, student_id, teacher_id } = req.query;
-            const myTeacherId = req.user.id;
-
-            if (!startDate || !endDate) {
-                return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
-            }
-
-            // 1. 获取并验证权限：这些学生是否真的归该班主任管
-            const teacherResult = await db.query('SELECT student_ids, name FROM teachers WHERE id = $1', [myTeacherId]);
-            if (teacherResult.rows.length === 0) {
-                return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
-            }
-
-            const allowedStudentIdsStr = teacherResult.rows[0].student_ids || '';
-            const teacherName = teacherResult.rows[0].name || '教师';
-            const allowedStudentIds = allowedStudentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-
-            if (allowedStudentIds.length === 0) {
-                return res.status(400).json(standardResponse(false, null, '您未绑定任何学生，无法导出数据'));
-            }
-
-            // 2. 确定最终要查询的学生范围
-            let studentIdsToQuery = allowedStudentIds;
-            if (student_id) {
-                const sId = parseInt(student_id);
-                if (!allowedStudentIds.includes(sId)) {
-                    return res.status(403).json(standardResponse(false, null, '您无权导出该学生的数据'));
-                }
-                studentIdsToQuery = [sId];
-            }
-
-            // 记录导出开始
-            try {
-                logId = await logService.logExportStart({
-                    userId: myTeacherId,
-                    userType: 'teacher_homeroom',
-                    startDate,
-                    endDate,
-                    studentId: student_id ? parseInt(student_id) : null,
-                    teacherId: teacher_id ? parseInt(teacher_id) : null,
-                    exportType: 'homeroom_students'
-                });
-            } catch (logError) {
-                logger.warn('记录导出开始日志失败:', logError.message);
-            }
-
-            // 3. 构建过滤后的排课记录
-            const advancedExporter = new AdvancedExportService(db);
-
-            // 验证日期范围
-            try {
-                advancedExporter.validateDateRange(startDate, endDate);
-            } catch (vError) {
-                return res.status(400).json(standardResponse(false, null, vError.message));
-            }
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            let sql = `
-                SELECT
-                    ca.id as schedule_id,
-                    ca.teacher_id,
-                    t.name as teacher_name,
-                    ca.student_id,
-                    s.name as student_name,
-                    ${dateExpr}::date as date,
-                    ca.start_time,
-                    ca.end_time,
-                    (TO_CHAR(ca.start_time, 'HH24:MI') || '-' || TO_CHAR(ca.end_time, 'HH24:MI')) as time_range,
-                    ca.location,
-                    st.id as course_id,
-                    st.name as type_name,
-                    COALESCE(st.description, st.name) as type_desc,
-                    ca.status,
-                    ca.teacher_comment as notes,
-                    ca.created_at,
-                    ca.updated_at,
-                    ca.last_auto_update,
-                    ca.created_by,
-                    ca.transport_fee,
-                    ca.other_fee,
-                    ca.family_participants,
-                    ca.teacher_rating,
-                    ca.student_rating,
-                    ca.student_comment,
-                    ca.adjustment_type AS is_temp
-                FROM course_arrangement ca
-                LEFT JOIN teachers t ON ca.teacher_id = t.id
-                LEFT JOIN students s ON ca.student_id = s.id
-                LEFT JOIN schedule_types st ON ca.course_id = st.id
-                WHERE ${dateExpr}::date BETWEEN $1 AND $2
-                AND ca.student_id = ANY($3::int[])
-            `;
-
-            const params = [startDate, endDate, studentIdsToQuery];
-
-            if (teacher_id) {
-                params.push(parseInt(teacher_id));
-                sql += ` AND ca.teacher_id = $${params.length}`;
-            }
-
-            sql += ` ORDER BY ${dateExpr}::date ASC, ca.start_time ASC`;
-
-            const result = await db.query(sql, params);
-            const rawData = result.rows || [];
-
-            if (rawData.length === 0) {
-                return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
-            }
-
-            // 4. 格式化原始数据（与管理员端格式一致）
-            const formattedData = rawData.map(row => ({
-                schedule_id: row.schedule_id,
-                teacher_id: row.teacher_id,
-                teacher_name: row.teacher_name || '',
-                student_id: row.student_id,
-                student_name: row.student_name || '',
-                date: row.date,
-                start_time: row.start_time,
-                end_time: row.end_time,
-                time_range: row.time_range,
-                location: row.location || '',
-                type: row.type_name || '',
-                type_desc: row.type_desc || '',
-                status: row.status,
-                notes: row.notes || '',
-                created_at: row.created_at,
-                updated_at: row.updated_at || null,
-                last_auto_update: row.last_auto_update || null,
-                created_by: row.created_by || null,
-                transport_fee: row.transport_fee,
-                other_fee: row.other_fee,
-                course_id: row.course_id,
-                family_participants: row.family_participants,
-                teacher_rating: row.teacher_rating,
-                teacher_comment: row.notes || '',
-                student_rating: row.student_rating,
-                student_comment: row.student_comment || '',
-                is_temp: row.is_temp
-            }));
-
-            // 5. 确定学生名称
-            let studentNameForFilename = '全部关联学生';
-            if (student_id) {
-                const studentResult = await db.query('SELECT name FROM students WHERE id = $1', [parseInt(student_id)]);
-                if (studentResult.rows.length > 0) {
-                    studentNameForFilename = studentResult.rows[0].name;
-                }
-            }
-
-            // 6-7. 使用统一导出服务生成完整的多Sheet Excel（unified + excel 合并）
-            const excelResult = await exportService.generateExcelFromData(formattedData, {
-                startDate,
-                endDate,
-                userType: 'teacher_homeroom',  // 班主任角色
-                userId: myTeacherId,
-                userName: teacherName,
-                teacherId: teacher_id ? parseInt(teacher_id) : null,
-                studentId: student_id ? parseInt(student_id) : null,
-                studentName: studentNameForFilename
-            });
-
-            // 记录导出成功
-            if (logId) {
-                try {
-                    await logService.logExportSuccess(logId, {
-                        recordCount: formattedData.length,
-                        fileSize: excelResult.buffer.length,
-                        fileName: excelResult.filename,
-                        duration: Date.now() - startTime
-                    });
-                } catch (logError) {
-                    logger.warn('记录导出成功日志失败:', logError.message);
-                }
-            }
-
-            // 8. 记录审计日志
-            try {
-                const { recordAudit } = require('../middleware/audit');
-                await recordAudit(req, {
-                    op: 'export_headteacher_students_advanced',
-                    entityType: 'teacher',
-                    entityId: Number(myTeacherId),
-                    details: {
-                        startDate,
-                        endDate,
-                        studentId: student_id || 'all',
-                        teacherId: teacher_id || 'all',
-                        recordCount: rawData.length
-                    }
-                });
-            } catch (auditError) {
-                logger.warn('记录班主任导出审计日志失败:', auditError.message);
-            }
-
-            // 9. 发送文件流
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
-            res.setHeader('Content-Length', excelResult.buffer.length);
-            return res.end(excelResult.buffer);
-
-        } catch (error) {
-            // 记录导出失败
-            if (logId) {
-                try {
-                    await logService.logExportError(logId, error.message);
-                } catch (logError) {
-                    logger.warn('记录导出错误日志失败:', logError.message);
-                }
-            }
-
-            return handleExportError(error, req, res);
-        }
     }
 
 };

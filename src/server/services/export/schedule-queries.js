@@ -1,20 +1,20 @@
-const logger = require('../utils/logger.js');
+const logger = require('../../utils/logger.js');
 /**
- * 高级数据导出处理模块
- * 提供教师/学生信息查询和排课数据查询能力
- * 供 UnifiedExportService 和 adminController 使用
+ * 排课数据查询模块（Schedule Queries）
+ * 提供教师/学生信息查询和排课数据查询能力（纯数据层，不依赖任何 Excel 生成逻辑）
+ * 供 sheet-builder 与各控制器使用
  *
  * 通用工具方法（validateDateRange, validateDataSize, sanitizeValue）委托给 ExportUtils
  */
 
-const enhancedExcel = require('./enhanced-excel-service');
-const { EXPORT_LIMITS } = require('./export/export-constants');
-const ExportUtils = require('../utils/export-utils');
-const SchemaHelper = require('../utils/schema-helper');
+const db = require('../../db/db');
+const { EXPORT_LIMITS } = require('./export-constants');
+const ExportUtils = require('../../utils/export-utils');
+const SchemaHelper = require('../../utils/schema-helper');
+const { formatDateTime } = require('../../utils/shared-utils');
 
 class AdvancedExportService {
-    constructor(db) {
-        this.db = db;
+    constructor() {
         this.MAX_RECORDS = EXPORT_LIMITS.MAX;
         this.MAX_DATE_RANGE = 365; // 天
     }
@@ -81,7 +81,7 @@ class AdvancedExportService {
             ORDER BY t.created_at DESC
         `;
 
-        const result = await this.db.query(query);
+        const result = await db.query(query);
         const rows = result.rows || [];
 
         // 验证数据量
@@ -93,8 +93,8 @@ class AdvancedExportService {
             completion_rate: row.total_schedules > 0
                 ? ((row.confirmed_schedules / row.total_schedules) * 100).toFixed(2) + '%'
                 : '0%',
-            created_at: enhancedExcel.formatDateTime(row.created_at),
-            last_login: enhancedExcel.formatDateTime(row.last_login)
+            created_at: formatDateTime(row.created_at),
+            last_login: formatDateTime(row.last_login)
         }));
     }
 
@@ -123,7 +123,7 @@ class AdvancedExportService {
             ORDER BY s.created_at DESC
         `;
 
-        const result = await this.db.query(query);
+        const result = await db.query(query);
         const rows = result.rows || [];
 
         // 验证数据量
@@ -135,8 +135,8 @@ class AdvancedExportService {
             participation_rate: row.total_schedules > 0
                 ? ((row.confirmed_schedules / row.total_schedules) * 100).toFixed(2) + '%'
                 : '0%',
-            created_at: enhancedExcel.formatDateTime(row.created_at),
-            last_login: enhancedExcel.formatDateTime(row.last_login)
+            created_at: formatDateTime(row.created_at),
+            last_login: formatDateTime(row.last_login)
         }));
     }
 
@@ -144,6 +144,10 @@ class AdvancedExportService {
     /**
      * 查询教师排课数据 (支持过滤)
      * 优化：只选择需要的列，避免 SELECT *
+     * @param {string} startDate - 开始日期
+     * @param {string} endDate - 结束日期
+     * @param {Object} filters - { teacher_id?, student_id?, student_ids? }
+     *                           student_ids 为学生 ID 数组（班主任按绑定学生范围导出时使用）
      */
     async queryTeacherSchedule(startDate, endDate, filters) {
         const dateExpr = await this.getDateExpression();
@@ -194,11 +198,15 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
             values.push(filters.student_id);
             query += ` AND ca.student_id = $${values.length} `;
         }
+        if (Array.isArray(filters.student_ids) && filters.student_ids.length > 0) {
+            values.push(filters.student_ids);
+            query += ` AND ca.student_id = ANY($${values.length}::int[]) `;
+        }
 
         query += ` ORDER BY ${dateExpr} DESC, ca.start_time ASC`;
 
         const queryStartTime = Date.now();
-        const result = await this.db.query(query, values);
+        const result = await db.query(query, values);
         const queryTime = Date.now() - queryStartTime;
 
         logger.log(`[Performance] queryTeacherSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
@@ -254,7 +262,7 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         query += ` ORDER BY ${dateExpr} DESC, ca.start_time ASC`;
 
         const queryStartTime = Date.now();
-        const result = await this.db.query(query, values);
+        const result = await db.query(query, values);
         const queryTime = Date.now() - queryStartTime;
 
         logger.log(`[Performance] queryStudentSchedule - 查询耗时: ${queryTime}ms, 记录数: ${result.rows?.length || 0}`);
@@ -262,71 +270,6 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         return result.rows || [];
     }
 
-
-
-    /**
-     * 导出指定时间段的老师排课记录 (Admin兼容)
-     */
-    async exportTeacherSchedule(startDate, endDate, filters = {}) {
-        const rows = await this.queryTeacherSchedule(startDate, endDate, filters);
-        return rows.map(row => ({
-            schedule_id: row.schedule_id,
-            teacher_id: row.teacher_id,
-            teacher_name: this.sanitizeValue(row.teacher_name),
-            student_id: row.student_id,
-            student_name: this.sanitizeValue(row.student_name),
-            date: row.date,
-            start_time: row.start_time,
-            end_time: row.end_time,
-            time_range: row.time_range,
-            location: this.sanitizeValue(row.location),
-            course_id: row.course_id,
-            type: this.sanitizeValue(row.type_name),
-            type_desc: this.sanitizeValue(row.type_desc),
-            status: row.status,
-            notes: this.sanitizeValue(row.notes),
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            last_auto_update: row.last_auto_update,
-            created_by: row.created_by,
-            transport_fee: row.transport_fee,
-            other_fee: row.other_fee,
-            family_participants: row.family_participants,
-            teacher_rating: row.teacher_rating,
-            teacher_comment: this.sanitizeValue(row.notes),
-            student_rating: row.student_rating,
-            student_comment: this.sanitizeValue(row.student_comment),
-            adjustment_type: row.adjustment_type
-        }));
-    }
-
-    async exportStudentSchedule(startDate, endDate, filters = {}) {
-        const rows = await this.queryStudentSchedule(startDate, endDate, filters);
-        return rows.map(row => ({
-            schedule_id: row.schedule_id,
-            student_id: row.student_id,
-            student_name: this.sanitizeValue(row.student_name),
-            teacher_id: row.teacher_id,
-            teacher_name: this.sanitizeValue(row.teacher_name),
-            date: row.date,
-            start_time: row.start_time,
-            end_time: row.end_time,
-            time_range: row.time_range,
-            location: this.sanitizeValue(row.location),
-            type: this.sanitizeValue(row.type_name),
-            type_desc: this.sanitizeValue(row.type_desc),
-            status: row.status,
-            notes: this.sanitizeValue(row.notes),
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            last_auto_update: row.last_auto_update,
-            created_by: row.created_by,
-            transport_fee: row.transport_fee,
-            other_fee: row.other_fee,
-            adjustment_type: row.adjustment_type
-        }));
-    }
-
 }
 
-module.exports = AdvancedExportService;
+module.exports = new AdvancedExportService();

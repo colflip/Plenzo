@@ -10,7 +10,6 @@ const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { requireCapability } = require('../utils/admin-permissions');
 const { validate, scheduleValidation, userValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, scheduleTypeValidation, holidayValidation, holidayBatchValidation, holidaySyncValidation, feedbackCreateValidation, feedbackUpdateValidation, adminConfirmValidation, adminTeacherAvailabilityValidation, adminStudentAvailabilityValidation } = require('../middleware/validation');
-const { strictLimiter } = require('../middleware/rate-limit');
 const adminController = require('../controllers/admin-controller');
 const updateScheduleStatus = require('../jobs/update-schedule-status');
 
@@ -46,9 +45,6 @@ router.post('/schedules/batch-fee-status', authMiddleware, adminOnly, requireCap
 router.get('/statistics/overview', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getOverviewStats);
 router.get('/statistics/schedules', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getScheduleStats);
 router.get('/statistics/users', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getUserStats);
-
-// 高级数据导出路由（支持多种导出类型和格式，限流：每小时最多10次）—— 仅 L2+
-router.get('/export-advanced', authMiddleware, adminOnly, requireCapability('export:advanced'), strictLimiter, adminController.advancedExport);
 
 // 课程类型管理路由：查询保持登录可读（教师/学生端展示依赖）；增删改仅 L1
 router.get('/schedule-types', authMiddleware, adminController.getScheduleTypes);

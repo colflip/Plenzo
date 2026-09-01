@@ -1,18 +1,18 @@
 /**
- * 高级导出服务（Export Service）
- * @description 统一三端 advancedExport / 班主任导出共用的排课导出流水线：
+ * 导出流水线编排服务（Export Pipeline）
+ * @description 统一三端排课导出共用的流水线：
  *              日期校验 → 导出开始日志 → 数据查询（调用方注入）→ 统一多Sheet生成 → Excel 生成 → 导出成功日志。
  *              文件流由控制器发送（service 返回 { status, buffer, filename } 成功或 { status, body } 业务错误）。
  *              数据查询/Excel 生成异常：service 记录导出失败日志后 rethrow，由控制器 handleExportError 收口。
- * @module services/exportService
+ * @module services/export/pipeline
  */
 
-const db = require('../db/db');
-const logger = require('../utils/logger');
-const ExportLogService = require('../utils/export-log-service');
-const UnifiedExportService = require('./unified-export-service');
-const excelGeneratorService = require('./excel-generator-service');
-const { standardResponse } = require('../middleware/validation');
+const db = require('../../db/db');
+const logger = require('../../utils/logger');
+const ExportLogService = require('../../utils/export-log-service');
+const unifiedExportService = require('./sheet-builder');
+const excelGeneratorService = require('./excel-writer');
+const { standardResponse } = require('../../middleware/validation');
 
 class ExportService {
     /**
@@ -39,8 +39,7 @@ class ExportService {
      * @returns {Promise<{buffer: Buffer, filename: string}>}
      */
     async generateExcelFromData(rawData, meta) {
-        const unifiedService = new UnifiedExportService();
-        const exportResult = await unifiedService.generateCompleteExport(rawData, meta);
+        const exportResult = await unifiedExportService.generateCompleteExport(rawData, meta);
         const excelResult = await excelGeneratorService.generateMultiSheetExcel(
             exportResult.sheets,
             exportResult.filename

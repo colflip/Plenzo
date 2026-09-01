@@ -101,8 +101,14 @@ window.ExportDialog = (function () {
         startDate: null,
         endDate: null,
         exportContext: null,
+        presetType: null,       // 调用方指定的默认导出类型（open({ type })）
+        studentListScope: null, // 学生下拉当前已加载的范围，切换导出类型时用于判断是否需要重新拉取
         isExporting: false
     };
+
+    // 学生下拉的请求序号：选择导出类型与默认日期回填会先后触发两次加载，
+    // 用序号保证只有最后一次请求的结果被渲染（否则无日期的全量名单可能覆盖按日期收敛的名单）
+    let studentListRequestSeq = 0;
 
     // ============ DOM 引用 ============
     let dialogElement = null;
@@ -260,6 +266,12 @@ window.ExportDialog = (function () {
 
         state.selectedType = typeId;
 
+        // 学生下拉的可选范围随导出类型变化（班主任 = 绑定学生，教师 = 自己授课过的学生），
+        // 切换类型时必须重新拉取，否则会沿用上一个类型的名单。
+        if (state.studentListScope && state.studentListScope !== studentScopeOf(typeId)) {
+            state.studentsLoaded = false;
+        }
+
         // 1. 更新侧边栏状态
         document.querySelectorAll('.export-type-item').forEach(item => {
             const isActive = item.getAttribute('data-type') === typeId;
@@ -415,6 +427,15 @@ window.ExportDialog = (function () {
     }
 
     /**
+     * 判断某导出类型下学生下拉应使用的取数范围
+     * @param {string} typeId - 导出类型
+     * @returns {'homeroom'|'teaching'} homeroom = 班主任绑定学生；teaching = 本人授课过的学生
+     */
+    function studentScopeOf(typeId) {
+        return typeId === EXPORT_TYPES.TEACHER_HOMEROOM ? 'homeroom' : 'teaching';
+    }
+
+    /**
      * 日期变化后刷新学生列表（仅教师端）
      */
     function refreshStudentListByDate() {
@@ -466,6 +487,7 @@ window.ExportDialog = (function () {
             renderList(cachedData);
             studentSelect.disabled = false;
             state.studentsLoaded = true;
+            state.studentListScope = studentScopeOf(state.selectedType);
         } else {
             // 班主任或无缓存时，显示 Loading 并从接口获取
             window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载中...</option>');
@@ -479,31 +501,43 @@ window.ExportDialog = (function () {
 
         // 对于班主任，必须强制 Fetch 以获取最新的关联学生映射
         if (userType === 'teacher' || !cachedData || cachedData.length === 0) {
+            const seq = ++studentListRequestSeq;
             try {
+                const scope = studentScopeOf(state.selectedType);
                 let apiPath = userType === 'teacher' ? '/teacher/associated-students' : '/admin/users/student';
 
                 // 教师端：传入日期参数以查询有排课记录的学生
                 if (userType === 'teacher') {
+                    const params = [];
                     const sInput = document.getElementById('exportStartDate');
                     const eInput = document.getElementById('exportEndDate');
                     if (sInput?.value && eInput?.value) {
-                        apiPath += `?startDate=${sInput.value}&endDate=${eInput.value}`;
+                        params.push(`startDate=${sInput.value}`, `endDate=${eInput.value}`);
                     }
+                    // 班主任导出：名单取其绑定学生（不限授课教师），否则会漏掉别的老师给该学生排的课
+                    if (scope === 'homeroom') {
+                        params.push('scope=homeroom');
+                    }
+                    if (params.length) apiPath += `?${params.join('&')}`;
                 }
 
                 const response = await window.apiUtils.get(apiPath);
+                if (seq !== studentListRequestSeq) return; // 已有更新的请求发出，丢弃本次结果
                 const students = Array.isArray(response) ? response : (response.data || []);
 
-                // 更新缓存
-                localStorage.setItem('cached_students_full', JSON.stringify(students));
+                // 仅管理员的全体学生结果可入缓存；教师端名单是按角色/范围收敛的，不能污染共享缓存
+                if (userType === 'admin') {
+                    localStorage.setItem('cached_students_full', JSON.stringify(students));
+                }
 
                 // 渲染
                 renderList(students);
                 studentSelect.disabled = false;
                 state.studentsLoaded = true;
+                state.studentListScope = scope;
             } catch (e) {
                 // 如果没有缓存且加载失败
-                if (!cachedData) {
+                if (seq === studentListRequestSeq && !cachedData) {
                     window.SecurityUtils.safeSetHTML(studentSelect, '<option value="">加载失败</option>');
                     studentSelect.disabled = false;
                 }
@@ -549,7 +583,7 @@ window.ExportDialog = (function () {
 
         if (!cachedData || cachedData.length === 0) {
             try {
-                const currentUser = window.currentUser || {};
+                const currentUser = getCurrentUser();
                 const userType = currentUser.userType || 'admin';
                 const apiPath = userType === 'teacher' ? '/teacher/all-teachers' : '/admin/users/teacher';
 
@@ -863,7 +897,7 @@ window.ExportDialog = (function () {
 
     /**
      * 重置状态
-     * @param {Object} options - 初始化选项 { startDate, endDate }
+     * @param {Object} options - 初始化选项 { startDate, endDate, type, exportContext }
      */
     function resetState(options = {}) {
         state.selectedType = null;
@@ -871,11 +905,14 @@ window.ExportDialog = (function () {
         state.isExporting = false;
         state.studentsLoaded = false;
         state.teachersLoaded = false;
+        state.studentListScope = null;
 
         // 使用传入的日期或默认为空
         state.startDate = options.startDate || null;
         state.endDate = options.endDate || null;
         state.exportContext = options.exportContext || null;
+        // 调用方指定的默认导出类型（仅接受已注册类型，避免脏值影响选择器）
+        state.presetType = (options.type && EXPORT_TYPE_CONFIG[options.type]) ? options.type : null;
 
         // 如果 DOM 已存在，立即更新日期输入框
         const startInput = document.getElementById('exportStartDate');
@@ -901,7 +938,9 @@ window.ExportDialog = (function () {
 
     /**
      * 显示对话框
-     * @param {Object} options - 配置项 { startDate, endDate }
+     * @param {Object} options - 配置项 { startDate, endDate, type, exportContext }
+     *                           type：调用方希望默认选中的导出类型（如班主任页面传 teacher_homeroom），
+     *                           缺省时按角色回退到各端默认类型
      */
     function show(options) {
         init();
@@ -909,28 +948,18 @@ window.ExportDialog = (function () {
         resetState(options);
 
         const currentUser = getCurrentUser();
-        
-        if (currentUser.userType === 'teacher') {
-            // 教师默认选中自身授课记录
-            setTimeout(() => {
-                const el = document.querySelector('.export-type-item[data-type="teacher_schedule"]');
-                if (el) el.click();
-            }, 50);
-        } else if (currentUser.userType === 'student') {
-            // 学生默认选中排课数据
-            setTimeout(() => {
-                const el = document.querySelector('.export-type-item[data-type="student_schedule"]');
-                if (el) el.click();
-            }, 50);
-        } else if (currentUser.userType === 'admin') {
-            // 管理员默认选中排课数据
-            setTimeout(() => {
-                const el = document.querySelector(`.export-type-item[data-type="schedule_data"]`);
-                if (el) {
-                    el.click();
-                }
-            }, 50);
-        }
+        const roleDefaultType = currentUser.userType === 'teacher'
+            ? EXPORT_TYPES.TEACHER_SCHEDULE      // 教师默认自身授课记录
+            : currentUser.userType === 'student'
+                ? EXPORT_TYPES.STUDENT_SCHEDULE  // 学生默认排课数据
+                : EXPORT_TYPES.SCHEDULE_DATA;    // 管理员默认排课数据
+
+        setTimeout(() => {
+            // 优先使用调用方指定的类型；该类型对当前角色不可见时回退到角色默认类型
+            const el = (state.presetType && document.querySelector(`.export-type-item[data-type="${state.presetType}"]`))
+                || document.querySelector(`.export-type-item[data-type="${roleDefaultType}"]`);
+            if (el) el.click();
+        }, 50);
 
         if (dialogElement) dialogElement.style.display = 'flex';
         if (modalOverlay) modalOverlay.style.display = 'flex';

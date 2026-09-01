@@ -6,9 +6,8 @@ const logger = require('../utils/logger.js');
  */
 
 const db = require('../db/db');
-const AdvancedExportService = require('../services/advanced-export-service');
-const UnifiedExportService = require('../services/unified-export-service');
-const excelGeneratorService = require('../services/excel-generator-service');
+const { pipeline, scheduleQueries } = require('../services/export');
+const headTeacherService = require('../services/head-teacher-service');
 const ExportLogService = require('../utils/export-log-service');
 const { handleExportError } = require('../middleware/export-error-handler');
 const { standardResponse } = require('../middleware/validation');
@@ -20,12 +19,14 @@ const exportController = {
      * POST /api/export/schedule
      *
      * Body: { startDate, endDate, exportType?, teacherId?, studentId? }
-     * exportType: 'teacher_schedule' | 'student_schedule' (默认根据角色自动推断)
+     * exportType: 'teacher_schedule' | 'teacher_homeroom' | 'student_schedule' (默认根据角色自动推断)
      *
      * 角色权限：
      * - admin: 可导出任意范围，可指定 teacherId/studentId
-     * - teacher: 自动限定 teacherId = req.user.id
-     *   - 若指定 studentId 且在绑定列表内 → 班主任导出
+     * - teacher:
+     *   - exportType='teacher_schedule'（默认）→ 自身授课记录，限定 teacherId = req.user.id
+     *   - exportType='teacher_homeroom' → 班主任导出，范围为其绑定学生的全部排课（不限授课教师），
+     *     可用 studentId 指定单个绑定学生、teacherId 按授课教师二次筛选
      * - student: 自动限定 studentId = req.user.id
      */
     async exportSchedule(req, res) {
@@ -50,6 +51,7 @@ const exportController = {
             // ===== 3. 角色权限收敛 =====
             let teacherId = null;
             let studentId = null;
+            let studentIds = null;   // 班主任导出：绑定学生 ID 范围
             let logUserType = userType;
             let exportType = reqExportType;
 
@@ -62,12 +64,38 @@ const exportController = {
                     break;
 
                 case 'teacher':
-                    teacherId = userId;
-                    if (reqStudentId) {
-                        // 教师可导出与其有排课记录的任意学生（不限于绑定列表）
-                        studentId = parseInt(reqStudentId);
+                    if (exportType === 'teacher_homeroom') {
+                        // 班主任导出：以其绑定的学生为范围，导出这些学生的全部排课（不限授课教师），
+                        // 不能收敛为 teacherId = 本人，否则只会导出自己名下的排课。
+                        const { found, studentIds: boundStudentIds } = await headTeacherService.getBoundStudentIds(userId);
+                        if (!found) {
+                            return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+                        }
+                        if (boundStudentIds.length === 0) {
+                            return res.status(400).json(standardResponse(false, null, '您未绑定任何学生，无法导出数据'));
+                        }
+
+                        if (reqStudentId) {
+                            const sId = parseInt(reqStudentId);
+                            if (!boundStudentIds.includes(sId)) {
+                                return res.status(403).json(standardResponse(false, null, '您无权导出该学生的数据'));
+                            }
+                            studentId = sId;
+                        } else {
+                            studentIds = boundStudentIds;
+                        }
+
+                        // 可选的授课教师二次筛选（不限于本人）
+                        teacherId = reqTeacherId ? parseInt(reqTeacherId) : null;
+                        logUserType = 'teacher_homeroom';
+                    } else {
+                        teacherId = userId;
+                        if (reqStudentId) {
+                            // 教师可导出与其有排课记录的任意学生（不限于绑定列表）
+                            studentId = parseInt(reqStudentId);
+                        }
+                        if (!exportType) exportType = 'teacher_schedule';
                     }
-                    if (!exportType) exportType = 'teacher_schedule';
                     break;
 
                 case 'student':
@@ -98,17 +126,17 @@ const exportController = {
             }
 
             // ===== 6. 查询原始数据 =====
-            const exportService = new AdvancedExportService(db);
             let rawData;
 
             if (exportType === 'student_schedule') {
-                rawData = await exportService.queryStudentSchedule(startDate, endDate, {
+                rawData = await scheduleQueries.queryStudentSchedule(startDate, endDate, {
                     student_id: studentId
                 });
             } else {
-                rawData = await exportService.queryTeacherSchedule(startDate, endDate, {
+                rawData = await scheduleQueries.queryTeacherSchedule(startDate, endDate, {
                     teacher_id: teacherId,
-                    student_id: studentId
+                    student_id: studentId,
+                    student_ids: studentIds
                 });
             }
 
@@ -116,17 +144,19 @@ const exportController = {
                 return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
             }
 
-            // ===== 7. 生成多 Sheet 数据 =====
+            // ===== 7-8. 生成多 Sheet Excel（统一流水线） =====
             // 解析选择的学生/教师名称：仅在指定了具体筛选时才使用真实姓名，
             // 否则保持为 null（文件名回退为“全部学生”/“全部教师”）。
             const distinctStudentNames = [...new Set(rawData.map(r => r.student_name).filter(Boolean))];
-            const selectedStudentName = studentId ? (distinctStudentNames.join('、') || null) : null;
+            const isHomeroomExport = logUserType === 'teacher_homeroom';
+            const selectedStudentName = studentId
+                ? (distinctStudentNames.join('、') || null)
+                : (isHomeroomExport ? '全部关联学生' : null);
             const selectedTeacherName = teacherId ? (rawData[0]?.teacher_name || null) : null;
             // 问询列的学生标签：指定学生时列出学生姓名，否则为“全体学生”
             const studentLabel = studentId ? (distinctStudentNames.join('，') || '全体学生') : '全体学生';
 
-            const unifiedService = new UnifiedExportService();
-            const exportResult = await unifiedService.generateCompleteExport(rawData, {
+            const excelResult = await pipeline.generateExcelFromData(rawData, {
                 startDate,
                 endDate,
                 userType: logUserType,
@@ -138,12 +168,6 @@ const exportController = {
                 teacherName: selectedTeacherName,
                 studentLabel
             });
-
-            // ===== 8. 生成 Excel 二进制 =====
-            const excelResult = await excelGeneratorService.generateMultiSheetExcel(
-                exportResult.sheets,
-                exportResult.filename
-            );
 
             // ===== 9. 记录成功 =====
             if (logId) {
@@ -204,14 +228,13 @@ const exportController = {
                 logger.warn('记录导出日志失败:', e.message);
             }
 
-            const exportService = new AdvancedExportService(db);
             let exportData, filename;
 
             if (type === 'teacher_info') {
-                exportData = await exportService.exportTeacherInfo();
+                exportData = await scheduleQueries.exportTeacherInfo();
                 filename = `教师信息数据_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
             } else {
-                exportData = await exportService.exportStudentInfo();
+                exportData = await scheduleQueries.exportStudentInfo();
                 filename = `学生信息数据_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
             }
 

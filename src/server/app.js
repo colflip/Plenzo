@@ -219,7 +219,7 @@ app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, re
 // 同站直接导航会自动携带 httpOnly Cookie 中的 JWT，故不再接受 URL 中的 token，
 // 避免 token 经 Referer / 访问日志泄露（P2 调试路由修复）。无有效 token 时优雅降级为空数据 JSON。
 const jwt = require('jsonwebtoken');
-const rewardCalc = require('./services/rewardCalc');
+const rewardCalc = require('./services/reward-calc');
 
 /**
  * 从请求中提取 JWT：优先 httpOnly Cookie（同站导航自动携带），兜底 Authorization 头。

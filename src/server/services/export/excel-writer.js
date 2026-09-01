@@ -1,15 +1,14 @@
 /**
- * 增强的 Excel 服务
- * 基于 ExcelJS 库，提供 Rich Text 格式化功能
- * 支持：
- * 1. 按时间段分组显示课程
- * 2. 单元格内 Rich Text（多种颜色、加粗、斜体、删除线）
+ * Excel 写入服务（Excel Writer）
+ * 基于 ExcelJS 库，统一负责 Sheet → Excel Buffer 的全部生成逻辑：
+ * 1. 多 Sheet / 单 Sheet 生成入口（固定工作表顺序 + 向后兼容额外 Sheet）
+ * 2. 按时间段分组显示课程；单元格内 Rich Text（多种颜色、加粗、斜体、删除线）
  * 3. 使用分号分隔同一时间段的多个课程
  */
 
 const ExcelJS = require('exceljs');
-const { RICH_TEXT_COLORS } = require('./export/export-constants');
-const RichTextFormatter = require('./export/rich-text-formatter');
+const { RICH_TEXT_COLORS } = require('./export-constants');
+const RichTextFormatter = require('./rich-text-formatter');
 
 // ============================================================
 // 预定义样式常量 — 避免在循环中重复创建对象
@@ -25,7 +24,80 @@ const STYLE_ALIGN_RICHTEXT = { wrapText: true, vertical: 'top', horizontal: 'lef
 const STYLE_ALIGN_DEFAULT = { vertical: 'middle', wrapText: true, horizontal: 'center' };
 const STYLE_FILL_SUNDAY = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
 
-class EnhancedExcelService {
+class ExcelWriter {
+    // ============================================================
+    // 高层生成入口（原 excel-generator-service 合并而来）
+    // ============================================================
+
+    /**
+     * 从多Sheet数据生成Excel Buffer
+     * @param {Object} sheetsData - { 'Sheet1': [...data], 'Sheet2': [...data], _worksheetOptions: {...} }
+     * @param {string} filename - 文件名
+     * @returns {Object} { buffer, filename }
+     */
+    async generateMultiSheetExcel(sheetsData, filename) {
+        const workbook = this.createWorkbook();
+
+        // 提取工作表选项（如果存在）
+        const worksheetOptions = sheetsData._worksheetOptions || {};
+
+        // 定义固定的工作表顺序
+        const sheetOrder = [
+            '每日排课明细',
+            '教师授课汇总',
+            '学生上课汇总',
+            '教师授课统计',
+            '学生上课统计',
+            '排课原始记录'
+        ];
+
+        // 按固定顺序添加工作表
+        sheetOrder.forEach(sheetName => {
+            const data = sheetsData[sheetName];
+            // 跳过不存在或为空的工作表
+            if (data && Array.isArray(data) && data.length > 0) {
+                const options = worksheetOptions[sheetName] || {};
+                this.addWorksheet(workbook, data, sheetName, options);
+            }
+        });
+
+        // 添加任何不在固定顺序中的额外工作表（向后兼容）
+        Object.entries(sheetsData).forEach(([sheetName, data]) => {
+            if (sheetName === '_worksheetOptions') return;
+            if (sheetOrder.includes(sheetName)) return; // 已经添加过
+
+            if (Array.isArray(data) && data.length > 0) {
+                const options = worksheetOptions[sheetName] || {};
+                this.addWorksheet(workbook, data, sheetName, options);
+            }
+        });
+
+        const buffer = await this.writeToBuffer(workbook);
+
+        return {
+            buffer,
+            filename
+        };
+    }
+
+    /**
+     * 从单Sheet数据生成Excel Buffer
+     * @param {Array} data - 数据数组
+     * @param {string} filename - 文件名
+     * @param {string} sheetName - Sheet名称
+     * @returns {Object} { buffer, filename }
+     */
+    async generateSingleSheetExcel(data, filename, sheetName = 'Sheet1') {
+        const workbook = this.createWorkbook();
+        this.addWorksheet(workbook, data, sheetName);
+        const buffer = await this.writeToBuffer(workbook);
+
+        return {
+            buffer,
+            filename
+        };
+    }
+
     /**
      * 创建工作簿
      */
@@ -681,24 +753,11 @@ class EnhancedExcelService {
     }
 
     /**
-     * 格式化日期时间
-     */
-    formatDateTime(datetime) {
-        if (!datetime) return '';
-        try {
-            const d = new Date(datetime);
-            return d.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
-        } catch (e) {
-            return String(datetime);
-        }
-    }
-
-    /**
      * 格式化状态
      */
     formatStatus(status) {
         // 统一使用 sharedUtils.STATUS_MAP 作为权威来源
-        const { getStatusLabel } = require('../utils/shared-utils');
+        const { getStatusLabel } = require('../../utils/shared-utils');
         return getStatusLabel(status);
     }
 
@@ -713,9 +772,9 @@ class EnhancedExcelService {
      * 生成时间戳（委托给 sharedUtils 消除重复）
      */
     getTimestamp() {
-        const { getTimestamp } = require('../utils/shared-utils');
+        const { getTimestamp } = require('../../utils/shared-utils');
         return getTimestamp();
     }
 }
 
-module.exports = new EnhancedExcelService();
+module.exports = new ExcelWriter();

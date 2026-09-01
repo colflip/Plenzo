@@ -106,6 +106,21 @@ function getStatusLabel(status) {
     return STATUS_MAP[String(status)] || String(status || '未知');
 }
 
+/**
+ * 格式化日期时间为 zh-CN 本地格式（YYYY-MM-DD HH:mm:ss）
+ * @param {string|Date} datetime
+ * @returns {string}
+ */
+function formatDateTime(datetime) {
+    if (!datetime) return '';
+    try {
+        const d = new Date(datetime);
+        return d.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+    } catch (e) {
+        return String(datetime);
+    }
+}
+
 module.exports = {
     validateDateFormat,
     getTimestamp,
@@ -113,5 +128,6 @@ module.exports = {
     resolveTableName,
     resolveUserName,
     STATUS_MAP,
-    getStatusLabel
+    getStatusLabel,
+    formatDateTime
 };
