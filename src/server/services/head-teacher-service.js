@@ -13,13 +13,65 @@ const { standardResponse } = require('../middleware/validation');
 
 class HeadTeacherService {
     /**
+     * 获取班主任绑定的学生 ID 列表（teachers.student_ids 为逗号分隔字符串）
+     * @param {number|string} teacherId - 班主任 ID
+     * @returns {Promise<{found: boolean, studentIds: number[]}>} found=false 表示教师记录不存在
+     */
+    async getBoundStudentIds(teacherId) {
+        const result = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
+        if (result.rows.length === 0) {
+            return { found: false, studentIds: [] };
+        }
+
+        const studentIds = String(result.rows[0].student_ids || '')
+            .split(',')
+            .map(s => parseInt(s.trim(), 10))
+            .filter(n => !isNaN(n));
+
+        return { found: true, studentIds };
+    }
+
+    /**
      * 获取教师关联/有排课记录的学生列表
-     * @description 传入 startDate/endDate 时查该时段内有排课的学生；否则返回班主任绑定学生（向下兼容）
+     * @description scope=homeroom 时按班主任绑定学生取交集（跨全部授课教师）；
+     *              否则传入 startDate/endDate 查该时段内本人授课的学生；无日期参数返回绑定学生（向下兼容）
      */
     async getAssociatedStudents(req) {
         try {
             const teacherId = req.user.id;
-            const { startDate, endDate } = req.query;
+            const { startDate, endDate, scope } = req.query;
+            const isHomeroomScope = scope === 'homeroom';
+
+            // 班主任范围：绑定学生 ∩（可选）该时段内有排课记录的学生，不限授课教师
+            if (isHomeroomScope) {
+                const { found, studentIds } = await this.getBoundStudentIds(teacherId);
+                if (!found) {
+                    return { status: 404, body: standardResponse(false, null, '未找到教师信息') };
+                }
+                if (studentIds.length === 0) {
+                    return { status: 200, body: standardResponse(true, [], '未绑定学生') };
+                }
+
+                if (startDate && endDate) {
+                    const dateExpr = await SchemaHelper.getDateExpr('ca');
+                    const studentsResult = await db.query(`
+                        SELECT DISTINCT s.id, s.name
+                        FROM course_arrangement ca
+                        JOIN students s ON ca.student_id = s.id
+                        WHERE ca.student_id = ANY($1::int[])
+                          AND ${dateExpr}::date BETWEEN $2 AND $3
+                          AND ca.status <> 'deleted'
+                        ORDER BY s.name
+                    `, [studentIds, startDate, endDate]);
+                    return { status: 200, body: standardResponse(true, studentsResult.rows, '获取学生列表成功') };
+                }
+
+                const studentsResult = await db.query(
+                    'SELECT id, name FROM students WHERE id = ANY($1::int[]) ORDER BY name',
+                    [studentIds]
+                );
+                return { status: 200, body: standardResponse(true, studentsResult.rows, '获取学生列表成功') };
+            }
 
             // 有日期参数：查询该时间段内有排课记录的学生
             if (startDate && endDate) {
@@ -36,13 +88,10 @@ class HeadTeacherService {
             }
 
             // 无日期参数：返回绑定的学生列表（向下兼容）
-            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
-            if (teacherResult.rows.length === 0) {
+            const { found, studentIds } = await this.getBoundStudentIds(teacherId);
+            if (!found) {
                 return { status: 404, body: standardResponse(false, null, '未找到教师信息') };
             }
-
-            const studentIdsStr = teacherResult.rows[0].student_ids || '';
-            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
             if (studentIds.length === 0) {
                 return { status: 200, body: standardResponse(true, [], '未绑定学生') };
@@ -65,13 +114,10 @@ class HeadTeacherService {
     async getAssociatedStudentsDetail(req) {
         try {
             const teacherId = req.user.id;
-            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
-            if (teacherResult.rows.length === 0) {
+            const { found, studentIds } = await this.getBoundStudentIds(teacherId);
+            if (!found) {
                 return { status: 404, body: standardResponse(false, null, '未找到教师信息') };
             }
-
-            const studentIdsStr = teacherResult.rows[0].student_ids || '';
-            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
             if (studentIds.length === 0) {
                 return { status: 200, body: standardResponse(true, [], '未绑定学生') };
@@ -102,16 +148,12 @@ class HeadTeacherService {
                 return { status: 400, body: standardResponse(false, null, '缺少学生ID') };
             }
 
-            const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [teacherId]);
-            if (teacherResult.rows.length === 0) {
+            const { found, studentIds } = await this.getBoundStudentIds(teacherId);
+            if (!found) {
                 return { status: 404, body: standardResponse(false, null, '未找到教师信息') };
             }
 
-            const studentIdsStr = teacherResult.rows[0].student_ids || '';
-            const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-
-            if (!studentIds.includes(parseInt(studentId))) {
-                return { status: 403, body: standardResponse(false, null, '无权修改该学生信息') };
+            if (!studentIds.includes(parseInt(studentId))) {                return { status: 403, body: standardResponse(false, null, '无权修改该学生信息') };
             }
 
             let sets = ['name = $1', 'profession = $2', 'contact = $3', 'visit_location = $4', 'home_address = $5'];

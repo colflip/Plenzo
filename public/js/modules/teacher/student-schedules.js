@@ -1195,11 +1195,13 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
 
 /**
  * 导出班主任关联的学生数据
+ * @description 本页面导出的是所选学生（默认全部关联学生）的全部排课，
+ *              不是当前登录教师自己的授课记录，因此默认类型必须是 teacher_homeroom。
  */
 async function exportTeacherStudents() {
     if (window.ExportDialog) {
         window.ExportDialog.open({
-            type: 'teacher_schedule',
+            type: 'teacher_homeroom',
             exportContext: 'head_teacher_students'
         });
     } else {

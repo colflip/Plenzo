@@ -1,12 +1,11 @@
-const logger = require('../utils/logger.js');
+const logger = require('../../utils/logger.js');
 /**
- * 统一导出服务
- * 整合前端 export-manager.js 的所有导出逻辑到后端
- * 为管理员、教师、学生三端提供统一的导出接口
+ * 排课 Sheet 结构构建服务（Sheet Builder）
+ * 将排课原始数据转换为多 Sheet 结构（明细/汇总/统计/原始记录），
+ * 含分批处理、名称缓存与权限过滤；Excel 二进制生成由 excel-writer 负责
  */
 
-const enhancedExcel = require('./enhanced-excel-service');
-const { ExportError } = require('../middleware/export-error-handler');
+const { ExportError } = require('../../middleware/export-error-handler');
 
 // 导入模块化组件
 const {
@@ -15,11 +14,11 @@ const {
     CACHE_CONFIG,
     EXPORT_LIMITS,
     BATCH_CONFIG
-} = require('./export/export-constants');
-const DataTransformer = require('./export/data-transformer');
-const CalendarGenerator = require('./export/calendar-generator');
-const StatsAggregator = require('./export/stats-aggregator');
-const PermissionFilter = require('./export/permission-filter');
+} = require('./export-constants');
+const DataTransformer = require('./data-transformer');
+const CalendarGenerator = require('./calendar-generator');
+const StatsAggregator = require('./stats-aggregator');
+const PermissionFilter = require('./permission-filter');
 
 class UnifiedExportService {
     constructor() {
@@ -48,7 +47,7 @@ class UnifiedExportService {
         }
 
         // 缓存失效或不存在，重新查询
-        const db = require('../db/db');
+        const db = require('../../db/db');
         const result = await db.query(
             `SELECT id, name, description FROM schedule_types ORDER BY id ASC`
         );
@@ -79,7 +78,7 @@ class UnifiedExportService {
         if (uncachedIds.length === 0) return;
 
         // 批量查询
-        const db = require('../db/db');
+        const db = require('../../db/db');
         const result = await db.query(
             'SELECT id, name FROM teachers WHERE id = ANY($1)',
             [uncachedIds]
@@ -108,7 +107,7 @@ class UnifiedExportService {
 
         if (uncachedIds.length === 0) return;
 
-        const db = require('../db/db');
+        const db = require('../../db/db');
         const result = await db.query(
             'SELECT id, name FROM students WHERE id = ANY($1)',
             [uncachedIds]
@@ -646,4 +645,4 @@ class UnifiedExportService {
     }
 }
 
-module.exports = UnifiedExportService;
+module.exports = new UnifiedExportService();

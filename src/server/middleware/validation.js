@@ -1,5 +1,5 @@
 const Joi = require('joi');
-const { FEE_STATUSES } = require('../utils/feeStatus');
+const { FEE_STATUSES } = require('../utils/fee-status');
 
 // 标准化响应格式（单一来源见 utils/response.js）
 const { standardResponse } = require('../utils/response');
