@@ -20,9 +20,9 @@ const TYPE_COLORS = {
     other: '#64748b'
 };
 const STATUS_LABELS = {
-    open: '未处理',
-    in_progress: '处理中',
-    done: '已完成',
+    open: '未解决',
+    in_progress: '解决中',
+    done: '已解决',
     rejected: '已拒绝'
 };
 const STATUS_COLORS = {
@@ -32,6 +32,8 @@ const STATUS_COLORS = {
     rejected: { bg: '#fee2e2', fg: '#b91c1c' }
 };
 const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
+// 行排序：解决中 → 未解决 → 已解决 → 已拒绝；同状态保持原有时间倒序
+const STATUS_RANK = { in_progress: 0, open: 1, done: 2, rejected: 3 };
 
 // ========================
 // 加载反馈列表
@@ -49,6 +51,8 @@ export async function loadFeedbacks() {
     try {
         const result = await window.apiUtils.get('/admin/feedbacks');
         feedbackData = Array.isArray(result) ? result : (result.data || []);
+        // 按状态排序：解决中 → 未解决 → 已解决；同状态保持原时间倒序
+        feedbackData.sort((a, b) => (STATUS_RANK[a.status] ?? 1) - (STATUS_RANK[b.status] ?? 1));
         renderFeedbacksTable(feedbackData);
     } catch (err) {
         console.warn('Feedback API unavailable:', err.message);
@@ -71,22 +75,28 @@ function renderFeedbacksTable(data) {
         return;
     }
 
-    tbody.innerHTML = data.map(item => {
+    tbody.innerHTML = data.map((item, index) => {
         const typeColor = TYPE_COLORS[item.type] || '#64748b';
         const typeLabel = TYPE_LABELS[item.type] || item.type;
         const statusColors = STATUS_COLORS[item.status] || STATUS_COLORS.open;
         const statusLabel = STATUS_LABELS[item.status] || item.status;
+        // 已解决状态用斜体弱化展示
+        const statusStyle = item.status === 'done'
+            ? `display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size: var(--fs-300);font-weight:500;font-style:italic;`
+            : `display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size: var(--fs-300);font-weight:500;`;
         const submitter = item.submitter_name || item.submitter_role || '-';
         const time = formatDateTime(item.created_at);
         const esc = window.SecurityUtils.escapeHtml;
         const title = esc(item.title || '');
+        // 状态分组首行加 class，用于在分组间画分割线
+        const groupStart = index > 0 && data[index - 1].status !== item.status;
         return `
-            <tr data-id="${item.id}">
+            <tr data-id="${item.id}"${groupStart ? ' class="fb-group-start"' : ''}>
                 <td>#${item.id}</td>
-                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${typeColor}1a;color:${typeColor};font-size:15px;font-weight:500;">${typeLabel}</span></td>
+                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${typeColor}1a;color:${typeColor};font-size: var(--fs-300);font-weight:500;">${typeLabel}</span></td>
                 <td>${PRIORITY_LABELS[item.priority] || item.priority || '-'}</td>
                 <td title="${title}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</td>
-                <td><span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${statusColors.bg};color:${statusColors.fg};font-size:15px;font-weight:500;">${statusLabel}</span></td>
+                <td><span style="${statusStyle}">${statusLabel}</span></td>
                 <td>${esc(submitter)}</td>
                 <td>${time}</td>
                 <td>
