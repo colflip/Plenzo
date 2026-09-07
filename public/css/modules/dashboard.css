@@ -117,7 +117,8 @@ body {
 }
 
 .logo-text {
-    font-size: 1.3125rem;
+    font-size: var(--fs-600);
+    /* 原为 1.3125rem = 21px，是全站唯一的 21px，归入阶梯的 20px 档 */
     font-weight: 700;
     color: #1e293b;
     letter-spacing: -0.5px;
@@ -160,7 +161,7 @@ body {
 }
 
 .nav-text {
-    font-size: var(--font-size-base);
+    font-size: var(--fs-400);
     transition: all 0.5s ease;
     white-space: nowrap;
 }
@@ -269,7 +270,7 @@ body {
 }
 
 .toggle-sidebar .material-icons-round {
-    font-size: 24px;
+    font-size: var(--fs-700);
     transition: transform 0.5s ease;
 }
 
@@ -305,6 +306,8 @@ body {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(var(--overlay-blur, 4px));
+    -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
     z-index: 100000;
     pointer-events: auto; /* 防止点击穿透 */
     user-select: none; /* 防止遮罩层外的文本意外被选中 */
@@ -318,8 +321,10 @@ body {
     left: 50%;
     transform: translate(-50%, -50%);
     z-index: 100001;
-    width: 92%;
-    max-width: 720px;
+    width: fit-content;
+    /* 收到内容宽度（form 是单列 max-content 轨道），960px 只作上限：
+       pair 行横排 6 项时最宽，别的形态下弹窗会自己变窄。 */
+    max-width: min(92vw, 960px);
     background: #FFFFFF;
     border: 1px solid #E5E7EB;
     border-radius: 12px;
@@ -356,12 +361,54 @@ body {
     padding: 16px 20px;
 }
 
+/* 用户表单：每行两个字段，标签与控件同行显示 */
+#userForm {
+    grid-template-columns: repeat(2, minmax(0, max-content));
+    gap: 16px 24px;
+}
+
+#userForm .form-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#userForm .form-group label {
+    white-space: nowrap;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+#userForm .form-group input,
+#userForm .form-group select {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 120px;
+}
+
+/* 关联学生占满整行，列表横向充满剩余宽度（标签在左、列表在右） */
+#userForm #userStudentIdsGroup {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+#userForm #userStudentIdsGroup label {
+    margin-bottom: 0;
+}
+
+#userForm #userStudentIdsGroup .multi-select-container {
+    margin-top: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 /* 状态徽标样式（用户/课程共用） */
 .status-badge {
     display: inline-block;
     padding: 4px 8px;
     border-radius: 999px;
-    font-size: var(--font-size-sm);
+    font-size: var(--fs-300);
     font-weight: var(--font-weight-semibold);
 }
 
@@ -475,7 +522,7 @@ body {
     background: transparent;
     color: var(--admin-text-body);
     font-weight: 500;
-    font-size: 14px;
+    font-size: var(--fs-300);
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -509,7 +556,7 @@ body {
     padding: 10px 20px;
     border-radius: 999px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     display: inline-flex;
     align-items: center;
@@ -602,7 +649,7 @@ body {
 
 .close-btn::before {
     content: '×';
-    font-size: 24px;
+    font-size: var(--fs-700);
     line-height: 1;
 }
 
@@ -615,7 +662,7 @@ body {
     margin-bottom: 8px;
     font-weight: 500;
     color: #2C3E50;
-    font-size: var(--font-size-base);
+    font-size: var(--fs-300);
 }
 
 .form-group input,
@@ -630,7 +677,7 @@ body {
     border: 1px solid #E9ECEF;
     border-radius: 8px;
     /* Slightly smaller radius for smaller box */
-    font-size: var(--font-size-base);
+    font-size: var(--fs-400);
     transition: all 0.3s ease;
     background-color: #F8F9FA;
     color: #2C3E50;
@@ -722,24 +769,6 @@ body {
     margin-bottom: 12px;
 }
 
-.sc-time {
-    font-size: 18px;
-    font-weight: 700;
-    color: #1E293B;
-    /* Slate 800 */
-    letter-spacing: -0.5px;
-    line-height: 1.2;
-}
-
-.sc-type {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 8px;
-    border-radius: 20px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
 /* Content Area: Users */
 .sc-body {
     flex-grow: 1;
@@ -747,22 +776,6 @@ body {
     flex-direction: column;
     gap: 8px;
     margin-bottom: 12px;
-}
-
-.sc-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    line-height: 1.4;
-}
-
-.sc-row i {
-    font-size: 16px;
-    color: #94A3B8;
-    /* Slate 400 */
-    width: 16px;
-    text-align: center;
 }
 
 .sc-student {
@@ -774,34 +787,6 @@ body {
 .sc-teacher {
     color: #64748B;
     /* Slate 500 */
-}
-
-/* Footer Area: Location */
-.sc-footer {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-top: 12px;
-    border-top: 1px solid #F1F5F9;
-    font-size: 12px;
-    color: #64748B;
-}
-
-.sc-footer i {
-    font-size: 14px;
-    color: #94A3B8;
-}
-
-/* merged badge */
-.sc-merged-badge {
-    background-color: #F1F5F9;
-    color: #475569;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 999px;
-    margin-left: 6px;
-    vertical-align: middle;
-    font-weight: 600;
 }
 
 /* Type Colors (Pastel badges) */
@@ -863,17 +848,8 @@ body {
 }
 
 .today-empty-state p {
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
-}
-
-
-/* 原始值提示与更改高亮样式 */
-.original-note {
-    display: block;
-    margin-top: 4px;
-    font-size: 12px;
-    color: #7A7A7A;
 }
 
 .form-group.changed input,
@@ -913,13 +889,6 @@ body {
     line-height: 1.4;
 }
 
-.readonly-hint {
-    display: block;
-    margin-top: 4px;
-    font-size: 12px;
-    color: #9E9E9E;
-}
-
 .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -935,7 +904,7 @@ body {
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 600;
     min-width: 110px !important;
     height: 38px !important;
@@ -956,15 +925,111 @@ body {
     color: white;
 }
 
-/* 添加排课表单布局优化：两列网格，保证信息在一个窗口内完整显示 */
+/* 添加排课表单布局：单列栅格，列宽收到「最宽那一块」的内容宽度。
+   原来是 1fr 1fr 两列，但每一块（日期行 / 地点行 / pair 区 / 审计信息 / 按钮行）都写着
+   grid-column: 1 / -1 横跨两列，两列从来没被用上；改成单列后语义与实际一致，
+   顺带得到两件事：① 各块天然等宽（同一条轨道），最宽的那块决定宽度；
+   ② 弹窗自身 width: fit-content 就能跟着内容收缩，不再固定 92%。
+   minmax(0, max-content) 而不是 max-content：内容比可用宽度还宽时轨道会收，不溢出弹窗。 */
 .form-container form {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, max-content);
+    justify-content: start;
     gap: 16px;
+}
+
+/* 排课弹窗例外：第一行「日期 / 开始时间 / 结束时间」三个并排，其余整行块显式跨满。
+   只作用于 #scheduleForm —— 共享的 .form-container form 保持单列，用户表单不受影响。
+   minmax(170px, 1fr) 给每组一个下限：容器是 width:fit-content，纯 1fr 会缩到
+   控件固有宽度，日期/时间输入框挤在一行里显得局促。 */
+#scheduleForm {
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
+}
+
+/* 满行块：锁定的学生（单元格新建态）、入户地点、备注 */
+#scheduleForm .form-group-wide {
+    grid-column: 1 / -1;
+}
+
+/* 标签与控件同行（入户地点 / 备注）：左标签固定宽、右控件吃满剩余宽度。
+   刻意不用 WIP 的 .form-row —— 那个配套把内部每个 .form-group 拉成 flex:1 1 0
+   平分整行，是给「一行多组」用的；这里是「一组内标签+控件」。 */
+#scheduleForm .form-group-inline {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+#scheduleForm .form-group-inline label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    margin-bottom: 0;
+    /* 与单行控件（40px）等高，标签文字自然落在控件首行的水平线上 */
+    line-height: 40px;
+}
+
+#scheduleForm .form-group-inline textarea,
+#scheduleForm .form-group-inline input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+@media (max-width: 640px) {
+    /* 上面的 ID 选择器特异性高于窄屏里的 .form-container form 单列规则，这里显式回落 */
+    #scheduleForm {
+        grid-template-columns: 1fr;
+    }
 }
 
 .form-container form .form-group {
     margin-bottom: 0;
+}
+
+/* form-row 自己吃满一整行栅格，内部再横向平分。
+   原来用 display:contents 会把行拆散成栅格项，被两列布局切成
+   「日期+开始时间」「结束时间+入户地点」，正是要避免的错位。 */
+.form-container form .form-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.form-container form .form-row .form-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.form-container form .form-row .form-group label {
+    white-space: nowrap;
+    margin-bottom: 0;
+}
+
+.form-container form .form-row .form-group input,
+.form-container form .form-row .form-group textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* -compact 行（日期/时间）：控件按内容宽度靠左排。
+   date/time 的可输入内容是定长的，平分整行只会在每个框里留出大片空白。
+   这里不需要量文字（不像 select 会被最长 option 撑开）—— 撤掉拉伸、交回
+   UA 的固有宽度就够，各浏览器都是贴着日期/时间格式给宽度。 */
+.form-container form .form-row-compact .form-group {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.form-container form .form-row-compact .form-group input {
+    flex: 0 0 auto;
+    width: auto;
+}
+
+.form-container form .form-group textarea {
+    width: 100%;
 }
 
 .form-container form .form-actions {
@@ -979,6 +1044,27 @@ body {
 
     .form-container form {
         grid-template-columns: 1fr;
+    }
+
+    .form-container form .form-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    /* 用户表单：窄屏回落单列，标签与控件仍同行 */
+    #userForm {
+        grid-template-columns: 1fr;
+        gap: 12px 16px;
+    }
+
+    #userForm .form-group {
+        flex-wrap: wrap;
+    }
+
+    #userForm .form-group input,
+    #userForm .form-group select {
+        flex: 1 1 100px;
     }
 }
 
@@ -1003,7 +1089,7 @@ body {
     border-collapse: separate;
     border-spacing: 0;
     margin: 0;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .data-table th,
@@ -1015,9 +1101,9 @@ body {
     /* Unified header bg across all data tables */
     color: var(--admin-text-body);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
     letter-spacing: 0;
-    padding: 16px 20px;
+    padding: 20px 5px;
     border-bottom: 1px solid #E9ECEF;
     text-align: center;
     box-shadow: none;
@@ -1028,7 +1114,7 @@ body {
 #scheduleTypesTable td,
 #feedbacksTable td,
 #teachingDetailsTable td {
-    padding: 16px 20px;
+    padding: 16px 5px;
     color: var(--admin-text-main);
     border-bottom: 1px solid var(--admin-border);
     vertical-align: middle;
@@ -1051,6 +1137,11 @@ body {
     background-color: #F8F9FA;
 }
 
+/* 反馈表：状态分组之间的分割线（解决中 / 未解决 / 已解决 / 已拒绝） */
+#feedbacksTable tbody tr.fb-group-start td {
+    border-top: 2px solid var(--admin-border, #E9ECEF);
+}
+
 /* Action Buttons in Table */
 .data-table .edit-btn,
 .data-table .delete-btn,
@@ -1062,7 +1153,7 @@ body {
 #feedbacksTable .delete-btn {
     padding: 6px 12px;
     border-radius: 10px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     font-weight: 500;
     border: none;
     cursor: pointer;
@@ -1106,7 +1197,7 @@ body {
 #scheduleTypesTable th,
 #scheduleTypesTable td {
     padding: 16px 20px;
-    font-size: var(--font-size-base);
+    font-size: var(--fs-300);
     text-align: left;
     border-bottom: 1px solid #E9ECEF;
 }
@@ -1126,14 +1217,14 @@ body {
 #scheduleTypesTable .edit-btn,
 #scheduleTypesTable .delete-btn {
     padding: 3px 8px;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 /* 节假日表格：完全仿照课程类型表格的样式（背景、边框、阴影、字体、行高） */
 #holidaysTable th,
 #holidaysTable td {
     padding: 16px 20px;
-    font-size: var(--font-size-base);
+    font-size: var(--fs-300);
     text-align: center;
     border-bottom: 1px solid #E9ECEF;
 }
@@ -1141,7 +1232,7 @@ body {
 #holidaysTable th {
     background-color: #F8F9FA;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #2C3E50;
     white-space: nowrap;
 }
@@ -1157,14 +1248,14 @@ body {
 #holidaysTable .edit-btn,
 #holidaysTable .delete-btn {
     padding: 3px 8px;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 /* 反馈表操作列文字按钮：14px（后置覆盖上方共享规则中的 12px，
    不动共享块以免影响用户管理等其他页面） */
 #feedbacksTable .edit-btn,
 #feedbacksTable .delete-btn {
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 /* 密码强度指示器样式 */
@@ -1205,11 +1296,6 @@ body {
     background-color: #10b981;
 }
 
-.strength-text {
-    font-size: 12px;
-    color: #6b7280;
-}
-
 .password-match-feedback.match {
     color: #10b981;
 }
@@ -1238,6 +1324,9 @@ body {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.6);
+    /* 父级 .modal 已经负责背景模糊，内层遮罩不再叠加，避免二次模糊 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     z-index: 1;
 }
 
@@ -1276,7 +1365,7 @@ body {
 
 .modal-header h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 600;
     color: #111827;
 }
@@ -1300,7 +1389,7 @@ body {
 }
 
 .modal-close .material-icons-round {
-    font-size: 24px;
+    font-size: var(--fs-700);
 }
 
 .modal-body {
@@ -1347,19 +1436,6 @@ body {
     opacity: 0.5;
 }
 
-.empty-state-text {
-    font-size: var(--font-size-md);
-    color: #2C3E50;
-    margin-bottom: 8px;
-    font-weight: 500;
-}
-
-.empty-state-subtext {
-    font-size: var(--font-size-base);
-    color: #4A5568;
-    margin-bottom: 16px;
-}
-
 .empty-state-button {
     background-color: #2ECC71;
     color: white;
@@ -1392,7 +1468,7 @@ body {
     color: #64748b;
     border-radius: 999px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: bold;
     /* User Request: Bold */
     transition: all 0.2s ease;
@@ -1416,7 +1492,7 @@ body {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     color: #475569;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: bold;
     /* User Request: Bold */
     cursor: pointer;
@@ -1544,8 +1620,8 @@ body {
     border-radius: 12px;
     background: #eef2ff;
     color: #3b82f6;
-    font-size: var(--font-size-xs);
-    line-height: 1;
+    font-size: var(--fs-300);
+    line-height: var(--lh-tight);  /* 原为 line-height: 1；中文字形几乎占满 em 框，等于字号的行高会挤掉上下伸部 */
 }
 
 /* 统计卡片网格 */
@@ -1620,7 +1696,7 @@ td {
     padding: 16px 20px;
     text-align: left;
     border-bottom: 1px solid #E9ECEF;
-    font-size: var(--font-size-base);
+    font-size: var(--fs-300);
 }
 
 th {
@@ -1651,7 +1727,7 @@ tr:last-child td {
     cursor: pointer;
     transition: all 0.3s ease;
     font-weight: 500;
-    font-size: var(--font-size-sm);
+    font-size: var(--fs-300);
     /* 与全局按钮保持一致 */
     min-width: 120px;
     display: inline-flex;
@@ -1680,7 +1756,7 @@ tr:last-child td {
     transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease, border-color .2s ease;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.10);
     font-weight: 500;
-    font-size: 13px;
+    font-size: var(--fs-300);
     min-width: 90px;
     display: inline-flex;
     align-items: center;
@@ -1992,7 +2068,7 @@ tr:last-child td {
     }
 
     .sidebar .nav-text {
-        font-size: 16px !important; /* 提升字号 */
+        font-size: var(--fs-400) !important; /* 提升字号 */
         font-weight: 600 !important; /* 维持字重 */
         color: #1F2937 !important;
         white-space: nowrap !important;
@@ -2028,6 +2104,8 @@ tr:last-child td {
         position: fixed;
         inset: 0;
         background-color: rgba(0, 0, 0, 0.85); /* 增加不透明度 */
+        backdrop-filter: blur(var(--overlay-blur, 4px));
+        -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
         z-index: 1000; /* 仅次于按钮和菜单 */
         opacity: 0;
         pointer-events: none;
@@ -2254,8 +2332,7 @@ tr:last-child td {
 .users-table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: auto;
-    /* 改为auto,让指定的列宽生效 */
+    table-layout: fixed;
 }
 
 .users-table th {
@@ -2533,18 +2610,19 @@ tr:last-child td {
 }
 
 .filter-group label {
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     color: #495057;
     white-space: nowrap;
 }
 
 .filter-group select {
+    height: 40px;  /* 与 .form-group 表单字段一致。原先靠 global.css 的元素级 height: 42px 兜底，该规则已收敛到 .form-input */
     padding: 8px 12px;
     border: 1px solid #ced4da;
     border-radius: 6px;
     background: white;
-    font-size: 14px;
+    font-size: var(--fs-400);
     width: clamp(80px, 12vw, 180px);
     min-width: 80px;
     max-width: 180px;
@@ -2580,7 +2658,7 @@ tr:last-child td {
 
 .weekly-header h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 600;
     color: #2c3e50;
 }
@@ -2599,7 +2677,7 @@ tr:last-child td {
 
 .section-title-row h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 600;
     color: #2c3e50;
 }
@@ -2644,14 +2722,14 @@ tr:last-child td {
 }
 
 .nav-btn .material-icons-round {
-    font-size: 20px;
+    font-size: var(--fs-600);
     color: #495057;
 }
 
 #weekRange,
 #weekRangeAvail,
 #studentWeekRange {
-    font-size: 15px;
+    font-size: var(--fs-400);
     font-weight: 600;
     color: #1F2937;
     min-width: 180px;
@@ -2669,7 +2747,8 @@ tr:last-child td {
     width: 100%;
     height: 100%;
     background-color: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(var(--overlay-blur, 4px));
+    -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
 }
 
 .modal-content {
@@ -2707,13 +2786,13 @@ tr:last-child td {
 
 .modal-header h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 600;
     color: #2c3e50;
 }
 
 .close {
-    font-size: 24px;
+    font-size: var(--fs-700);
     font-weight: bold;
     color: #adb5bd;
     cursor: pointer;
@@ -2743,12 +2822,12 @@ tr:last-child td {
     font-weight: 600;
     color: #495057;
     min-width: 60px;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .info-row span {
     color: #2c3e50;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .modal-footer {
@@ -2765,7 +2844,7 @@ tr:last-child td {
     padding: 8px 16px;
     border: none;
     border-radius: 999px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -2889,7 +2968,7 @@ tr:last-child td {
     border: 1px solid #E5E7EB;
     border-radius: 10px;
     padding: 8px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     line-height: 1.4;
     cursor: pointer;
     text-align: center;
@@ -2965,19 +3044,6 @@ tr:last-child td {
     border-color: #d1d5db;
 }
 
-.slot-row {
-    margin: 2px 0;
-    line-height: 1.5;
-    font-size: 12px;
-}
-
-.slot-row {
-    background: rgba(255, 255, 255, 0.8);
-    border: 1px solid #E5E7EB;
-    border-radius: 8px;
-    padding: 4px 6px;
-}
-
 /* 边框与效果由状态决定；背景颜色由时间段决定（边框颜色在时段规则中设置） */
 .slot-row.status-pending {
     border-style: dashed;
@@ -3000,7 +3066,7 @@ tr:last-child td {
     position: absolute;
     top: 2px;
     right: 6px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     color: #16A34A;
 }
 
@@ -3074,7 +3140,7 @@ tr:last-child td {
     padding: 16px !important;
     /* Increased padding */
     margin: 8px 0;
-    font-size: 13px;
+    font-size: var(--fs-300);
     /* Slightly larger text */
     line-height: 1.5;
     color: #0F172A;
@@ -3138,8 +3204,8 @@ tr:last-child td {
     display: inline-block;
     padding: 2px 6px;
     border-radius: 999px;
-    font-size: 11px;
-    line-height: 1;
+    font-size: var(--fs-300);
+    line-height: var(--lh-tight);  /* 原为 line-height: 1；中文字形几乎占满 em 框，等于字号的行高会挤掉上下伸部 */
     margin-left: 6px;
 }
 
@@ -3225,7 +3291,7 @@ tr:last-child td {
     background: #F8F9FA;
     /* 第一列表头与日期表头一致 */
     /* == User Requested Adjustments == */
-    font-size: 14px;
+    font-size: var(--fs-300);
     /* Align font size with the adjacent date columns */
     min-width: 140px !important;
     /* Increase width by 40% from previous 100px default */
@@ -3259,13 +3325,6 @@ tr:last-child td {
 
 .group-picker-item:hover {
     background: #F1F5F9;
-}
-
-.group-picker-close {
-    margin-top: 6px;
-    font-size: 12px;
-    color: #334155;
-    cursor: pointer;
 }
 
 /* 排课筛选下拉框统一宽度 */
@@ -3318,18 +3377,18 @@ tr:last-child td {
     }
 
     .teacher-name {
-        font-size: var(--font-size-xs);
+        font-size: var(--fs-100);
     }
 
     .course-type,
     .time {
-        font-size: var(--font-size-xs);
+        font-size: var(--fs-100);
         padding: 2px 5px;
         border-radius: 12px;
     }
 
     .location {
-        font-size: var(--font-size-xs);
+        font-size: var(--fs-100);
     }
 
     .schedule-cell {
@@ -3339,7 +3398,7 @@ tr:last-child td {
 
     .student-cell {
         min-width: 120px;
-        font-size: 13px;
+        font-size: var(--fs-200);
     }
 
     /* 弹窗小屏幕优化 */
@@ -3359,7 +3418,7 @@ tr:last-child td {
 
         .section-title h3 {
             margin: 0 0 8px 0;
-            font-size: 24px;
+            font-size: var(--fs-700);
             font-weight: 600;
             color: #1e293b;
             display: flex;
@@ -3369,7 +3428,7 @@ tr:last-child td {
 
         .section-subtitle {
             margin: 0;
-            font-size: 14px;
+            font-size: var(--fs-300);
             color: #64748b;
             line-height: 1.5;
         }
@@ -3384,7 +3443,7 @@ tr:last-child td {
             margin-bottom: 20px;
             padding: 12px 16px;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: var(--fs-300);
             line-height: 1.5;
         }
 
@@ -3428,7 +3487,7 @@ tr:last-child td {
             background: transparent;
             border: none;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: var(--fs-300);
             font-weight: 500;
             color: #64748b;
             cursor: pointer;
@@ -3450,7 +3509,7 @@ tr:last-child td {
         }
 
         .tab-btn .material-icons-round {
-            font-size: 18px;
+            font-size: var(--fs-500);
         }
 
         /* 统计内容区域 */
@@ -3487,13 +3546,13 @@ tr:last-child td {
 
         .query-panel-header h4 {
             margin: 0;
-            font-size: 16px;
+            font-size: var(--fs-400);
             font-weight: 600;
             color: #1e293b;
         }
 
         .panel-description {
-            font-size: 13px;
+            font-size: var(--fs-200);
             color: #64748b;
         }
 
@@ -3518,7 +3577,7 @@ tr:last-child td {
         }
 
         .input-label {
-            font-size: 13px;
+            font-size: var(--fs-200);
             font-weight: 500;
             color: #374151;
         }
@@ -3527,7 +3586,7 @@ tr:last-child td {
             padding: 10px 12px;
             border: 1px solid #d1d5db;
             border-radius: 6px;
-            font-size: 14px;
+            font-size: var(--fs-400);
             background: #ffffff;
             transition: border-color 0.2s ease;
             min-width: 140px;
@@ -3537,13 +3596,6 @@ tr:last-child td {
             outline: none;
             border-color: #2ECC71;
             box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
-        }
-
-        .date-separator {
-            display: flex;
-            align-items: center;
-            color: #9ca3af;
-            margin: 0 8px;
         }
 
         .preset-section {
@@ -3568,7 +3620,7 @@ tr:last-child td {
             background: #ffffff;
             border: 1px solid #d1d5db;
             border-radius: 999px;
-            font-size: 13px;
+            font-size: var(--fs-200);
             font-weight: 500;
             color: #374151;
             cursor: pointer;
@@ -3588,7 +3640,7 @@ tr:last-child td {
         }
 
         .preset-btn .material-icons-round {
-            font-size: 16px;
+            font-size: var(--fs-400);
         }
 
         /* 搜索按钮样式 */
@@ -3601,7 +3653,7 @@ tr:last-child td {
             color: white;
             border: none;
             border-radius: 999px;
-            font-size: 14px;
+            font-size: var(--fs-300);
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -3663,7 +3715,7 @@ tr:last-child td {
 
         .chart-title {
             margin: 0;
-            font-size: 15px;
+            font-size: var(--fs-300);
             font-weight: 600;
             color: #1e293b;
         }
@@ -3738,7 +3790,7 @@ tr:last-child td {
         }
 
         .control-label {
-            font-size: 13px;
+            font-size: var(--fs-200);
             font-weight: 500;
             color: #374151;
         }
@@ -3754,7 +3806,7 @@ tr:last-child td {
             padding: 10px 12px;
             border: 1px solid #d1d5db;
             border-radius: 6px;
-            font-size: 14px;
+            font-size: var(--fs-400);
             background: #ffffff;
             min-width: 160px;
         }
@@ -3788,79 +3840,72 @@ tr:last-child td {
         }
 
         /* 响应式设计 */
-        @media (max-width: 1200px) {
-            .charts-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
+        /* 原为嵌套的 @media (max-width: 1200px)，父块已限定 ≤480px，条件冗余，已展开 */
+        .charts-grid {
+            grid-template-columns: repeat(2, 1fr);
         }
 
-        @media (max-width: 768px) {
-            .statistics-header {
-                flex-direction: column;
-                gap: 16px;
-                align-items: stretch;
-            }
-
-            .tab-navigation {
-                flex-direction: column;
-                gap: 8px;
-            }
-
-            .tab-btn {
-                justify-content: flex-start;
-            }
-
-            .query-controls {
-                padding: 16px;
-            }
-
-            .date-range-section {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .preset-section {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 16px;
-            }
-
-            .preset-buttons {
-                justify-content: center;
-            }
-
-            .charts-grid {
-                grid-template-columns: 1fr;
-                gap: 16px;
-            }
-
-            .teacher-controls,
-            .student-controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .teacher-charts-grid,
-            .student-charts-grid {
-                grid-template-columns: 1fr;
-            }
+        /* 原为嵌套的 @media (max-width: 768px)，父块已限定 ≤480px，条件冗余，已展开 */
+        .statistics-header {
+            flex-direction: column;
+            gap: 16px;
+            align-items: stretch;
         }
 
-        @media (max-width: 480px) {
-            .query-panel-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
-            }
+        .tab-navigation {
+            flex-direction: column;
+            gap: 8px;
+        }
 
-            .date-inputs {
-                flex-direction: column;
-                gap: 12px;
-            }
+        .tab-btn {
+            justify-content: flex-start;
+        }
 
-            .date-separator {
-                transform: rotate(90deg);
-            }
+        .query-controls {
+            padding: 16px;
+        }
+
+        .date-range-section {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .preset-section {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 16px;
+        }
+
+        .preset-buttons {
+            justify-content: center;
+        }
+
+        .charts-grid {
+            grid-template-columns: 1fr;
+            gap: 16px;
+        }
+
+        .teacher-controls,
+        .student-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .teacher-charts-grid,
+        .student-charts-grid {
+            grid-template-columns: 1fr;
+        }
+
+        /* 原为嵌套的 @media (max-width: 480px)，父块已限定 ≤480px，条件冗余，已展开 */
+        .query-panel-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+
+        .date-inputs {
+            flex-direction: column;
+            gap: 12px;
         }
 
         /* 动画效果 */
@@ -3891,63 +3936,8 @@ tr:last-child td {
         }
     }
 
-    .schedule-detail-header h3 {
-        font-size: var(--font-size-lg);
-    }
-
-    .schedule-detail-body {
-        padding: 20px;
-    }
-
-    .detail-section {
-        margin-bottom: 20px;
-    }
-}
-
-/* 统计区现代化样式（统一绿色主题与变量） */
-:root {
-    /* 色彩方案（项目主体绿色与协调辅色） */
-    --brand-primary: #4CAF50;
-    /* 主色：绿色（统一为#4CAF50） */
-    --brand-accent: #27AE60;
-    /* 强调：深绿 */
-    --brand-secondary-1: #2ECC71;
-    /* 辅色1：亮绿 */
-    --brand-secondary-2: #16A085;
-    /* 辅色2：青绿偏暖 */
-
-    /* 状态色与通用色 */
-    --primary-color: #4CAF50;
-    /* 与全局变量对齐的圆角与阴影映射 */
-    --radius-unified: var(--card-radius, 8px);
-    --shadow-unified: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.1));
-    --success-color: #4CAF50;
-    --warning-color: #FF9800;
-    --error-color: #F44336;
-    --info-color: #89C9B8;
-
-    /* 文案与背景 */
-    --text-primary: #1F2937;
-    --text-secondary: #6B7280;
-    --bg-surface: #ffffff;
-    --bg-muted: #f8fafc;
-    --border-muted: #e5e7eb;
-
-    /* 统一动效与阴影、圆角、间距、字体 */
-    --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.08);
-    --shadow-unified: 0 8px 24px rgba(16, 24, 40, 0.08);
-    --radius-unified: 10px;
-    --hover-transition: 0.2s ease;
-    --space-std: 16px;
-    --font-family-base: "PingFang SC", "SF Pro SC", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --chart-font-family: "Source Han Sans CN", "思源黑体", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-
-    /* 禁用颜色（用于文档与审计） */
-    --forbidden-blue-1: #2196F3;
-    --forbidden-blue-2: #4C6FFF;
-    --forbidden-blue-3: #2251FF;
-}
-
+/* 以下三条原本缩进在上面的 @media (max-width: 480px) 内，但该媒体块已在上一行闭合，
+   它们实际一直是全局规则。删掉了文件末尾多出来的那个游离 } 并取消缩进，行为不变。 */
 /* 统计控制区域（与用户管理/排课控制区保持一致规范） */
 .statistics-controls {
     display: flex;
@@ -3978,38 +3968,6 @@ button {
     transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
 }
 
-.primary-btn {
-    background-color: var(--brand-primary);
-    color: #fff;
-    border-color: var(--brand-primary);
-}
-
-.primary-btn:hover {
-    background-color: var(--brand-accent);
-    box-shadow: var(--shadow-soft);
-}
-
-.primary-btn:active {
-    transform: translateY(1px);
-}
-
-.primary-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.secondary-btn {
-    background-color: transparent;
-    color: var(--text-primary);
-    border: 1px solid var(--border-muted);
-}
-
-.secondary-btn:hover {
-    background-color: #f3f4f6;
-}
-
-
-
 .statistics-controls .stats-date-group {
     display: flex;
     align-items: center;
@@ -4022,128 +3980,6 @@ button {
     gap: 12px;
 }
 
-.statistics-controls .date-range {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.statistics-controls .date-range input[type="date"] {
-    padding: 8px 10px;
-    border: 1px solid var(--border-muted);
-    border-radius: 8px;
-    background: var(--bg-surface);
-    font-size: var(--font-size-base);
-    color: var(--text-primary);
-}
-
-.statistics-controls .search-btn {
-    padding: 8px 14px;
-    border: none;
-    border-radius: 999px;
-    background: var(--brand-primary);
-    color: #fff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
-}
-
-.statistics-controls .search-btn:hover {
-    box-shadow: var(--shadow-soft);
-    background: var(--brand-accent);
-}
-
-.statistics-controls .search-btn:active {
-    transform: translateY(1px);
-}
-
-.statistics-tabs .tab-btn-group {
-    display: flex;
-    gap: 8px;
-}
-
-.statistics-tabs .tab-btn {
-    padding: var(--btn-padding-y) var(--btn-padding-x);
-    border: 1px solid var(--border-muted);
-    border-radius: 999px;
-    background: var(--bg-surface);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-weight: 600;
-    font-size: var(--btn-font-size);
-    transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
-}
-
-.statistics-tabs .tab-btn:hover {
-    background: #ECFDF5;
-    border-color: #A7F3D0;
-    color: #065F46;
-}
-
-.statistics-tabs .tab-btn.active {
-    background: var(--brand-primary);
-    color: #fff;
-    border-color: var(--brand-primary);
-    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
-}
-
-.view-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.view-controls select {
-    min-width: 180px;
-    padding: 8px 10px;
-    border: 1px solid var(--border-muted);
-    border-radius: 8px;
-    background: var(--bg-surface);
-}
-
-.view-controls .apply-btn {
-    padding: 8px 12px;
-    border: none;
-    border-radius: 8px;
-    background: var(--brand-primary);
-    color: #fff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform .06s ease, box-shadow .2s ease;
-}
-
-.view-controls .apply-btn:hover {
-    box-shadow: var(--shadow-soft);
-}
-
-.view-controls .apply-btn:active {
-    transform: translateY(1px);
-}
-
-.statistics-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-    gap: var(--space-std);
-}
-
-.stats-view {
-    display: none;
-}
-
-.stats-view.active {
-    display: block;
-}
-
-.chart-container,
-.chart-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: var(--radius-unified);
-    box-shadow: var(--shadow-soft);
-    padding: 12px 12px 4px;
-    min-height: 260px;
-}
-
 .chart-card .chart-header {
     display: flex;
     justify-content: space-between;
@@ -4152,7 +3988,7 @@ button {
 }
 
 .chart-card .chart-title {
-    font-size: var(--font-size-md);
+    font-size: var(--fs-300);
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     font-family: var(--chart-font-family);
@@ -4193,9 +4029,6 @@ button {
 /* 统一设计变量（以绿色主题为基准） */
 :root {
     --card-border-color: var(--border-muted);
-    --font-size-sm: 12px;
-    --font-size-md: 14px;
-    --font-size-lg: 16px;
     --chart-font-size: 14;
     --chart-height-container: 280px;
     /* 基础柱状图容器高度 */
@@ -4241,12 +4074,7 @@ button {
     padding: 6px 10px;
     border: 1px solid var(--border-muted, #d1d5db);
     border-radius: 999px;
-    font-size: 14px;
-}
-
-.date-separator {
-    color: var(--text-secondary, #6b7280);
-    margin: 0 4px;
+    font-size: var(--fs-400);
 }
 
 .preset-and-search-group {
@@ -4267,7 +4095,7 @@ button {
     border: 1px solid var(--border-muted, #d1d5db);
     background: var(--bg-surface, #ffffff);
     border-radius: 999px;
-    font-size: 13px;
+    font-size: var(--fs-300);
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -4361,15 +4189,6 @@ button {
         background: #f1f5f9;
         padding: 4px;
         border-radius: 8px;
-    }
-
-    .user-manage-add-btn {
-        margin-left: 0 !important;
-        margin-top: 4px;
-        width: 100%;
-        max-width: 200px;
-        position: relative;
-        z-index: 5;
     }
 
     /* Ensure toolbar expands to accommodate stacked content */
@@ -4477,7 +4296,7 @@ button:hover,
 }
 
 .control-label {
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 500;
     color: #374151;
 }
@@ -4493,7 +4312,7 @@ button:hover,
     padding: 10px 12px;
     border: 1px solid #d1d5db;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: var(--fs-400);
     background: #ffffff;
     min-width: 160px;
 }
@@ -4607,10 +4426,6 @@ button:hover,
         flex-direction: column;
         gap: 12px;
     }
-
-    .date-separator {
-        transform: rotate(90deg);
-    }
 }
 
 /* 动画效果 */
@@ -4642,7 +4457,7 @@ button:hover,
 
 
 .schedule-detail-header h3 {
-    font-size: var(--font-size-lg);
+    font-size: var(--fs-500);
 }
 
 .schedule-detail-body {
@@ -4744,7 +4559,6 @@ button {
 }
 
 
-
 .statistics-controls .date-range {
     display: flex;
     align-items: center;
@@ -4752,11 +4566,12 @@ button {
 }
 
 .statistics-controls .date-range input[type="date"] {
+    height: 40px;  /* 与 .form-group 表单字段一致。原先靠 global.css 的元素级 height: 42px 兜底，该规则已收敛到 .form-input */
     padding: 8px 10px;
     border: 1px solid var(--border-muted);
     border-radius: 8px;
     background: var(--bg-surface);
-    font-size: var(--font-size-base);
+    font-size: var(--fs-400);
     color: var(--text-primary);
 }
 
@@ -4793,7 +4608,7 @@ button {
     color: var(--text-secondary);
     cursor: pointer;
     font-weight: 600;
-    font-size: var(--btn-font-size);
+    font-size: var(--fs-300);
     transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
 
@@ -4881,7 +4696,7 @@ button {
 }
 
 .chart-card .chart-title {
-    font-size: var(--font-size-md);
+    font-size: var(--fs-300);
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     font-family: var(--chart-font-family);
@@ -4922,9 +4737,6 @@ button {
 /* 统一设计变量（以绿色主题为基准） */
 :root {
     --card-border-color: var(--border-muted);
-    --font-size-sm: 12px;
-    --font-size-md: 14px;
-    --font-size-lg: 16px;
     --chart-font-size: 14;
     --chart-height-container: 280px;
     /* 基础柱状图容器高度 */
@@ -4976,7 +4788,7 @@ button {
 .chart-container.teacher-chart .chart-title {
     text-align: center;
     margin-bottom: 12px;
-    font-size: var(--font-size-md);
+    font-size: var(--fs-300);
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     font-family: var(--chart-font-family);
@@ -5039,10 +4851,8 @@ button {
 .statistics-tabs .tab-btn {
     font-family: var(--chart-font-family);
     font-weight: 500;
-    font-size: var(--font-size-xs);
-    /* 最小不小于12px */
-    line-height: var(--line-height-normal);
-    /* 与中文排版保持1.5倍行距 */
+    font-size: var(--fs-300);
+    line-height: var(--lh-tight);
 }
 
 .nav-menu .nav-item .nav-text,
@@ -5057,7 +4867,7 @@ button {
     font-family: 'Material Icons Round';
     font-weight: normal;
     font-style: normal;
-    font-size: 24px;
+    font-size: var(--fs-700);
     line-height: 1;
     letter-spacing: normal;
     text-transform: none;
@@ -5077,7 +4887,7 @@ button {
     font-family: 'Material Icons';
     font-weight: normal;
     font-style: normal;
-    font-size: 24px;
+    font-size: var(--fs-700);
     line-height: 1;
     letter-spacing: normal;
     text-transform: none;
@@ -5109,7 +4919,7 @@ svg {
     position: absolute;
     top: 4px;
     right: 6px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     color: #16A34A;
 }
 
@@ -5312,7 +5122,7 @@ svg {
 }
 
 .mobile-menu-toggle .material-icons-round {
-    font-size: 24px;
+    font-size: var(--fs-700);
     color: #2C3E50;
 }
 
@@ -5322,6 +5132,8 @@ svg {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(var(--overlay-blur, 4px));
+    -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
     z-index: 999;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -5372,7 +5184,7 @@ svg {
     }
 
     .nav-item .material-icons-round {
-        font-size: 24px;
+        font-size: var(--fs-700);
     }
 
     /* Logo区域优化 */
@@ -5386,7 +5198,7 @@ svg {
     }
 
     .logo-text {
-        font-size: 18px;
+        font-size: var(--fs-500);
     }
 
     /* ============== */
@@ -5415,7 +5227,7 @@ svg {
         /* 确保占满容器，宽度由内容决定 */
         min-width: 600px !important;
         /* 适当减小最小宽度，避免过宽 */
-        font-size: 13px !important;
+        font-size: var(--fs-200) !important;
         table-layout: fixed !important;
         /* 固定布局以便控制列宽 */
     }
@@ -5623,7 +5435,7 @@ svg {
         min-height: var(--min-touch-target);
         min-width: var(--min-touch-target);
         padding: 12px 16px;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     /* 表单控件 */
@@ -5634,7 +5446,7 @@ svg {
     select,
     textarea {
         min-height: var(--min-touch-target);
-        font-size: 16px;
+        font-size: var(--fs-400);
         /* 防止iOS自动缩放 */
         padding: 10px 12px;
     }
@@ -5687,7 +5499,7 @@ svg {
 
     /* 第一行：标题（视觉上与菜单按钮在同一行，居中） */
     .dashboard-header h2 {
-        font-size: 18px;
+        font-size: var(--fs-500);
         margin: 0;
         text-align: center;
         width: 100%;
@@ -5712,17 +5524,17 @@ svg {
     }
 
     .user-name {
-        font-size: 14px;
+        font-size: var(--fs-300);
         margin-right: 8px;
     }
 
     .role-badge {
-        font-size: 12px;
+        font-size: var(--fs-100);
         padding: 4px 8px;
     }
 
     .logout-btn {
-        font-size: 13px;
+        font-size: var(--fs-200);
         padding: 8px 16px;
         min-height: var(--min-touch-target);
     }
@@ -5844,7 +5656,7 @@ svg {
     }
 
     .stat-card h3 {
-        font-size: 13px;
+        font-size: var(--fs-200);
         /* Smaller font for type name */
         white-space: nowrap;
         overflow: hidden;
@@ -5852,7 +5664,7 @@ svg {
     }
 
     .stat-card p {
-        font-size: 20px;
+        font-size: var(--fs-600);
         /* Adjust number size */
     }
 
@@ -5877,7 +5689,7 @@ svg {
         min-width: 80px;
         text-align: center;
         padding: 12px 8px;
-        font-size: 13px;
+        font-size: var(--fs-200);
     }
 
     /* 选择框单元格 */
@@ -5897,7 +5709,7 @@ svg {
 
     /* 日期单元格文字 */
     #weeklyBodyAvail .date-cell {
-        font-size: 14px;
+        font-size: var(--fs-300);
         white-space: nowrap;
     }
 
@@ -5937,7 +5749,7 @@ svg {
         content: attr(data-date-label);
         display: block;
         font-weight: 600;
-        font-size: 15px;
+        font-size: var(--fs-300);
         color: #2C3E50;
         background: #f8f9fa;
         padding: 12px 16px;
@@ -5951,7 +5763,7 @@ svg {
         padding: 20px;
         text-align: center;
         color: #9ca3af;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 }
 
@@ -5976,26 +5788,26 @@ svg {
 
     /* 小手机特别优化 */
     .dashboard-header h2 {
-        font-size: 18px;
+        font-size: var(--fs-500);
     }
 
     .stat-card h3 {
-        font-size: 13px;
+        font-size: var(--fs-200);
     }
 
     .stat-card p {
-        font-size: 20px;
+        font-size: var(--fs-600);
     }
 
     /* 表格字体进一步缩小 */
     .data-table {
-        font-size: 12px;
+        font-size: var(--fs-100);
     }
 
     /* 按钮 */
     .btn,
     button {
-        font-size: 13px;
+        font-size: var(--fs-200);
         padding: 10px 14px;
     }
 }
@@ -6020,7 +5832,7 @@ svg {
     }
 
     .logo-text {
-        font-size: 15px;
+        font-size: var(--fs-300);
     }
 
     /* 导航项适配 */
@@ -6039,7 +5851,7 @@ svg {
 
     /* 表格优化 */
     .data-table {
-        font-size: 13px;
+        font-size: var(--fs-200);
     }
 
     /* 图表容器 */
@@ -6092,7 +5904,7 @@ svg {
     }
 
     .mobile-schedule-table caption {
-        font-size: 16px;
+        font-size: var(--fs-400);
         font-weight: 600;
         padding: 12px;
         background: #f8f9fa;
@@ -6112,7 +5924,7 @@ svg {
         background: #e9ecef;
         font-weight: 600;
         text-align: center;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     .mobile-schedule-table .mobile-date-cell {
@@ -6133,7 +5945,7 @@ svg {
     }
 
     .mobile-schedule-details {
-        font-size: 13px;
+        font-size: var(--fs-200);
         line-height: 1.6;
         background: white;
         border-radius: 8px;
@@ -6208,7 +6020,7 @@ svg {
         display: inline-block;
         padding: 2px 8px;
         border-radius: 12px;
-        font-size: 12px;
+        font-size: var(--fs-100);
         font-weight: 500;
     }
 
@@ -6291,7 +6103,7 @@ svg {
     .mobile-availability-table th {
         background: #e9ecef;
         font-weight: 600;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     .mobile-availability-table .date-col-header {
@@ -6353,7 +6165,7 @@ svg {
     }
 
     #teaching-display .stat-card h3 {
-        font-size: 13px;
+        font-size: var(--fs-200);
         margin-bottom: 8px;
     }
 
@@ -6462,8 +6274,8 @@ svg {
 #feedbacksTable tbody td,
 #weeklyBody td,
 .ai-models-table tbody td {
-    font-size: 16px !important;
-    /* Small 4 */
+    font-size: var(--fs-300) !important;
+    /* 与表头统一 14px：原先表体 16px、表头 14px，层级是反的 */
 }
 
 #availabilityHeader th,
@@ -6471,7 +6283,7 @@ svg {
 #weeklyHeader th,
 #ssWeeklyHeader th,
 #weeklyHeaderAvail th {
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 600 !important;
     box-shadow: none;
     background-color: #F8F9FA;
@@ -6481,7 +6293,7 @@ svg {
 #scheduleTypesTable thead th,
 #feedbacksTable thead th,
 .ai-models-table thead th {
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 600 !important;
     background-color: #F8F9FA;
 }
@@ -6508,7 +6320,7 @@ svg {
 /* Adjust the icon buttons within the cells to fit */
 #availabilityBody .icon-slot,
 #scheduleTypesTable .action-btn {
-    font-size: 20px;
+    font-size: var(--fs-600);
     /* Keep icons readable */
     line-height: 1;
     display: inline-block;
@@ -6555,26 +6367,15 @@ svg {
     font-weight: normal;
 }
 
-/* User Management Styles */
-
-/* 1. Add User Button: Increase font size +2px */
-/* 1. Add User Button: Standardize to 14px Bold (Match Statistics) */
-.user-manage-add-btn {
-    font-size: 14px !important;
-    font-weight: bold !important;
-    padding: 8px 16px;
-    line-height: 1.5;
-}
-
 /* User Management Tabs: 14px Bold (Match Statistics) */
 #userRoleTabs .tab-btn {
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     font-weight: bold !important;
 }
 
 /* Course Type Management - Add Type Button: Match User Add Button */
 #addScheduleTypeBtn {
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     font-weight: bold !important;
     padding: 8px 16px;
     line-height: 1.5;
@@ -6585,7 +6386,7 @@ svg {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    table-layout: auto;
+    table-layout: fixed;
 }
 
 #usersTable th,
@@ -6601,8 +6402,8 @@ svg {
 }
 
 #usersTable thead th {
-    padding: 16px 20px !important;
-    font-size: 14px !important;
+    padding: 20px 5px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 600 !important;
     box-shadow: none;
     background-color: #F8F9FA;
@@ -6612,8 +6413,8 @@ svg {
 }
 
 #usersTable tbody td {
-    padding: 16px 20px !important;
-    font-size: var(--font-size-base) !important;
+    padding: 16px 5px !important;
+    font-size: var(--fs-300) !important;
     font-weight: normal !important;
     color: #4A5568;
     line-height: 1.4 !important;
@@ -6664,7 +6465,7 @@ svg {
 }
 
 #usersTable .material-icons-round {
-    font-size: 18px;
+    font-size: var(--fs-500);
 }
 
 /* ============================================
@@ -6741,6 +6542,18 @@ svg {
     width: 100px;
     min-width: 100px;
     white-space: nowrap;
+}
+
+#usersTable .col-student_ids {
+    width: 220px;
+    min-width: 220px;
+}
+
+/* 关联学生列：超出列宽截断显示省略号（悬浮有 title 提示看全文） */
+#usersTable .col-student_ids .clip {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* 学生专用列 */
@@ -6851,14 +6664,14 @@ svg {
 
 .teacher-name {
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--fs-300);
     color: #1E293B;
     /* Slate-800 */
     white-space: nowrap;
 }
 
 .course-type-text {
-    font-size: 13px;
+    font-size: var(--fs-300);
     /* Name is 13px on desktop, want same */
     color: #64748B;
     /* Slate-500 */
@@ -6873,15 +6686,15 @@ svg {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0 4px;
-    /* Reduced padding */
+    padding: 2px 8px;
     border-radius: 999px;
-    font-size: 10px;
-    /* Smaller font */
-    height: 18px;
-    /* Fixed compact height */
+    font-size: var(--fs-300);
+    /* 与同卡片内的 .teacher-name 对齐到 14px。
+       .status-badge-sm 是 <span>，不存在 iOS 聚焦缩放问题；
+       .status-select 是真 <select>，触屏下由文件末尾的 @media (pointer: coarse) 抬回 16px。 */
+    min-height: 26px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: var(--lh-tight);
     white-space: nowrap;
 }
 
@@ -6935,6 +6748,25 @@ svg {
     /* Select text doesn't support line-through well in some browsers */
 }
 
+/* ============================================
+   排课卡片状态标签（管理员/教师/班主任/学生周视图共用）
+   2026-09-07：配色=上一版（状态色文字 + 各自浅底，不强制黑字）；尺寸比正文小一号。
+   管理端在 admin-schedule.css 有同值副本（该文件仅管理端加载），改动时两处同步。
+   ============================================ */
+.schedule-card-group .status-select {
+    font-weight: 400 !important;
+    /* 比正文（--fs-300 = 14px）小一号；胶囊随之收紧（26px→22px 高） */
+    font-size: 13px !important;
+    line-height: var(--lh-tight) !important;
+    /* 学生端只读 tag 是 content-box 的 span，border-box 让它与 select 同尺寸基准 */
+    box-sizing: border-box !important;
+    /* 学生端只读 tag 带内联 height:24px，用 !important 压掉，统一按 min-height 走 */
+    height: auto !important;
+    min-height: 22px !important;
+    padding: 1px 6px !important;
+    min-width: 56px !important;
+}
+
 /* Marquee Effect for Long Names/Types */
 .marquee-wrapper {
     overflow: hidden;
@@ -6981,14 +6813,14 @@ svg {
 
 .time-text {
     font-weight: 700;
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #0F172A;
     /* Slate-900 */
     line-height: 1.2;
 }
 
 .location-text {
-    font-size: 11.5px;
+    font-size: var(--fs-300);
     color: #64748B;
     /* Slate-500 */
     line-height: 1.5;
@@ -7006,7 +6838,7 @@ svg {
     /* Slate-400 */
     text-align: center;
     padding: 32px 16px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 400;
 }
 
@@ -7041,12 +6873,12 @@ svg {
     background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    font-size: 24px;
+    font-size: var(--fs-700);
 }
 
 .overview-today-title h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 700;
     color: #1e293b;
     letter-spacing: -0.02em;
@@ -7061,7 +6893,7 @@ svg {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     color: #64748b;
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -7075,7 +6907,7 @@ svg {
 }
 
 .overview-today-refresh .material-icons-round {
-    font-size: 16px;
+    font-size: var(--fs-400);
 }
 
 /* 右侧操作区：上一天/下一天 导航 + 刷新，靠右排列（导航在刷新左侧） */
@@ -7308,7 +7140,7 @@ svg {
     margin: 0 4px;
     padding: 2px 10px;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 600;
     background: #f1f5f9;
     color: #475569;
@@ -7343,7 +7175,7 @@ svg {
     margin: 0 4px;
     padding: 4px 14px;
     border-radius: 12px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 600;
     letter-spacing: 0.02em;
     white-space: nowrap;
@@ -7399,7 +7231,7 @@ svg {
 
 .today-empty-state p {
     margin: 0;
-    font-size: 15px;
+    font-size: var(--fs-300);
     font-weight: 500;
 }
 
@@ -7461,14 +7293,14 @@ svg {
 }
 
 .week-navigation .search-btn .material-icons-round {
-    font-size: 20px !important;
+    font-size: var(--fs-600) !important;
 }
 
 #weekRange,
 #weekRangeAvail,
 #avWeekRange,
 #avStudentWeekRange {
-    font-size: 15px !important;
+    font-size: var(--fs-400) !important;
     font-weight: 600 !important;
     color: #1E293B !important;
     margin: 0 16px !important;
@@ -7538,7 +7370,7 @@ svg {
 
 .weekly-schedule-table th .date-label {
     display: block !important;
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 700 !important;
     color: #1F2937 !important;
     margin-bottom: 2px !important;
@@ -7547,7 +7379,7 @@ svg {
 
 .weekly-schedule-table th .day-label {
     display: block !important;
-    font-size: 11px !important;
+    font-size: var(--fs-300) !important;
     color: #9CA3AF !important;
     font-weight: 400 !important;
 }
@@ -7556,7 +7388,7 @@ svg {
 .th-content .schedule-date-meta {
     display: block !important;
     margin-top: 2px !important;
-    font-size: 11px !important;
+    font-size: var(--fs-300) !important;
     line-height: 1.25 !important;
     font-weight: 500 !important;
     white-space: normal !important;
@@ -7619,7 +7451,7 @@ svg {
 }
 
 .icon-slot-text {
-    font-size: 12px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 600 !important;
     color: #94A3B8 !important;
 }
@@ -7691,7 +7523,7 @@ svg {
 .row-left {
     flex: 1 !important;
     min-width: 0 !important;
-    font-size: 13px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 700 !important;
     color: #1E293B !important;
     white-space: nowrap !important;
@@ -7702,22 +7534,29 @@ svg {
 .course-type-text {
     font-weight: 400 !important;
     color: #94A3B8 !important;
-    font-size: 12px !important;
+    font-size: var(--fs-300) !important;
     margin-left: 2px !important;
 }
 
 /* Status Select (Editable for Teachers) */
 .status-select {
-    font-size: 11px !important;
-    padding: 0 !important;
-    height: 20px !important;
-    line-height: 15px !important;
+    font-size: var(--fs-300) !important;
+    /* 与排课卡片里的 .teacher-name（14px）保持一致；触屏由文件末尾的
+       @media (pointer: coarse) 抬回 16px 以规避 iOS 聚焦缩放。 */
+    padding: 2px 8px !important;
+    /* 原为 height: 20px + line-height: 15px 的三重锁死盒子，装不下中文。
+       改成 height: auto + 最小高度，字号变化时不再裁字。
+       height 显式写出来是必要的：胶囊形状的控件不能沿用表单字段的固定高度，
+       写在这里也能挡住将来有人把 global.css 的字段样式重新放回元素级选择器。 */
+    height: auto !important;
+    min-height: 26px !important;
+    line-height: var(--lh-tight) !important;
     border-radius: 20px !important;
     border: 1px solid transparent !important;
     font-weight: 600 !important;
     cursor: pointer !important;
     outline: none !important;
-    width: 70px !important;
+    width: auto !important;
     min-width: 65px !important;
     text-align: center !important;
     text-align-last: center !important;
@@ -7727,16 +7566,6 @@ svg {
     -webkit-appearance: none !important;
     -moz-appearance: none !important;
     display: inline-block !important;
-}
-
-/* Status Readonly Tag (For Students) */
-.status-tag-readonly {
-    font-size: 11px !important;
-    padding: 2px 8px !important;
-    border-radius: 6px !important;
-    font-weight: 600 !important;
-    white-space: nowrap !important;
-    cursor: default !important;
 }
 
 /* Status Mapping Styles */
@@ -7790,39 +7619,20 @@ svg {
 }
 
 .time-text {
-    font-size: 11px !important;
+    font-size: var(--fs-300) !important;
     font-weight: 700 !important;
     color: #334155 !important;
     margin-bottom: 2px !important;
 }
 
 .location-text {
-    font-size: 11.5px !important;
+    font-size: var(--fs-300) !important;
     color: #64748B !important;
     white-space: normal !important;
     word-break: break-word !important;
     overflow-wrap: break-word !important;
     text-align: center !important;
     line-height: 1.5 !important;
-}
-
-.card-item-time {
-    font-size: 20px !important;
-    font-weight: 800 !important;
-    color: #1E293B !important;
-    margin: 4px 0 !important;
-    letter-spacing: -0.5px !important;
-}
-
-.card-item-footer {
-    font-size: 11px !important;
-    color: #64748B !important;
-    line-height: 1.4 !important;
-    max-height: 3em !important;
-    overflow: hidden !important;
-    display: -webkit-box !important;
-    -webkit-line-clamp: 2 !important;
-    -webkit-box-orient: vertical !important;
 }
 
 /* Color Variations based on Type/Status */
@@ -7891,41 +7701,6 @@ svg {
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
-.today-card-modern {
-    display: flex;
-    flex-direction: row;
-    background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-radius: 10px;
-    margin: 0 auto 12px auto;
-    overflow: hidden;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-    cursor: pointer;
-    width: 95%; /* 桌面端稍微加宽，增加利用率 */
-    min-height: 65px;
-}
-
-/* 悬停效果 - 提升质感 */
-.today-card-modern:hover {
-    transform: translateY(-2px);
-    border-color: #D1D5DB;
-    box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.1), 0 3px 6px -2px rgba(0, 0, 0, 0.05);
-}
-
-/* 左侧时间指示条 - 课程类型颜色区分 */
-.today-card-modern::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 6px;
-    background: linear-gradient(180deg, #94A3B8 0%, #64748B 100%);
-    z-index: 2;
-}
-
 /* 上午课程 - 蓝色系 */
 .today-card-modern.slot-morning::before {
     background: linear-gradient(180deg, #60A5FA 0%, #3B82F6 100%);
@@ -7941,74 +7716,15 @@ svg {
     background: linear-gradient(180deg, #A78BFA 0%, #8B5CF6 100%);
 }
 
-/* 卡片内容容器 - 白色背景 */
-.today-card-modern .today-card-top {
-    display: flex;
-    flex-direction: row;
-    padding: 0;
-    width: 100%;
-    align-items: stretch;
-    flex: 1;
-    background: #FFFFFF !important;
-}
-
-/* ================================================
-   1. 左侧时间显示区 - 3.5 比例
-   两行布局：第一行时间段，第二行时段标识，居中对齐
-   ================================================ */
-.today-card-modern .today-card-time {
-    flex: 3.5;
-    display: flex;
-    flex-direction: column;
-    justify-content: center !important;
-    align-items: center !important;
-    padding: 6px 8px !important;
-    background: #FFFFFF !important;
-    border-right: 1px solid #E5E7EB !important; /* 新增分割线：时间栏右侧 */
-    box-sizing: border-box;
-    position: relative;
-    min-height: 65px;
-}
-
 /* 第一行：时间段显示（开始时间-结束时间） */
 .today-card-modern .today-card-time .time-range {
     font-family: 'SF Pro Display', 'Roboto Mono', ui-monospace, system-ui, sans-serif;
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 600;
     color: #1F2937;
     line-height: 1.2;
     letter-spacing: -0.02em;
     margin-bottom: 4px;
-}
-
-/* 第二行：时段标识 */
-.today-card-modern .today-card-time .time-slot-label {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    color: #4B5563;
-    font-weight: 600;
-    background: #E5E7EB;
-    padding: 2px 10px;
-    border-radius: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-/* ================================================
-   2. 中间姓名区域 - 4 比例，居中对齐
-   两行布局：第一行姓名 + 课程类型，第二行地点
-   ================================================ */
-.today-card-modern .today-card-info {
-    flex: 5 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    align-items: center !important; /* PC 端内容水平居中 */
-    padding: 6px 12px !important;
-    min-width: 0;
-    background: #FFFFFF !important;
 }
 
 /* PC 端显示的地点信息样式 */
@@ -8036,40 +7752,6 @@ svg {
     margin-bottom: 4px;
 }
 
-.today-card-modern .today-card-title {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center; /* 姓名和类型标签居中 */
-    gap: 8px;
-    flex-wrap: wrap;
-    width: 100%;
-}
-
-.today-card-modern .today-card-title .sc-student-name {
-    font-size: 16px;
-    font-weight: 600;
-    color: #111827;
-    letter-spacing: -0.01em;
-    text-align: left;
-}
-
-/* 课程类型标签 - 纯文化显示 */
-.today-card-modern .today-card-type {
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    color: #111827 !important;
-    background: none !important;
-    border: none !important;
-    padding: 2px 6px !important;
-    border-radius: 4px !important;
-}
-
-/* 合并课程标识 */
-.today-card-modern .merged-tag {
-    color: #0284C7 !important;
-}
-
 /* 课程类型颜色区分 */
 .today-card-modern.type-visit .today-card-type {
     background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
@@ -8089,46 +7771,13 @@ svg {
     border-color: #FCD34D;
 }
 
-/* 第二行：地点信息 */
-.today-card-modern .today-card-location {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 4px;
-    color: #6B7280;
-    font-size: 12px;
-    font-weight: 500;
-}
-
 .today-card-modern .today-card-location .material-icons-round {
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #9CA3AF;
 }
 
-/* 详情信息（教师和地点） */
-.today-card-modern .today-card-details {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    align-items: center;
-}
-
-.today-card-modern .today-card-detail-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: #6B7280;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-}
-
 .today-card-modern .today-card-detail-item .material-icons-round {
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #9CA3AF;
 }
 
@@ -8146,25 +7795,6 @@ svg {
     vertical-align: middle;
 }
 
-/* ================================================
-   3. 右侧状态区域 - 2.5 比例，居中对齐
-   清晰显示课程状态
-   ================================================ */
-.today-card-modern .today-card-status {
-    flex: 2.5 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 6px 12px !important;
-    background: #FFFFFF !important;
-    border-left: none !important; /* 移除原来的分割线：状态栏左侧 */
-    box-sizing: border-box;
-    min-height: 65px;
-    min-width: 100px; /* 确保状态栏不会被挤压缩窄 */
-    flex-shrink: 0; /* 禁止缩放 */
-}
-
 /* 状态徽章 - 精致设计 */
 .today-card-modern .status-pill {
     display: inline-flex;
@@ -8172,7 +7802,7 @@ svg {
     justify-content: center;
     padding: 4px 14px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     font-weight: 600;
     letter-spacing: 0.02em;
     text-transform: capitalize;
@@ -8192,9 +7822,6 @@ svg {
 }
 /* 桌面端隐藏原有的底部地点栏 */
 @media (min-width: 769px) {
-    .today-card-modern .today-card-bottom {
-        display: none !important;
-    }
 }
 
 .today-card-modern .status-pill.completed {
@@ -8211,19 +7838,6 @@ svg {
 
 /* 移动端响应式适配 */
 @media (max-width: 768px) {
-    .today-card-modern {
-        flex-direction: column;
-        min-height: auto;
-        border-radius: 12px;
-    }
-
-    .today-card-modern::before {
-        width: 100%;
-        height: 5px;
-        top: 0;
-        bottom: auto;
-        background: linear-gradient(90deg, #94A3B8 0%, #64748B 100%);
-    }
 
     .today-card-modern.slot-morning::before {
         background: linear-gradient(90deg, #60A5FA 0%, #3B82F6 100%);
@@ -8235,55 +7849,6 @@ svg {
 
     .today-card-modern.slot-evening::before {
         background: linear-gradient(90deg, #A78BFA 0%, #8B5CF6 100%);
-    }
-
-    .today-card-modern .today-card-top {
-        flex-direction: column;
-    }
-
-    .today-card-modern .today-card-time {
-        flex: none;
-        width: 100%;
-        padding: 12px 16px;
-        border-right: none;
-        border-bottom: 1px solid #E5E7EB;
-        flex-direction: row;
-        justify-content: space-between;
-        gap: 12px;
-    }
-
-    .today-card-modern .today-card-time .time-display {
-        flex-direction: row;
-        gap: 8px;
-    }
-
-    .today-card-modern .today-card-time .time-start,
-    .today-card-modern .today-card-time .time-end {
-        font-size: 16px;
-    }
-
-    .today-card-modern .today-card-info {
-        padding: 16px;
-    }
-
-    .today-card-modern .today-card-title {
-        gap: 6px;
-    }
-
-    .today-card-modern .today-card-title .sc-student-name {
-        font-size: 16px;
-    }
-
-    .today-card-modern .today-card-location {
-        margin-top: 8px;
-    }
-
-    .today-card-modern .today-card-status {
-        flex: none;
-        width: 100%;
-        padding: 12px 16px;
-        border-left: none;
-        border-top: 1px solid #E5E7EB;
     }
 
     /* ================================================
@@ -8325,7 +7890,7 @@ svg {
     }
 
     .mobile-schedule-card-v2 .student-name {
-        font-size: 17px !important;
+        font-size: var(--fs-500) !important;
         font-weight: 700 !important;
         color: #1E293B !important;
     }
@@ -8334,7 +7899,7 @@ svg {
         display: inline-flex !important;
         align-items: center !important;
         gap: 4px !important;
-        font-size: 14px !important;
+        font-size: var(--fs-300) !important;
         color: #475569 !important;
     }
 
@@ -8343,7 +7908,7 @@ svg {
         color: #475569 !important;
         padding: 2px 8px !important;
         border-radius: 6px !important;
-        font-size: 12px !important;
+        font-size: var(--fs-100) !important;
         font-weight: 600 !important;
     }
 
@@ -8352,7 +7917,7 @@ svg {
         color: #64748B !important;
         padding: 2px 8px !important;
         border-radius: 6px !important;
-        font-size: 12px !important;
+        font-size: var(--fs-100) !important;
         font-weight: 600 !important;
         border: 1px solid #E2E8F0 !important;
     }
@@ -8362,12 +7927,12 @@ svg {
         align-items: center !important;
         gap: 6px !important;
         color: #475569 !important;
-        font-size: 14px !important;
+        font-size: var(--fs-300) !important;
         font-weight: 500 !important;
     }
 
     .mobile-schedule-card-v2 .info-line .material-icons-round {
-        font-size: 16px !important;
+        font-size: var(--fs-400) !important;
         color: #94A3B8 !important;
     }
 
@@ -8382,7 +7947,7 @@ svg {
         color: #FFFFFF !important;
         padding: 8px 16px !important;
         border-radius: 12px !important;
-        font-size: 14px !important;
+        font-size: var(--fs-300) !important;
         font-weight: 600 !important;
         border: none !important;
         box-shadow: 0 4px 12px rgba(46, 204, 113, 0.2) !important;
@@ -8396,14 +7961,6 @@ svg {
         transform: scale(0.95) !important;
         box-shadow: 0 2px 6px rgba(46, 204, 113, 0.2) !important;
     }
-}
-
-
-/* =================================
-   8. Teacher Overview Stats Grid
-   ================================= */
-.teacher-stats-container {
-    margin-bottom: 24px;
 }
 
 /* Shared Overview Grid (Used by Teacher & Student) */
@@ -8445,7 +8002,7 @@ svg {
 }
 
 .stat-card.summary-card h3 {
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     color: #4B5563;
     /* Gray-600 */
@@ -8476,7 +8033,7 @@ svg {
     color: white;
     padding: 8px 12px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     line-height: 1.4;
     white-space: max-content;
     max-width: 200px;
@@ -8590,19 +8147,6 @@ svg {
         margin-bottom: 12px !important;
     }
 
-    #addUserBtn.user-manage-add-btn {
-        display: flex !important;
-        margin: 0 auto !important;
-        /* Center block-level button */
-        width: 100% !important;
-        max-width: 200px !important;
-        height: 40px !important;
-        justify-content: center !important;
-        align-items: center !important;
-        position: relative !important;
-        clear: both !important;
-    }
-
     /* Push the table down explicitly to be safe */
     #users .table-container {
         margin-top: 0 !important;
@@ -8640,6 +8184,7 @@ svg {
     height: 100%;
     background: rgba(15, 23, 42, 0.8);
     backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: 100001;
     display: flex;
     align-items: center;
@@ -8734,7 +8279,7 @@ svg {
 }
 
 .reward-title {
-    font-size: 18px;
+    font-size: var(--fs-500);
     font-weight: 700;
     color: #78350F;
     /* Dark Amber */
@@ -8758,7 +8303,7 @@ svg {
     border: none;
     padding: 12px 32px;
     border-radius: 50px;
-    font-size: 16px;
+    font-size: var(--fs-400);
     font-weight: 700;
     cursor: pointer;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -8909,28 +8454,28 @@ svg {
 /* 2. 移动端标签优化 */
 @media (max-width: 768px) {
 
-    /* 状态标签：高度压缩 (~12-16px)、宽度压缩、字体微调 */
+    /* 状态标签：宽度压缩，高度改为由内容决定 */
     .schedule-card-group .schedule-list .status-select,
     .schedule-list .status-select,
     .schedule-row .status-select,
     select.status-select {
-        /* 高度与行高: 调宽以适应12px中文字体 */
-        height: 18px !important;
-        min-height: 18px !important;
-        max-height: 18px !important;
-        line-height: 16px !important;
-        padding: 0px 4px !important;
+        /* 原为 height/min/max 18px + line-height 16px（注释写的是「适应12px中文字体」）。
+           表单控件已统一到 16px 以规避 iOS 聚焦缩放，固定 18px 高会裁字。 */
+        height: auto !important;
+        min-height: 32px !important;
+        max-height: none !important;
+        line-height: var(--lh-tight) !important;
+        padding: 4px 8px !important;
         box-sizing: border-box !important;
 
-        /* 宽度控制 */
-        min-width: 48px !important;
-        /* 宽度减小 */
-        max-width: 60px !important;
+        /* 宽度控制：中文三字（如「已确认」）加下拉箭头约需 80px，
+           原来的 max-width: 60px 是按 12px 字号定的，会把文字截断 */
+        min-width: 76px !important;
         width: auto !important;
 
-        /* 字体 */
-        font-size: 12px !important;
-        padding: 0 2px !important;
+        /* 字号不在这里设：窗口宽度不等于触屏。缩小桌面窗口到 768px 以下时，
+           状态字号应当仍与老师姓名的 14px 一致；16px 的抬升交给
+           文件末尾的 @media (pointer: coarse)。 */
         border-radius: 4px !important;
 
         /* 其他布局属性 */
@@ -8942,7 +8487,7 @@ svg {
     /* 课程类型文本压缩 */
     .schedule-card-group .course-type-text,
     .course-type-text {
-        font-size: 12px !important;
+        font-size: var(--fs-100) !important;
         /* Name is 12px on mobile, want same */
         line-height: 1.2 !important;
     }
@@ -8979,144 +8524,6 @@ svg {
     }
 }
 
-/* ============================================
-   学生排课费用功能区 (SSF)
-   ============================================ */
-.ssf-section {
-    margin-top: 32px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-}
-
-.ssf-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 20px;
-    background: linear-gradient(135deg, #f8faff, #f1f5f9);
-    border-bottom: 1px solid #e2e8f0;
-    flex-wrap: wrap;
-}
-
-.ssf-icon {
-    font-size: 20px;
-    color: #6366f1;
-}
-
-.ssf-title {
-    margin: 0;
-    flex: 1;
-    font-size: 15px;
-    font-weight: 600;
-    color: #1e293b;
-}
-
-.ssf-date-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 6px 12px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.ssf-date-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: #475569;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.ssf-date-input {
-    border: none;
-    outline: none;
-    font-size: 13px;
-    color: #1e293b;
-    padding: 0 4px;
-    background: transparent;
-    cursor: pointer;
-}
-
-/* 表格容器 */
-.ssf-table-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-.ssf-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 600px;
-}
-
-.ssf-th {
-    padding: 10px 14px;
-    background: #f8fafc;
-    font-size: 12px;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid #e2e8f0;
-    text-align: left;
-    white-space: nowrap;
-}
-
-.ssf-th-name {
-    min-width: 90px;
-    position: sticky;
-    left: 0;
-    background: #f8fafc;
-    z-index: 1;
-}
-
-.ssf-th-action {
-    min-width: 160px;
-    text-align: right;
-}
-
-.ssf-cell {
-    padding: 11px 14px;
-    font-size: 13.5px;
-    color: #334155;
-    border-bottom: 1px solid #f1f5f9;
-    vertical-align: middle;
-}
-
-.ssf-row:last-child .ssf-cell {
-    border-bottom: none;
-}
-
-.ssf-row:hover {
-    background: #f8faff;
-}
-
-.ssf-name {
-    font-weight: 600;
-    color: #1e293b;
-    position: sticky;
-    left: 0;
-    background: inherit;
-}
-
-/* 状态标签 */
-.ssf-status {
-    display: inline-block;
-    padding: 3px 9px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 500;
-}
-
 .sstatus-pending {
     background: #fef3c7;
     color: #92400e;
@@ -9137,74 +8544,7 @@ svg {
     color: #991b1b;
 }
 
-/* 操作列 */
-.ssf-action-cell {
-    text-align: right;
-}
-
-.ssf-fee-info {
-    font-size: 11.5px;
-    color: #94a3b8;
-    margin-bottom: 4px;
-    min-height: 0;
-}
-
-.ssf-fee-info.has-fee {
-    color: #6366f1;
-    font-weight: 500;
-}
-
-.ssf-fee-badge {
-    background: #eef2ff;
-    border-radius: 6px;
-    padding: 2px 7px;
-}
-
-.ssf-add-fee-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 14px;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 7px;
-    background: #f8fafc;
-    color: #475569;
-    font-size: 12.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    white-space: nowrap;
-}
-
-.ssf-add-fee-btn:hover {
-    background: #6366f1;
-    color: #fff;
-    border-color: #6366f1;
-    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
-    transform: translateY(-1px);
-}
-
-.ssf-add-fee-btn.has-fee {
-    border-color: #6366f1;
-    color: #6366f1;
-    background: #eef2ff;
-}
-
-.ssf-add-fee-btn.has-fee:hover {
-    background: #6366f1;
-    color: #fff;
-}
-
 @media (max-width: 640px) {
-    .ssf-header {
-        padding: 12px 14px;
-    }
-
-    .ssf-th,
-    .ssf-cell {
-        padding: 9px 10px;
-        font-size: 12px;
-    }
 }
 
 /* =========================================================
@@ -9229,7 +8569,7 @@ svg {
 #studentAvailabilityTable th:first-child,
 #availabilityTable th:first-child,
 .weekly-schedule-table th.sticky-col {
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
     text-align: center !important;
     vertical-align: middle !important;
     padding-left: 0 !important;
@@ -9300,10 +8640,11 @@ svg {
 }
 
 .statistics-container .date-range-group input[type="date"] {
+    height: 40px;  /* 与 .form-group 表单字段一致。原先靠 global.css 的元素级 height: 42px 兜底，该规则已收敛到 .form-input */
     padding: 8px 14px;
     border: 1px solid var(--border-muted, #d1d5db);
     border-radius: 999px;
-    font-size: 14px;
+    font-size: var(--fs-400);
     min-width: 140px;
     transition: all 0.2s ease;
 }
@@ -9316,7 +8657,7 @@ svg {
 
 .statistics-container .date-range-group span {
     color: var(--text-secondary, #6b7280);
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 /* 操作按钮组 */
@@ -9338,7 +8679,7 @@ svg {
     color: white;
     border: none;
     border-radius: 999px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -9368,7 +8709,7 @@ svg {
     border: 1px solid var(--border-muted, #d1d5db);
     background: var(--bg-surface, #ffffff);
     border-radius: 999px;
-    font-size: 13px;
+    font-size: var(--fs-300);
     color: var(--text-secondary, #6b7280);
     cursor: pointer;
     transition: all 0.2s ease;
@@ -9464,72 +8805,12 @@ svg {
     .statistics-container .preset-btn {
         max-width: none;
         padding: 6px 4px;
-        font-size: 12px;
+        font-size: var(--fs-100);
     }
 }
 
-/* ============================================
-   统计页水平指标卡样式 (Statistics Horizontal Metric Cards)
-   ============================================ */
-.stats-metric-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 18px 20px;
-    background: white;
-    border: 1px solid #f1f5f9;
-    border-radius: 14px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-    min-width: 140px;
-    flex: 1;
-}
-
-.stats-metric-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.06), 0 4px 8px -2px rgba(0, 0, 0, 0.03);
-    border-color: rgba(59, 130, 246, 0.1);
-}
-
-.stats-metric-card .metric-icon-box {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: transform 0.3s ease;
-}
-
-.stats-metric-card:hover .metric-icon-box {
-    transform: scale(1.08) rotate(3deg);
-}
-
 .stats-metric-card .metric-icon-box .material-icons-round {
-    font-size: 24px;
-}
-
-.stats-metric-card .metric-content {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.stats-metric-card .metric-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #64748b;
-    letter-spacing: 0.3px;
-}
-
-.stats-metric-card .metric-value {
-    font-size: 26px;
-    font-weight: 800;
-    color: #1e293b;
-    line-height: 1;
+    font-size: var(--fs-700);
 }
 
 /* 统计页指标卡容器 */
@@ -9578,13 +8859,13 @@ svg {
     opacity: 0.95;
     margin-bottom: 6px;
     font-weight: 600;
-    font-size: 16px;
+    font-size: var(--fs-400);
     white-space: nowrap;
 }
 
 .overview-gradient-card .gradient-content .gradient-value {
     margin: 0;
-    font-size: 30px;
+    font-size: var(--fs-800);
     font-weight: 700;
     line-height: 1;
 }
@@ -9600,7 +8881,7 @@ svg {
     background: none;
     box-shadow: none;
     color: #64748b;
-    font-size: 13px;
+    font-size: var(--fs-300);
     line-height: 1.4;
     text-decoration: underline;
     text-decoration-color: transparent;
@@ -9622,7 +8903,7 @@ svg {
     .app-version-badge {
         right: 10px;
         bottom: 8px;
-        font-size: 12px;
+        font-size: var(--fs-100);
     }
 }
 
@@ -9756,7 +9037,7 @@ svg {
 #student-schedules .weekly-schedule-table tbody td.sticky-col,
 #student-schedules .weekly-schedule-table tbody td:first-child {
     color: #4A5568 !important;
-    font-size: var(--font-size-base) !important;
+    font-size: var(--fs-300) !important;
     font-weight: 400 !important;
 }
 
@@ -9782,7 +9063,7 @@ svg {
 #sd-fees .header-toolbar.schedule-controls .fm-range-label {
     font-weight: 600;
     color: var(--sch-text-main, #1e293b);
-    font-size: 15px;
+    font-size: var(--fs-400);
     white-space: nowrap;
     min-width: 180px;
     text-align: center;
@@ -9803,7 +9084,7 @@ svg {
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     padding: 0 8px;
-    font-size: 13px;
+    font-size: var(--fs-400);
     box-sizing: border-box;
 }
 
@@ -9845,7 +9126,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
 #fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-stu-name {
-    font-size: 15px !important;
+    font-size: var(--fs-300) !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -9857,14 +9138,14 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell,
 #fees .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td.fm-stu-name-cell {
-    font-size: 15px;
+    font-size: var(--fs-300);
 }
 
 /* 日期范围列（第2列）：纳入自适应策略，允许双行 + 省略，仍放不下时由 JS 切跑马灯 */
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(2) {
-    font-size: 14px;
+    font-size: var(--fs-300);
     white-space: normal;
     overflow: hidden;
     max-width: 155px;
@@ -9877,7 +9158,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(3) {
-    font-size: 14px;
+    font-size: var(--fs-300);
     white-space: normal;
     overflow: hidden;
     max-width: 120px;
@@ -9885,7 +9166,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(4) {
-    font-size: 14px;
+    font-size: var(--fs-300);
     white-space: normal;
     overflow: hidden;
     max-width: 110px;
@@ -9893,7 +9174,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5),
 #fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5),
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(5) {
-    font-size: 14px;
+    font-size: var(--fs-300);
     white-space: normal;
     overflow: hidden;
     max-width: 95px;
@@ -9903,7 +9184,7 @@ svg {
 #sd-fees .weekly-schedule-table tr.fm-stu-row td:nth-of-type(6) {
     /* 基准 14px；「最多 2 行 + 省略」由下方 .fm-cell-clamp !important 规则强制
        （fitFeeStatusCell 已不再做字号自适应/写内联样式），任意聚合状态数下行高恒定。 */
-    font-size: 14px;
+    font-size: var(--fs-300);
     white-space: normal;
     overflow: hidden;
     max-width: 85px;
@@ -9938,7 +9219,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td span.fm-status-mini {
-    font-size: 14px;
+    font-size: var(--fs-300);
     /* 反馈：费用状态不加粗（覆盖 .fm-status-mini 的 font-weight:500） */
     font-weight: 400;
 }
@@ -9947,7 +9228,7 @@ svg {
 #finance .weekly-schedule-table tr.fm-stu-row td.fm-num,
 #fees .weekly-schedule-table tr.fm-stu-row td.fm-num,
 #sd-fees .weekly-schedule-table tr.fm-stu-row td.fm-num {
-    font-size: 15px;
+    font-size: var(--fs-300);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -10001,7 +9282,7 @@ svg {
     background-color: #FAFAFA;
     color: var(--sch-text-main, #1e293b);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
     text-align: center;
     height: 68.59px !important;
     padding: 0 14px !important;
@@ -10125,7 +9406,7 @@ svg {
     display: inline-block;
     width: 16px;
     color: #94a3b8;
-    font-size: 12px;
+    font-size: var(--fs-300);
     transition: transform 0.15s ease;
 }
 
@@ -10140,7 +9421,7 @@ svg {
     background: rgba(46, 204, 113, 0.12);
     color: #108043;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     font-weight: 500;
     white-space: nowrap;
 }
@@ -10193,7 +9474,7 @@ svg {
     color: #475569;
     border-radius: 6px;
     padding: 4px 12px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     cursor: pointer;
     transition: all 0.15s ease;
 }
@@ -10239,7 +9520,7 @@ svg {
 .fm-d-status,
 .fm-d-fee,
 .fm-d-summary {
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #64748b;
     font-weight: normal;
     /* 所有明细文本列强制单行 + 省略：保证每个明细行严格 40px、截断表现一致（格式统一） */
@@ -10269,13 +9550,13 @@ svg {
 .fm-d-fee {
     color: #0f766e !important;
     font-weight: normal !important;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .fm-d-summary {
     color: #0f766e !important;
     font-weight: normal !important;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .fm-edit-one {
@@ -10283,13 +9564,13 @@ svg {
     background: none;
     color: #64748b;
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-300);
     padding: 0 4px;
     text-decoration: underline;
 }
 
-/* 批量编辑：按日期分组，每天一个区块；区块内条目 flex 自动换行，
-   自适应浮窗宽度（窄屏单列、宽屏多列） */
+/* 批量编辑：按日期分组，每天一个区块；区块内固定两列，
+   一行放两张授课费用卡片（原来是 flex 自动换行，列数随浮窗宽度浮动） */
 .fm-day-group {
     margin-bottom: 14px;
 }
@@ -10297,7 +9578,7 @@ svg {
     margin-bottom: 0;
 }
 .fm-day-header {
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 600;
     color: #475569;
     margin-bottom: 8px;
@@ -10305,13 +9586,12 @@ svg {
     border-bottom: 1px solid #eef2f7;
 }
 .fm-day-items {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
 }
 .fm-day-item {
-    flex: 1 1 200px;
-    min-width: 180px;
+    min-width: 0;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -10320,7 +9600,7 @@ svg {
 .fm-day-item-title {
     font-weight: 600;
     color: #1e293b;
-    font-size: 13px;
+    font-size: var(--fs-300);
     margin-bottom: 8px;
     line-height: 1.3;
 }
@@ -10328,16 +9608,53 @@ svg {
     display: flex;
     gap: 8px;
 }
+/* 「交通费」「其他」的文字与输入框同行：.form-group label 默认是 block + margin-bottom，
+   会把 label 顶到输入框上面一行。 */
 .fm-day-item-inputs .form-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     flex: 1;
     min-width: 0;
 }
+.fm-day-item-inputs .form-group label {
+    margin-bottom: 0;
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
 .fm-day-item-inputs input {
     width: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
     padding: 6px;
     height: 32px;
-    font-size: 14px;
+    font-size: var(--fs-400);
     box-sizing: border-box;
+}
+
+/* 窄屏仍然保持两列卡片（「每行固定两张」是硬要求）。
+   横向排不下的是卡片内部那两组输入：359px 浮窗下每张卡只有 ~170px，
+   两组并排会把输入框压到 ~50px。所以改成卡内上下两行，
+   每行仍是「文字 + 输入框」同行，两个要求都不让步。 */
+@media (max-width: 640px) {
+    .fm-day-items {
+        gap: 8px;
+    }
+
+    .fm-day-item {
+        padding: 8px;
+    }
+
+    .fm-day-item-inputs {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    /* 上下两行时「交通费」(3 字) 与「其他」(2 字) 宽度不同，输入框会错位；
+       给标签一个 3em 下限让两行左边缘对齐。 */
+    .fm-day-item-inputs .form-group label {
+        min-width: 3em;
+    }
 }
 
 /* ============================================
@@ -10423,7 +9740,6 @@ svg {
 /* Schedule visibility toggles: explicit default green, active red across all dashboards. */
 #toggleStudentShowPlanBtn,
 #toggleTeacherShowPlanBtn,
-#toggleTeacherStudentFeeBtn,
 #toggleTeacherStudentShowPlanBtn,
 #toggleAdminFeeBtn,
 #toggleTeacherFeeBtn,
@@ -10435,7 +9751,6 @@ svg {
 
 #toggleStudentShowPlanBtn:hover,
 #toggleTeacherShowPlanBtn:hover,
-#toggleTeacherStudentFeeBtn:hover,
 #toggleTeacherStudentShowPlanBtn:hover,
 #toggleAdminFeeBtn:hover,
 #toggleTeacherFeeBtn:hover,
@@ -10446,14 +9761,12 @@ svg {
 
 #toggleStudentShowPlanBtn.schedule-toggle-active,
 #toggleTeacherShowPlanBtn.schedule-toggle-active,
-#toggleTeacherStudentFeeBtn.schedule-toggle-active,
 #toggleTeacherStudentShowPlanBtn.schedule-toggle-active,
 #toggleAdminFeeBtn.schedule-toggle-active,
 #toggleTeacherFeeBtn.schedule-toggle-active,
 #toggleShowPlanBtn.schedule-toggle-active,
 #toggleStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleTeacherShowPlanBtn.schedule-toggle-active:hover,
-#toggleTeacherStudentFeeBtn.schedule-toggle-active:hover,
 #toggleTeacherStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleAdminFeeBtn.schedule-toggle-active:hover,
 #toggleShowPlanBtn.schedule-toggle-active:hover {
@@ -10465,7 +9778,6 @@ svg {
 
 #toggleStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleTeacherShowPlanBtn.schedule-toggle-active:hover,
-#toggleTeacherStudentFeeBtn.schedule-toggle-active:hover,
 #toggleTeacherStudentShowPlanBtn.schedule-toggle-active:hover,
 #toggleAdminFeeBtn.schedule-toggle-active:hover,
 #toggleTeacherFeeBtn.schedule-toggle-active:hover,
@@ -10521,8 +9833,15 @@ svg {
 
 /* 汇总行费用状态：各状态独立分色小胶囊（颜色复用上方 .fm-fee-*） */
 .fm-cell-clamp .fm-fee-pill {
-    display: inline-block;
-    padding: 1px 8px;
+    /* 与 .status-select / .status-badge-sm 同一套胶囊尺寸：inline-flex 居中 + min-height，
+       高度锁在 26px 且不随行高/字号的零头漂移。不用「加大上下 padding」来撑高——
+       padding 撑出来的高度会跟着行高变，实测同一条规则在不同上下文里能差出 4px。 */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+    padding: 2px 8px;
+    line-height: var(--lh-tight);
     border-radius: 999px;
     font-weight: 400;
     white-space: nowrap;
@@ -10538,21 +9857,46 @@ svg {
 /* 明细行「排课及状态」合并单元格：一行内「类型，状态」 */
 .fm-d-merged {
     color: #475569;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: normal;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 /* 明细行「费用状态」单元格 */
-.fm-d-feestatus { text-align: center; font-size: 14px; }
+.fm-d-feestatus { text-align: center; font-size: var(--fs-300); }
 .fm-d-feestatus .status-select {
-    /* !important 覆盖整站 .status-select 的 11px/600 !important 与移动端 12px !important */
-    font-size: 13px !important;
+    /* 与汇总行的 span.fm-status-mini（14px）统一到同一档——费用状态列此前明细行 16px、
+       汇总行 14px，同一列两个字号。只读态是 <span>，可编辑态才是 <select>，
+       后者在触屏下由文件末尾的 @media (pointer: coarse) 抬回 16px。 */
+    font-size: var(--fs-300) !important;
     font-weight: 400 !important;
-    height: 24px;
-    padding: 0 10px;
-    line-height: 1.4;
+    min-height: 24px;
+    height: auto;
+    padding: 0;
+    line-height: var(--lh-tight);
+}
+/* 明细行费用状态：去掉胶囊底卡，只保留状态色文字。
+   汇总行一行要并列多个状态，靠分色胶囊区分；明细行每行只有一个状态，
+   整列铺满底色卡片视觉噪声大，且与相邻纯文本列割裂，故改为无底展示。
+   .fm-fee-* 的 background 带 !important，此处必须同样 !important 才能压掉；
+   color（状态色）保留，明细行仍可一眼分辨状态。
+   用 [class*="fm-fee-"] 覆盖全部状态，新增状态无需再来改这里。 */
+.fm-d-feestatus .status-select[class*="fm-fee-"],
+.fm-d-feestatus select.status-select[class*="fm-fee-"],
+.fm-d-feestatus span.status-select[class*="fm-fee-"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+}
+/* 无底卡后 <select> 失去「可点」的形状暗示：hover 时给一次性淡底（不改 padding，
+   避免宽度跳动），配合整站 .status-select 的 cursor:pointer + opacity 提示可编辑。 */
+.fm-d-feestatus select.status-select[class*="fm-fee-"]:hover,
+.fm-d-feestatus select.status-select[class*="fm-fee-"]:focus-visible {
+    background: rgba(148, 163, 184, .16) !important;
+    border-radius: 999px !important;
 }
 
 /* 汇总行「排课及状态」：类型一行 + 状态一行 */
@@ -10568,7 +9912,7 @@ svg {
     text-overflow: ellipsis;
     /* 反馈：类型行与状态行统一 14px；
        !important 覆盖 fitMergedCell 写入的内联 font-size（该列固定 14px，不参与收缩）。 */
-    font-size: 14px !important;
+    font-size: var(--fs-300) !important;
 }
 .fm-merged-summary .fm-ms-type { color: #475569; }
 .fm-merged-summary .fm-ms-status { color: #94a3b8; }
@@ -10603,7 +9947,7 @@ svg {
     border-radius: 999px;
     background: transparent;
     color: #475569;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
@@ -10614,7 +9958,7 @@ svg {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .fm-action-btn .material-icons-round {
-    font-size: 18px;
+    font-size: var(--fs-500);
 }
 .fm-action-btn.act-success { color: #15803d; }
 .fm-action-btn.act-danger  { color: #b91c1c; }
@@ -10625,7 +9969,7 @@ svg {
     color: #475569;
     border-radius: 8px;
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: var(--fs-300);
     cursor: pointer;
 }
 .fm-batch-bar {
@@ -10645,7 +9989,7 @@ svg {
     gap: 8px;
 }
 .fm-batch-label {
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #64748b;
     white-space: nowrap;
     line-height: 1;
@@ -10655,7 +9999,7 @@ svg {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 7px 10px;
-    font-size: 14px;
+    font-size: var(--fs-400);
     color: #334155;
     background: #fff;
     height: 36px;
@@ -10664,7 +10008,7 @@ svg {
 }
 .fm-batch-field input { width: 150px; }
 .fm-batch-msg {
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #64748b;
     white-space: nowrap;
 }
@@ -10674,7 +10018,7 @@ svg {
     color: #fff;
     border-radius: 8px;
     padding: 7px 20px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     height: 36px;
@@ -10683,3 +10027,27 @@ svg {
 }
 .fm-batch-apply:hover { filter: brightness(1.05); }
 
+
+/* ============================================================
+   触屏设备上把可编辑的状态下拉抬回 16px
+   iOS Safari 聚焦 font-size < 16px 的表单控件时会放大整页且不自动还原。
+   桌面端状态字号统一为 14px（与排课卡片的 .teacher-name、费用汇总行的
+   .fm-status-mini 对齐），这条例外只针对真正的触屏——按 pointer: coarse
+   判定而不是窗口宽度，避免缩小桌面窗口时字号跳档。
+   .status-badge-sm 是 <span> 不是表单控件，不在此列。
+   ============================================================ */
+@media (pointer: coarse) {
+
+    select.status-select,
+    .fm-d-feestatus select.status-select {
+        font-size: var(--fs-400) !important;
+    }
+
+    /* 排课卡片状态标签（可聚焦 select）触屏上同样抬回 16px，胶囊随之放松；
+       学生端只读 span 非表单控件，不抬。 */
+    .schedule-card-group select.status-select {
+        font-size: var(--fs-400) !important;
+        min-height: 26px !important;
+        padding: 2px 8px !important;
+    }
+}

@@ -34,7 +34,8 @@
     --sch-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 
     /* Typography */
-    --sch-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    --sch-font-family: var(--font-family-sans);
+    /* 原为 'Inter', system-ui, … —— Inter 在 dashboard 上从未加载，且栈内无中文字体 */
 
     /* Spacing */
     --sch-radius-sm: 999px;
@@ -85,7 +86,7 @@
     background: transparent;
     border: none;
     color: var(--sch-text-body);
-    font-size: 16px;
+    font-size: var(--fs-400);
     cursor: pointer;
     padding: 4px;
     border-radius: var(--sch-radius-sm);
@@ -105,7 +106,7 @@
 .week-navigation #ssWeekRange {
     font-weight: 600;
     color: var(--sch-text-main);
-    font-size: 15px;
+    font-size: var(--fs-400);
     white-space: nowrap !important;
     min-width: 180px;
     text-align: center;
@@ -118,7 +119,7 @@
     border: 1px solid var(--sch-primary);
     border-radius: var(--sch-radius-sm);
     padding: 10px 20px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     display: inline-flex;
@@ -132,7 +133,7 @@
 }
 
 .schedule-controls .add-btn .material-icons-round {
-    font-size: 18px;
+    font-size: var(--fs-500);
 }
 
 .schedule-controls .add-btn:hover {
@@ -161,16 +162,17 @@
 
 .filter-group label {
     font-weight: 500;
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: var(--sch-text-main);
 }
 
 .filter-group select {
+    height: 40px;  /* 与 .form-group 表单字段一致。原先靠 global.css 的元素级 height: 42px 兜底，该规则已收敛到 .form-input */
     padding: 6px 12px;
     border: 1px solid rgba(203, 213, 225, 0.6);
     border-radius: var(--sch-radius-sm);
     background-color: #F8F9FA;
-    font-size: 13px;
+    font-size: var(--fs-400);
     color: var(--sch-text-main);
     cursor: pointer;
     outline: none;
@@ -229,7 +231,7 @@
     background-color: #FAFAFA;
     color: var(--sch-text-main);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
     text-align: center;
     padding: 16px 12px;
     border-bottom: 2px solid var(--sch-border);
@@ -282,7 +284,7 @@
     /* Slightly rounded */
     padding: 8px;
     margin-bottom: 8px;
-    font-size: 12px;
+    font-size: var(--fs-300);
     color: var(--sch-text-body);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     cursor: pointer;
@@ -373,6 +375,31 @@
 .status-select.modified_away {
     background-color: #94A3B8 !important;
     color: white !important;
+}
+
+/* ============================================
+   排课卡片点击与字体（管理员周视图）
+   - 整张卡片（含底部时间段/地点区域）点击都进编辑弹窗，卡片之外才弹「添加排课」
+   - 教师姓名：不加粗、黑色（与地点文本一致，取代 .schedule-row/.teacher-name 的 600/700）
+   - 状态标签：不加粗 + 上一版状态色配色 + 小一号（2026-09-07）
+     —— 规则已上移到 dashboard.css 的 `.schedule-card-group .status-select`（三端共用），
+        管理端不在此重复声明；此前本文件强制黑字的规则已删除（观感退回上一版）。
+   ============================================ */
+.schedule-card-group {
+    cursor: pointer;
+}
+
+.schedule-card-group .schedule-row,
+.schedule-card-group .schedule-row .row-left,
+.schedule-card-group .teacher-name {
+    font-weight: 400 !important;
+    color: #000000 !important;
+}
+
+/* 底部时间文本：与地点同字重同颜色 */
+.schedule-card-group .schedule-footer .time-text {
+    font-weight: 400 !important;
+    color: #000000 !important;
 }
 
 /* --- 6. Mobile Responsiveness --- */
@@ -484,7 +511,7 @@
 }
 
 .icon-slot {
-    font-size: 20px;
+    font-size: var(--fs-600);
     color: #e2e8f0;
     /* Default grey */
     transition: all 0.2s;
@@ -527,9 +554,9 @@
        New: 10px font * 1 line-height + 2px padding = 12px 
     */
     .schedule-item .type {
-        font-size: 10px !important;
+        font-size: var(--fs-100) !important;
         padding: 1px 4px !important;
-        line-height: 1 !important;
+        line-height: var(--lh-tight) !important;  /* 原为 line-height: 1；中文字形几乎占满 em 框，等于字号的行高会挤掉上下伸部 */
         display: inline-block !important;
         /* Ensure block model relies on padding */
         height: auto !important;
@@ -556,26 +583,173 @@
 
     /* 针对红框所示的状态标签 (Status Badge/Select) */
     .status-select {
-        height: 18px !important;
-        min-height: 18px !important;
-        max-height: 18px !important;
-        line-height: 16px !important;
-        font-size: 12px !important;
-        min-width: 48px !important;
-        padding: 0px 4px !important;
+        /* 原为 height/min/max 18px + line-height 16px 的三重锁死，装不下中文。
+           字号不在这里抬——iOS 聚焦缩放取决于【指针类型】而不是窗口宽度，
+           缩小桌面窗口到 768px 以下不该让状态字号跳到 16px、和老师姓名的 14px 错开。
+           16px 的抬升统一放在 dashboard.css 末尾的 @media (pointer: coarse) 里。 */
+        height: auto !important;
+        min-height: 32px !important;
+        max-height: none !important;
+        line-height: var(--lh-tight) !important;
+        min-width: 76px !important;
+        padding: 4px 8px !important;
         box-sizing: border-box !important;
         background-position: right 1px center !important;
     }
 
     /* 针对左侧课程类型文本 (如 "入户")，保持协调 */
     .course-type-text {
-        font-size: 10px !important;
-        line-height: 1 !important;
+        font-size: var(--fs-100) !important;
+        line-height: var(--lh-tight) !important;  /* 原为 line-height: 1；中文字形几乎占满 em 框，等于字号的行高会挤掉上下伸部 */
     }
 
     /* 调整行内布局以适应更矮的标签 */
     .schedule-row {
         align-items: center !important;
         gap: 2px !important;
+    }
+}
+/* ============ 排课弹窗的 pair 行（多师多生）============
+   一行 = 一个教师 / 学生 pair。样式刻意沿用弹窗既有的紧凑风格，
+   不引入新的视觉语言 —— 列表与卡片的显示这一轮不动。 */
+
+/* 「授课教师」「上课学生」两块的外壳：一条单列栅格，两块因此天然等宽。
+   1fr（不是 fit-content）是为了让两块填满 form 那条轨道 —— 于是它们不只彼此等宽，
+   还与上面的日期行 / 地点行等宽；谁最宽由 form 的 minmax(0, max-content) 统一决定。
+   minmax(0, …) 兜住 fitSelectWidth() 把某个 select 写得很宽时不撑破弹窗。 */
+.pair-sections {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.pair-section {
+    grid-column: 1 / -1;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: #fbfcfe;
+}
+
+.pair-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.pair-section-title {
+    font-size: var(--fs-400);
+    font-weight: 600;
+    color: #475569;
+}
+
+/* 添加老师/学生按钮：文本+下划线 */
+.pair-add-btn {
+    background: none;
+    border: none;
+    color: var(--accent, #4CAF50);
+    font-size: var(--fs-300);
+    cursor: pointer;
+    padding: 2px 4px;
+    text-decoration: underline;
+}
+.pair-add-btn:hover { opacity: 0.8; }
+
+.pair-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pair-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    /* 吃满整行并把各控件分散排开：教师 / 类型 / 类别 / 生命周期 … 一直到右侧的 [删除]。
+       gap 是分散后的最小间距，不会因为 space-between 而贴边。 */
+    width: 100%;
+    justify-content: space-between;
+}
+
+/* 宽度由 schedule-pair-form.js 的 fitSelectWidth() 按「当前选中项」量出来写成行内 width。
+   不在这里用 CSS 解决的原因：select 的固有宽度取自**最长的那个 option**（教师列表里有
+   '──────────' 分隔线和「（暂停）(时间冲突)」后缀，最长项 ~200px），所以 width:auto
+   一样是一片空白；能一句话搞定的 `field-sizing: content` 只有 Chrome 123+ 支持，
+   Safari / Firefox 上完全无效。这里只留上下限兜底：JS 没跑到时不至于撑破一行。 */
+.pair-row select {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 4.5em;
+    max-width: 14em;
+    height: 34px;
+    font-size: var(--fs-400);
+    line-height: normal;
+    padding: 2px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    /* .form-group select 那边是 transition: all .3s，会让每次改选时宽度肉眼可见地伸缩一下；
+       只保留焦点反馈的过渡，宽度立即生效。 */
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pair-row .pair-remove {
+    flex: 0 0 auto;
+    border: none;
+    background: transparent;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: var(--fs-300);
+    line-height: 1;
+    padding: 4px 6px;
+    text-decoration: underline;
+}
+
+.pair-row .pair-remove:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+
+.pair-row .pair-added-by {
+    flex: 0 0 auto;
+    font-size: var(--fs-300);
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.pair-row .pair-category-readonly {
+    flex: 0 0 auto;
+    font-size: var(--fs-300);
+    color: #0369a1;
+    background: #e0f2fe;
+    border-radius: 4px;
+    padding: 4px 8px;
+    white-space: nowrap;
+}
+
+/* 编辑态的「创建人 · 创建时间 · 最后修改人 · 最后修改时间」一行。
+   width: 0 + min-width: 100% 是刻意的：这行文字拼起来很长，若参与 form 那条
+   minmax(0, max-content) 轨道的定宽，编辑排课时整个弹窗会被它顶宽一大截。
+   width: 0 让它对轨道宽度贡献 0，轨道定好后再靠 min-width: 100% 填满并自行折行。 */
+.pair-audit {
+    grid-column: 1 / -1;
+    width: 0;
+    min-width: 100%;
+    font-size: var(--fs-300);
+    color: #64748b;
+    line-height: 1.7;
+    padding: 6px 2px 0;
+    /* 创建信息 / 修改信息各占一行（文本里用 \n 分隔） */
+    white-space: pre-line;
+}
+
+/* 窄屏放开 nowrap：手机上弹窗只有 ~340px，6 项即使已按内容压缩也排不下，
+   让它自然换行，而不是继续压窄每个 select。 */
+@media (max-width: 640px) {
+    .pair-row {
+        flex-wrap: wrap;
     }
 }

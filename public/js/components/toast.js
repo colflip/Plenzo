@@ -61,7 +61,7 @@ class ToastManager {
             .toast {
                 padding: 14px 20px;
                 border-radius: var(--radius-lg, 8px);
-                font-size: 14px;
+                font-size: var(--fs-300);
                 line-height: 1.5;
                 font-family: var(--font-family-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
                 display: flex;
@@ -100,7 +100,7 @@ class ToastManager {
                 margin-left: auto;
                 cursor: pointer;
                 opacity: 0.5;
-                font-size: 18px;
+                font-size: var(--fs-500);
                 padding: 0 2px;
                 transition: opacity 0.2s;
             }

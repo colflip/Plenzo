@@ -43,7 +43,7 @@
     }
 
     .dashboard-header h2 {
-        font-size: 24px !important;
+        font-size: var(--fs-700) !important;
         margin: 0 !important;
     }
 
@@ -74,6 +74,20 @@
     .form-container {
         width: 600px !important;
         max-width: 90% !important;
+    }
+
+    /* 排课弹窗例外：不吃 600px 的固定宽度，改为跟着内容收缩（form 是单列 max-content 轨道），
+       960px 只作上限 —— 教师 pair 行横排 6 项（教师/类型/类别/生命周期/id/删除）时最宽，
+       600px 会把每个 select 压到 ~106px，长教师名（含「（暂停）(时间冲突)」后缀）被截断。 */
+    #scheduleFormContainer.form-container {
+        width: fit-content !important;
+        max-width: min(92vw, 960px) !important;
+    }
+
+    /* 用户弹窗同上：不吃 600px 固定宽度，跟着两列 max-content 轨道收缩 */
+    #userFormContainer.form-container {
+        width: fit-content !important;
+        max-width: min(92vw, 760px) !important;
     }
 
     .schedule-controls,

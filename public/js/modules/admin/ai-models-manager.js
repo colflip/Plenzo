@@ -48,6 +48,8 @@ function showConfirm(message, detail = '') {
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0,0,0,0.5); z-index: 10000;
+            backdrop-filter: blur(var(--overlay-blur, 4px));
+            -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
             display: flex; align-items: center; justify-content: center;
         `;
         const dialog = document.createElement('div');
@@ -56,11 +58,11 @@ function showConfirm(message, detail = '') {
             max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
         `;
         dialog.innerHTML = `
-            <h3 style="margin:0 0 12px 0;font-size:18px;color:#333;">${message}</h3>
-            ${detail ? `<p style="margin:0 0 20px 0;font-size:14px;color:#666;">${detail}</p>` : '<div style="height:8px;"></div>'}
+            <h3 style="margin:0 0 12px 0;font-size: var(--fs-500);color:#333;">${message}</h3>
+            ${detail ? `<p style="margin:0 0 20px 0;font-size: var(--fs-300);color:#666;">${detail}</p>` : '<div style="height:8px;"></div>'}
             <div style="display:flex;gap:12px;justify-content:flex-end;">
-                <button id="cancelBtn" style="padding:8px 20px;border:1px solid #ddd;background:white;border-radius:6px;cursor:pointer;font-size:14px;">取消</button>
-                <button id="confirmBtn" style="padding:8px 20px;border:none;background:#2ECC71;color:white;border-radius:6px;cursor:pointer;font-size:14px;">确定</button>
+                <button id="cancelBtn" style="padding:8px 20px;border:1px solid #ddd;background:white;border-radius:6px;cursor:pointer;font-size: var(--fs-300);">取消</button>
+                <button id="confirmBtn" style="padding:8px 20px;border:none;background:#2ECC71;color:white;border-radius:6px;cursor:pointer;font-size: var(--fs-300);">确定</button>
             </div>
         `;
         overlay.appendChild(dialog);
@@ -267,12 +269,12 @@ function renderModelsTable() {
  * 渲染能力标签
  */
 function renderCapsTags(caps) {
-    if (!caps) return '<span style="color:#cbd5e1;font-size:11px;">-</span>';
+    if (!caps) return '<span style="color:#cbd5e1;font-size: var(--fs-300);">-</span>';
     const tags = [];
     if (caps.vision) tags.push('<span class="ai-cap-tag vision">视觉</span>');
     if (caps.tools) tags.push('<span class="ai-cap-tag tools">工具</span>');
     if (caps.reasoning) tags.push('<span class="ai-cap-tag reasoning">推理</span>');
-    return tags.length ? tags.join('') : '<span style="color:#cbd5e1;font-size:11px;">-</span>';
+    return tags.length ? tags.join('') : '<span style="color:#cbd5e1;font-size: var(--fs-300);">-</span>';
 }
 
 /**

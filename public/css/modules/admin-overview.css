@@ -5,9 +5,16 @@
 /* 1. Grid Container */
 
 
-/* 加载状态文字缩小 */
+/* 加载状态：原先用 font-size: 0.2em !important 把文字缩到约 3–8px 当作隐藏手段，
+   文字仍留在无障碍树里、屏幕阅读器会念出来。改成视觉隐藏但语义保留。 */
 .stat-card.loading p {
-    font-size: 0.2em !important;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
 }
 
 /* ==========================================================================
@@ -31,7 +38,7 @@
 .stat-card.user-stat h3 {
     color: #1E40AF;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .stat-card.user-stat p {
@@ -59,7 +66,7 @@
 .stat-card.time-stat h3 {
     color: #6D28D9;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .stat-card.time-stat p {
@@ -87,7 +94,7 @@
 .stat-card.status-pending h3 {
     color: #C2410C;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .stat-card.status-pending p {
@@ -115,7 +122,7 @@
 .stat-card.status-completed h3 {
     color: #047857;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .stat-card.status-completed p {
@@ -143,7 +150,7 @@
 .stat-card.status-cancelled h3 {
     color: #B91C1C;
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 .stat-card.status-cancelled p {
@@ -182,7 +189,7 @@
     transform: translateX(-50%) translateY(8px);
     background-color: rgba(30, 41, 59, 0.95);
     color: #fff;
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 500;
     padding: 10px 16px;
     border-radius: 8px;
@@ -228,7 +235,8 @@
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(var(--overlay-blur, 4px));
+    -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
     display: none;
     justify-content: center;
     align-items: center;
@@ -317,7 +325,7 @@
     border: none;
     padding: 14px 32px;
     border-radius: 50px;
-    font-size: 16px;
+    font-size: var(--fs-400);
     font-weight: 700;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -364,7 +372,7 @@
 
 /* Badge Styles */
 .sc-type-badge {
-    font-size: 11px;
+    font-size: var(--fs-300);
     padding: 2px 6px;
     border-radius: 4px;
     background-color: #F1F5F9;

@@ -13,7 +13,7 @@
     border: 1px solid #bbf7d0;
     border-radius: 8px;
     margin-bottom: 20px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     /* 全部信息同行显示：不换行，过长时横向滚动 */
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -23,7 +23,7 @@
     font-weight: 600;
     color: #16a34a;
     white-space: nowrap;
-    font-size: 16px;
+    font-size: var(--fs-400);
 }
 
 .ai-current-label::before {
@@ -40,7 +40,7 @@
 .ai-current-value {
     font-family: 'Monaco', 'Courier New', monospace;
     color: #334155;
-    font-size: 15px;
+    font-size: var(--fs-300);
     font-weight: 600;
     flex: 1;
     overflow: hidden;
@@ -51,7 +51,7 @@
 .ai-current-status {
     padding: 3px 12px;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 600;
     white-space: nowrap;
 }
@@ -86,7 +86,7 @@
     border: 1px solid #d1fae5;
     border-radius: 6px;
     /* 反馈：字体至少 14px */
-    font-size: 14px;
+    font-size: var(--fs-300);
     color: #475569;
     font-family: 'Monaco', 'Courier New', monospace;
     white-space: nowrap;
@@ -109,7 +109,7 @@
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: var(--fs-300);
     font-weight: 600;
     margin-left: 8px;
     vertical-align: middle;
@@ -128,7 +128,7 @@
 /* 模型 ID 列 */
 .ai-model-id {
     font-family: 'Monaco', 'Courier New', monospace;
-    font-size: 15px;
+    font-size: var(--fs-300);
     color: #64748b;
 }
 
@@ -137,7 +137,7 @@
     display: inline-block;
     padding: 2px 10px;
     border-radius: 4px;
-    font-size: 15px;
+    font-size: var(--fs-300);
     font-weight: 500;
     background: #f1f5f9;
     color: #475569;
@@ -154,7 +154,7 @@
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 15px;
+    font-size: var(--fs-300);
     font-weight: 500;
 }
 
@@ -178,7 +178,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 15px;
+    font-size: var(--fs-300);
     font-weight: 500;
 }
 
@@ -245,7 +245,7 @@
 .ai-btn {
     padding: 6px 12px;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: var(--fs-300);
     font-weight: 500;
     cursor: pointer;
     border: none;
@@ -322,7 +322,7 @@
     margin-bottom: 6px;
     font-weight: 500;
     color: #333;
-    font-size: 14px;
+    font-size: var(--fs-300);
 }
 
 #aiModelForm input,
@@ -331,7 +331,7 @@
     padding: 8px 12px;
     border: 1px solid #ddd;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: var(--fs-400);
     transition: border-color 0.2s;
     box-sizing: border-box;
 }

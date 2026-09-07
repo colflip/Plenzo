@@ -84,7 +84,7 @@
 
 .stats-spinner-text {
     color: var(--loading-text-color);
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 500;
     letter-spacing: 0.02em;
     margin: 0;
@@ -191,7 +191,7 @@
 
 .loading-text {
     color: var(--loading-text-color);
-    font-size: 13px;
+    font-size: var(--fs-300);
     font-weight: 500;
     margin-top: 12px;
 }
@@ -206,13 +206,18 @@
 }
 
 html {
-    font-size: 16px;
+    /* 100% 而不是 16px：绝对值会让浏览器「默认字号」偏好完全失效（实测把 Chrome 默认字号
+       设为 20px 时，html/body/p/td 全部仍是 16px）。text-size-adjust 阻止 iOS 横屏时
+       自动膨胀文字，与我们显式设定的字号打架。 */
+    font-size: 100%;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     scroll-behavior: smooth;
 }
 
 body {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--fs-400);
     line-height: 1.5;
     color: var(--color-gray-800);
     background-color: var(--color-gray-50);
@@ -234,19 +239,19 @@ h6 {
 }
 
 h1 {
-    font-size: var(--font-size-3xl);
+    font-size: var(--fs-800);
 }
 
 h2 {
-    font-size: var(--font-size-2xl);
+    font-size: var(--fs-700);
 }
 
 h3 {
-    font-size: var(--font-size-xl);
+    font-size: var(--fs-600);
 }
 
 h4 {
-    font-size: var(--font-size-lg);
+    font-size: var(--fs-500);
 }
 
 p {
@@ -272,7 +277,7 @@ a:hover {
     padding: var(--spacing-2) var(--spacing-4);
     font-family: var(--font-family-sans);
     font-weight: var(--font-weight-medium);
-    font-size: var(--font-size-sm);
+    font-size: var(--fs-300);
     border-radius: var(--radius-md);
     border: 1px solid transparent;
     cursor: pointer;
@@ -340,17 +345,39 @@ a:hover {
 }
 
 /* Forms */
+/* 表单与按钮的字体归一：浏览器对 button 的 UA 默认是 400 13.3333px Arial，
+   既不继承页面字体也低于 14px 下限。实测 admin 页有 9 个按钮（侧栏折叠、登出、各表单关闭）
+   命中这个默认值。这里统一继承字体族并落到下限档。 */
+button,
+[type="button"],
+[type="submit"],
+[type="reset"] {
+    font-family: inherit;
+    font-size: var(--fs-300);
+    line-height: var(--lh-tight);
+}
+
+/* 元素级只保留【对任何表单控件都成立】的排版属性。
+   盒模型（width/height/padding/背景/边框）曾经也写在这里——那是登录页字段的样式
+   （padding-left: 48px 是给 .form-icon 让位、height: 42px 是字段高度），却作用到了全站
+   每一个 input/select/textarea。后果是任何做成胶囊/徽章形状的控件都得反过来压它：
+   只声明 min-height 是压不掉 height 的，实测排课卡片的状态下拉因此变成 42px 高。
+   现已收敛到 .form-input（仅登录页使用）。 */
 input,
 select,
 textarea {
+    font-family: inherit;
+    font-size: var(--fs-400);
+    /* 表单控件下限 16px：低于此值 iOS Safari 聚焦时会放大整页且不自动还原 */
+    color: var(--color-gray-900);
+}
+
+/* 登录页字段：带前置图标的整宽输入框 */
+.form-input {
     display: block;
     width: 100%;
     height: 42px;
-    /* Reduced by 15% from 50px */
     padding: var(--spacing-3) var(--spacing-4) var(--spacing-3) 48px;
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    color: var(--color-gray-900);
     background-color: var(--color-gray-100);
     border: 1px solid transparent;
     border-radius: 12px;
@@ -379,7 +406,7 @@ input::placeholder {
 
 label {
     display: block;
-    font-size: var(--font-size-sm);
+    font-size: var(--fs-300);
     font-weight: var(--font-weight-medium);
     color: var(--color-gray-700);
     margin-bottom: var(--spacing-1);
@@ -496,7 +523,7 @@ label {
     background: var(--color-gray-100);
     border: 1px solid transparent;
     border-radius: 12px;
-    font-size: var(--font-size-base);
+    font-size: var(--fs-400);
     color: var(--color-gray-900);
     transition: all 0.2s;
 }
@@ -536,7 +563,7 @@ label {
 
 .custom-option {
     padding: 10px 16px;
-    font-size: var(--font-size-sm);
+    font-size: var(--fs-300);
     color: var(--color-gray-700);
     cursor: pointer;
     transition: background 0.2s;

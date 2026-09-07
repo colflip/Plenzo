@@ -121,7 +121,7 @@ function renderStudentAvailabilityHeader(dates) {
             const lunarStr = new Intl.DateTimeFormat('zh-u-ca-chinese', { dateStyle: 'full' }).format(date);
             const match = lunarStr.match(/(正月|腊月)(.*?)(?=星期)/);
             if (match) {
-                lunarLabel = `<br><span style="font-size: 11px; color: #64748B;">(${match[0]})</span>`;
+                lunarLabel = `<br><span style="font-size: var(--fs-300); color: #64748B;">(${match[0]})</span>`;
             }
         } catch (e) { }
 
