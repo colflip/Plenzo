@@ -17,6 +17,25 @@ const logger = require('../utils/logger');
 
 const HOLIDAY_COLUMNS = ['year', 'type', 'label', 'start_date', 'end_date'];
 
+/**
+ * 把若干节假日拼成**一条**多值 INSERT。
+ * 远程库每条语句约 250ms，三年节假日 100-300 条，逐条写要 25-75 秒；
+ * 合成一条后是一次往返。items 已由调用方过滤过必填字段。
+ */
+async function insertHolidaysBatch(items) {
+    if (items.length === 0) return;
+    const params = [];
+    const tuples = items.map((it) => {
+        params.push(it.year, it.type, it.label, it.start_date, it.end_date);
+        const n = params.length;
+        return `($${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, $${n})`;
+    });
+    await db.query(
+        `INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ${tuples.join(', ')}`,
+        params
+    );
+}
+
 /** 校验节假日 5 字段完整性；通过返回 null，否则返回中文字段错误信息 */
 function validateHolidayFields(payload) {
     if (!payload) return '请求参数缺失';
@@ -80,7 +99,7 @@ async function deleteHoliday(id, req) {
 }
 
 /**
- * 批量 upsert（按涉及年份先清空再逐条写入）
+ * 批量 upsert（按涉及年份先清空，再一条多值 INSERT 写入）
  * 返回 { status, data: { count, years } } 或 { status, error }
  */
 async function batchUpsertHolidays(items, req) {
@@ -93,13 +112,10 @@ async function batchUpsertHolidays(items, req) {
         await db.query('DELETE FROM holidays WHERE year = ANY($1::int[])', [years]);
     }
 
-    for (const item of items) {
-        if (!item.year || !item.type || !item.label || !item.start_date || !item.end_date) continue;
-        await db.query(
-            'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
-            [item.year, item.type, item.label, item.start_date, item.end_date]
-        );
-    }
+    const valid = items.filter(
+        (it) => it.year && it.type && it.label && it.start_date && it.end_date
+    );
+    await insertHolidaysBatch(valid);
 
     await recordAudit(req, { op: 'batch_sync_holidays', details: { years, count: items.length } });
     return { status: 200, data: { count: items.length, years } };
@@ -150,12 +166,7 @@ async function syncHolidaysFromAPI(yearsInput, req, { fetcher = fetch } = {}) {
 
     const syncedYears = [...new Set(items.map((i) => i.year))];
     await db.query('DELETE FROM holidays WHERE year = ANY($1::int[])', [syncedYears]);
-    for (const item of items) {
-        await db.query(
-            'INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ($1, $2, $3, $4, $5)',
-            [item.year, item.type, item.label, item.start_date, item.end_date]
-        );
-    }
+    await insertHolidaysBatch(items);
 
     await recordAudit(req, { op: 'sync_holidays_from_api', details: { years: syncedYears, count: items.length } });
 
