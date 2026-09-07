@@ -39,7 +39,9 @@ const state = {
         vision: false,
         tools: false,
         reasoning: false
-    }
+    },
+    floatBtnPos: null,  // 图标拖拽后的位置 { left, top }（右上角锚定，持久化恢复用）
+    floatBtnDragging: false
 };
 
 /**
@@ -121,6 +123,15 @@ function injectStyles() {
         box-shadow: var(--ai-shadow-lg);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;   /* 触屏下禁止原生滚动手势，让 pointer 拖拽接管 */
+    }
+
+    .ai-float-btn.dragging {
+        transition: none;
+        cursor: grabbing;
+        box-shadow: 0 20px 30px rgba(59, 130, 246, 0.35), 0 10px 15px rgba(0, 0, 0, 0.15);
     }
 
     .ai-float-btn::before {
@@ -295,7 +306,7 @@ function injectStyles() {
         display: flex;
         align-items: center;
         gap: 12px;
-        font-size: 14px;
+        font-size: var(--fs-300);
         font-weight: 600;
         color: var(--ai-text-primary);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -332,7 +343,7 @@ function injectStyles() {
         background: var(--ai-primary-light);
         color: var(--ai-primary);
         border-radius: 9px;
-        font-size: 10px;
+        font-size: var(--fs-300);
         font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.3px;
@@ -422,7 +433,7 @@ function injectStyles() {
         background: transparent;
         border: 1px solid var(--ai-border);
         border-radius: 16px;
-        font-size: 13px;
+        font-size: var(--fs-300);
         color: var(--ai-text-secondary);
         cursor: pointer;
         transition: all 0.2s;
@@ -503,7 +514,7 @@ function injectStyles() {
     .ai-msg-bubble {
         padding: 12px 16px;
         border-radius: 16px;
-        font-size: 14px;
+        font-size: var(--fs-300);
         line-height: 1.6;
         white-space: pre-wrap;
         word-break: break-word;
@@ -542,16 +553,16 @@ function injectStyles() {
         line-height: 1.3;
     }
 
-    .ai-msg-bubble h1 { font-size: 13px; }
-    .ai-msg-bubble h2 { font-size: 12px; }
-    .ai-msg-bubble h3 { font-size: 12px; }
+    .ai-msg-bubble h1 { font-size: var(--fs-300); }
+    .ai-msg-bubble h2 { font-size: var(--fs-300); }
+    .ai-msg-bubble h3 { font-size: var(--fs-300); }
 
     .ai-msg-bubble code {
         background: var(--ai-background);
         padding: 2px 5px;
         border-radius: 3px;
         font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-        font-size: 13px;
+        font-size: var(--fs-300);
         color: var(--ai-primary);
         border: 1px solid var(--ai-border);
     }
@@ -569,7 +580,7 @@ function injectStyles() {
         background: none;
         padding: 0;
         border: none;
-        font-size: 12px;
+        font-size: var(--fs-300);
         color: var(--ai-text-primary);
     }
 
@@ -581,7 +592,7 @@ function injectStyles() {
 
     .ai-msg-bubble li {
         margin: 3px 0;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     .ai-msg-bubble strong {
@@ -613,12 +624,12 @@ function injectStyles() {
         text-align: center;
         padding: 24px 16px;
         color: var(--ai-text-secondary);
-        font-size: 14px;
+        font-size: var(--fs-300);
         line-height: 1.5;
     }
 
     .ai-empty .icon {
-        font-size: 41px;
+        font-size: var(--fs-800);
         margin-bottom: 10px;
         opacity: 0.5;
     }
@@ -630,7 +641,7 @@ function injectStyles() {
     }
 
     .ai-tutorial-title {
-        font-size: 15px;
+        font-size: var(--fs-300);
         font-weight: 600;
         color: var(--ai-text-primary);
         margin-bottom: 14px;
@@ -646,14 +657,14 @@ function injectStyles() {
     }
 
     .ai-tutorial-section-title {
-        font-size: 13px;
+        font-size: var(--fs-300);
         font-weight: 600;
         color: var(--ai-text-primary);
         margin-bottom: 4px;
     }
 
     .ai-tutorial-section-content {
-        font-size: 12.5px;
+        font-size: var(--fs-300);
         color: var(--ai-text-secondary);
         line-height: 1.7;
     }
@@ -673,7 +684,7 @@ function injectStyles() {
     .ai-data-table table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     .ai-data-table th {
@@ -683,7 +694,7 @@ function injectStyles() {
         font-weight: 600;
         color: var(--ai-text-secondary);
         border-bottom: 1px solid var(--ai-border);
-        font-size: 13px;
+        font-size: var(--fs-300);
         text-transform: uppercase;
         letter-spacing: 0.3px;
     }
@@ -692,7 +703,7 @@ function injectStyles() {
         padding: 8px 10px;
         border-bottom: 1px solid var(--ai-border);
         color: var(--ai-text-primary);
-        font-size: 14px;
+        font-size: var(--fs-300);
     }
 
     .ai-data-table tr:last-child td {
@@ -719,7 +730,7 @@ function injectStyles() {
     }
 
     .ai-typing .ai-typing-text {
-        font-size: 13px;
+        font-size: var(--fs-300);
         color: var(--ai-text-secondary);
         margin-right: 4px;
     }
@@ -808,7 +819,7 @@ function injectStyles() {
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
+        font-size: var(--fs-300);
         transition: all 0.2s;
     }
 
@@ -856,7 +867,7 @@ function injectStyles() {
         border-radius: 16px;
         padding: 12px 16px;
         color: var(--ai-text-primary);
-        font-size: 14px;
+        font-size: var(--fs-300);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         resize: none;
         min-height: 44px;
@@ -983,7 +994,7 @@ function injectStyles() {
     }
 
     .ai-preview-title {
-        font-size: 12px;
+        font-size: var(--fs-300);
         font-weight: 600;
         color: var(--ai-primary);
         margin-bottom: 7px;
@@ -993,7 +1004,7 @@ function injectStyles() {
     }
 
     .ai-preview-meta {
-        font-size: 10px;
+        font-size: var(--fs-300);
         color: var(--ai-text-secondary);
         display: flex;
         flex-wrap: wrap;
@@ -1026,7 +1037,7 @@ function injectStyles() {
         color: white;
         border: none;
         border-radius: 8px;
-        font-size: 12px;
+        font-size: var(--fs-300);
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s;
@@ -1089,7 +1100,7 @@ function buildPanel() {
                         <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 22.5l-.394-1.933a2.25 2.25 0 00-1.423-1.423L12.75 18.75l1.933-.394a2.25 2.25 0 001.423-1.423l.394-1.933.394 1.933a2.25 2.25 0 001.423 1.423l1.933.394-1.933.394a2.25 2.25 0 00-1.423 1.423z" fill="currentColor"/>
                     </svg>
                 </div>
-                <div style="font-size: 14px; font-weight: 600;">AI 助手</div>
+                <div style="font-size: var(--fs-300); font-weight: 600;">AI 助手</div>
                 <div class="ai-status-badge">
                     <span class="ai-status-dot"></span>
                     <span>在线</span>
@@ -1637,7 +1648,7 @@ function renderScheduleListMessage(msg) {
 
             const tdTime = document.createElement('td');
             tdTime.textContent = `${schedule.start_time || '-'} - ${schedule.end_time || '-'}`;
-            tdTime.style.fontSize = '11px';
+            tdTime.style.fontSize = 'var(--fs-100)';
             tr.appendChild(tdTime);
 
             const tdTeacher = document.createElement('td');
@@ -2924,6 +2935,102 @@ export function init(opts = {}) {
 
     document.body.appendChild(btn);
 
+    // 恢复上次拖拽后的位置（右上角锚定值）
+    restoreFloatBtnPos(btn);
+
+    // 图标拖拽：按住鼠标左键移动图标（右上角锚定），松开后持久化位置
+    setupFloatBtnDrag(btn);
+
     injectStyles();
+}
+
+/** 从 localStorage 恢复拖拽后的位置；无记录或已越界则保持默认（right/bottom）位置 */
+function restoreFloatBtnPos(btn) {
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(AI_FLOAT_POS_KEY) || 'null');
+    } catch (_) { saved = null; }
+    if (!saved || typeof saved.left !== 'number' || typeof saved.top !== 'number') return;
+
+    const margin = 8;
+    const left = Math.min(Math.max(saved.left, margin), window.innerWidth - btn.offsetWidth - margin);
+    const top = Math.min(Math.max(saved.top, margin), window.innerHeight - btn.offsetHeight - margin);
+    btn.style.left = `${left}px`;
+    btn.style.top = `${top}px`;
+    btn.style.right = 'auto';
+    btn.style.bottom = 'auto';
+    state.floatBtnPos = { left, top };
+}
+
+/**
+ * AI 悬浮图标的鼠标拖拽
+ *
+ * - 按下左键开始拖拽，移动时把图标位置改为 left/top（右上角锚定），
+ *   拖拽结束把位置存 localStorage（AI_FLOAT_POS_KEY），下次 init 恢复。
+ * - 只在「纯点击」（按下到松开位移 < 5px）时触发 toggle 打开面板，
+ *   拖拽不误触打开。
+ * - 位置限制在视口内（留 8px 边距），保证图标永远可见可点。
+ */
+const AI_FLOAT_POS_KEY = 'ai-float-btn-pos';
+const DRAG_THRESHOLD = 5;
+
+function setupFloatBtnDrag(btn) {
+    let startX = 0, startY = 0, moved = false, dragging = false;
+
+    btn.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // 仅左键
+        e.preventDefault(); // 防止拖拽选中文案/图片
+        const pos = btn.getBoundingClientRect();
+        startX = e.clientX - pos.left;
+        startY = e.clientY - pos.top;
+        moved = false;
+        dragging = true;
+        state.floatBtnDragging = true;
+        btn.classList.add('dragging');
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+
+    function onMove(e) {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!moved && Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) < 2 && Math.hypot(dx, dy) < DRAG_THRESHOLD) {
+            // 尚未超过阈值，还属于「点击」
+            return;
+        }
+        if (!moved) moved = true; // 超过阈值 → 进入拖拽模式，点击不再触发 toggle
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const margin = 8;
+        let left = e.clientX - startX;
+        let top = e.clientY - startY;
+        left = Math.min(Math.max(left, margin), vw - btn.offsetWidth - margin);
+        top = Math.min(Math.max(top, margin), vh - btn.offsetHeight - margin);
+        btn.style.left = `${left}px`;
+        btn.style.top = `${top}px`;
+        btn.style.right = 'auto';
+        btn.style.bottom = 'auto';
+    }
+
+    function onUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        state.floatBtnDragging = false;
+        btn.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (moved) {
+            // 拖拽结束：持久化位置；同时阻止这次 mousedown 之后的 click 打开面板
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = btn.getBoundingClientRect();
+            state.floatBtnPos = { left: rect.left, top: rect.top };
+            try {
+                localStorage.setItem(AI_FLOAT_POS_KEY, JSON.stringify(state.floatBtnPos));
+            } catch (_) { /* 存储不可用则忽略 */ }
+        }
+    }
 }
 
