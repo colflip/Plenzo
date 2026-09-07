@@ -321,8 +321,10 @@ export function buildTodayScheduleRow(schedule, options = {}) {
         { className: `status-pill ${status}`, textContent: displayStatus }
     );
 
-    // 备注标记放最后：临时加课 / 调整来的课（接口返回字段为 is_temp）
-    const adjustmentType = Number(schedule.is_temp ?? schedule.adjustment_type);
+    // 备注标记放最后：临时加课 / 调整来的课。数据源换成状态码的类别位
+    // （normal|adjusted|temp），旧的 is_temp / adjustment_type 两列已不再返回。
+    const cat = schedule.status_category || (schedule.status_code ? String(schedule.status_code).split('.')[0] : '');
+    const adjustmentType = cat === 'temp' ? 1 : (cat === 'adjusted' ? 2 : 0);
     if (adjustmentType === 1) {
         parts.push({ className: 'today-schedule-remark remark-temp', textContent: '临时加课' });
     } else if (adjustmentType === 2) {
@@ -453,7 +455,9 @@ function buildMergedParts(courses) {
     const parts = withMeta.map(({ course, label, isRecord }) => {
         const name = course.teacher_name || '未分配教师';
         const annotations = [];
-        if (Number(course.is_temp ?? course.adjustment_type) === 1) annotations.push('临时加课');
+        const courseCat = course.status_category
+            || (course.status_code ? String(course.status_code).split('.')[0] : '');
+        if (courseCat === 'temp') annotations.push('临时加课');
         return {
             text: annotations.length ? `${name}（${annotations.join('，')}）` : name,
             className: '',

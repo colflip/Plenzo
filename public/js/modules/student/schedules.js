@@ -406,7 +406,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
         // 教师名称
         const nameSpan = createElement('span', '', {
             textContent: teacherName,
-            style: 'font-weight: 500; font-size: 15px;'
+            style: 'font-weight: 500; font-size: var(--fs-300);'
         });
         card.appendChild(nameSpan);
 
@@ -444,7 +444,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const timeText = formatTimeRange(first.start_time, first.end_time);
     const timeSpan = createElement('span', '', {
         textContent: timeText,
-        style: 'font-size: 15px; font-weight: 500;'
+        style: 'font-size: var(--fs-300); font-weight: 500;'
     });
     card.appendChild(timeSpan);
 
@@ -453,7 +453,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
 
     // 地点（灰色字体）—— 纯文本 DB 字段用 textContent，避免任何 HTML 解析路径
     const locSpan = createElement('span', '', {
-        style: 'color: #9CA3AF; font-size: 14px;'
+        style: 'color: #9CA3AF; font-size: var(--fs-300);'
     });
     if (first.location) {
         locSpan.textContent = first.location;
@@ -662,7 +662,7 @@ function buildScheduleCard(group) {
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
         const typeSpan = createElement('span', 'course-type-text', {
-            textContent: `(${typeStr})`
+            textContent: typeStr
         });
         marqueeContent.appendChild(typeSpan);
 
@@ -685,7 +685,7 @@ function buildScheduleCard(group) {
         // Use styled span to mimic the look of the admin select but readonly
         const statusTag = createElement('span', `status-select ${st}`, {
             textContent: statusLabel,
-            style: 'pointer-events: none; border:none; appearance:none; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; height: 24px;'
+            style: 'pointer-events: none; border:none; appearance:none; padding: 4px 12px; border-radius: 999px; font-size: var(--fs-300); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; height: 24px;'
         });
 
         // Specific color overrides based on image analysis
@@ -735,29 +735,7 @@ function buildScheduleCard(group) {
     content.appendChild(footer);
     card.appendChild(content);
 
-    // 4. 学生确认交互 (如果组内有待确认项目)
-    // 4. 学生确认交互 (移除所有状态的确认按钮 Task 29)
-    // const hasPending = group.some(r => (r.status || 'pending').toLowerCase() === 'pending');
-    // if (hasPending) { ... }
-
     return card;
-}
-
-async function handleConfirmSchedule(scheduleId) {
-    try {
-        const endpoint = `${String(API_ENDPOINTS.CONFIRM_SCHEDULE).replace(/^\/api/, '')}/${scheduleId}`;
-        await window.apiUtils.post(endpoint, {});
-
-        showInlineFeedback(elements.feedback(), '课程确认成功', 'success');
-        await loadSchedules(currentWeekStart);
-        window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
-            id: scheduleId,
-            status: 'confirmed',
-            role: 'student'
-        });
-    } catch (error) {
-        handleApiError(error, '确认课程失败');
-    }
 }
 
 function renderEmptyState(message) {
