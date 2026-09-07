@@ -164,33 +164,59 @@ const studentController = {
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
 
+                // 按日期把同一天的多个时段合并成一行，再用一条多值 UPSERT 写完。
+                // 原实现是「每个时段先 UPDATE、rowCount=0 再 INSERT」= 最多 2N 次往返，
+                // 远程库每条约 250ms，勾一周三个时段就是 10 秒以上。
+                const byDate = new Map();
                 for (const item of availabilityList) {
                     const col = slotToColumn(item.timeSlot);
-                    if (!col) continue;
-
-                    const val = item.isAvailable === false ? 0 : 1;
-
-                    const updateSql = `UPDATE student_daily_availability SET ${col} = $3, updated_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND date = $2`;
-
-                    const upd = await q(
-                        updateSql,
-                        [studentId, item.date, val]
-                    );
-
-                    if (!upd || upd.rowCount === 0) {
-                        const morning = (col === 'morning_available') ? val : 0;
-                        const afternoon = (col === 'afternoon_available') ? val : 0;
-                        const evening = (col === 'evening_available') ? val : 0;
-
-                        const insertSql = `INSERT INTO student_daily_availability (student_id, date, morning_available, afternoon_available, evening_available, created_at)
-                             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`;
-
-                        await q(insertSql, [studentId, item.date, morning, afternoon, evening]);
-                        insertCount++;
-                    } else {
-                        updateCount++;
-                    }
+                    if (!col || !item.date) continue;
+                    if (!byDate.has(item.date)) byDate.set(item.date, {});
+                    byDate.get(item.date)[col] = item.isAvailable === false ? 0 : 1;
                 }
+                const dates = [...byDate.keys()];
+                if (dates.length === 0) return;
+
+                // 读现值：既用来如实返回 updateCount / insertCount，也用来把「本次没提交的时段」
+                // 按原值写回 —— 原实现是 `UPDATE SET <单列>`，只动提交的那一列，不能退化成全列覆盖。
+                const existing = await q(
+                    `SELECT date, morning_available, afternoon_available, evening_available
+                       FROM student_daily_availability
+                      WHERE student_id = $1 AND date = ANY($2::date[])`,
+                    [studentId, dates]
+                );
+                const asKey = (d) => (d instanceof Date
+                    ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                    : String(d).slice(0, 10));
+                const current = new Map(((existing && existing.rows) || []).map(r => [asKey(r.date), r]));
+
+                const params = [studentId];
+                const tuples = dates.map((date) => {
+                    const slots = byDate.get(date);
+                    const row = current.get(date) || null;
+                    const pick = (col) => (slots[col] !== undefined
+                        ? slots[col]
+                        : (row ? Number(row[col]) || 0 : 0));
+                    params.push(date, pick('morning_available'), pick('afternoon_available'), pick('evening_available'));
+                    const n = params.length;
+                    if (row) updateCount++; else insertCount++;
+                    return `($1, $${n - 3}, $${n - 2}, $${n - 1}, $${n}, '00:00:00', '23:59:00', CURRENT_TIMESTAMP)`;
+                });
+
+                // start_time / end_time 是 NOT NULL 且无默认值 —— 原实现的 INSERT 分支漏了这两列，
+                // 新日期第一次保存必然 500（只是过去 UPDATE 多半先命中，掩盖了这个洞）。
+                // 取值与表内现有行一致（00:00:00 / 23:59:00）。
+                await q(
+                    `INSERT INTO student_daily_availability
+                         (student_id, date, morning_available, afternoon_available, evening_available, start_time, end_time, created_at)
+                     VALUES ${tuples.join(', ')}
+                     ON CONFLICT (student_id, date) DO UPDATE SET
+                         morning_available = EXCLUDED.morning_available,
+                         afternoon_available = EXCLUDED.afternoon_available,
+                         evening_available = EXCLUDED.evening_available,
+                         updated_at = CURRENT_TIMESTAMP`,
+                    params
+                );
             });
 
             res.json({ message: '时间安排更新成功', updateCount, insertCount });
@@ -211,33 +237,29 @@ const studentController = {
         try {
             const { startDate, endDate, timeSlots, ranges } = req.body;
 
+            // 把要清零的列收集起来，一条 UPDATE 写完（原实现每个时段一条，最多 6 次往返）
+            const cols = new Set();
             if (Array.isArray(timeSlots) && timeSlots.length > 0) {
                 for (const slot of timeSlots) {
                     const col = slotToColumn(slot);
-                    if (!col) continue;
-                    await db.query(
-                        `UPDATE student_daily_availability SET ${col} = 0, updated_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND date BETWEEN $2 AND $3`,
-                        [req.user.id, startDate, endDate]
-                    );
+                    if (col) cols.add(col);
                 }
             }
-
             if (Array.isArray(ranges) && ranges.length > 0) {
-                // ranges 仍然兼容，但作为回退：将对应时段设置为 0
+                // ranges 仍然兼容，但作为回退：按 start_time 反查时段
+                const SLOT_BY_START = { '08:00': 'morning', '13:00': 'afternoon', '18:00': 'evening' };
                 for (const r of ranges) {
-                    // 根据传入的 start_time 来判断是哪个时段
-                    const start = r.start_time;
-                    let slot = null;
-                    if (start === '08:00') slot = 'morning';
-                    if (start === '13:00') slot = 'afternoon';
-                    if (start === '18:00') slot = 'evening';
-                    const col = slotToColumn(slot);
-                    if (!col) continue;
-                    await db.query(
-                        `UPDATE student_daily_availability SET ${col} = 0, updated_at = CURRENT_TIMESTAMP WHERE student_id = $1 AND date BETWEEN $2 AND $3`,
-                        [req.user.id, startDate, endDate]
-                    );
+                    const col = slotToColumn(SLOT_BY_START[r.start_time]);
+                    if (col) cols.add(col);
                 }
+            }
+            if (cols.size > 0) {
+                const sets = [...cols].map(c => `${c} = 0`).join(', ');
+                await db.query(
+                    `UPDATE student_daily_availability SET ${sets}, updated_at = CURRENT_TIMESTAMP
+                      WHERE student_id = $1 AND date BETWEEN $2 AND $3`,
+                    [req.user.id, startDate, endDate]
+                );
             }
 
             res.json({ message: '时间安排删除成功' });
@@ -285,16 +307,6 @@ const studentController = {
      * @param {string} req.query.startDate - 开始日期
      * @param {string} req.query.endDate - 结束日期
      */
-    /**
-     * 确认课程
-     * @description 学生确认指定课程，更新状态为已确认
-     * @param {string} req.params.id - 课程ID
-     */
-    async confirmSchedule(req, res) {
-        const out = await scheduleService.studentConfirmSchedule(req);
-        return res.status(out.status).json(out.body);
-    },
-
     /**
      * 修改密码
      * @description 学生修改登录密码

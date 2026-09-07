@@ -157,36 +157,44 @@ async function setTeacherAvailability(tx, actorId, availabilityList) {
     let updateCount = 0;
     let unchangedCount = 0;
 
+    // 先把要处理的日期挑出来（校验放在前面，报错行为与逐条时代一致）
+    const pending = [];
     for (const [rawDate, slots] of updatesByDate.entries()) {
         if (!isValidDateString(rawDate)) {
             throw new Error(`无效的日期格式: ${rawDate}`);
         }
-        const date = rawDate;
         const hasExplicitUpdate = ['morning', 'afternoon', 'evening'].some(slot => typeof slots[slot] === 'number');
         if (!hasExplicitUpdate) {
             unchangedCount++;
             continue;
         }
+        pending.push({ date: rawDate, slots });
+    }
+    if (pending.length === 0) return { insertCount, updateCount, unchangedCount };
 
-        const existing = await tx(
-            `SELECT id, morning_available, afternoon_available, evening_available
-             FROM teacher_daily_availability
-             WHERE teacher_id = $1 AND date = $2
-             LIMIT 1`,
-            [actorId, date]
-        );
+    // 往返固定 2 次（一次读现值、一次写回），不随日期数增长：
+    // 原实现是每个日期「先 SELECT 再 UPDATE/INSERT」，远程库每条约 250ms，一周七天就是 3.5 秒。
+    const existing = await tx(
+        `SELECT date, morning_available, afternoon_available, evening_available
+         FROM teacher_daily_availability
+         WHERE teacher_id = $1 AND date = ANY($2::date[])`,
+        [actorId, pending.map(p => p.date)]
+    );
+    const asKey = (d) => (d instanceof Date
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : String(d).slice(0, 10));
+    const current = new Map(((existing && existing.rows) || []).map(r => [asKey(r.date), r]));
 
-        const currentRow = existing.rows[0] || null;
+    const writes = [];
+    for (const { date, slots } of pending) {
+        const currentRow = current.get(date) || null;
+        const pick = (slot, col) => (typeof slots[slot] === 'number'
+            ? slots[slot]
+            : (currentRow ? Number(currentRow[col]) || 0 : 0));
         const nextValues = {
-            morning: typeof slots.morning === 'number'
-                ? slots.morning
-                : (currentRow ? Number(currentRow.morning_available) || 0 : 0),
-            afternoon: typeof slots.afternoon === 'number'
-                ? slots.afternoon
-                : (currentRow ? Number(currentRow.afternoon_available) || 0 : 0),
-            evening: typeof slots.evening === 'number'
-                ? slots.evening
-                : (currentRow ? Number(currentRow.evening_available) || 0 : 0)
+            morning: pick('morning', 'morning_available'),
+            afternoon: pick('afternoon', 'afternoon_available'),
+            evening: pick('evening', 'evening_available')
         };
 
         const hasChange = !currentRow ||
@@ -198,27 +206,28 @@ async function setTeacherAvailability(tx, actorId, availabilityList) {
             unchangedCount++;
             continue;
         }
+        writes.push({ date, ...nextValues });
+        if (currentRow) updateCount++; else insertCount++;
+    }
 
-        if (currentRow) {
-            await tx(
-                `UPDATE teacher_daily_availability
-                 SET morning_available = $3,
-                     afternoon_available = $4,
-                     evening_available = $5,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE teacher_id = $1 AND date = $2`,
-                [actorId, date, nextValues.morning, nextValues.afternoon, nextValues.evening]
-            );
-            updateCount++;
-        } else {
-            await tx(
-                `INSERT INTO teacher_daily_availability
-                     (teacher_id, date, morning_available, afternoon_available, evening_available, start_time, end_time, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, '00:00:00', '23:59:59', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-                [actorId, date, nextValues.morning, nextValues.afternoon, nextValues.evening]
-            );
-            insertCount++;
-        }
+    if (writes.length > 0) {
+        const params = [actorId];
+        const tuples = writes.map((w) => {
+            params.push(w.date, w.morning, w.afternoon, w.evening);
+            const n = params.length;
+            return `($1, $${n - 3}, $${n - 2}, $${n - 1}, $${n}, '00:00:00', '23:59:59', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`;
+        });
+        await tx(
+            `INSERT INTO teacher_daily_availability
+                 (teacher_id, date, morning_available, afternoon_available, evening_available, start_time, end_time, created_at, updated_at)
+             VALUES ${tuples.join(', ')}
+             ON CONFLICT (teacher_id, date) DO UPDATE SET
+                 morning_available = EXCLUDED.morning_available,
+                 afternoon_available = EXCLUDED.afternoon_available,
+                 evening_available = EXCLUDED.evening_available,
+                 updated_at = CURRENT_TIMESTAMP`,
+            params
+        );
     }
 
     return { insertCount, updateCount, unchangedCount };
@@ -411,45 +420,59 @@ function mapRowToStudentAvailability(row) {
  * admin 端按 updates[]（每项含 teacher_id/student_id + 布尔位）UPSERT 空闲表。
  * 权限落地（Phase 1）：actorUser 用于创建者归属 —— 写入时打标 created_by；
  * L3 仅可修改自己创建或无主的记录（越权抛 404）；更新无主记录时自动认领。
+ *
+ * 往返次数固定为 1（L3 为 2），不随 updates 长度增长：远程库每条语句约 250ms，
+ * 网格里拖选 7 天 × 20 位教师 = 140 项，逐条写要 35 秒。
  */
 async function upsertAvailabilityByAdmin(tx, table, idColumn, updates, actorUser = null) {
     const actorId = actorUser ? (actorUser.id || null) : null;
     const scoped = requiresOwnDataScope(actorUser);
 
-    for (const item of updates) {
-        const id = item[idColumn];
-        const date = item.date;
-        if (!id || !date) continue;
+    const valid = (updates || []).filter((item) => item[idColumn] && item.date);
+    if (valid.length === 0) return;
 
-        // 权限落地：L3 只能修改自己创建或无主的空闲记录；越权视为不存在
-        if (scoped) {
-            const existingRes = await tx(
-                `SELECT created_by FROM ${table} WHERE ${idColumn} = $1 AND date = $2 LIMIT 1`,
-                [id, date]
-            );
-            const existingRow = existingRes && existingRes.rows ? existingRes.rows[0] : null;
-            if (existingRow && !canTouchRecord(existingRow.created_by, actorUser)) {
+    // 权限落地：L3 只能修改自己创建或无主的空闲记录；越权视为不存在。
+    // 一条查询把涉及的 (id, date) 全部归属取回，替代「每项一次预检」。
+    if (scoped) {
+        const ids = valid.map((it) => it[idColumn]);
+        const dates = valid.map((it) => it.date);
+        const existingRes = await tx(
+            `SELECT ${idColumn} AS ref, date, created_by FROM ${table}
+              WHERE (${idColumn}, date) IN (
+                    SELECT * FROM unnest($1::int[], $2::date[])
+              )`,
+            [ids, dates]
+        );
+        for (const row of (existingRes && existingRes.rows) || []) {
+            if (!canTouchRecord(row.created_by, actorUser)) {
                 throw Object.assign(new Error('未找到该空闲时段记录'), { statusCode: 404 });
             }
         }
-
-        const mVal = toSlotBit(item.morning);
-        const aVal = toSlotBit(item.afternoon);
-        const eVal = toSlotBit(item.evening);
-
-        const sql = `
-            INSERT INTO ${table} (${idColumn}, date, morning_available, afternoon_available, evening_available, start_time, end_time${actorId !== null ? ', created_by' : ''})
-            VALUES ($1, $2, $3, $4, $5, '00:00', '23:59'${actorId !== null ? ', $6' : ''})
-            ON CONFLICT (${idColumn}, date)
-            DO UPDATE SET
-                morning_available = EXCLUDED.morning_available,
-                afternoon_available = EXCLUDED.afternoon_available,
-                evening_available = EXCLUDED.evening_available,
-                updated_at = CURRENT_TIMESTAMP${actorId !== null ? `,
-                created_by = COALESCE(${table}.created_by, EXCLUDED.created_by)` : ''}
-        `;
-        await tx(sql, actorId !== null ? [id, date, mVal, aVal, eVal, actorId] : [id, date, mVal, aVal, eVal]);
     }
+
+    // 一条多值 INSERT ... ON CONFLICT DO UPDATE 写完全部项
+    const params = [];
+    const tuples = valid.map((item) => {
+        params.push(item[idColumn], item.date, toSlotBit(item.morning),
+            toSlotBit(item.afternoon), toSlotBit(item.evening));
+        if (actorId !== null) params.push(actorId);
+        const n = params.length;
+        return actorId !== null
+            ? `($${n - 5}, $${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, '00:00', '23:59', $${n})`
+            : `($${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, $${n}, '00:00', '23:59')`;
+    });
+
+    await tx(`
+        INSERT INTO ${table} (${idColumn}, date, morning_available, afternoon_available, evening_available, start_time, end_time${actorId !== null ? ', created_by' : ''})
+        VALUES ${tuples.join(', ')}
+        ON CONFLICT (${idColumn}, date)
+        DO UPDATE SET
+            morning_available = EXCLUDED.morning_available,
+            afternoon_available = EXCLUDED.afternoon_available,
+            evening_available = EXCLUDED.evening_available,
+            updated_at = CURRENT_TIMESTAMP${actorId !== null ? `,
+            created_by = COALESCE(${table}.created_by, EXCLUDED.created_by)` : ''}
+    `, params);
 }
 
 module.exports = {

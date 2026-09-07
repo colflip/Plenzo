@@ -7,6 +7,7 @@ const logger = require('./utils/logger.js');
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const morgan = require('morgan');
@@ -56,6 +57,12 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 
 app.use(securityHeaders);
 app.use(additionalSecurityHeaders);
+
+// gzip/brotli 压缩：首屏 46 个 JS 脚本（1448KB 未压缩）经 gzip 压缩后传输量约减 70%
+app.use(compression({
+    // 只压缩超过 1KB 的响应
+    threshold: 1024
+}));
 
 if (isProduction) {
     app.use(cors(corsOptions));
@@ -252,12 +259,15 @@ app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
     }
     try {
         if (user && user.userType === 'teacher') {
-            let name = '未知';
-            try {
-                const r = await db.query('SELECT name FROM teachers WHERE id = $1', [user.id]);
-                if (r.rows && r.rows[0] && r.rows[0].name) name = r.rows[0].name;
-            } catch (_) {}
-            const payload = await rewardCalc.getRewardPayload({ userId: user.id, name, start, end });
+            // 姓名查询与酬劳聚合互不依赖：getRewardPayload 的 SQL 只用 userId/start/end，
+            // name 仅被回填进 basic_info，故并发发出、拿到后补写（省一次往返，约 250ms）
+            const [name, payload] = await Promise.all([
+                db.query('SELECT name FROM teachers WHERE id = $1', [user.id])
+                    .then(r => (r.rows && r.rows[0] && r.rows[0].name) || '未知')
+                    .catch(() => '未知'),
+                rewardCalc.getRewardPayload({ userId: user.id, name: '未知', start, end })
+            ]);
+            payload.basic_info.name = name;
             return res.json(payload);
         }
     } catch (err) {

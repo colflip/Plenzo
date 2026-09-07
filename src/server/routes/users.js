@@ -23,9 +23,12 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
                 if (tHasStatus) teachersSql += ' WHERE status != -1';
                 if (sHasStatus) studentsSql += ' WHERE status != -1';
             } catch(_) {}
-            const teachersResult = await db.query(teachersSql);
-            const studentsResult = await db.query(studentsSql);
-            const adminsResult = await db.query('SELECT id, name, username, \'admin\' as type FROM administrators');
+            // 三条 SELECT 互不依赖，并发省两次往返（每条约 250ms）
+            const [teachersResult, studentsResult, adminsResult] = await Promise.all([
+                db.query(teachersSql),
+                db.query(studentsSql),
+                db.query('SELECT id, name, username, \'admin\' as type FROM administrators')
+            ]);
             
             const allUsers = [...teachersResult.rows, ...studentsResult.rows, ...adminsResult.rows];
             
