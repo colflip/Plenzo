@@ -2,11 +2,12 @@ const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const { pipeline, scheduleQueries } = require('../services/export');
 const { handleExportError } = require('../middleware/export-error-handler');
-const { resolveActor } = require('../utils/fee-status');
+const { resolveActor, resolveAutoFeeStatus } = require('../utils/fee-status');
 const FeeService = require('../services/fee-service');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
 const headTeacherService = require('../services/head-teacher-service');
+const courseSessionService = require('../services/course-session-service');
 
 const {
     SLOT_COLUMNS,
@@ -320,13 +321,14 @@ const teacherController = {
         try {
             const { startDate, endDate } = req.query;
 
-            const dateExpr = await SchemaHelper.getDateExpr('');
+            // 授课数按「教师 × 学生」授课对计数（一师带 N 生算 N 次），
+            // 这正是 v_session_pairs 展开后的行数；'0' 状态随旧表消失。
             const result = await db.query(`
                 SELECT COUNT(*) as count
-                FROM course_arrangement
+                FROM v_session_pairs
                 WHERE teacher_id = $1
-                  AND ${dateExpr} BETWEEN $2 AND $3
-                  AND status NOT IN ('cancelled', '0', 'modified_away')
+                  AND class_date BETWEEN $2 AND $3
+                  AND status NOT IN ('cancelled', 'modified_away')
             `, [req.user.id, startDate, endDate]);
 
             const count = parseInt(result.rows[0].count, 10);
@@ -430,6 +432,10 @@ const teacherController = {
      * @param {string} req.params.id - 课程ID
      * @param {number} req.body.transport_fee - 交通费
      * @param {number} req.body.other_fee - 其他费用
+     *
+     * 性能契约：**不再开启事务**。「费用更新」现是一条 UPDATE（金额 + 状态一次成型，
+     * 见 fee-service.updateScheduleFeesInTx），金额审计与状态审计是「失败只告警」的旁路。
+     * 包进事务反而多付 BEGIN + COMMIT 两次远程往返（≈500ms），并发并发也无一致性诉求。
      */
     async updateScheduleFees(req, res) {
         try {
@@ -443,36 +449,43 @@ const teacherController = {
             if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
                 return res.status(400).json({ message: '费用不能为负数' });
             }
+            // 已报销 / 退回报销 不因编辑金额而回退（resolveAutoFeeStatus 内部已含此规则）
+            const requestedTarget = FeeService.hasFilledFee(tFee, oFee) ? 'teacher_submitted' : null;
 
-            const originalResult = await db.query(
-                'SELECT transport_fee, other_fee, student_id, teacher_id, fee_status FROM course_arrangement WHERE id = $1',
-                [id]
-            );
-            if (originalResult.rows.length === 0) {
+            // 费用挂在教师 pair 上（一趟一笔），所以定位需要「场次 id + teacher_uid」
+            // 场次查询与操作身份解析互不依赖，并发省一次往返（约 250ms）
+            const [session, actor] = await Promise.all([
+                courseSessionService.getSessionById(id),
+                resolveActor(db, req.user.id)
+            ]);
+            if (!session) {
                 return res.status(404).json({ message: '课程不存在' });
             }
-            const row = originalResult.rows[0];
-            const { transport_fee: old_t_fee, other_fee: old_o_fee } = row;
+            const teacherUid = req.params.uid || req.body.teacher_uid
+                || (session.teachers || []).filter(p => Number(p.teacher_id) === Number(req.user.id)).map(p => p.uid)[0];
+            const pair = FeeService.locateTeacherPair(session, teacherUid);
+            if (!pair) {
+                return res.status(404).json({ message: '课程不存在' });
+            }
+            const row = pair;
+            const { transport_fee: old_t_fee, other_fee: old_o_fee } = pair;
 
-            // 操作身份：班主任（有绑定学生）限关联学生，普通教师限本人课时
-            const actor = await resolveActor(db, req.user.id);
-            const scopeMsg = FeeService.checkScheduleScope(actor, row, id);
+            // 操作身份：班主任（有绑定学生）限关联学生，普通教师限本人 pair
+            const scopeMsg = FeeService.checkScheduleScope(actor, { session, teacher: pair }, id);
             if (scopeMsg) return res.status(403).json({ message: scopeMsg });
 
-            // 事务内更新费用 + 审计 + 「保存并提交」自动流转（教师端 → 待审核）
-            // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）
-            const feeStatus = await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-                await FeeService.updateScheduleFeesInTx(q, id, {
-                    tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
-                    operatorId: req.user.id, operatorRole: 'teacher'
-                });
-                if (!FeeService.hasFilledFee(tFee, oFee)) return row.fee_status;
-                const auto = await FeeService.autoSubmitFeeStatus(q, {
-                    id, from: row.fee_status, actorType: actor.actorType, operatorId: req.user.id
-                });
-                return auto.fee_status;
+            // 无事务单条更新：金额与「保存并提交」自动流转（教师端 → 待审核）在一条
+            // UPDATE 里完成（fee-service.updateScheduleFeesInTx），审计旁路并行落地。
+            // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）。
+            const targetStatus = requestedTarget
+                ? resolveAutoFeeStatus(actor.actorType, row.fee_status)
+                : null;
+
+            await FeeService.updateScheduleFeesInTx(db.query, { sessionId: id, teacherUid: pair.uid }, {
+                tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
+                targetStatus, oldStatus: row.fee_status, operatorId: req.user.id, operatorRole: 'teacher'
             });
+            const feeStatus = targetStatus || row.fee_status;
 
             res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus });
         } catch (error) {
@@ -533,23 +546,28 @@ const teacherController = {
             const { fee_status: target, note } = req.body;
             if (!target) return res.status(400).json({ message: '缺少目标状态' });
 
-            const actor = await resolveActor(db, req.user.id);
-            const cur = await db.query(
-                'SELECT fee_status, student_id, teacher_id FROM course_arrangement WHERE id = $1',
-                [id]
-            );
-            if (cur.rows.length === 0) return res.status(404).json({ message: '排课不存在' });
+            // 身份解析与场次查询互不依赖，并发省一次往返（约 250ms）
+            const [actor, session] = await Promise.all([
+                resolveActor(db, req.user.id),
+                courseSessionService.getSessionById(id)
+            ]);
+            if (!session) return res.status(404).json({ message: '排课不存在' });
 
-            const row = cur.rows[0];
-            // 范围校验：班主任限关联学生，普通教师限本人课时
-            const scopeMsg = FeeService.checkScheduleScope(actor, row, id);
+            const teacherUid = req.params.uid || req.body.teacher_uid
+                || (session.teachers || []).filter(p => Number(p.teacher_id) === Number(req.user.id)).map(p => p.uid)[0];
+            const pair = FeeService.locateTeacherPair(session, teacherUid);
+            if (!pair) return res.status(404).json({ message: '排课不存在' });
+
+            // 范围校验：班主任限关联学生，普通教师限本人 pair
+            const scopeMsg = FeeService.checkScheduleScope(actor, { session, teacher: pair }, id);
             if (scopeMsg) return res.status(403).json({ message: scopeMsg });
 
-            const from = row.fee_status;
+            const from = pair.fee_status;
             const result = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await FeeService.transitionFeeStatus(q, {
-                    id, from, target, note, operatorId: req.user.id, actorType: actor.actorType
+                    sessionId: id, teacherUid: pair.uid, from, target, note,
+                    operatorId: req.user.id, actorType: actor.actorType
                 });
             });
             if (!result.ok) return res.status(400).json({ message: result.error });
@@ -572,34 +590,45 @@ const teacherController = {
 
             const actor = await resolveActor(db, req.user.id);
 
-            let targetIds = [];
+            // 目标一律归一成 { session_id, teacher_uid }：费用挂在教师 pair 上
+            let targets = [];
             if (Array.isArray(ids) && ids.length) {
-                targetIds = ids.map(Number).filter(n => !Number.isNaN(n));
+                targets = ids.map(x => (typeof x === 'object'
+                    ? { session_id: Number(x.session_id ?? x.id), teacher_uid: x.teacher_uid || null }
+                    : { session_id: Number(x), teacher_uid: null }))
+                    .filter(x => Number.isFinite(x.session_id));
             } else if (scope && scope.startDate && scope.endDate) {
-                const dateExpr = await SchemaHelper.getDateExpr('ca');
-                let sql = `SELECT id, fee_status, student_id FROM course_arrangement ca WHERE ${dateExpr} BETWEEN $1 AND $2`;
+                let sql = `SELECT vp.session_id, vp.teacher_uid FROM v_session_pairs vp
+                            WHERE vp.class_date BETWEEN $1 AND $2`;
                 const params = [scope.startDate, scope.endDate];
-                if (scope.fee_status) { sql += ` AND ca.fee_status = $3`; params.push(scope.fee_status); }
+                if (scope.fee_status) { sql += ` AND vp.fee_status = $3`; params.push(scope.fee_status); }
                 if (actor.actorType === 'headteacher') {
-                    sql += ` AND ca.student_id = ANY($${params.length + 1}::int[])`;
+                    sql += ` AND vp.student_id = ANY($${params.length + 1}::int[])`;
                     params.push(actor.studentIds);
                 } else {
-                    sql += ` AND ca.teacher_id = $${params.length + 1}`;
+                    sql += ` AND vp.teacher_id = $${params.length + 1}`;
                     params.push(req.user.id);
                 }
                 const r = await db.query(sql, params);
-                targetIds = r.rows.map(x => x.id);
+                // 视图是交叉积：同一 (场次, 教师) 会随学生数重复，这里先去重
+                const seen = new Set();
+                targets = (r.rows || []).filter(x => {
+                    const k = `${x.session_id}|${x.teacher_uid}`;
+                    if (seen.has(k)) return false;
+                    seen.add(k);
+                    return true;
+                }).map(x => ({ session_id: Number(x.session_id), teacher_uid: x.teacher_uid }));
             } else {
                 return res.status(400).json({ message: '请提供 ids 或 scope 范围' });
             }
 
-            if (!targetIds.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
+            if (!targets.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
 
             const updated = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 // 复用共享批量流转原语：逐条范围授权（越权跳过）+ 状态机校验 + 审计
                 return await FeeService.batchTransitionFeeStatus(q, {
-                    targetIds, target, note, operatorId: req.user.id,
+                    targets, target, note, operatorId: req.user.id,
                     actorType: actor.actorType, skipStatus, actor
                 });
             });

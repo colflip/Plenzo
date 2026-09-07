@@ -16,6 +16,8 @@ const UserService = require('../services/user-service');
 const scheduleService = require('../services/schedule-service');
 const { getTimestamp } = require('../utils/shared-utils');
 const { buildScopeClause, canTouchRecord, requiresOwnDataScope } = require('../utils/admin-permissions');
+const courseSessionService = require('../services/course-session-service');
+const { resolveAutoFeeStatus } = require('../utils/fee-status');
 
 const adminController = {
     /**
@@ -113,6 +115,18 @@ const adminController = {
         return res.status(out.status).json(out.body);
     },
 
+    /** 往一场课里加一位教师或学生（POST /admin/sessions/:id/:kind） */
+    async addSchedulePair(req, res) {
+        const out = await scheduleService.adminAddPair(req);
+        return res.status(out.status).json(out.body);
+    },
+
+    /** 从一场课里移除一位教师或学生（DELETE /admin/sessions/:id/:kind/:uid；移空则整场删） */
+    async removeSchedulePair(req, res) {
+        const out = await scheduleService.adminRemovePair(req);
+        return res.status(out.status).json(out.body);
+    },
+
     // 网格视图：返回逐条排课记录，供前端按学生×日期进行精准渲染
     async getSchedulesGrid(req, res) {
         const out = await scheduleService.adminGetSchedulesGrid(req);
@@ -133,13 +147,16 @@ const adminController = {
             }
 
             // 1. 获取所有教师（状态非删除）
-            let teacherSql = `SELECT id, name FROM teachers WHERE 1=1`;
-            if (await SchemaHelper.hasColumn('teachers', 'status')) {
-                teacherSql += ` AND status <> -1`;
-            }
-            teacherSql += ` ORDER BY id ASC`;
-            const teachersResult = await db.query(teacherSql);
-            const teachers = teachersResult.rows || [];
+            //    status 列探针只决定教师 SQL 怎么拼，把教师查询挂在探针后面，
+            //    与下面的 availability 查询并发（互不依赖），省一次往返（约 250ms）
+            const teachersPromise = SchemaHelper.hasColumn('teachers', 'status').then(hasStatus => {
+                let teacherSql = `SELECT id, name FROM teachers WHERE 1=1`;
+                if (hasStatus) {
+                    teacherSql += ` AND status <> -1`;
+                }
+                teacherSql += ` ORDER BY id ASC`;
+                return db.query(teacherSql);
+            });
 
             // 2. 获取日期范围内的availability数据（权限落地：L3 仅见自己创建 + 无主存量）
             let availabilitySql = `
@@ -153,7 +170,11 @@ const adminController = {
                 availabilityParams.push(teacherScope.actorId);
                 availabilitySql += ` AND ${teacherScope.clause.replace('$ACTOR_ID', `$${availabilityParams.length}`)}`;
             }
-            const availabilityResult = await db.query(availabilitySql, availabilityParams);
+            const [teachersResult, availabilityResult] = await Promise.all([
+                teachersPromise,
+                db.query(availabilitySql, availabilityParams)
+            ]);
+            const teachers = teachersResult.rows || [];
             const availabilityRecords = availabilityResult.rows || [];
 
             // 3. 组织数据结构：Map<TeacherId, Map<DateStr, SlotData>>
@@ -234,13 +255,16 @@ const adminController = {
             }
 
             // 1. 获取所有学生（状态非删除）
-            let studentSql = `SELECT id, name FROM students WHERE 1=1`;
-            if (await SchemaHelper.hasColumn('students', 'status')) {
-                studentSql += ` AND status <> -1`;
-            }
-            studentSql += ` ORDER BY id ASC`;
-            const studentsResult = await db.query(studentSql);
-            const students = studentsResult.rows || [];
+            //    status 列探针只决定学生 SQL 怎么拼，把学生查询挂在探针后面，
+            //    与下面的 availability 查询并发（互不依赖），省一次往返（约 250ms）
+            const studentsPromise = SchemaHelper.hasColumn('students', 'status').then(hasStatus => {
+                let studentSql = `SELECT id, name FROM students WHERE 1=1`;
+                if (hasStatus) {
+                    studentSql += ` AND status <> -1`;
+                }
+                studentSql += ` ORDER BY id ASC`;
+                return db.query(studentSql);
+            });
 
             // 2. 获取日期范围内的availability数据（权限落地：L3 仅见自己创建 + 无主存量）
             let availabilitySql = `
@@ -254,7 +278,11 @@ const adminController = {
                 availabilityParams.push(studentScope.actorId);
                 availabilitySql += ` AND ${studentScope.clause.replace('$ACTOR_ID', `$${availabilityParams.length}`)}`;
             }
-            const availabilityResult = await db.query(availabilitySql, availabilityParams);
+            const [studentsResult, availabilityResult] = await Promise.all([
+                studentsPromise,
+                db.query(availabilitySql, availabilityParams)
+            ]);
+            const students = studentsResult.rows || [];
             const availabilityRecords = availabilityResult.rows || [];
 
             // 3. 组织数据结构：Map<StudentId, Map<DateStr, SlotData>>
@@ -523,6 +551,10 @@ const adminController = {
      * @param {string} req.params.id - 课程ID
      * @param {number} req.body.transport_fee - 交通费
      * @param {number} req.body.other_fee - 其他费用
+     *
+     * 性能契约：**单条更新不开事务**。金额与「保存并提交」流转（管理员端 → 已审核）
+     * 由 fee-service.updateScheduleFeesInTx 一条 UPDATE 完成，两项审计并行落地且失败
+     * 只告警；包事务只多付 BEGIN + COMMIT 两次往返（≈500ms）。
      */
     async updateScheduleFees(req, res) {
         try {
@@ -537,35 +569,32 @@ const adminController = {
                 return res.status(400).json({ message: '费用不能为负数' });
             }
 
-            const originalResult = await db.query(
-                'SELECT transport_fee, other_fee, fee_status, created_by FROM course_arrangement WHERE id = $1',
-                [id]
-            );
-
-            if (originalResult.rows.length === 0) {
+            // 费用挂在教师 pair 上（一趟一笔），定位需要「场次 id + teacher_uid」
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) {
                 return res.status(404).json({ message: '课程不存在' });
             }
             // 权限落地：L3 只能操作自己创建或无主的排课；越权视为不存在
-            if (!canTouchRecord(originalResult.rows[0].created_by, req.user)) {
+            if (!canTouchRecord(session.created_by, req.user)) {
+                return res.status(404).json({ message: '课程不存在' });
+            }
+            const pair = FeeService.locateTeacherPair(session, req.params.uid || req.body.teacher_uid);
+            if (!pair) {
                 return res.status(404).json({ message: '课程不存在' });
             }
 
-            const { transport_fee: old_t_fee, other_fee: old_o_fee, fee_status: old_status } = originalResult.rows[0];
+            const { transport_fee: old_t_fee, other_fee: old_o_fee, fee_status: old_status } = pair;
 
-            // 事务内更新费用 + 审计 + 「保存并提交」自动流转（管理员端 → 已审核）
-            // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）
-            const feeStatus = await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-                await FeeService.updateScheduleFeesInTx(q, id, {
-                    tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
-                    operatorId: req.user.id, operatorRole: 'admin'
-                });
-                if (!FeeService.hasFilledFee(tFee, oFee)) return old_status;
-                const auto = await FeeService.autoSubmitFeeStatus(q, {
-                    id, from: old_status, actorType: 'admin', operatorId: req.user.id
-                });
-                return auto.fee_status;
+            // 无事务单条更新：金额 + 「保存并提交」自动流转（管理员端 → 已审核）一次成型。
+            // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）。
+            const targetStatus = FeeService.hasFilledFee(tFee, oFee)
+                ? resolveAutoFeeStatus('admin', old_status)
+                : null;
+            await FeeService.updateScheduleFeesInTx(db.query, { sessionId: id, teacherUid: pair.uid }, {
+                tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
+                targetStatus, oldStatus: old_status, operatorId: req.user.id, operatorRole: 'admin'
             });
+            const feeStatus = targetStatus || old_status;
 
             res.json({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus });
         } catch (error) {
@@ -586,18 +615,21 @@ const adminController = {
             const { fee_status: target, note } = req.body;
             if (!target) return res.status(400).json({ message: '缺少目标状态' });
 
-            const cur = await db.query('SELECT fee_status, student_id, teacher_id, created_by FROM course_arrangement WHERE id = $1', [id]);
-            if (cur.rows.length === 0) return res.status(404).json({ message: '排课不存在' });
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) return res.status(404).json({ message: '排课不存在' });
             // 权限落地：L3 只能操作自己创建或无主的排课；越权视为不存在
-            if (!canTouchRecord(cur.rows[0].created_by, req.user)) {
+            if (!canTouchRecord(session.created_by, req.user)) {
                 return res.status(404).json({ message: '排课不存在' });
             }
+            const pair = FeeService.locateTeacherPair(session, req.params.uid || req.body.teacher_uid);
+            if (!pair) return res.status(404).json({ message: '排课不存在' });
 
-            const from = cur.rows[0].fee_status;
+            const from = pair.fee_status;
             const result = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await FeeService.transitionFeeStatus(q, {
-                    id, from, target, note, operatorId: req.user.id, actorType: 'admin'
+                    sessionId: id, teacherUid: pair.uid, from, target, note,
+                    operatorId: req.user.id, actorType: 'admin'
                 });
             });
             if (!result.ok) return res.status(400).json({ message: result.error });
@@ -622,42 +654,54 @@ const adminController = {
             const { ids, scope, fee_status: target, note, skipStatus } = req.body;
             if (!target) return res.status(400).json({ message: '缺少目标状态' });
 
-            let targetIds = [];
+            // 目标一律归一成 { session_id, teacher_uid }：费用挂在教师 pair 上
+            let targets = [];
             if (Array.isArray(ids) && ids.length) {
-                targetIds = ids.map(Number).filter(n => !Number.isNaN(n));
+                targets = ids.map(x => (typeof x === 'object'
+                    ? { session_id: Number(x.session_id ?? x.id), teacher_uid: x.teacher_uid || null }
+                    : { session_id: Number(x), teacher_uid: null }))
+                    .filter(x => Number.isFinite(x.session_id));
                 // 权限落地：L3 批量操作 all-or-nothing —— 任一目标越权则整批拒绝
                 if (requiresOwnDataScope(req.user)) {
+                    const sessionIds = [...new Set(targets.map(x => x.session_id))];
                     const ownedRes = await db.query(
-                        'SELECT id FROM course_arrangement WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
-                        [targetIds, req.user.id]
+                        'SELECT id FROM course_sessions WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
+                        [sessionIds, req.user.id]
                     );
-                    if ((ownedRes.rows || []).length !== targetIds.length) {
+                    if ((ownedRes.rows || []).length !== sessionIds.length) {
                         return res.status(403).json({ message: '批量操作中包含您无权修改的排课，已整批拒绝' });
                     }
                 }
             } else if (scope && scope.startDate && scope.endDate) {
-                const dateExpr = await SchemaHelper.getDateExpr('ca');
-                let sql = `SELECT id, fee_status FROM course_arrangement ca WHERE ${dateExpr} BETWEEN $1 AND $2`;
+                let sql = `SELECT vp.session_id, vp.teacher_uid FROM v_session_pairs vp
+                            WHERE vp.class_date BETWEEN $1 AND $2`;
                 const params = [scope.startDate, scope.endDate];
-                if (scope.fee_status) { sql += ` AND ca.fee_status = $3`; params.push(scope.fee_status); }
+                if (scope.fee_status) { sql += ` AND vp.fee_status = $3`; params.push(scope.fee_status); }
                 // 权限落地：L3 按范围选择时仅命中自己创建 + 无主存量的排课
-                const batchScope = buildScopeClause(req.user, 'ca');
+                const batchScope = buildScopeClause(req.user, 'vp');
                 if (batchScope) {
                     params.push(batchScope.actorId);
                     sql += ` AND ${batchScope.clause.replace('$ACTOR_ID', `$${params.length}`)}`;
                 }
                 const r = await db.query(sql, params);
-                targetIds = r.rows.map(x => x.id);
+                // 视图是交叉积：同一 (场次, 教师) 会随学生数重复，先去重
+                const seen = new Set();
+                targets = (r.rows || []).filter(x => {
+                    const k = `${x.session_id}|${x.teacher_uid}`;
+                    if (seen.has(k)) return false;
+                    seen.add(k);
+                    return true;
+                }).map(x => ({ session_id: Number(x.session_id), teacher_uid: x.teacher_uid }));
             } else {
                 return res.status(400).json({ message: '请提供 ids 或 scope 范围' });
             }
 
-            if (!targetIds.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
+            if (!targets.length) return res.json({ message: '没有符合条件的排课', updated: 0 });
 
             const updated = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await FeeService.batchTransitionFeeStatus(q, {
-                    targetIds, target, note, operatorId: req.user.id, actorType: 'admin', skipStatus
+                    targets, target, note, operatorId: req.user.id, actorType: 'admin', skipStatus
                 });
             });
 
@@ -672,17 +716,26 @@ const adminController = {
         try {
             const { date, startTime, endTime, excludeScheduleId } = req.query;
             if (!date || !startTime || !endTime) return res.status(400).json({ message: '缺少参数' });
-            // 使用 SchemaHelper 获取实际日期列名，避免硬编码 class_date
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            let sql = `SELECT ca.teacher_id FROM course_arrangement ca WHERE ${dateExpr} = $1 AND ca.status != 'cancelled' AND (ca.start_time < $3 AND ca.end_time > $2)`;
+            // 两段式：派生列 teacher_ids 拿 GIN 索引粗筛，再展开 JSONB 判活跃 pair。
+            // 行为变更（有意）：旧实现只排除 cancelled，被调走的 modified_away 仍算教师占用；
+            // 现在统一按生命周期位排除 cancelled + modified_away，46 条已调整原课不再制造假冲突。
+            // 时段重叠改用 OVERLAPS —— 与旧的 `start < $end AND end > $start` 语义完全相同（左闭右开）。
+            let sql = `SELECT DISTINCT (e->>'teacher_id')::int AS teacher_id
+                         FROM course_sessions cs, jsonb_array_elements(cs.teachers) e
+                        WHERE cs.class_date = $1
+                          AND (cs.start_time, cs.end_time) OVERLAPS ($2::time, $3::time)
+                          AND split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away')`;
             const ps = [date, startTime, endTime];
-            if (excludeScheduleId) { sql += ` AND ca.id != $4`; ps.push(excludeScheduleId); }
-            const cR = await db.query(sql, ps);
+            if (excludeScheduleId) { sql += ` AND cs.id != $4`; ps.push(excludeScheduleId); }
+            // 冲突查询与可用时段查询互不依赖，并发省一次往返（约 250ms）
             // teacher_daily_availability 按具体日期存储（date 列），仅统计可用记录
-            const aR = await db.query(
-                `SELECT teacher_id, start_time, end_time FROM teacher_daily_availability WHERE date = $1 AND status = 'available'`,
-                [date]
-            );
+            const [cR, aR] = await Promise.all([
+                db.query(sql, ps),
+                db.query(
+                    `SELECT teacher_id, start_time, end_time FROM teacher_daily_availability WHERE date = $1 AND status = 'available'`,
+                    [date]
+                )
+            ]);
             const resMap = {};
             (cR.rows || []).forEach(c => { resMap[c.teacher_id] = { hasClass: true }; });
             // 检查教师可用性：收集每个教师的所有可用时段

@@ -29,8 +29,12 @@ router.get('/schedules', authMiddleware, teacherOnly, teacherController.getSched
 router.post('/schedules/:id/confirm', authMiddleware, teacherOnly, validate(teacherConfirmValidation), teacherController.confirmSchedule);
 router.put('/schedules/:id/status', authMiddleware, teacherOnly, validate(teacherStatusUpdateValidation), teacherController.updateScheduleStatus);
 router.patch('/schedules/:id', authMiddleware, teacherOnly, validate(teacherStatusUpdateValidation), teacherController.updateScheduleStatus);
+// 状态挂在教师 pair 上：带 uid 的形式是主路径（教师只能改自己那个 pair 的生命周期位）
+router.patch('/sessions/:id(\\d+)/teachers/:uid/status', authMiddleware, teacherOnly, validate(teacherStatusUpdateValidation), teacherController.updateScheduleStatus);
 router.patch('/schedules/:id/fees', authMiddleware, teacherOnly, validate(feeUpdateValidation), teacherController.updateScheduleFees);
+router.patch('/sessions/:id(\\d+)/teachers/:uid/fees', authMiddleware, teacherOnly, validate(feeUpdateValidation), teacherController.updateScheduleFees);
 router.patch('/schedules/:id/fee-status', authMiddleware, teacherOnly, validate(feeStatusUpdateValidation), teacherController.updateScheduleFeeStatus);
+router.patch('/sessions/:id(\\d+)/teachers/:uid/fee-status', authMiddleware, teacherOnly, validate(feeStatusUpdateValidation), teacherController.updateScheduleFeeStatus);
 router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, validate(feeStatusBatchValidation), teacherController.batchUpdateScheduleFeeStatus);
 
 // 班主任管理关联学生

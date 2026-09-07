@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { requireCapability } = require('../utils/admin-permissions');
-const { validate, scheduleValidation, userValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, scheduleTypeValidation, holidayValidation, holidayBatchValidation, holidaySyncValidation, feedbackCreateValidation, feedbackUpdateValidation, adminConfirmValidation, adminTeacherAvailabilityValidation, adminStudentAvailabilityValidation } = require('../middleware/validation');
+const { validate, scheduleValidation, userValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, scheduleTypeValidation, holidayValidation, holidayBatchValidation, holidaySyncValidation, feedbackCreateValidation, feedbackUpdateValidation, adminConfirmValidation, teacherPairStatusValidation, sessionAddPairValidation, adminTeacherAvailabilityValidation, adminStudentAvailabilityValidation } = require('../middleware/validation');
 const adminController = require('../controllers/admin-controller');
 const updateScheduleStatus = require('../jobs/update-schedule-status');
 
@@ -36,9 +36,24 @@ router.post('/schedules', authMiddleware, adminOnly, requireCapability('schedule
 router.put('/schedules/:id', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(scheduleValidation.update), adminController.updateSchedule);
 router.delete('/schedules/:id', authMiddleware, adminOnly, requireCapability('schedules:write'), adminController.deleteSchedule);
 router.post('/schedules/:id/confirm', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(adminConfirmValidation), adminController.confirmSchedule);
+
+// ---- 一场一行的 pair 级端点（新建/编辑/删除三条交互的落点）----
+// 删除三粒度：DELETE /sessions/:id（整场）、.../teachers/:uid、.../students/:uid（单个 pair，移空则整场删）
+router.post('/sessions', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(scheduleValidation.create), adminController.createSchedule);
+router.get('/sessions/:id(\\d+)', authMiddleware, adminOnly, requireCapability('schedules:read'), adminController.getScheduleById);
+router.patch('/sessions/:id(\\d+)', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(scheduleValidation.update), adminController.updateSchedule);
+router.delete('/sessions/:id(\\d+)', authMiddleware, adminOnly, requireCapability('schedules:write'), adminController.deleteSchedule);
+router.patch('/sessions/:id(\\d+)/:kind(teachers|students)/:uid', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(scheduleValidation.update), adminController.updateSchedule);
+router.patch('/sessions/:id(\\d+)/teachers/:uid/status', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(teacherPairStatusValidation), adminController.updateSchedule);
+router.post('/sessions/:id(\\d+)/:kind(teachers|students)', authMiddleware, adminOnly, requireCapability('schedules:write'), validate(sessionAddPairValidation), adminController.addSchedulePair);
+router.delete('/sessions/:id(\\d+)/:kind(teachers|students)/:uid', authMiddleware, adminOnly, requireCapability('schedules:write'), adminController.removeSchedulePair);
+
 // 费用操作：路由放行到 L3，行级归属校验在服务层完成（单条拒绝 / 批量 all-or-nothing）
+// 费用挂在教师 pair 上，所以带 :uid 的形式是主路径；不带 :uid 时服务层要求本场只有一位教师
 router.patch('/schedules/:id/fees', authMiddleware, adminOnly, requireCapability('finance:write'), validate(feeUpdateValidation), adminController.updateScheduleFees);
+router.patch('/sessions/:id(\\d+)/teachers/:uid/fees', authMiddleware, adminOnly, requireCapability('finance:write'), validate(feeUpdateValidation), adminController.updateScheduleFees);
 router.patch('/schedules/:id/fee-status', authMiddleware, adminOnly, requireCapability('finance:write'), validate(feeStatusUpdateValidation), adminController.updateScheduleFeeStatus);
+router.patch('/sessions/:id(\\d+)/teachers/:uid/fee-status', authMiddleware, adminOnly, requireCapability('finance:write'), validate(feeStatusUpdateValidation), adminController.updateScheduleFeeStatus);
 router.post('/schedules/batch-fee-status', authMiddleware, adminOnly, requireCapability('finance:write'), validate(feeStatusBatchValidation), adminController.batchUpdateScheduleFeeStatus);
 
 // 统计数据路由：排课衍生指标对 L3 做范围过滤；用户数统计保持全局
