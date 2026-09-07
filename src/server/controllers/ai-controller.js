@@ -11,6 +11,7 @@ const aiService = require('../services/ai-service');
 const db = require('../db/db');
 const scheduleService = require('../services/schedule-service');
 const aiConfigService = require('../services/ai-config-service');
+const courseSessionService = require('../services/course-session-service');
 const fs = require('fs');
 const path = require('path');
 
@@ -29,29 +30,34 @@ const getStatus = (req, res) => {
 /**
  * 状态的中英文映射（统一使用 sharedUtils.STATUS_MAP 作为权威来源）
  */
-const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus } = require('../utils/shared-utils');
+const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus, splitStatus } = require('../utils/shared-utils');
 const { requiresOwnDataScope, canTouchRecord } = require('../utils/admin-permissions');
 
 /**
- * 课程类型映射缓存
+ * 课程类型映射缓存。缓存的是 **Promise** 而不是结果值 ——
+ * 只缓存结果时，在 Promise.all 里并发调用会让每一行都看到空缓存，
+ * 于是并发发出几十条完全一样的 `SELECT name, description FROM schedule_types`
+ * （实测最多 50 条），在连接池小的环境下会把真正的业务查询挤掉。
  */
-let courseTypeCache = null;
+let courseTypePromise = null;
 
 /**
  * 从数据库加载课程类型映射
  */
-async function loadCourseTypeMapping() {
-    if (courseTypeCache) return courseTypeCache;
-    try {
-        const result = await db.query('SELECT name, description FROM schedule_types ORDER BY id;');
-        courseTypeCache = {};
-        result.rows.forEach(row => {
-            courseTypeCache[row.name] = row.description;
+function loadCourseTypeMapping() {
+    if (courseTypePromise) return courseTypePromise;
+    courseTypePromise = db.query('SELECT name, description FROM schedule_types ORDER BY id;')
+        .then(result => {
+            const map = {};
+            (result.rows || []).forEach(row => { map[row.name] = row.description; });
+            return map;
+        })
+        .catch(() => {
+            // 失败不固化空结果，下次调用重试
+            courseTypePromise = null;
+            return {};
         });
-        return courseTypeCache;
-    } catch (err) {
-        return {};
-    }
+    return courseTypePromise;
 }
 
 /**
@@ -422,7 +428,8 @@ const DATA_TOOLS = {
                 name: 'create_schedule_preview',
                 description: '根据可用时段生成排课预览方案。支持两种模式：\n' +
                     '1. 单组模式：传 teacherId+studentId+courseType+slots\n' +
-                    '2. 批量模式：传 groups 数组（多教师多课程一次性预览，表格自动排序）',
+                    '2. 批量模式：传 groups 数组（多教师多课程一次性预览，表格自动排序）\n' +
+                    '同一时间地点学生课程类型的多位教师应合并为一个 group（用 teacherIds 数组），而非多个独立 group',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -445,11 +452,12 @@ const DATA_TOOLS = {
                         },
                         groups: {
                             type: 'array',
-                            description: '批量排课分组（批量模式，用于评审/咨询等多教师场景）',
+                            description: '批量排课分组。同一时间地点学生课程类型的多位教师应合并为一个 group（用 teacherIds 数组）',
                             items: {
                                 type: 'object',
                                 properties: {
-                                    teacherId: { type: 'integer', description: '教师ID' },
+                                    teacherId: { type: 'integer', description: '教师ID（单教师，向后兼容）' },
+                                    teacherIds: { type: 'array', items: { type: 'integer' }, description: '教师ID数组（多教师合并为一个课程）' },
                                     studentId: { type: 'integer', description: '学生ID' },
                                     courseType: { type: 'string', description: '课程类型name字段（如 visit/review/review_record 等）' },
                                     location: { type: 'string', description: '上课地点' },
@@ -467,7 +475,7 @@ const DATA_TOOLS = {
                                         }
                                     }
                                 },
-                                required: ['teacherId', 'studentId', 'courseType', 'slots']
+                                required: ['studentId', 'courseType', 'slots']
                             }
                         }
                     }
@@ -657,23 +665,28 @@ async function executeDataTool(toolName, args, req) {
 
             const scopeSql = selfScoped ? ' AND (created_by=$1 OR created_by IS NULL)' : '';
             const scopeParams = selfScoped ? [userId] : [];
-            const [teachers, students, monthSchedules, pending] = await Promise.all([
-                db.query('SELECT COUNT(*) as count FROM teachers WHERE status=1'),
-                db.query('SELECT COUNT(*) as count FROM students WHERE status=1'),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
-                    AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)${scopeSql}`, scopeParams),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE status='pending'${scopeSql}`, scopeParams)
-            ]);
+            // 4 个计数压进同一条语句的 subselect：并发也要占 4 条连接，合成一条只花一次往返
+            //（bounded 靠 course_sessions 行数限制；month/pending 用 v_session_pairs 展开后
+            //   的状态字段，行数上限 = 教师×学生交叉积，库存量安全）
+            const r = await db.query(`
+                SELECT
+                    (SELECT COUNT(*) FROM teachers WHERE status=1) AS teacher_count,
+                    (SELECT COUNT(*) FROM students WHERE status=1) AS student_count,
+                    (SELECT COUNT(*) FROM v_session_pairs
+                      WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
+                        AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)${scopeSql}) AS month_schedules,
+                    (SELECT COUNT(*) FROM v_session_pairs WHERE status='pending'${scopeSql}) AS pending_schedules
+            `, scopeParams);
+            const row = (r.rows || [])[0] || {};
 
             return {
                 type: 'data_table',
                 title: '系统总览',
                 data: {
-                    teacherCount: parseInt(teachers.rows[0].count),
-                    studentCount: parseInt(students.rows[0].count),
-                    monthSchedules: parseInt(monthSchedules.rows[0].count),
-                    pendingSchedules: parseInt(pending.rows[0].count)
+                    teacherCount: parseInt(row.teacher_count || 0),
+                    studentCount: parseInt(row.student_count || 0),
+                    monthSchedules: parseInt(row.month_schedules || 0),
+                    pendingSchedules: parseInt(row.pending_schedules || 0)
                 }
             };
         }
@@ -683,10 +696,10 @@ async function executeDataTool(toolName, args, req) {
 
             let query = 'SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status, ' +
                        't.name as teacher_name, s.name as student_name, st.name as course_type ' +
-                       'FROM course_arrangement ca ' +
+                       'FROM v_session_pairs ca ' +
                        'JOIN teachers t ON ca.teacher_id=t.id ' +
                        'JOIN students s ON ca.student_id=s.id ' +
-                       'JOIN schedule_types st ON ca.course_id=st.id WHERE 1=1';
+                       'JOIN schedule_types st ON ca.type_id=st.id WHERE 1=1';
             const params = [];
             let paramCount = 1;
 
@@ -810,17 +823,17 @@ async function executeDataTool(toolName, args, req) {
 
             if (dimension === 'type') {
                 query = `SELECT st.name as category, COUNT(*) as count
-                        FROM course_arrangement ca
-                        JOIN schedule_types st ON ca.course_id=st.id
+                        FROM v_session_pairs ca
+                        JOIN schedule_types st ON ca.type_id=st.id
                         WHERE 1=1`;
             } else if (dimension === 'teacher') {
                 query = `SELECT t.name as category, COUNT(*) as count
-                        FROM course_arrangement ca
+                        FROM v_session_pairs ca
                         JOIN teachers t ON ca.teacher_id=t.id
                         WHERE 1=1`;
             } else {
                 query = `SELECT s.name as category, COUNT(*) as count
-                        FROM course_arrangement ca
+                        FROM v_session_pairs ca
                         JOIN students s ON ca.student_id=s.id
                         WHERE 1=1`;
             }
@@ -855,29 +868,30 @@ async function executeDataTool(toolName, args, req) {
 
             const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
 
-            const [week, month, year, pending, confirmed, cancelled] = await Promise.all([
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE ${idField}=$1 AND class_date>=CURRENT_DATE-7`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE ${idField}=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
-                    AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement
-                    WHERE ${idField}=$1 AND EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='pending'`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='confirmed'`, [userId]),
-                db.query(`SELECT COUNT(*) as count FROM course_arrangement WHERE ${idField}=$1 AND status='cancelled'`, [userId])
-            ]);
+            // 6 个计数用一条语句的条件聚合算完（原来是 6 条并发查询，占 6 条连接）
+            const r = await db.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE class_date >= CURRENT_DATE - 7) AS week_count,
+                    COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
+                                       AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)) AS month_count,
+                    COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)) AS year_count,
+                    COUNT(*) FILTER (WHERE status='pending') AS pending_count,
+                    COUNT(*) FILTER (WHERE status='confirmed') AS confirmed_count,
+                    COUNT(*) FILTER (WHERE status='cancelled') AS cancelled_count
+                  FROM v_session_pairs WHERE ${idField}=$1
+            `, [userId]);
+            const row = (r.rows || [])[0] || {};
 
             return {
                 type: 'data_table',
                 title: '我的总览',
                 data: {
-                    weekSchedules: parseInt(week.rows[0].count),
-                    monthSchedules: parseInt(month.rows[0].count),
-                    yearSchedules: parseInt(year.rows[0].count),
-                    pending: parseInt(pending.rows[0].count),
-                    confirmed: parseInt(confirmed.rows[0].count),
-                    cancelled: parseInt(cancelled.rows[0].count)
+                    weekSchedules: parseInt(row.week_count || 0),
+                    monthSchedules: parseInt(row.month_count || 0),
+                    yearSchedules: parseInt(row.year_count || 0),
+                    pending: parseInt(row.pending_count || 0),
+                    confirmed: parseInt(row.confirmed_count || 0),
+                    cancelled: parseInt(row.cancelled_count || 0)
                 }
             };
         }
@@ -890,10 +904,10 @@ async function executeDataTool(toolName, args, req) {
 
             let query = `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
                         ${joinField}, st.name as course_type
-                        FROM course_arrangement ca
+                        FROM v_session_pairs ca
                         JOIN teachers t ON ca.teacher_id=t.id
                         JOIN students s ON ca.student_id=s.id
-                        JOIN schedule_types st ON ca.course_id=st.id
+                        JOIN schedule_types st ON ca.type_id=st.id
                         WHERE ca.${idField}=$1`;
             const params = [userId];
             let paramCount = 2;
@@ -937,12 +951,12 @@ async function executeDataTool(toolName, args, req) {
 
             const [typeStats, monthlyStats] = await Promise.all([
                 db.query(`SELECT st.name as category, st.description as category_cn, COUNT(*) as count
-                    FROM course_arrangement ca
-                    JOIN schedule_types st ON ca.course_id=st.id
+                    FROM v_session_pairs ca
+                    JOIN schedule_types st ON ca.type_id=st.id
                     WHERE ca.student_id=$1 AND ca.class_date>=$2 AND ca.class_date<=$3
                     GROUP BY st.name, st.description ORDER BY count DESC`, [userId, startDate, endDate]),
                 db.query(`SELECT TO_CHAR(ca.class_date, 'YYYY-MM') as month, COUNT(*) as count
-                    FROM course_arrangement ca
+                    FROM v_session_pairs ca
                     WHERE ca.student_id=$1 AND ca.class_date>=$2 AND ca.class_date<=$3
                     GROUP BY month ORDER BY month`, [userId, startDate, endDate])
             ]);
@@ -983,25 +997,23 @@ async function executeDataTool(toolName, args, req) {
 
             const { teacherId, studentId, startDate, endDate, preferredDays, duration = 2 } = args;
 
-            // 验证教师和学生存在
-            const [teacher, student] = await Promise.all([
+            // 三条都只依赖入参，一起发（已有排课的查询原来排在两个校验之后，白等一次往返）
+            const [teacher, student, existingSchedules] = await Promise.all([
                 db.query('SELECT id, name FROM teachers WHERE id=$1 AND status=1', [teacherId]),
-                db.query('SELECT id, name FROM students WHERE id=$1 AND status=1', [studentId])
+                db.query('SELECT id, name FROM students WHERE id=$1 AND status=1', [studentId]),
+                db.query(
+                    `SELECT class_date, start_time, end_time
+                     FROM v_session_pairs
+                     WHERE (teacher_id=$1 OR student_id=$2)
+                     AND class_date BETWEEN $3 AND $4
+                     AND status != 'cancelled'
+                     ORDER BY class_date, start_time`,
+                    [teacherId, studentId, startDate, endDate]
+                )
             ]);
 
             if (teacher.rows.length === 0) throw new AppError(`教师 ID ${teacherId} 不存在或已禁用`, 404);
             if (student.rows.length === 0) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
-
-            // 查询指定日期范围内的已有排课
-            const existingSchedules = await db.query(
-                `SELECT class_date, start_time, end_time
-                 FROM course_arrangement
-                 WHERE (teacher_id=$1 OR student_id=$2)
-                 AND class_date BETWEEN $3 AND $4
-                 AND status != 'cancelled'
-                 ORDER BY class_date, start_time`,
-                [teacherId, studentId, startDate, endDate]
-            );
 
             // 生成日期范围
             const start = new Date(startDate);
@@ -1071,22 +1083,29 @@ async function executeDataTool(toolName, args, req) {
             const { groups } = args;
             const isBatch = Array.isArray(groups) && groups.length > 0;
 
-            // 统一为 groups 格式
-            const normalizedGroups = isBatch ? groups : [{
+            // 统一为 groups 格式，teacherId/teacherIds 统一为 teacherIds 数组
+            const rawGroups = isBatch ? groups : [{
                 teacherId: args.teacherId,
+                teacherIds: args.teacherIds,
                 studentId: args.studentId,
                 courseType: args.courseType,
                 location: args.location,
                 slots: args.slots
             }];
+            const normalizedGroups = rawGroups.map(g => ({
+                ...g,
+                teacherIds: Array.isArray(g.teacherIds) && g.teacherIds.length > 0
+                    ? g.teacherIds
+                    : (g.teacherId ? [g.teacherId] : [])
+            }));
 
             // 收集所有唯一ID，批量预加载（避免 N+1 查询）
-            const teacherIds = [...new Set(normalizedGroups.map(g => g.teacherId).filter(Boolean))];
+            const allTeacherIds = [...new Set(normalizedGroups.flatMap(g => g.teacherIds).filter(Boolean))];
             const studentIds = [...new Set(normalizedGroups.map(g => g.studentId).filter(Boolean))];
             const courseTypeNames = [...new Set(normalizedGroups.map(g => g.courseType).filter(Boolean))];
 
             const [teachersResult, studentsResult, courseTypesResult] = await Promise.all([
-                teacherIds.length ? db.query('SELECT id, name FROM teachers WHERE id=ANY($1) AND status=1', [teacherIds]) : { rows: [] },
+                allTeacherIds.length ? db.query('SELECT id, name FROM teachers WHERE id=ANY($1) AND status=1', [allTeacherIds]) : { rows: [] },
                 studentIds.length ? db.query('SELECT id, name FROM students WHERE id=ANY($1) AND status=1', [studentIds]) : { rows: [] },
                 courseTypeNames.length ? db.query('SELECT id, name, description FROM schedule_types WHERE name=ANY($1)', [courseTypeNames]) : { rows: [] }
             ]);
@@ -1100,12 +1119,10 @@ async function executeDataTool(toolName, args, req) {
             const previewGroups = [];
 
             for (const group of normalizedGroups) {
-                const { teacherId, studentId, courseType, location, slots } = group;
-                if (!teacherId || !studentId || !courseType || !slots?.length) continue;
+                const { teacherIds: tIds, studentId, courseType, location, slots } = group;
+                if (!tIds.length || !studentId || !courseType || !slots?.length) continue;
 
-                const teacher = teacherMap[teacherId];
                 const student = studentMap[studentId];
-                if (!teacher) throw new AppError(`教师 ID ${teacherId} 不存在或已禁用`, 404);
                 if (!student) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
 
                 const courseTypeRow = courseTypeMap[courseType];
@@ -1114,22 +1131,32 @@ async function executeDataTool(toolName, args, req) {
                 const courseId = courseTypeRow.id;
                 const courseTypeCn = courseTypeRow.description || courseType;
 
+                // 校验所有教师存在
+                const teachers = [];
+                for (const tid of tIds) {
+                    const t = teacherMap[tid];
+                    if (!t) throw new AppError(`教师 ID ${tid} 不存在或已禁用`, 404);
+                    teachers.push(t);
+                }
+
                 previewGroups.push({
-                    teacherId, studentId, courseId,
-                    teacherName: teacher.name,
+                    teacherIds: tIds, studentId, courseId,
+                    teacherNames: teachers.map(t => t.name),
                     studentName: student.name,
                     courseTypeCn, location: location || null,
                     slots: slots.map(s => ({ date: s.date, startTime: s.startTime, endTime: s.endTime, status: s.status }))
                 });
 
+                // 一个 group+slot 生成一行预览，教师名合并显示
+                const mergedTeacherName = teachers.map(t => t.name).join('、');
                 for (const slot of slots) {
                     allSchedules.push({
                         class_date: slot.date,
                         day_of_week: getDayOfWeek(slot.date),
                         start_time: slot.startTime,
                         end_time: slot.endTime,
-                        teacher_id: teacher.id,
-                        teacher_name: teacher.name,
+                        teacher_ids: tIds,
+                        teacher_name: mergedTeacherName,
                         student_name: student.name,
                         course_type_cn: courseTypeCn,
                         location: location || null,
@@ -1147,7 +1174,7 @@ async function executeDataTool(toolName, args, req) {
             schedulePreviewStore.set(previewId, { previewId, groups: previewGroups, createdAt: new Date().toISOString() });
             setTimeout(() => schedulePreviewStore.delete(previewId), 5 * 60 * 1000);
 
-            const uniqueTeachers = [...new Set(previewGroups.map(g => g.teacherName))];
+            const uniqueTeachers = [...new Set(previewGroups.flatMap(g => g.teacherNames))];
             const uniqueStudents = [...new Set(previewGroups.map(g => g.studentName))];
             const uniqueCourses = [...new Set(previewGroups.map(g => g.courseTypeCn))];
 
@@ -1185,27 +1212,28 @@ async function executeDataTool(toolName, args, req) {
                 slots: previewData.slots
             }];
 
-            // 批量插入排课
-            const insertedIds = [];
-            for (const group of groups) {
-                const { teacherId, studentId, courseId, location, slots } = group;
-                for (const slot of slots) {
-                    // 权限落地（Phase 1.5）：记录创建者归属（L3 后续可见自己创建的数据）
-                    const result = await db.query(
-                        `INSERT INTO course_arrangement
-                        (teacher_id, student_id, course_id, class_date, start_time, end_time, status, location, created_by, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        RETURNING id`,
-                        [teacherId, studentId, courseId, slot.date, slot.startTime, slot.endTime, slot.status || 'confirmed', location || null, userId]
-                    );
-                    insertedIds.push(result.rows[0].id);
-                }
-            }
+            // 批量插入排课：一场课一行，交给服务层的批量入口（uid 生成、pair 的 created_by、
+            // 引用完整性校验、校验函数都在那一层统一处理）。
+            // 权限落地（Phase 1.5）：头部 created_by 记录创建者归属（L3 后续可见自己创建的数据）
+            // 往返固定 3 次而不是 3 × 时段数 —— 逐个建 10 个时段要 30 条语句、约 7.5 秒。
+            const payloads = groups.flatMap(({ teacherIds, teacherId, studentId, courseId, location, slots }) => {
+                const tIds = (Array.isArray(teacherIds) && teacherIds.length > 0) ? teacherIds : (teacherId ? [teacherId] : []);
+                return (slots || []).map(slot => ({
+                    class_date: slot.date,
+                    start_time: slot.startTime,
+                    end_time: slot.endTime,
+                    location: location || null,
+                    teachers: tIds.map(tid => ({ teacher_id: tid, type_id: courseId, lifecycle: slot.status || 'confirmed' })),
+                    students: [{ student_id: studentId }]
+                }));
+            });
+            const createdSessions = await courseSessionService.createSessions(payloads, { id: userId, actorType: 'admin' });
+            const insertedIds = createdSessions.map(x => x.id);
 
             // 删除预览数据
             schedulePreviewStore.delete(previewId);
 
-            const uniqueTeachers = [...new Set(groups.map(g => g.teacherName).filter(Boolean))];
+            const uniqueTeachers = [...new Set(groups.flatMap(g => Array.isArray(g.teacherNames) ? g.teacherNames : (g.teacherName ? [g.teacherName] : [])))];
             const uniqueStudents = [...new Set(groups.map(g => g.studentName).filter(Boolean))];
 
             return {
@@ -1242,10 +1270,10 @@ async function executeDataTool(toolName, args, req) {
                         t.name as teacher_name, t.id as teacher_id,
                         s.name as student_name, s.id as student_id,
                         st.name as course_type, st.description as course_type_cn
-                 FROM course_arrangement ca
+                 FROM v_session_pairs ca
                  JOIN teachers t ON ca.teacher_id = t.id
                  JOIN students s ON ca.student_id = s.id
-                 JOIN schedule_types st ON ca.course_id = st.id
+                 JOIN schedule_types st ON ca.type_id = st.id
                  WHERE ca.id = ANY($1)`,
                 [scheduleIds]
             );
@@ -1268,22 +1296,33 @@ async function executeDataTool(toolName, args, req) {
             // 验证新值的合法性
             let newTeacherName, newStudentName, newCourseTypeCn, newCourseTypeId;
 
-            if (fields.teacherId) {
-                const teacherCheck = await db.query('SELECT id, name, status FROM teachers WHERE id=$1', [fields.teacherId]);
+            // 三个校验只依赖入参 fields，彼此无关 —— 并发发出，最多省两次往返（每条约 250ms）。
+            // 报错顺序仍是「教师 → 学生 → 课程类型」，与逐条校验时代一致。
+            const [teacherCheck, studentCheck, courseTypeResult] = await Promise.all([
+                fields.teacherId
+                    ? db.query('SELECT id, name, status FROM teachers WHERE id=$1', [fields.teacherId])
+                    : null,
+                fields.studentId
+                    ? db.query('SELECT id, name, status FROM students WHERE id=$1', [fields.studentId])
+                    : null,
+                fields.courseType
+                    ? db.query('SELECT id, name, description FROM schedule_types WHERE name=$1', [fields.courseType])
+                    : null
+            ]);
+
+            if (teacherCheck) {
                 if (teacherCheck.rows.length === 0) throw new AppError(`教师 ID ${fields.teacherId} 不存在`, 404);
                 if (teacherCheck.rows[0].status !== 1) throw new AppError(`教师 ${teacherCheck.rows[0].name} 已被禁用`, 400);
                 newTeacherName = teacherCheck.rows[0].name;
             }
 
-            if (fields.studentId) {
-                const studentCheck = await db.query('SELECT id, name, status FROM students WHERE id=$1', [fields.studentId]);
+            if (studentCheck) {
                 if (studentCheck.rows.length === 0) throw new AppError(`学生 ID ${fields.studentId} 不存在`, 404);
                 if (studentCheck.rows[0].status !== 1) throw new AppError(`学生 ${studentCheck.rows[0].name} 已被禁用`, 400);
                 newStudentName = studentCheck.rows[0].name;
             }
 
-            if (fields.courseType) {
-                const courseTypeResult = await db.query('SELECT id, name, description FROM schedule_types WHERE name=$1', [fields.courseType]);
+            if (courseTypeResult) {
                 if (courseTypeResult.rows.length === 0) throw new AppError(`课程类型 ${fields.courseType} 不存在`, 404);
                 newCourseTypeCn = courseTypeResult.rows[0].description;
                 newCourseTypeId = courseTypeResult.rows[0].id;
@@ -1397,10 +1436,10 @@ async function executeDataTool(toolName, args, req) {
                         ca.created_by,
                         t.name as teacher_name, s.name as student_name,
                         st.name as course_type, st.description as course_type_cn
-                 FROM course_arrangement ca
+                 FROM v_session_pairs ca
                  JOIN teachers t ON ca.teacher_id = t.id
                  JOIN students s ON ca.student_id = s.id
-                 JOIN schedule_types st ON ca.course_id = st.id
+                 JOIN schedule_types st ON ca.type_id = st.id
                  WHERE ca.id = ANY($1)`,
                 [scheduleIds]
             );
@@ -1469,7 +1508,7 @@ async function executeDataTool(toolName, args, req) {
             if ((operation.type === 'update' || operation.type === 'delete')
                 && Array.isArray(operation.scheduleIds) && requiresOwnDataScope(req.user)) {
                 const ownRes = await db.query(
-                    'SELECT COUNT(*)::int AS count FROM course_arrangement WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
+                    'SELECT COUNT(*)::int AS count FROM course_sessions WHERE id = ANY($1) AND (created_by = $2 OR created_by IS NULL)',
                     [operation.scheduleIds, userId]
                 );
                 const ownedCount = ownRes.rows && ownRes.rows[0] ? Number(ownRes.rows[0].count) : 0;
@@ -1485,56 +1524,83 @@ async function executeDataTool(toolName, args, req) {
 
                 // 调整课程：status=modified_away → 原记录归档 + 按新条件新建课程
                 if (operation.isAdjust) {
+                    // 预校验：调整操作用到的 type_id 是整批统一的（来自 operation.newCourseTypeId），
+                    // 在循环外一次性校验存在性，循环内跳过每 sid 的 assertReferences —— 每个 sid 再省 1 条 SQL
+                    if (operation.newCourseTypeId) {
+                        await courseSessionService.assertReferences(
+                            { typeIds: [operation.newCourseTypeId] }
+                        );
+                    }
                     const newIds = await db.runInTransaction(async (client, usePool) => {
                         const q = usePool ? db.query.bind(db) : client.query.bind(client);
                         const created = [];
                         for (const sid of scheduleIds) {
-                            // 读原课程（行级锁，防并发）
+                            // 读原场次（行级锁，防并发）
                             const curRes = await q(
-                                `SELECT teacher_id, student_id, course_id, class_date, start_time, end_time,
-                                        location, family_participants, status, adjustment_type
-                                 FROM course_arrangement WHERE id = $1 FOR UPDATE`,
+                                `SELECT id, class_date, start_time, end_time, location, notes,
+                                        teachers, students, version, created_by
+                                 FROM course_sessions WHERE id = $1 FOR UPDATE`,
                                 [sid]
                             );
                             if (curRes.rows.length === 0) throw new AppError(`排课 ${sid} 不存在`, 404);
-                            const c = curRes.rows[0];
-                            if (c.status === 'modified_away') throw new AppError(`排课 ${sid} 已被调整过，不能再次调整`, 409);
-                            if (Number(c.adjustment_type || 0) === 2) throw new AppError(`排课 ${sid} 是增补记录，不能再次被调整`, 409);
+                            const session = curRes.rows[0];
 
-                            // 生效值：新条件覆盖，其余沿用原课程
-                            const effTeacherId = fields.teacherId ?? c.teacher_id;
-                            const effStudentId = fields.studentId ?? c.student_id;
-                            const effCourseId = operation.newCourseTypeId ?? c.course_id;
-                            const effDate = fields.classDate ?? c.class_date;
-                            const effStart = fields.startTime ?? c.start_time;
-                            const effEnd = fields.endTime ?? c.end_time;
-                            const effLocation = fields.location !== undefined ? (fields.location || null) : c.location;
+                            // 定位要调整的教师 pair：显式 uid 优先，否则本场唯一教师
+                            const uid = operation.teacherUid
+                                || ((session.teachers || []).length === 1 ? session.teachers[0].uid : null);
+                            const pair = (session.teachers || []).find(x => String(x.uid) === String(uid));
+                            if (!pair) throw new AppError(`排课 ${sid} 有多位教师，请指明 teacher_uid`, 400);
+                            const { category, lifecycle } = splitStatus(pair.status);
+                            if (lifecycle === 'modified_away') throw new AppError(`排课 ${sid} 已被调整过，不能再次调整`, 409);
+                            if (category === 'adjusted') throw new AppError(`排课 ${sid} 是增补记录，不能再次被调整`, 409);
+
+                            // 生效值：新条件覆盖，其余沿用原场次
+                            const effTeacherId = fields.teacherId ?? pair.teacher_id;
+                            const effStudentId = fields.studentId ?? (session.students || [])[0]?.student_id;
+                            const effCourseId = operation.newCourseTypeId ?? pair.type_id;
+                            const effDate = fields.classDate ?? session.class_date;
+                            const effStart = fields.startTime ?? session.start_time;
+                            const effEnd = fields.endTime ?? session.end_time;
+                            const effLocation = fields.location !== undefined ? (fields.location || null) : session.location;
                             const effFamily = fields.familyParticipants !== undefined
-                                ? Number(fields.familyParticipants) : (c.family_participants ?? 4);
+                                ? Number(fields.familyParticipants) : ((session.students || [])[0]?.family_participants ?? 4);
 
-                            // 1. 标记原课程为「已调整」(modified_away, adjustment_type=0)
-                            await q(`UPDATE course_arrangement SET status='modified_away', adjustment_type=0 WHERE id=$1`, [sid]);
+                            // 1. 作废+增补：原 pair 标 *.modified_away，同一条 UPDATE 追加 adjusted.pending 新 pair
+                            //    （类别位由服务层写，前端/AI 都不能手指定 adjusted）
+                            //    prev 传入跳过内部第二次读取；skipTypeAssert 跳过已预校验的类型存在性查询
+                            const adjusted = await courseSessionService.adjustTeacherPair(
+                                sid, pair.uid, { type_id: effCourseId },
+                                { id: req.user.id, actorType: 'admin' }, Number(session.version), session,
+                                { skipTypeAssert: true }
+                            );
+                            if (adjusted.notFound) throw new AppError(`排课 ${sid} 不存在`, 404);
 
-                            // 2. 冲突检测（原课程已 modified_away，落入 NOT IN 排除集，不会自冲突）
+                            // 2. 冲突检测（原 pair 已 modified_away，不会自冲突）
                             const conflict = await scheduleService.checkConflicts(
                                 effTeacherId, effStudentId, effDate, null, effStart, effEnd,
                                 usePool ? null : client
                             );
                             if (conflict.hasConflicts) {
-                                // 抛错 → 事务回滚 → 原课程标记一并撤销
+                                // 抛错 → 事务回滚 → 原 pair 的标记一并撤销
                                 throw new AppError(`新课程与现有排课冲突：${conflict.message}`, 409);
                             }
 
-                            // 3. 新建课程 adjustment_type=2（增补），status=confirmed
-                            const ins = await q(
-                                `INSERT INTO course_arrangement
-                                 (teacher_id, student_id, course_id, class_date, start_time, end_time,
-                                  location, family_participants, status, created_by, adjustment_type)
-                                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'confirmed',$9,2) RETURNING id`,
-                                [effTeacherId, effStudentId, effCourseId, effDate, effStart, effEnd,
-                                 effLocation, effFamily, req.user.id]
-                            );
-                            created.push(ins.rows[0].id);
+                            // 3. 时间/地点/教师/学生有变化时，另起一场新课承载（头部字段是整场共享的）
+                            const headerMoved = String(effDate).slice(0, 10) !== String(session.class_date).slice(0, 10)
+                                || effStart !== session.start_time || effEnd !== session.end_time
+                                || Number(effTeacherId) !== Number(pair.teacher_id)
+                                || Number(effStudentId) !== Number((session.students || [])[0]?.student_id);
+                            if (headerMoved) {
+                                const fresh = await courseSessionService.createSession({
+                                    class_date: effDate, start_time: effStart, end_time: effEnd,
+                                    location: effLocation,
+                                    teachers: [{ teacher_id: effTeacherId, type_id: effCourseId, lifecycle: 'confirmed' }],
+                                    students: [{ student_id: effStudentId, family_participants: effFamily }]
+                                }, { id: req.user.id, actorType: 'admin' });
+                                created.push(fresh.id);
+                            } else {
+                                created.push(sid);
+                            }
                         }
                         return created;
                     });
@@ -1551,36 +1617,63 @@ async function executeDataTool(toolName, args, req) {
                     };
                 }
 
-                // 普通改课：直接 UPDATE 原记录字段
-                const updateFields = [];
-                const params = [];
-                let paramCount = 1;
-
-                // 处理课程类型
+                // 普通改课：分头部字段与 pair 字段两路走服务层
+                // （一条 UPDATE 拼所有列的写法在新结构下不成立：头部是整场共享的，
+                //   类型/费用/评分挂在教师 pair 上，家属人数挂在学生 pair 上）
+                const actor = { id: req.user.id, actorType: 'admin' };
+                let typeId = null;
                 if (fields.courseType) {
-                    const courseTypeResult = await db.query('SELECT id FROM schedule_types WHERE name=$1', [fields.courseType]);
-                    updateFields.push(`course_id=$${paramCount++}`);
-                    params.push(courseTypeResult.rows[0].id);
+                    const r = await db.query('SELECT id FROM schedule_types WHERE name=$1', [fields.courseType]);
+                    typeId = r.rows[0] && r.rows[0].id;
                 }
 
-                // 处理其他字段
-                if (fields.teacherId) { updateFields.push(`teacher_id=$${paramCount++}`); params.push(fields.teacherId); }
-                if (fields.studentId) { updateFields.push(`student_id=$${paramCount++}`); params.push(fields.studentId); }
-                if (fields.classDate) { updateFields.push(`class_date=$${paramCount++}`); params.push(fields.classDate); }
-                if (fields.startTime) { updateFields.push(`start_time=$${paramCount++}`); params.push(fields.startTime); }
-                if (fields.endTime) { updateFields.push(`end_time=$${paramCount++}`); params.push(fields.endTime); }
-                if (fields.status) { updateFields.push(`status=$${paramCount++}`); params.push(fields.status); }
-                if (fields.location !== undefined) { updateFields.push(`location=$${paramCount++}`); params.push(fields.location); }
-                if (fields.familyParticipants !== undefined) { updateFields.push(`family_participants=$${paramCount++}`); params.push(fields.familyParticipants); }
-                if (fields.transportFee !== undefined) { updateFields.push(`transport_fee=$${paramCount++}`); params.push(fields.transportFee); }
-                if (fields.otherFee !== undefined) { updateFields.push(`other_fee=$${paramCount++}`); params.push(fields.otherFee); }
+                // 循环外一次把涉及的场次全部读回来：原来每个 sid 先读一次，再让
+                // updateSessionHeader / patchPair / setTeacherStatus 各自又读一次同一行
+                // —— 一条排课 4 次「写前读整场」。远程库每条约 250ms，5 条排课就是 5 秒纯读。
+                const sessionRows = await db.query(
+                    `SELECT ${courseSessionService.SESSION_COLUMNS} FROM course_sessions WHERE id = ANY($1::int[])`,
+                    [scheduleIds]
+                );
+                const sessionById = new Map((sessionRows.rows || []).map(r => [Number(r.id), r]));
 
-                updateFields.push('updated_at=CURRENT_TIMESTAMP');
+                for (const sid of scheduleIds) {
+                    let current = sessionById.get(Number(sid));
+                    if (!current) continue;
+                    let version = Number(current.version);
 
-                params.push(scheduleIds);
-                const updateQuery = `UPDATE course_arrangement SET ${updateFields.join(', ')} WHERE id = ANY($${paramCount})`;
+                    const headerPatch = {};
+                    if (fields.classDate) headerPatch.class_date = fields.classDate;
+                    if (fields.startTime) headerPatch.start_time = fields.startTime;
+                    if (fields.endTime) headerPatch.end_time = fields.endTime;
+                    if (fields.location !== undefined) headerPatch.location = fields.location;
+                    if (Object.keys(headerPatch).length) {
+                        current = await courseSessionService.updateSessionHeader(sid, headerPatch, actor, version, current);
+                        version = Number(current.version);
+                    }
 
-                await db.query(updateQuery, params);
+                    const uid = (current.teachers || [])[0] && current.teachers[0].uid;
+                    if (uid) {
+                        const pairPatch = {};
+                        if (typeId) pairPatch.type_id = typeId;
+                        if (fields.transportFee !== undefined) pairPatch.transport_fee = fields.transportFee;
+                        if (fields.otherFee !== undefined) pairPatch.other_fee = fields.otherFee;
+                        if (Object.keys(pairPatch).length) {
+                            const r = await courseSessionService.patchPair(sid, 'teacher', uid, pairPatch, actor, version, current);
+                            if (!r.notFound) { current = r.session; version = Number(current.version); }
+                        }
+                        if (fields.status) {
+                            const r = await courseSessionService.setTeacherStatus(sid, uid, fields.status, actor, undefined, current);
+                            if (r.session) { current = r.session; version = Number(current.version); }
+                        }
+                    }
+
+                    const sUid = (current.students || [])[0] && current.students[0].uid;
+                    if (sUid && fields.familyParticipants !== undefined) {
+                        await courseSessionService.patchPair(
+                            sid, 'student', sUid, { family_participants: fields.familyParticipants }, actor, version, current
+                        );
+                    }
+                }
 
                 // 删除已执行的操作
                 pendingOperationStore.delete(operationId);
@@ -1599,7 +1692,9 @@ async function executeDataTool(toolName, args, req) {
                 // 执行删除操作
                 const { scheduleIds, reason } = operation;
 
-                await db.query('DELETE FROM course_arrangement WHERE id = ANY($1)', [scheduleIds]);
+                // 删除整场（前三张审计表随 ON DELETE CASCADE 清理；
+                // session_change_logs 无外键，会留下这次删除的整场快照）
+                await courseSessionService.deleteSessions(scheduleIds, { id: req.user.id, actorType: 'admin' });
 
                 // 删除已执行的操作
                 pendingOperationStore.delete(operationId);
@@ -1837,13 +1932,17 @@ const query = asyncHandler(async (req, res) => {
           `(1) 逐条拆分输入（批量时每行一条，不合并不跳过）。\n` +
           `(2) 对每条的时间表述调用 resolve_datetime 得到精确日期时间。\n` +
           `(3) 用 query_students / query_teachers 把昵称/姓名换成真实 ID。\n` +
-          `(4) 把所有条目组装成 groups 数组，一次性调用 create_schedule_preview(groups:[...])。\n` +
-          `(5) 系统返回预览表格，交由用户点击"确认创建排课"按钮执行。\n` +
+          `(4) 合并规则：同一行中括号内有多个教师（如"图帕尔和周耀华"）且学生、课程类型、时间、地点相同 → 合并为一个 group，teacherIds 数组包含所有教师ID。不同行的课程不合并。\n` +
+          `(5) 把所有条目组装成 groups 数组，一次性调用 create_schedule_preview(groups:[...])。\n` +
+          `(6) 系统返回预览表格，交由用户点击"确认创建排课"按钮执行。\n` +
           `状态判定："待定/看情况/可能"→pending，其余→confirmed。\n` +
           `\n【正例】输入"下周一晚上 浩浩入户（周老师，新课堂）"：\n` +
           `  → resolve_datetime("下周一晚上") 得 date=下周一, 19:00:00-21:30:00\n` +
           `  → query_students(nickname:"浩浩") 得 studentId；query_teachers(name:"周老师") 得 teacherId\n` +
-          `  → create_schedule_preview(groups:[{teacherId, studentId, courseType:"visit", location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
+          `  → create_schedule_preview(groups:[{teacherIds:[teacherId], studentId, courseType:"visit", location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
+          `【正例·多教师合并】输入"下周一晚上 浩浩入户（图帕尔和周耀华，新课堂）"：\n` +
+          `  → query_teachers 得 teacherId1(图帕尔)、teacherId2(周耀华)\n` +
+          `  → 合并为一个 group：create_schedule_preview(groups:[{teacherIds:[teacherId1,teacherId2], studentId, courseType:"visit", location:"新课堂", slots:[...]}])\n` +
           `【反例】不要直接写 create_schedule_preview 而跳过 resolve_datetime 或 query_students —— 会导致日期错、学生错。\n` +
           `\n============================\n` +
           `# 7. 评审/咨询课程（多教师，同时间同地点各生成一条记录）\n` +
