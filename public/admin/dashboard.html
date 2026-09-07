@@ -1216,26 +1216,34 @@
                         </div>
                     </div>
 
-                    <!-- 排课表单 -->
+                    <!-- 排课表单（多师多生 pair 版）：教师/学生各为可增删的行，
+                         行内下拉的选项克隆自下方隐藏的模板控件，模板本身不参与提交与显示 -->
                     <div id="scheduleFormContainer" class="form-container" style="display: none;">
                         <div class="form-header" style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <h3 id="scheduleFormTitle" style="margin: 0;">添加排课</h3>
-                                <label class="theme-checkbox-label">
-                                    <input type="checkbox" id="scheduleIsTemp" class="theme-checkbox">
-                                    <span class="theme-checkbox-custom"></span>
-                                    临时加课
-                                </label>
                             </div>
                             <button class="close-btn" id="closeScheduleFormBtn"></button>
                         </div>
                         <form id="scheduleForm" data-mode="add" data-id="">
-                            <!-- 第一行：学生 与 日期（并排） -->
-                            <div class="form-group">
-                                <label for="scheduleStudent">学生</label>
-                                <select id="scheduleStudent" required>
+                            <!-- 模板控件：仅作为选项数据源（loadScheduleFormOptions 填充、
+                                 schedule-pair-form.js 按行克隆 innerHTML）。放 hidden 包装层里，
+                                 防止旧代码 style.display='' 把单个控件重新显示出来 -->
+                            <div hidden aria-hidden="true">
+                                <select id="scheduleStudent">
                                     <option value="">选择学生</option>
                                 </select>
+                                <select id="scheduleTeacher">
+                                    <option value="">选择教师</option>
+                                </select>
+                                <select id="scheduleTypeSelect">
+                                    <option value="">选择类型</option>
+                                    <!-- Dynamic Options from store -->
+                                </select>
+                            </div>
+                            <!-- 从单元格新建时锁定展示的学生（编辑态由 JS 隐藏整组） -->
+                            <div class="form-group form-group-wide" id="scheduleStudentGroup" style="display: none;">
+                                <label>学生</label>
                                 <div id="scheduleStudentReadonly" class="readonly-field" style="display:none"></div>
                             </div>
                             <div class="form-group">
@@ -1252,35 +1260,38 @@
                                 <input type="time" id="scheduleEndTime" required>
                             </div>
 
-                            <!-- 第二行开始：老师、类型、入户地点、状态 -->
-                            <div class="form-group">
-                                <label for="scheduleTeacher">教师</label>
-                                <select id="scheduleTeacher" required>
-                                    <option value="">选择教师</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="scheduleTypeSelect">类型</label>
-                                <select id="scheduleTypeSelect" required>
-                                    <option value="">选择类型</option>
-                                    <!-- Dynamic Options from store -->
-                                </select>
-                            </div>
-
-                            <div class="form-group">
+                            <div class="form-group form-group-wide form-group-inline">
                                 <label for="scheduleLocation">入户地点</label>
                                 <textarea id="scheduleLocation" placeholder="默认使用学生探访地点" rows="1"></textarea>
                             </div>
-                            <div class="form-group">
-                                <label for="scheduleStatus">状态</label>
-                                <select id="scheduleStatus">
-                                    <option value="pending">待确认</option>
-                                    <option value="confirmed">已确认</option>
-                                    <option value="completed">已完成</option>
-                                    <option value="cancelled">已取消</option>
-                                    <option value="modified_away">已调整</option>
-                                </select>
+
+                            <!-- 教师 / 学生 pair 行（schedule-pair-form.js 渲染，样式见 admin-schedule.css） -->
+                            <div class="pair-sections">
+                                <div class="pair-section">
+                                    <div class="pair-section-head">
+                                        <span class="pair-section-title">授课教师</span>
+                                        <button type="button" id="addTeacherRowBtn" class="pair-add-btn">+ 添加老师</button>
+                                    </div>
+                                    <div id="scheduleTeacherRows" class="pair-rows"></div>
+                                </div>
+                                <div class="pair-section">
+                                    <div class="pair-section-head">
+                                        <span class="pair-section-title">上课学生</span>
+                                        <button type="button" id="addStudentRowBtn" class="pair-add-btn">+ 添加学生</button>
+                                    </div>
+                                    <div id="scheduleStudentRows" class="pair-rows"></div>
+                                </div>
                             </div>
+
+                            <!-- 备注：满行、标签与输入框同行，位置在「上课学生」之后、审计信息之前 -->
+                            <div class="form-group form-group-wide form-group-inline">
+                                <label for="scheduleNotes">备注</label>
+                                <textarea id="scheduleNotes" placeholder="选填" rows="2"></textarea>
+                            </div>
+
+                            <!-- 创建 / 修改信息（两行，schedule-pair-form.js 里用 \n 断行） -->
+                            <div id="scheduleAuditInfo" class="pair-audit" style="display: none;"></div>
+
                             <div class="form-actions">
                                 <button type="button" id="cancelScheduleFormBtn" class="btn btn-secondary">取消</button>
                                 <button type="button" id="scheduleFormDelete" class="btn btn-danger"
@@ -1580,14 +1591,17 @@
         <script src="/js/utils/permission.js"></script>
         <script src="/js/utils/color-utils.js"></script>
         <script src="/js/utils/format.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
-        <script src="/js/libs/html2canvas.min.js"></script>
+        <!-- chart.js 同步脚本换成按需加载：曾阻塞首屏 2+ 秒，首次切到统计 tab 才拉取 -->
+        <script src="/js/utils/load-chart.js"></script>
+        <!-- html2canvas: 优先本地文件，失败时自动回退到 CDN -->
+        <script src="/js/utils/load-html2canvas.js"></script>
         <script src="/js/modules/admin/stats-plugins.js"></script>
         <script src="/js/utils/schedule-date-labels.js"></script>
         <script src="/js/utils/date-range-utils.js"></script>
         <script src="/js/core/schedule-types-store.js"></script>
         <script src="/js/components/toast.js"></script>
         <script src="/js/components/modal.js"></script>
+        <script src="/js/core/modal-backdrop.js"></script>
         <script src="/js/utils/i18n-utils.js"></script>
         <script src="/js/utils/schedule-marker-policy.js?v=20260803-markers"></script>
         <script src="/js/components/export-manager.js?v=20260803-markers"></script>

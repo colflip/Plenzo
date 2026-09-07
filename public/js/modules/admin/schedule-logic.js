@@ -31,6 +31,9 @@ export async function showAddScheduleModal() {
     if (teacherSel) teacherSel.value = '';
     if (studentSel) { studentSel.value = ''; studentSel.disabled = false; studentSel.style.display = ''; }
     if (studentReadonlyDiv) studentReadonlyDiv.style.display = 'none';
+    // 通用新建没有锁定的学生（学生在 pair 行里选），整组隐藏
+    const studentGroup = document.getElementById('scheduleStudentGroup');
+    if (studentGroup) studentGroup.style.display = 'none';
     if (typeSel) {
         typeSel.value = '';
         // Reset family participants logic and visibility
@@ -61,16 +64,16 @@ export async function showAddScheduleModal() {
         
     }
 
-    // 默认选择第一个老师和课程类型（如果有）
-    if (teacherSel && teacherSel.options.length > 1) {
-        teacherSel.selectedIndex = 1;
+    // pair 行：清空后各留一行，并给第一行填上默认老师 / 学生 / 类型（沿用旧的省点击行为）
+    if (window.ScheduleManager && window.ScheduleManager.resetSchedulePairRows) {
+        window.ScheduleManager.resetSchedulePairRows();
     }
-    if (studentSel && studentSel.options.length > 1) {
-        studentSel.selectedIndex = 1;
-    }
-    if (typeSel && typeSel.options.length > 1) {
-        typeSel.selectedIndex = 1;
-    }
+    const firstTeacher = document.querySelector('#scheduleTeacherRows .pair-teacher');
+    const firstType = document.querySelector('#scheduleTeacherRows .pair-type');
+    const firstStudent = document.querySelector('#scheduleStudentRows .pair-student');
+    if (firstTeacher && firstTeacher.options.length > 1) firstTeacher.selectedIndex = 1;
+    if (firstType && firstType.options.length > 1) firstType.selectedIndex = 1;
+    if (firstStudent && firstStudent.options.length > 1) firstStudent.selectedIndex = 1;
     // 默认家庭参与人 (Default to first option)
     if (familyParticipantsSelect && familyParticipantsSelect.options.length > 0) {
         familyParticipantsSelect.selectedIndex = 0;
@@ -481,7 +484,7 @@ export async function loadScheduleFormOptions() {
                     sep.disabled = true;
                     // 使用较短的线条以避免撑宽下拉框，同时调整字号减少上下间隙
                     sep.textContent = '──────────';
-                    sep.style.fontSize = '10px'; // 尝试减小字号以压缩高度
+                    sep.style.fontSize = 'var(--fs-300)'; // 尝试减小字号以压缩高度
                     sep.style.color = '#e2e8f0'; // 浅色
                     sep.style.textAlign = 'center'; // 尝试居中
                     teacherSel.appendChild(sep);
@@ -545,7 +548,7 @@ export async function loadScheduleFormOptions() {
                 if (!hint) {
                     hint = document.createElement('div');
                     hint.id = 'specialTeacherHint';
-                    hint.style.fontSize = '12px';
+                    hint.style.fontSize = 'var(--fs-300)';
                     hint.style.color = '#15803d';
                     hint.style.marginTop = '4px';
                     hint.style.padding = '4px 8px';
@@ -819,6 +822,8 @@ export function showScheduleSelector(items) {
     overlay.style.width = '100%';
     overlay.style.height = '100%';
     overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    overlay.style.backdropFilter = 'blur(var(--overlay-blur, 4px))';
+    overlay.style.webkitBackdropFilter = 'blur(var(--overlay-blur, 4px))';
     overlay.style.zIndex = '2000';
     overlay.style.display = 'flex';
     overlay.style.justifyContent = 'center';
@@ -837,8 +842,8 @@ export function showScheduleSelector(items) {
 
     const header = document.createElement('div');
     header.innerHTML = `
-        <h3 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1e293b;">请选择要编辑的排课</h3>
-        <p style="margin: 0 0 12px 0; font-size: 14px; color: #64748b;">当前时段/地点共有 ${items.length} 个排课</p>
+        <h3 style="margin: 0 0 16px 0; font-size: var(--fs-500); font-weight: 600; color: #1e293b;">请选择要编辑的排课</h3>
+        <p style="margin: 0 0 12px 0; font-size: var(--fs-300); color: #64748b;">当前时段/地点共有 ${items.length} 个排课</p>
     `;
     modal.appendChild(header);
 
@@ -872,10 +877,10 @@ export function showScheduleSelector(items) {
 
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="font-weight: 600; font-size: 15px;">${esc(item.student_name || '未知学生')}</span>
-                <span style="font-size: 12px; color: #64748b;">${esc(statusText)}</span>
+                <span style="font-weight: 600; font-size: var(--fs-300);">${esc(item.student_name || '未知学生')}</span>
+                <span style="font-size: var(--fs-300); color: #64748b;">${esc(statusText)}</span>
             </div>
-            <div style="font-size: 13px; color: #475569;">
+            <div style="font-size: var(--fs-300); color: #475569;">
                 <span style="display:inline-block; background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${esc(typeName)}</span>
                 <span style="margin-left: 8px;">${esc(item.teacher_name || '未分配')}</span>
             </div>

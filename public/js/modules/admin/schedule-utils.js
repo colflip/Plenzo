@@ -65,6 +65,9 @@ export function normalizeScheduleRows(rows) {
         const valid = (typeof r.valid === 'boolean') ? r.valid : true;
         return {
             id: r.id,
+            session_id: r.session_id ?? r.id,
+            teacher_uid: r.teacher_uid,
+            student_uid: r.student_uid,
             student_id: r.student_id,
             student_name: r.student_name,
             teacher_id: r.teacher_id,
@@ -149,33 +152,17 @@ export function clusterByOverlap(records) {
     return clusters;
 }
 
-export function buildMergedRowText(group) {
-    const peopleText = group.records.map(r => {
-        const teacher = r.teacher_name || '待分配';
-        const typeText = r.schedule_types || r.schedule_type || '未分类';
-        // 状态不在主文本中显示（使用内部中文chip显示状态），避免英文状态残留
-        return `${teacher}（${typeText}）`;
-    }).join('，');
-
-    const timeText = (Number.isFinite(group.minStart) && Number.isFinite(group.maxEnd))
-        ? `${minutesToHHMM(group.minStart)}-${minutesToHHMM(group.maxEnd)}`
-        : '时间待定';
-
-    const locations = Array.from(new Set(group.records.map(r => (r.location || '').trim()).filter(Boolean)));
-    const locationText = locations.join(' / ') || '地点待定';
-    return `${peopleText}，${timeText}，${locationText}`;
-}
-
-// 辅助函数：更新排课状态
-export async function updateScheduleStatus(id, newStatus) {
-    if (!id || !newStatus) return;
+// 辅助函数：更新某位教师在某一场课里的生命周期状态
+// 签名与 ScheduleManager.updateScheduleStatus 保持一致：(sessionId, teacherUid, lifecycle)
+export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
+    if (!sessionId || !teacherUid || !newStatus) return;
     try {
-        if (!window.apiUtils || typeof window.apiUtils.put !== 'function') {
-            
+        if (!window.apiUtils || typeof window.apiUtils.patch !== 'function') {
+
             return;
         }
         // 调用更新接口
-        await window.apiUtils.put(`/admin/schedules/${id}`, { status: newStatus });
+        await window.apiUtils.patch(`/admin/sessions/${sessionId}/teachers/${teacherUid}/status`, { lifecycle: newStatus });
 
         // 成功后刷新视图
         if (window.apiUtils.showToast) window.apiUtils.showToast('状态更新成功', 'success');
@@ -187,11 +174,10 @@ export async function updateScheduleStatus(id, newStatus) {
             if (window.WeeklyDataStore && window.WeeklyDataStore.schedules) {
                 for (const entry of window.WeeklyDataStore.schedules.values()) {
                     if (entry && Array.isArray(entry.rows)) {
-                        const target = entry.rows.find(r => String(r.id) === String(id));
-                        if (target) {
-                            target.status = newStatus;
-                            // 还可以更新 schedule_type_cn 等其他可能受影响的字段（如果需要）
-                        }
+                        entry.rows
+                            .filter(r => String(r.session_id ?? r.id) === String(sessionId)
+                                && String(r.teacher_uid) === String(teacherUid))
+                            .forEach(r => { r.status = newStatus; });
                     }
                 }
             }
