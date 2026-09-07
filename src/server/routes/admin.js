@@ -15,6 +15,8 @@ const updateScheduleStatus = require('../jobs/update-schedule-status');
 
 // 用户管理路由：读全级别（字段按敏感度裁剪）；所有账号写操作仅 L1
 router.get('/users/:userType', authMiddleware, adminOnly, requireCapability('users:read'), adminController.getUsers);
+// 必须排在 /users/:userType/:id 之前，否则 next-id 会被当成 :id 落到详情接口
+router.get('/users/:userType/next-id', authMiddleware, adminOnly, requireCapability('users:write'), adminController.getNextUserId);
 router.get('/users/:userType/:id', authMiddleware, adminOnly, requireCapability('users:read'), adminController.getUserById);
 router.post('/users', authMiddleware, adminOnly, requireCapability('users:write'), validate(userValidation.create), adminController.createUser);
 router.put('/users/:userType/:id', authMiddleware, adminOnly, requireCapability('users:write'), validate(userValidation.update), adminController.updateUser);
