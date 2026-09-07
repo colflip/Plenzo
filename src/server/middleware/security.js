@@ -99,13 +99,21 @@ const corsOptions = {
             ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
             : [];
 
-        const allowedOrigins = [
-            'https://plenzo.vercel.app',
-            'https://plenzo.onrender.com',
+        // 本地开发端口（Express dev / Vite 预览）：仅非生产环境放行。
+        // 生产环境不保留任何 localhost 白名单 —— corsOptions.credentials 为 true，
+        // 留着这些口子意味着本机任意页面或浏览器扩展都能以 localhost 源发起带凭证的
+        // 跨域请求。生产环境若确实需要额外来源，用 ALLOWED_ORIGINS 显式配置。
+        const localDevOrigins = isProduction ? [] : [
             'http://localhost:3000',
             'http://localhost:3001',
             'http://localhost:5173',
-            'http://localhost:5174',
+            'http://localhost:5174'
+        ];
+
+        const allowedOrigins = [
+            'https://plenzo.vercel.app',
+            'https://plenzo.onrender.com',
+            ...localDevOrigins,
             ...envOrigins
         ];
 
