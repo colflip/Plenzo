@@ -1393,9 +1393,9 @@
     </div>
 
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
-
-    <!-- html2canvas: 优先本地文件，失败时自动回退到 CDN -->
+    <!-- chart.js 同步脚本换成按需加载：只占 204KB 但曾阻塞首屏 2+ 秒，首次切到统计 tab 才拉取 -->
+    <script src="/js/utils/load-chart.js"></script>
+    <!-- html2canvas: 优先本地文件，失败时自动回退到 CDN；该文件内部自动加载本地版 -->
     <script src="/js/utils/load-html2canvas.js"></script>
 
     <script src="/js/core/api-client.js"></script>
@@ -1408,6 +1408,7 @@
     <script src="/js/core/schedule-types-store.js"></script>
     <script src="/js/components/toast.js"></script>
     <script src="/js/components/modal.js"></script>
+    <script src="/js/core/modal-backdrop.js"></script>
     <script src="/js/utils/schedule-marker-policy.js?v=20260803-markers"></script>
     <script src="/js/components/export-manager.js?v=20260803-markers"></script>
     <script src="/js/components/export-dialog.js"></script>

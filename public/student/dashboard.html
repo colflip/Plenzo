@@ -1073,7 +1073,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js" crossorigin="anonymous" integrity="sha384-hfkuqrKeWFmnTMWN31VWyoe8xgdTADD11kgxmdpx2uyE6j5Az5uZq6u6AKYYmAOw"></script>
+    <!-- chart.js 同步脚本换成按需加载：不阻塞学生首屏，统计 tab 用到时才拉取 -->
+    <script src="/js/utils/load-chart.js"></script>
     <script src="/js/core/api-client.js"></script>
     <script src="/js/core/security.js"></script>
     <script src="/js/core/event-bus.js"></script>
@@ -1087,6 +1088,7 @@
     <script src="/js/core/schedule-types-store.js"></script>
     <script src="/js/components/toast.js"></script>
     <script src="/js/components/modal.js"></script>
+    <script src="/js/core/modal-backdrop.js"></script>
     <script src="/js/core/action-delegate.js"></script>
     <script type="module" src="/js/modules/student/entry.js"></script>
     <script src="/js/modules/shared/version-badge.js" defer></script>

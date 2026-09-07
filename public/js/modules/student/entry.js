@@ -44,9 +44,12 @@ async function initDashboard() {
 
     updateUserName({ elementId: 'studentName', fallback: '学生' });
 
-    if (window.ScheduleTypesStore) {
-        await window.ScheduleTypesStore.init();
-    }
+    // 课程类型字典与首屏数据并发拉：原来是 await 在前面，把 /admin/schedule-types
+    // 和 /student/overview 串成了一条链（实测第一个请求 1343ms 才发出，overview 要到 2151ms
+    // 才落地）。字典只影响标签文案，getLabel 本身有回退，晚到不会出错。
+    const typesReady = window.ScheduleTypesStore
+        ? window.ScheduleTypesStore.init().catch(() => {})
+        : Promise.resolve();
 
     applyChartFontFromCSSVars();
     setupSidebarToggle({ storageKey: 'sidebarCollapsed' });
@@ -73,7 +76,7 @@ async function initDashboard() {
         },
         routeBase: '/student/dashboard',
     });
-    await controller.init();
+    await Promise.all([typesReady, controller.init()]);
     setupDataSyncSubscriptions();
 }
 

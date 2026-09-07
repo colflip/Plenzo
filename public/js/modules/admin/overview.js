@@ -54,68 +54,17 @@ export async function loadOverviewStats() {
             };
         }
 
-        // 更新统计数据，使用默认值处理可能的空数据
+        // 8 个指标全部来自 /admin/statistics/overview 这一条接口（服务端同一条 SQL 的
+        // subselect 算好）。原先本周/本年/已完成/已取消是另拉 /admin/schedules 全量
+        // （实测 164KB、2.6s）再在浏览器里 forEach 数出来的 —— 4 个整数不值这个代价。
         const teacherCount = data.teacher_count || 0;
         const studentCount = data.student_count || 0;
         const monthlySchedules = data.monthly_schedules || 0;
         const pendingCount = data.pending_count || 0;
-
-        // 计算额外的统计数据(本周/本年/已完成/已取消)
-        let weeklySchedules = 0;
-        let yearlySchedules = 0;
-        let completedSchedules = 0;
-        let cancelledSchedules = 0;
-
-        try {
-            // 获取所有排课数据用于计算
-            const schedulesData = await window.apiUtils.get('/admin/schedules');
-            const schedules = schedulesData?.schedules || schedulesData || [];
-
-            const now = new Date();
-            const currentYear = now.getFullYear();
-
-            // 获取本周的起止日期
-            const startOfWeek = new Date(now);
-            const day = now.getDay();
-            const diff = now.getDate() - day + (day === 0 ? -6 : 1); // 周一
-            startOfWeek.setDate(diff);
-            startOfWeek.setHours(0, 0, 0, 0);
-
-            const endOfWeek = new Date(startOfWeek);
-            endOfWeek.setDate(startOfWeek.getDate() + 6);
-            endOfWeek.setHours(23, 59, 59, 999);
-
-            schedules.forEach(schedule => {
-                // 过滤掉已调整调走的课程 (status='modified_away' AND adjustment_type=0)
-                if (schedule.status === 'modified_away' && (schedule.adjustment_type === 0 || schedule.adjustment_type === '0')) {
-                    return;
-                }
-                const scheduleDate = new Date(schedule.date || schedule.start_time);
-                const status = (schedule.status || '').toLowerCase();
-
-                // 本周排课
-                if (scheduleDate >= startOfWeek && scheduleDate <= endOfWeek) {
-                    weeklySchedules++;
-                }
-
-                // 本年排课
-                if (scheduleDate.getFullYear() === currentYear) {
-                    yearlySchedules++;
-                }
-
-                // 已完成排课
-                if (status === 'completed') {
-                    completedSchedules++;
-                }
-
-                // 已取消排课
-                if (status === 'cancelled') {
-                    cancelledSchedules++;
-                }
-            });
-        } catch (err) {
-
-        }
+        const weeklySchedules = data.weekly_schedules || 0;
+        const yearlySchedules = data.yearly_schedules || 0;
+        const completedSchedules = data.completed_schedules || 0;
+        const cancelledSchedules = data.cancelled_schedules || 0;
 
         // 直接更新卡片数值（HTML 已包含渐变卡片结构）
         const valueUpdates = {
