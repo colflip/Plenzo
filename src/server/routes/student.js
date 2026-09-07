@@ -34,7 +34,7 @@ router.get('/overview', authMiddleware, studentOnly, studentController.getOvervi
 // 导出功能（限流：每小时最多10次）
 router.get('/export-advanced', authMiddleware, studentOnly, strictLimiter, studentController.advancedExport);
 
-// 确认课程
-router.post('/confirm-schedule/:id', authMiddleware, studentOnly, studentController.confirmSchedule);
+// 排课端点全部只读：状态是教师维度的，学生把整行改成 confirmed 与「学生只能看课程信息」
+// 直接冲突，原 POST /confirm-schedule/:id 已整条删除（前端按钮早已注释掉、函数无调用者）。
 
 module.exports = router;
