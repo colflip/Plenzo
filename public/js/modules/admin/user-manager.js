@@ -37,6 +37,26 @@ function logOperation(action, status, details = {}) {
     } catch (_) { }
 }
 
+// 主键(ID)只允许 L1 超级管理员改动；与 permissionUtils 缺失时的既有约定一致——前端放行，后端 users:write 门禁兜底
+function canEditUserId() {
+    return !window.permissionUtils || window.permissionUtils.isSuperAdmin();
+}
+
+// 按「是否在编辑自己」+「是否 L1」决定 ID 输入框的只读态与提示语
+function applyUserIdGuard(lockedBySelfEdit) {
+    const userIdInput = document.getElementById('userId');
+    if (!userIdInput) return;
+    const notSuperAdmin = !canEditUserId();
+    userIdInput.readOnly = lockedBySelfEdit || notSuperAdmin;
+    if (lockedBySelfEdit) {
+        userIdInput.title = '不能修改自己的该字段（如需变更请联系其他超级管理员）';
+    } else if (notSuperAdmin) {
+        userIdInput.title = '仅超级管理员(L1)可修改用户ID';
+    } else {
+        userIdInput.removeAttribute('title');
+    }
+}
+
 
 
 async function handleUserFormSubmit(e) {
@@ -59,13 +79,13 @@ async function handleUserFormSubmit(e) {
 
         // Construct body
         // 权限落地（Phase 3）：编辑自己时不回传 username / permission_level（后端禁止自改，同值回显也会被拒）
-        const selfEdit = mode === 'edit' && form && form.dataset.selfEdit === '1';
+        const selfEdit = mode === 'edit' && userForm.dataset.selfEdit === '1';
         const body = { userType: type, name };
         if (!selfEdit) body.username = username;
 
-        // 添加ID字段(如果有指定或修改)
+        // 主键仅 L1 可指定/改动，非 L1 一律不回传（后端 users:write 门禁兜底）
         const userIdInput = document.getElementById('userId');
-        if (userIdInput && userIdInput.value) {
+        if (canEditUserId() && userIdInput && userIdInput.value) {
             const parsedId = parseInt(userIdInput.value, 10);
             if (mode === 'add') {
                 body.id = parsedId;
@@ -149,7 +169,7 @@ async function handleUserFormSubmit(e) {
             let snapshot = JSON.parse(snapJson);
             let latest;
             try {
-                latest = await withRetry(() => window.apiUtils.get(`/admin/users/${type}/${id}`));
+                latest = await window.apiUtils.get(`/admin/users/${type}/${id}`);
                 latest = latest && latest.data ? latest.data : latest;
             } catch (err) { latest = null; }
 
@@ -164,6 +184,16 @@ async function handleUserFormSubmit(e) {
         }
 
         // Submit
+        console.log('[UserManager] PUT body:', JSON.stringify(body, null, 2));
+
+        // Defensive pre-send checks to give clearer error messages
+        if (body.name !== undefined && !String(body.name).trim()) {
+            throw new Error('姓名不能为空');
+        }
+        if (body.password !== undefined && body.password.length < 6) {
+            throw new Error('密码长度至少为6个字符');
+        }
+
         if (mode === 'add') {
             const resp = await withRetry((attempt, isFinal) => window.apiUtils.post('/admin/users', body, { suppressErrorToast: !isFinal }));
             const newUser = resp && resp.data ? resp.data : resp;
@@ -206,8 +236,13 @@ async function handleUserFormSubmit(e) {
         if (err.message === 'USER_CANCELLED') {
             if (window.apiUtils) window.apiUtils.showToast('已取消保存', 'info');
         } else {
-            
-            if (window.apiUtils) window.apiUtils.showToast(err.message || '保存失败', 'error');
+            console.warn('[UserManager] 保存失败:', err);
+            // Show specific field errors from server validation if available
+            let msg = err.message || '保存失败';
+            if (err.errors && Array.isArray(err.errors) && err.errors.length > 0) {
+                msg = err.errors.map(e => `${e.field ? e.field + ': ' : ''}${e.message}`).join('；');
+            }
+            if (window.apiUtils) window.apiUtils.showToast(msg, 'error');
         }
     } finally {
         userForm.dataset.submitting = 'false';
@@ -389,6 +424,7 @@ export async function loadUsers(type, opts = {}) {
         }
 
         users.forEach(u => appendUserRow(requestType, u));
+        hideEmptyColumns();
 
         // Cache update
         window.__usersCache = window.__usersCache || {};
@@ -433,7 +469,7 @@ export async function loadUsers(type, opts = {}) {
                                 </div>
                                 <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
                                 <button data-action="user-manager-load" data-type="${state.type}"
-                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: var(--fs-300);">
                                     <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
                                     点击重试
                                 </button>
@@ -478,6 +514,7 @@ function renderFromCache(state, tbody) {
 
     window.SecurityUtils.safeSetHTML(tbody, '');
     toRender.forEach(u => appendUserRow(state.type, u));
+    hideEmptyColumns();
     const sentinel = document.getElementById('usersListSentinel');
     if (sentinel) sentinel.remove();
 }
@@ -654,29 +691,82 @@ export function appendUserRow(type, user) {
     tbody.appendChild(tr);
 }
 
-// 自动生成下一个用户ID
+/**
+ * 隐藏所有行内容均为空的列（display:none）。
+ * 列宽与内边距完全交给 CSS（table-layout: fixed + 统一 padding），JS 不再干预，
+ * 否则会按内容宽度反向补 padding，导致内容少的列出现大量空白。
+ */
+function hideEmptyColumns() {
+    const table = document.getElementById('usersTable');
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    if (!thead || !tbody) return;
+
+    // 恢复所有列可见，并清除历史版本可能残留的 inline padding/display
+    const ths = Array.from(thead.querySelectorAll('th'));
+    const dataRows = Array.from(tbody.querySelectorAll('tr'));
+    ths.forEach(th => {
+        th.style.display = '';
+        th.style.paddingLeft = '';
+        th.style.paddingRight = '';
+    });
+    dataRows.forEach(row => {
+        Array.from(row.querySelectorAll('td')).forEach(td => {
+            td.style.display = '';
+            td.style.paddingLeft = '';
+            td.style.paddingRight = '';
+        });
+    });
+
+    // 隐藏全空列
+    ths.forEach((th, colIndex) => {
+        if (th.textContent.trim() === '操作') return;
+        const allEmpty = dataRows.every(row => {
+            const cell = row.querySelectorAll('td')[colIndex];
+            return !cell || cell.textContent.trim() === '';
+        });
+        if (allEmpty) {
+            th.style.display = 'none';
+            dataRows.forEach(row => {
+                const cell = row.querySelectorAll('td')[colIndex];
+                if (cell) cell.style.display = 'none';
+            });
+        }
+    });
+}
+
+// 自动生成下一个用户ID：同类型最后一个用户（即最大 ID）+ 1
+// 以后端 next-id 为准而不是 window.__usersCache：该缓存只装了一页，
+// 用户超过一页后本地 max 会偏小，预填的 ID 会撞上已存在的行并被创建接口拒掉。
+// 各角色 ID 号段（与后端 user-service 的 ID_RANGES 保持一致）
+const USER_ID_RANGES = { admin: [1000, 1999], teacher: [2000, 2999], student: [3000, 3999] };
+
 async function generateNextUserId() {
+    const form = document.getElementById('userForm');
     const userType = document.getElementById('userType').value;
     const userIdInput = document.getElementById('userId');
-
     if (!userIdInput) return;
 
+    const users = (window.__usersCache && window.__usersCache[userType]) || [];
+    const [lo, hi] = USER_ID_RANGES[userType] || [1, 999999];
+    // 号段内取 max 作本地占位，避免预填出号段外的值
+    const cachedMax = users.reduce((max, u) => {
+        const n = Number(u.id);
+        return (Number.isInteger(n) && n >= lo && n <= hi) ? Math.max(max, n) : max;
+    }, lo - 1);
+    userIdInput.value = cachedMax + 1;
+
     try {
-        // 获取当前类型的最大ID
-        const cache = window.__usersCache || {};
-        const users = cache[userType] || [];
-
-        let maxId = 0;
-        users.forEach(u => {
-            if (u.id && u.id > maxId) maxId = u.id;
-        });
-
-        // 建议下一个ID
-        userIdInput.value = maxId + 1;
-    } catch (err) {
-        
-        userIdInput.value = '';
-    }
+        const resp = await window.apiUtils.getSilent(`/admin/users/${userType}/next-id`);
+        const payload = resp && resp.data ? resp.data : resp;
+        const nextId = Number(payload && payload.nextId);
+        if (!Number.isInteger(nextId) || nextId < 1) return;
+        // 往返期间操作者可能已切换类型或离开新增模式，此时不能再覆盖输入框
+        if (form && form.dataset.mode !== 'add') return;
+        if (document.getElementById('userType').value !== userType) return;
+        userIdInput.value = nextId;
+    } catch (_) { /* 后端不可用时保留上面的本地估算值 */ }
 }
 
 export function showAddUserModal() {
@@ -692,8 +782,7 @@ export function showAddUserModal() {
         const el = document.getElementById(fid);
         if (el) { el.disabled = false; el.removeAttribute('title'); }
     });
-    const userIdInputNew = document.getElementById('userId');
-    if (userIdInputNew) userIdInputNew.readOnly = false;
+    applyUserIdGuard(false);
 
     // Default values
     document.getElementById('userType').value = 'admin';
@@ -737,10 +826,9 @@ export function showEditUserModal(id, userType) {
     setVal('userName', user.name);
     setVal('userNickname', user.nickname);
 
-    // 设置ID (允许修改)
+    // 设置ID（只读态与提示语在下方 applyUserIdGuard 里统一决定）
     setVal('userId', user.id);
     const userIdInput = document.getElementById('userId');
-    if (userIdInput) userIdInput.readOnly = isSelfEdit;
 
     if (userType === 'admin') {
         setVal('userPermissionLevel', user.permission_level);
@@ -778,6 +866,8 @@ export function showEditUserModal(id, userType) {
         if (isSelfEdit) el.title = '不能修改自己的该字段（如需变更请联系其他超级管理员）';
         else el.removeAttribute('title');
     });
+    // 必须排在自我保护之后：上面的 removeAttribute('title') 会抹掉非 L1 的提示语
+    applyUserIdGuard(isSelfEdit);
 
     const statusSelect = document.getElementById('userStatus');
     if (statusSelect && userType !== 'admin') statusSelect.value = String(user.status ?? 1);
@@ -858,8 +948,7 @@ export function setupUserEventListeners() {
             // 切换类型时重新生成ID(仅添加模式)
             const form = document.getElementById('userForm');
             if (form && form.dataset.mode === 'add') {
-                const userIdInput = document.getElementById('userId');
-                if (userIdInput) userIdInput.readOnly = false;
+                applyUserIdGuard(false);
                 generateNextUserId();
 
                 if (e.target.value === 'teacher') {
@@ -891,13 +980,13 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
             window.__usersCache.student = students;
         } catch (err) {
             
-            window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: 13px; padding: 10px;">加载失败，请重试</div>');
+            window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: var(--fs-300); padding: 10px;">加载失败，请重试</div>');
             return;
         }
     }
 
     if (students.length === 0) {
-        window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: 13px; padding: 10px;">暂无可用学生</div>');
+        window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: var(--fs-300); padding: 10px;">暂无可用学生</div>');
         return;
     }
 
@@ -910,9 +999,9 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
     [...students].sort((a, b) => a.id - b.id).forEach(s => {
         const isChecked = selectedIds.includes(String(s.id)) ? 'checked' : '';
         html += `
-            <label style="display: flex; align-items: flex-start; padding: 6px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 14px; width: 100%; box-sizing: border-box; mso-line-break: no-wrap; word-break: break-all;">
+            <label style="display: flex; align-items: flex-start; padding: 6px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: var(--fs-300); width: 100%; box-sizing: border-box; mso-line-break: no-wrap; word-break: break-all;">
                 <input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked} style="flex-shrink: 0; margin: 2px 8px 0 0; width: 16px; height: 16px; min-width: 16px;">
-                <span style="flex: 1; min-width: 0;">${esc(s.name || s.username)} <span style="color: #94a3b8; font-size: 13px;">(ID: ${s.id})</span></span>
+                <span style="flex: 1; min-width: 0;">${esc(s.name || s.username)} <span style="color: #94a3b8; font-size: var(--fs-300);">(ID: ${s.id})</span></span>
             </label>
         `;
     });
@@ -951,25 +1040,25 @@ function toggleContactFields(userType) {
     // Hide all first
     Object.values(groups).forEach(g => { if (g) g.style.display = 'none'; });
 
-    // 昵称对所有角色可见
-    if (groups.nickname) groups.nickname.style.display = 'block';
+    // 昵称对所有角色可见（恢复 CSS 定义的 display，不强制 block）
+    if (groups.nickname) groups.nickname.style.display = '';
 
     if (userType === 'admin') {
-        if (groups.permission) groups.permission.style.display = 'block';
-        if (groups.email) groups.email.style.display = 'block';
+        if (groups.permission) groups.permission.style.display = '';
+        if (groups.email) groups.email.style.display = '';
     } else {
-        if (groups.contact) groups.contact.style.display = 'block';
-        if (groups.profession) groups.profession.style.display = 'block';
-        if (groups.home) groups.home.style.display = 'block';
-        if (groups.status) groups.status.style.display = 'block';
+        if (groups.contact) groups.contact.style.display = '';
+        if (groups.profession) groups.profession.style.display = '';
+        if (groups.home) groups.home.style.display = '';
+        if (groups.status) groups.status.style.display = '';
 
         if (userType === 'teacher') {
-            if (groups.work) groups.work.style.display = 'block';
-            if (groups.restriction) groups.restriction.style.display = 'block';
-            if (groups.studentIds) groups.studentIds.style.display = 'block';
+            if (groups.work) groups.work.style.display = '';
+            if (groups.restriction) groups.restriction.style.display = '';
+            if (groups.studentIds) groups.studentIds.style.display = '';
         }
         if (userType === 'student' && groups.visit) {
-            groups.visit.style.display = 'block';
+            groups.visit.style.display = '';
         }
     }
 }
@@ -1016,9 +1105,16 @@ export async function refreshFullUserCache(type) {
     } catch (e) { }
 }
 
-// 模块初始化时自动启动静默预取
+// 模块初始化时自动启动静默预取（用户管理 Tab 的「秒切」靠它）
 if (typeof window !== 'undefined') {
-    // 延迟 1 秒启动，避免抢占首屏关键资源
-    setTimeout(() => refreshFullUserCache(), 1000);
+    // 1 秒的固定延迟拦不住首屏：实测这三个请求（student/teacher/admin）正好和总览的
+    // schedules/grid、statistics/overview 撞在一起抢连接池。改成等主线程真正空下来再发，
+    // 拿不到 requestIdleCallback 的浏览器退回一个更长的定时器。
+    const startPrefetch = () => refreshFullUserCache();
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(startPrefetch, { timeout: 5000 });
+    } else {
+        setTimeout(startPrefetch, 3000);
+    }
 }
 

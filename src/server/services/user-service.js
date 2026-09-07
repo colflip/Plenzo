@@ -18,6 +18,7 @@ const SchemaHelper = require('../utils/schema-helper');
 const { standardResponse } = require('../utils/response');
 const logger = require('../utils/logger');
 const { PERMISSION_LEVELS } = require('../middleware/role');
+const courseSessionService = require('./course-session-service');
 const { getActorLevel, visibleColumns, filterObjectByLevel } = require('../utils/admin-permissions');
 
 const TABLES = { admin: 'administrators', teacher: 'teachers', student: 'students' };
@@ -35,6 +36,19 @@ const ALLOWED_ADDITIONAL = {
 };
 
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
+
+// 各角色的 ID 号段（新用户生成与手工指定 ID 都限制在号段内；历史 ID 不迁移，允许号段外存量存在）
+const ID_RANGES = { admin: [1000, 1999], teacher: [2000, 2999], student: [3000, 3999] };
+
+function idRangeHint(userType) {
+    const [lo, hi] = ID_RANGES[userType] || [0, 0];
+    return `${lo}-${hi}`;
+}
+
+function inIdRange(userType, id) {
+    const [lo, hi] = ID_RANGES[userType] || [0, 0];
+    return Number.isInteger(id) && id >= lo && id <= hi;
+}
 
 function resolveTable(userType) {
     return TABLES[userType] || null;
@@ -121,6 +135,29 @@ async function getUserById(userType, id, req) {
     return { status: 200, body: standardResponse(true, filterObjectByLevel(rows[0], actorLevel), '获取用户成功') };
 }
 
+/**
+ * 取该类型下一个可用主键（MAX(id)+1），供新增表单预填默认 ID。
+ * 走数据库而不是前端分页缓存：缓存只有一页，超过一页后 max 会偏小并撞上已存在的 ID。
+ */
+async function getNextUserId(userType, req) {
+    // 仅 L1 会新增账号，因此与写操作同一道门禁，不额外扩大信息面
+    const denied = denyIfNotSuperAdmin(req);
+    if (denied) return denied;
+
+    const table = resolveTable(userType);
+    if (!table) return { status: 400, body: standardResponse(false, null, '无效的用户类型') };
+
+    // 号段内取 max：号段外的历史 ID（如教师旧 1xxx 段）不参与计算
+    const [lo, hi] = ID_RANGES[userType];
+    const result = await db.query(
+        `SELECT COALESCE(MAX(id), $1 - 1) + 1 AS next_id FROM ${table} WHERE id BETWEEN $1 AND $2`,
+        [lo, hi]
+    );
+    const row = normalizeRows(result)[0];
+    const nextId = Math.max(lo, Number(row && row.next_id) || lo);
+    return { status: 200, body: standardResponse(true, { nextId }, '获取下一个可用ID成功') };
+}
+
 /** 创建用户（含密码哈希、字段白名单、student_ids 归属校验、用户名/ID 占用检查、审计） */
 async function createUser(payload, req) {
     // 权限落地：所有账号写操作仅 L1
@@ -171,6 +208,7 @@ async function createUser(payload, req) {
     }
 
     // 若表不存在某些列则忽略，防止 SQL 错误
+    // （列存在性经 SchemaHelper 探测并缓存，一次请求内同键不重复打 information_schema）
     try {
         for (const f of ['status', 'student_ids', 'nickname']) {
             if (Object.prototype.hasOwnProperty.call(filteredAdditional, f) && !(await SchemaHelper.hasColumn(table, f))) {
@@ -179,17 +217,21 @@ async function createUser(payload, req) {
         }
     } catch (_) { /* 静默处理探测错误 */ }
 
-    // 用户名查重
-    const existingUser = await db.query(`SELECT id FROM ${table} WHERE username = $1`, [username]);
+    // 用户名查重（与 ID 占用检查、student_ids 归属、写入互不依赖，并发省 2 次往返）
+    const [existingUser, existingIdRow] = await Promise.all([
+        db.query(`SELECT id FROM ${table} WHERE username = $1`, [username]),
+        id ? db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]) : Promise.resolve({ rows: [] })
+    ]);
     if (normalizeRows(existingUser).length > 0) {
         return { status: 400, body: { message: '用户名已存在' } };
     }
+    // 自定义 ID：必须落在该角色号段内
+    if (id && !inIdRange(userType, Number(id))) {
+        return { status: 400, body: { message: `ID 必须在 ${idRangeHint(userType)} 之间` } };
+    }
     // 自定义 ID 占用检查
-    if (id) {
-        const existingId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]);
-        if (normalizeRows(existingId).length > 0) {
-            return { status: 400, body: { message: '该用户 ID 已被占用' } };
-        }
+    if (normalizeRows(existingIdRow).length > 0) {
+        return { status: 400, body: { message: '该用户 ID 已被占用' } };
     }
 
     let createdUser = null;
@@ -348,6 +390,9 @@ async function updateUser(userType, id, payload, req) {
     let newIdInt = null;
     if (typeof new_id !== 'undefined' && String(new_id) !== String(id)) {
         needIdChange = true; newIdInt = parseInt(new_id, 10);
+        if (!inIdRange(userType, newIdInt)) {
+            return { status: 400, body: standardResponse(false, null, `新 ID 必须在 ${idRangeHint(userType)} 之间`) };
+        }
     }
 
     if (userType === 'admin' && typeof email !== 'undefined') {
@@ -363,6 +408,17 @@ async function updateUser(userType, id, payload, req) {
         return { status: 400, body: { message: '无更新字段' } };
     }
 
+    // 改主键必须在同一事务里同步无外键引用（排课 JSONB pair、班主任 student_ids CSV、
+    // feedbacks.submitter_id），否则 UPDATE id 后引用静默变孤儿。
+    const idSyncTasks = needIdChange ? buildIdSyncTasks(userType, Number(id), newIdInt) : [];
+
+    if (needIdChange) {
+        const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
+        if (normalizeRows(checkNewId).length > 0) {
+            return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
+        }
+    }
+
     let query = '';
     if (updates.length > 0) {
         if (needIdChange) { updates.push(`id = $${idx}`); values.push(newIdInt); idx++; }
@@ -373,16 +429,23 @@ async function updateUser(userType, id, payload, req) {
         query = `UPDATE ${table} SET id = $1 WHERE id = $2 RETURNING *`;
     }
 
-    if (needIdChange) {
-        const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
-        if (normalizeRows(checkNewId).length > 0) {
-            return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
-        }
-    }
+    const execUpdate = (q) => q(query, values);
 
-    let result;
+    let rows;
     try {
-        result = await db.query(query, values);
+        if (needIdChange) {
+            await db.runInTransaction(async (client, usePool) => {
+                const q = usePool ? db.query : client.query.bind(client);
+                const result = await execUpdate(q);
+                rows = normalizeRows(result);
+                for (const task of idSyncTasks) {
+                    await task(q);
+                }
+            });
+        } else {
+            const result = await execUpdate(db.query.bind(db));
+            rows = normalizeRows(result);
+        }
     } catch (error) {
         if (error && error.code === '23505') {
             return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
@@ -390,13 +453,13 @@ async function updateUser(userType, id, payload, req) {
         throw error;
     }
 
-    const rows = normalizeRows(result);
     if (!rows[0]) return { status: 500, body: standardResponse(false, null, '更新失败') };
     delete rows[0].password_hash;
     delete rows[0].password;
     try {
         // 权限落地：权限级别变更记录 old/new（审计失败不阻断）
         const details = { username, name, email, ...filteredAdditional };
+        if (needIdChange) details.id_change = { from: Number(id), to: newIdInt };
         if (newPermissionLevel !== null) {
             details.permission_change = { from: oldPermissionLevel, to: newPermissionLevel };
         }
@@ -407,6 +470,35 @@ async function updateUser(userType, id, payload, req) {
     } catch (_) { /* 审计失败不阻断 */ }
 
     return { status: 200, body: standardResponse(true, rows[0], '更新用户成功') };
+}
+
+/**
+ * 改 ID 时同步无外键引用的任务列表（在调用方事务内逐个执行）。
+ * - 排课 JSONB pair：course-session-service.renameUserInAllSessions（teacher/student 改 pair 主键，
+ *   admin 改 pair.created_by）
+ * - 班主任 student_ids CSV：学生 ID 变化时替换所有教师 CSV 里的旧 ID
+ * - feedbacks.submitter_id：无外键直接 UPDATE
+ * export_logs 与各审计日志保留旧 ID 不改 —— 历史记录应反映当时事实，追溯经审计 details.id_change。
+ */
+function buildIdSyncTasks(userType, oldId, newId) {
+    const tasks = [];
+    tasks.push((q) => courseSessionService.renameUserInAllSessions(oldId, newId, userType, q));
+    if (userType === 'student') {
+        tasks.push(async (q) => {
+            const res = await q('SELECT id, student_ids FROM teachers WHERE student_ids IS NOT NULL');
+            for (const row of res.rows || []) {
+                const ids = String(row.student_ids).split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+                if (!ids.includes(oldId)) continue;
+                const next = ids.map(n => (n === oldId ? newId : n)).join(',');
+                await q('UPDATE teachers SET student_ids = $1 WHERE id = $2', [next, row.id]);
+            }
+        });
+    }
+    tasks.push((q) => q(
+        'UPDATE feedbacks SET submitter_id = $1 WHERE submitter_id = $2 AND submitter_role = $3',
+        [newId, oldId, userType]
+    ));
+    return tasks;
 }
 
 /**
@@ -441,9 +533,10 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
     }
 
     if (userType === 'teacher' || userType === 'student') {
-        const refCol = userType === 'teacher' ? 'teacher_id' : 'student_id';
+        // 引用计数改按「这个人参与了几场课」算（派生列 GIN 索引），不再按平铺行数。
+        const idsCol = userType === 'teacher' ? 'teacher_ids' : 'student_ids';
         const refCountRes = await db.query(
-            `SELECT COUNT(*)::int AS count FROM course_arrangement WHERE ${refCol} = $1`,
+            `SELECT COUNT(*)::int AS count FROM course_sessions WHERE ${idsCol} @> ARRAY[$1::int]`,
             [id]
         );
         const refCount = (refCountRes && refCountRes.rows && refCountRes.rows[0] && typeof refCountRes.rows[0].count !== 'undefined')
@@ -458,15 +551,29 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
         }
 
         if (refCount > 0 && cascade) {
+            // 语义相对旧表**有意改变**：旧实现是 DELETE ... WHERE teacher_id = $1（整行删）。
+            // 一场课现在可能还有别的老师和学生，整场删掉会牵连无关的人，所以改成
+            // 「从 pair 数组里移除这个人；移完为空的场次才整场删除」。
+            const impact = await courseSessionService.countUserImpact(id, userType);
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-                await q(`DELETE FROM course_arrangement WHERE ${refCol} = $1`, [id]);
+                await courseSessionService.removeUserFromAllSessions(id, userType, { id: req.user && req.user.id, actorType: 'admin' });
                 await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
                 try {
-                    await recordAudit(req, { op: 'delete_cascade', entityType: userType, entityId: Number(id), details: { deletedSchedules: refCount } });
+                    await recordAudit(req, {
+                        op: 'delete_cascade', entityType: userType, entityId: Number(id),
+                        details: { affectedSessions: impact.affectedSessions, deletedSessions: impact.deletedSessions }
+                    });
                 } catch (_) { /* 审计失败不阻断 */ }
             });
-            return { status: 200, body: standardResponse(true, { deletedSchedules: refCount }, '用户及其关联排课已删除') };
+            return {
+                status: 200,
+                body: standardResponse(true, {
+                    affectedSessions: impact.affectedSessions,
+                    deletedSessions: impact.deletedSessions,
+                    deletedSchedules: impact.deletedSessions
+                }, `用户已删除：${impact.affectedSessions} 场课移除了该${userType === 'teacher' ? '教师' : '学生'}，其中 ${impact.deletedSessions} 场因此被整场删除`)
+            };
         }
     }
 
@@ -493,6 +600,7 @@ module.exports = {
     filterAdditional,
     listUsers,
     getUserById,
+    getNextUserId,
     createUser,
     updateUser,
     deleteUser

@@ -58,6 +58,19 @@ const adminController = {
     },
 
     /**
+     * 获取该类型下一个可用主键（逻辑见 user-service.getNextUserId）
+     */
+    async getNextUserId(req, res) {
+        try {
+            const result = await UserService.getNextUserId(req.params.userType, req);
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            logger.error('获取下一个可用用户ID错误:', error);
+            res.status(500).json(standardResponse(false, null, '服务器错误'));
+        }
+    },
+
+    /**
      * 创建用户（逻辑见 user-service.createUser）
      */
     async createUser(req, res) {
