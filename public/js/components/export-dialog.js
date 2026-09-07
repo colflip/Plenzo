@@ -838,7 +838,7 @@ window.ExportDialog = (function () {
                 span.textContent = `导出失败: ${errorMsg}`;
                 const retryBtn = document.createElement('button');
                 retryBtn.textContent = '重试';
-                retryBtn.style.cssText = 'margin-left: 12px; padding: 4px 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;';
+                retryBtn.style.cssText = 'margin-left: 12px; padding: 4px 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: var(--fs-300);';
                 retryBtn.onclick = () => window.ExportDialog.retryExport();
                 wrapper.appendChild(span);
                 wrapper.appendChild(retryBtn);
@@ -1058,7 +1058,7 @@ window.ExportDialog = (function () {
                                     <div class="filter-select-group" style="display: flex; gap: 16px;">
                                         <!-- 学生筛选 -->
                                         <div class="filter-item" id="exportStudentFilter" style="flex: 1; display: none;">
-                                            <label class="filter-label" style="font-size: 13px; color: #64748b; margin-bottom: 6px; display: block;">筛选学生</label>
+                                            <label class="filter-label" style="font-size: var(--fs-300); color: #64748b; margin-bottom: 6px; display: block;">筛选学生</label>
                                             <select id="exportStudentSelect" class="student-select" style="width: 100%;">
                                                 <option value="">全部学生</option>
                                                 <option value="loading" disabled>加载中...</option>
@@ -1066,7 +1066,7 @@ window.ExportDialog = (function () {
                                         </div>
                                         <!-- 教师筛选 -->
                                         <div class="filter-item" id="exportTeacherFilter" style="flex: 1; display: none;">
-                                            <label class="filter-label" style="font-size: 13px; color: #64748b; margin-bottom: 6px; display: block;">筛选教师</label>
+                                            <label class="filter-label" style="font-size: var(--fs-300); color: #64748b; margin-bottom: 6px; display: block;">筛选教师</label>
                                             <select id="exportTeacherSelect" class="teacher-select" style="width: 100%;">
                                                 <option value="">全部教师</option>
                                                 <option value="loading" disabled>加载中...</option>
@@ -1123,7 +1123,8 @@ window.ExportDialog = (function () {
             .export-dialog-overlay {
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(15, 23, 42, 0.5);
-                backdrop-filter: blur(4px);
+                backdrop-filter: blur(var(--overlay-blur, 4px));
+                -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
                 z-index: 100001;
                 display: flex; align-items: center; justify-content: center;
                 animation: fadeIn 0.2s ease;
@@ -1154,7 +1155,7 @@ window.ExportDialog = (function () {
 
             .export-sidebar-header h3 {
                 margin: 0 0 16px 8px;
-                font-size: 12px;
+                font-size: var(--fs-300);
                 font-weight: 700;
                 text-transform: uppercase;
                 color: #94a3b8;
@@ -1202,7 +1203,7 @@ window.ExportDialog = (function () {
             }
             .export-type-item.active .check-icon { opacity: 1; transform: scale(1); }
 
-            .export-type-label { font-size: 14px; font-weight: 500; }
+            .export-type-label { font-size: 16px; font-weight: 500; }
 
             /* ========== 右侧主内容区 ========== */
             .export-main {
@@ -1223,14 +1224,14 @@ window.ExportDialog = (function () {
 
             .export-title-group h2 {
                 margin: 0 0 2px 0;
-                font-size: 16px;
+                font-size: var(--fs-500);
                 font-weight: 600;
                 color: #0f172a;
             }
 
             .export-title-group p {
                 margin: 0;
-                font-size: 12px;
+                font-size: var(--fs-300);
                 color: #64748b;
             }
 
@@ -1253,7 +1254,7 @@ window.ExportDialog = (function () {
 
             .section-label {
                 display: block;
-                font-size: 13px;
+                font-size: var(--fs-400);
                 font-weight: 600;
                 color: #334155;
                 margin-bottom: 8px;
@@ -1268,7 +1269,7 @@ window.ExportDialog = (function () {
             .input-wrapper { flex: 1; }
             .input-wrapper label {
                 display: block;
-                font-size: 11px;
+                font-size: var(--fs-300);
                 color: #64748b;
                 margin-bottom: 4px;
             }
@@ -1276,7 +1277,7 @@ window.ExportDialog = (function () {
             .input-wrapper input, .student-select, .teacher-select {
                 width: 100%;
                 padding: 7px 10px;
-                font-size: 13px;
+                font-size: var(--fs-300);
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 color: #1e293b;
@@ -1300,7 +1301,7 @@ window.ExportDialog = (function () {
 
             .export-preset-btn {
                 padding: 4px 12px;
-                font-size: 12px;
+                font-size: var(--fs-300);
                 border: 1px solid #e2e8f0;
                 background: #fff;
                 color: #475569;
@@ -1318,13 +1319,13 @@ window.ExportDialog = (function () {
             }
 
             .section-hint {
-                font-size: 11px;
+                font-size: var(--fs-300);
                 color: #94a3b8;
                 margin: 4px 0 0 0;
             }
 
             /* 筛选项紧凑间距 */
-            .filter-row .filter-label { margin-bottom: 4px !important; font-size: 12px !important; }
+            .filter-row .filter-label { margin-bottom: 4px !important; font-size: var(--fs-300) !important; }
             .filter-select-group { gap: 12px !important; }
 
             /* ========== 底部操作栏 ========== */
@@ -1343,7 +1344,7 @@ window.ExportDialog = (function () {
                 background: #fff;
                 color: #64748b;
                 border-radius: 6px;
-                font-size: 13px;
+                font-size: var(--fs-300);
                 font-weight: 500;
                 cursor: pointer;
                 transition: all 0.2s;
@@ -1356,7 +1357,7 @@ window.ExportDialog = (function () {
                 color: white;
                 border: none;
                 border-radius: 6px;
-                font-size: 13px;
+                font-size: var(--fs-300);
                 font-weight: 500;
                 cursor: pointer;
                 display: flex;
@@ -1407,13 +1408,13 @@ window.ExportDialog = (function () {
             .loading-content h3 {
                 margin: 0 0 6px 0;
                 color: #1e293b;
-                font-size: 15px;
+                font-size: var(--fs-300);
             }
 
             .loading-content p {
                 margin: 0 0 12px 0;
                 color: #64748b;
-                font-size: 12px;
+                font-size: var(--fs-300);
             }
 
             .progress-bar-bg {

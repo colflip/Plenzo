@@ -60,6 +60,13 @@ class CalendarGenerator {
         // 按周跟踪报销状态（本周是否全部已报销）
         const weekFlags = new Map();
 
+        // 「一趟一笔」：费用挂在教师 pair 上，与本场学生人数无关。
+        // 列表数据是「教师 pair × 学生 pair」的展开，同一趟会随学生数重复出现，
+        // 所以金额只在第一次遇到该 (场次, 教师) 时累加 —— 一位老师带 2 个学生上门
+        // 过去会被算两笔交通费，这是本次改造要修掉的四个问题之一。
+        // 布尔状态位（anyUnsubmitted / allReimbursed）重复计算不影响结果，无需去重。
+        const countedTrips = new Set();
+
         rawData.forEach(row => {
             const dateStr = DataTransformer.formatLocaleDate(
                 row.date || row.class_date || row.arr_date
@@ -104,8 +111,11 @@ class CalendarGenerator {
             }
 
             const feeData = feesByDateStudent.get(key);
-            const transportFee = parseFloat(row.transport_fee) || 0;
-            const otherFee = parseFloat(row.other_fee) || 0;
+            const tripKey = `${row.session_id ?? row.id ?? dateStr}|${row.teacher_uid ?? row.teacher_id ?? teacherName}`;
+            const alreadyCounted = countedTrips.has(tripKey);
+            countedTrips.add(tripKey);
+            const transportFee = alreadyCounted ? 0 : (parseFloat(row.transport_fee) || 0);
+            const otherFee = alreadyCounted ? 0 : (parseFloat(row.other_fee) || 0);
 
             // 待提交(draft)记录金额未定：不计入合计与明细（避免未提交金额进入报销单），
             // 仅已提交记录参与统计；同天部分待提交不再隐藏整天费用
@@ -280,20 +290,18 @@ class CalendarGenerator {
             const daySchedules = groupedByDate.get(dateStr) || [];
 
             if (daySchedules.length > 0) {
-                // 整天生成一次：计划/实际各自独立成列
-                const { planParts, actualParts, hasColoredCourse } =
+                // 整天生成一次：逻辑行 = 时段（多学生模式下再按学生拆分），
+                // 同一时段的课程落在同一行（即使类型不同），且计划/实际两列共用行键
+                const { rows: scheduleRows, hasColoredCourse } =
                     RichTextFormatter.generateCourseText(daySchedules, isSingleStudent);
 
-                // 按逻辑行切分——两列互不关联，各自从上到下填充
-                const planRows = RichTextFormatter.splitPartsIntoRows(planParts);
-                const actualRows = RichTextFormatter.splitPartsIntoRows(actualParts);
-
-                // 行数取两列最大值（至少 1 行）；缺失的一侧写入 '/'
-                const rowCount = Math.max(planRows.length, actualRows.length, 1);
+                // 至少 1 行；某一列在该时段无内容时写入 '/'
+                const rowCount = Math.max(scheduleRows.length, 1);
 
                 for (let index = 0; index < rowCount; index++) {
-                    const planRowParts = planRows[index] || [];
-                    const actualRowParts = actualRows[index] || [];
+                    const scheduleRow = scheduleRows[index] || {};
+                    const planRowParts = scheduleRow.planParts || [];
+                    const actualRowParts = scheduleRow.actualParts || [];
 
                     const row = {
                         '日期': dateStr,

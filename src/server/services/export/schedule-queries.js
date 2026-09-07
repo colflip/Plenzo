@@ -53,7 +53,8 @@ class AdvancedExportService {
      * 委托给 SchemaHelper 统一处理
      */
     async getDateExpression() {
-        return SchemaHelper.getDateExpr('ca');
+        // 新表日期列固定 class_date（v_session_pairs 透出同名列），不再需要动态列探测
+        return 'ca.class_date';
     }
 
     /**
@@ -75,7 +76,7 @@ class AdvancedExportService {
                 COALESCE(SUM(CASE WHEN ca.status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed_schedules,
                 COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
             FROM teachers t
-            LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id
+            LEFT JOIN v_session_pairs ca ON t.id = ca.teacher_id
             GROUP BY t.id, t.username, t.name, t.profession, t.contact,
                      t.work_location, t.home_address, t.last_login, t.created_at
             ORDER BY t.created_at DESC
@@ -117,7 +118,7 @@ class AdvancedExportService {
                 COALESCE(SUM(CASE WHEN ca.status = 'confirmed' THEN 1 ELSE 0 END), 0) as confirmed_schedules,
                 COALESCE(SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END), 0) as pending_schedules
             FROM students s
-            LEFT JOIN course_arrangement ca ON s.id = ca.student_id
+            LEFT JOIN v_session_pairs ca ON s.id = ca.student_id
             GROUP BY s.id, s.username, s.name, s.profession, s.contact,
                      s.visit_location, s.home_address, s.last_login, s.created_at
             ORDER BY s.created_at DESC
@@ -153,7 +154,9 @@ class AdvancedExportService {
         const dateExpr = await this.getDateExpression();
         let query = `
 SELECT
-    ca.id as schedule_id,
+    ca.session_id as schedule_id,
+    ca.teacher_uid,
+    ca.student_uid,
     ca.teacher_id,
     t.name as teacher_name,
     ca.student_id,
@@ -170,7 +173,7 @@ SELECT
     ca.teacher_comment as notes,
     ca.created_at,
     ca.updated_at,
-    ca.last_auto_update,
+    ca.auto_at AS last_auto_update,
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
@@ -179,11 +182,11 @@ SELECT
     ca.teacher_rating,
     ca.student_rating,
     ca.student_comment,
-    ca.adjustment_type
-FROM course_arrangement ca
+    ca.status_category
+FROM v_session_pairs ca
 LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN students s ON ca.student_id = s.id
-LEFT JOIN schedule_types st ON ca.course_id = st.id
+LEFT JOIN schedule_types st ON ca.type_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
   AND ca.status <> 'deleted'`;
 
@@ -222,7 +225,9 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         const dateExpr = await this.getDateExpression();
         let query = `
 SELECT
-    ca.id as schedule_id,
+    ca.session_id as schedule_id,
+    ca.teacher_uid,
+    ca.student_uid,
     ca.student_id,
     s.name as student_name,
     ca.teacher_id,
@@ -238,16 +243,16 @@ SELECT
     ca.student_comment as notes,
     ca.created_at,
     ca.updated_at,
-    ca.last_auto_update,
+    ca.auto_at AS last_auto_update,
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
     ca.fee_status,
-    ca.adjustment_type
-FROM course_arrangement ca
+    ca.status_category
+FROM v_session_pairs ca
 LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN teachers t ON ca.teacher_id = t.id
-LEFT JOIN schedule_types st ON ca.course_id = st.id
+LEFT JOIN schedule_types st ON ca.type_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
   AND ca.status <> 'deleted'
         `;

@@ -56,7 +56,9 @@
     // 规则：adjustment_type===2 或 status==='modified_away' 即视为「已调整」（"调"水印）；
     // 整组均为 modified_away+type0 时标记「原」；type===1 标记「加」。
     function getAdjustmentType(rec) {
-        const raw = rec && (rec.adjustment_type != null ? rec.adjustment_type : rec.is_temp);
+        // 数据源换成状态码的类别位（normal|adjusted|temp），旧的两列已不再返回
+        const cat = rec && (rec.status_category || (rec.status_code ? String(rec.status_code).split('.')[0] : ''));
+        const raw = cat === 'temp' ? 1 : (cat === 'adjusted' ? 2 : 0);
         const num = Number(raw);
         return Number.isFinite(num) ? num : 0;
     }
@@ -85,7 +87,9 @@
         lineHeight: 1.1, minRowHeight: 22,
         fontCJK: 'SimSun, "宋体", STSong, serif',
         fontASCII: '"Times New Roman", serif',
-        fontPt: 11, headerFontPt: 11,
+        // 表头 12pt 与服务端 Excel（excel-writer.js 的 EXPORT_FONTS.SIZE_HEADER）保持一致，
+        // 两条导出路径（PNG / Excel）视觉必须可互换
+        fontPt: 11, headerFontPt: 12,
         border: '#D4D4D4',
         headerBg: '#F2F2F2',
         dateColBg: '#E2EFDA',
@@ -219,7 +223,9 @@
             const overlay = document.createElement('div');
             overlay.style.cssText = [
                 'position: fixed', 'top: 0', 'left: 0', 'width: 100%', 'height: 100%',
-                'background: rgba(15,23,42,0.45)', 'backdrop-filter: blur(4px)',
+                'background: rgba(15,23,42,0.45)',
+                'backdrop-filter: blur(var(--overlay-blur, 4px))',
+                '-webkit-backdrop-filter: blur(var(--overlay-blur, 4px))',
                 'z-index: 100002', 'display: flex',
                 'align-items: center', 'justify-content: center',
                 'animation: wvFadeIn 0.18s ease'
@@ -242,7 +248,7 @@
             ].join(';');
 
             const header = document.createElement('div');
-            header.style.cssText = 'padding: 18px 22px; border-bottom: 1px solid #eef2f6; font-weight: 600; font-size: 16px; color: #1e293b; display: flex; justify-content: space-between; align-items: center;';
+            header.style.cssText = 'padding: 18px 22px; border-bottom: 1px solid #eef2f6; font-weight: 600; font-size: var(--fs-500); color: #1e293b; display: flex; justify-content: space-between; align-items: center;';
             const title = document.createElement('span');
             title.textContent = '选择要导出的学生';
             header.appendChild(title);
@@ -288,7 +294,7 @@
 
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = stu.name;
-                nameSpan.style.cssText = 'color: #1e293b; font-size: 14.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                nameSpan.style.cssText = 'color: #1e293b; font-size: var(--fs-300); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
 
                 row.appendChild(indicator);
                 row.appendChild(nameSpan);
@@ -303,12 +309,12 @@
             footer.style.cssText = 'padding: 14px 22px; border-top: 1px solid #eef2f6; display: flex; justify-content: flex-end; gap: 12px;';
             const cancel = document.createElement('button');
             cancel.textContent = '取消';
-            cancel.style.cssText = 'padding: 8px 20px; border-radius: 10px; border: 1px solid #e2e8f0; background: white; color: #475569; cursor: pointer; font-size: 14px; font-weight: 500; transition: background 0.15s;';
+            cancel.style.cssText = 'padding: 8px 20px; border-radius: 10px; border: 1px solid #e2e8f0; background: white; color: #475569; cursor: pointer; font-size: var(--fs-300); font-weight: 500; transition: background 0.15s;';
             cancel.onmouseover = () => cancel.style.background = '#f1f5f9';
             cancel.onmouseout = () => cancel.style.background = 'white';
             const confirm = document.createElement('button');
             confirm.textContent = '确认';
-            confirm.style.cssText = 'padding: 8px 22px; border-radius: 10px; border: none; background: ' + GREEN + '; color: white; cursor: pointer; font-size: 14px; font-weight: 600; box-shadow: 0 2px 4px rgba(46,204,113,0.3); transition: background 0.15s;';
+            confirm.style.cssText = 'padding: 8px 22px; border-radius: 10px; border: none; background: ' + GREEN + '; color: white; cursor: pointer; font-size: var(--fs-300); font-weight: 600; box-shadow: 0 2px 4px rgba(46,204,113,0.3); transition: background 0.15s;';
             confirm.onmouseover = () => confirm.style.background = '#27AE60';
             confirm.onmouseout = () => confirm.style.background = GREEN;
             footer.appendChild(cancel);
@@ -368,8 +374,8 @@
                 schedule_type: s.schedule_type,
                 schedule_type_cn: s.schedule_type_cn,
                 course_id: s.course_id,
-                is_temp: (s.adjustment_type != null ? s.adjustment_type : s.is_temp),
-                adjustment_type: s.adjustment_type,
+                status_category: s.status_category,
+                status_code: s.status_code,
                 location: s.location
             }));
 

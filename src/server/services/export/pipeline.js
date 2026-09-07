@@ -77,13 +77,15 @@ class ExportService {
             const logStartPayload = { userId, userType, startDate, endDate, exportType };
             if (typeof studentId !== 'undefined') logStartPayload.studentId = studentId;
             if (typeof teacherId !== 'undefined') logStartPayload.teacherId = teacherId;
-            logId = await logService.logExportStart(logStartPayload);
-        } catch (logError) {
-            logger.warn('记录导出开始日志失败:', logError.message);
-        }
 
-        try {
-            const rawData = await queryRawData();
+            // 开始日志与数据查询互不依赖（logId 直到成功日志才用），并发省一次往返（约 250ms）
+            const [rawData] = await Promise.all([
+                queryRawData(),
+                // 日志失败不能影响导出，就地告警并吞掉
+                logService.logExportStart(logStartPayload)
+                    .then(id => { logId = id; })
+                    .catch(logError => { logger.warn('记录导出开始日志失败:', logError.message); })
+            ]);
 
             if (!rawData || rawData.length === 0) {
                 return { status: 404, body: standardResponse(false, null, '该时间段内无数据') };
@@ -97,17 +99,16 @@ class ExportService {
 
             const { buffer, filename } = await this.generateExcelFromData(rawData, meta);
 
+            // 成功日志不阻塞返回：发出即走，失败只告警
             if (logId) {
-                try {
-                    await logService.logExportSuccess(logId, {
-                        recordCount: rawData.length,
-                        fileSize: buffer.length,
-                        fileName: filename,
-                        duration: Date.now() - startTime
-                    });
-                } catch (logError) {
+                logService.logExportSuccess(logId, {
+                    recordCount: rawData.length,
+                    fileSize: buffer.length,
+                    fileName: filename,
+                    duration: Date.now() - startTime
+                }).catch(logError => {
                     logger.warn('记录导出完成日志失败:', logError.message);
-                }
+                });
             }
 
             return { status: 200, buffer, filename };

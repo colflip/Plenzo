@@ -7,7 +7,7 @@
  *   - startsLine: true → 渲染器在本 run 前插入换行（第一 run 跳过）
  */
 
-const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS } = require('./export-constants');
+const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS, ROW_SEGMENT_SEPARATOR } = require('./export-constants');
 const ScheduleMarkerPolicy = require('../../../../public/js/utils/schedule-marker-policy');
 
 class RichTextFormatter {
@@ -114,7 +114,6 @@ class RichTextFormatter {
         const base = displayType.replace(/[（(]线上[）)]/, '');
         return base === '评审' || base === '咨询';
     }
-
     /**
      * 生成课程文本（计划和实际）
      *
@@ -124,13 +123,17 @@ class RichTextFormatter {
      *   评审/咨询 合并键 = (归一化显示类型, 时段, 地点, 学生)，不含状态/标记
      *   单人标记放课程前；多人全员有标记时多数标记放课程前（并列时 ~ 优先），少数标记跟老师
      *   多人中存在无标记成员时，已有标记全部跟随对应老师
+     *   逻辑行 = 时段（多学生模式下再按学生拆分）：同一时段的课程排在同一行，
+     *            即使类型不同，段与段之间以 ROW_SEGMENT_SEPARATOR 分隔；
+     *            计划列与实际列共用行键，因此同一时段在两列里落在同一物理行
      *
      * @param {Array} schedules - 课程列表（已剔除 deleted，保留 cancelled/modified_away）
      * @param {boolean} isSingleStudent - 是否为单学生模式
-     * @returns {Object} { planParts, actualParts, hasColoredCourse }
+     * @returns {Object} { planParts, actualParts, rows, hasColoredCourse }
+     *                   rows: [{ rowKey, planParts, actualParts }] —— 两列已按时段对齐的逻辑行
      */
     static generateCourseText(schedules, isSingleStudent) {
-        // 按类型优先级排序
+        // 按类型优先级排序（决定同一行内不同类型段的先后）
         const sorted = [...schedules].sort((a, b) => {
             const pA = TYPE_PRIORITY[RichTextFormatter.getBaseTypeName(a.type_name)] || 999;
             const pB = TYPE_PRIORITY[RichTextFormatter.getBaseTypeName(b.type_name)] || 999;
@@ -153,58 +156,50 @@ class RichTextFormatter {
         // ── 实际列筛选：排除 cancelled / modified_away ──
         const actualItems = items.filter(it => !it.isCancelledOrMoved);
 
-        const planLines = [];
-        const actualLines = [];
+        const planSegments = [];
+        const actualSegments = [];
         let hasColoredCourse = false;
 
         // ── 计划列：合并键 = (归一化显示类型, 时段, 地点, 学生) ──
-        const planGroups = new Map();
-        for (const it of planItems) {
-            const ts = RichTextFormatter._timeSlot(it.s);
-            const loc = String(it.s.location || '').trim();
-            const sid = it.s.student_id != null ? it.s.student_id : (it.s.student_name || '');
-            const key = `${it.dt}|${ts}|${loc}|${sid}`;
-            if (!planGroups.has(key)) planGroups.set(key, []);
-            planGroups.get(key).push(it);
-        }
-        for (const [key, group] of planGroups) {
+        for (const [key, group] of RichTextFormatter._groupByMergeKey(planItems)) {
             const [dt, ts] = key.split('|');
             const colorType = RichTextFormatter.getColorType(dt);
             if (colorType !== 'black') hasColoredCourse = true;
-            const timeSortKey = RichTextFormatter._timeSortKey(ts);
+            const runs = [];
 
             if (group.length > 1 && RichTextFormatter.isMergeable(dt)) {
-                // 合并行：行内不同老师可能不同颜色（dim/正常）
+                // 合并段：段内不同老师可能不同颜色（dim/正常）
                 const base = dt.replace(/[（(]线上[）)]/, '');
-                const regular = group.filter(it => !it.isRecord)
-                    .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
-                const records = group.filter(it => it.isRecord)
-                    .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
-                const all = [...regular, ...records];
+                const all = RichTextFormatter._orderGroupTeachers(group);
 
-                // 前缀：前缀颜色跟首个老师走
-                const firstDim = all[0].isCancelledOrMoved;
+                // 前缀颜色跟首个老师走
                 const sn = all[0].s.student_name;
                 const prefixText = isSingleStudent
                     ? `${base}(${ts})：`
                     : `[${sn}]${base}(${ts})：`;
-                const prefixRun = { text: prefixText, colorType, dim: firstDim, isSuperscript: false, startsLine: true };
-                planLines.push([prefixRun, timeSortKey]);
+                runs.push({
+                    text: prefixText,
+                    colorType,
+                    dim: all[0].isCancelledOrMoved,
+                    isSuperscript: false,
+                    startsLine: false
+                });
 
                 // 每位老师一个 run
-                for (let i = 0; i < all.length; i++) {
-                    const it = all[i];
+                all.forEach((it, i) => {
                     const teacherText = it.isRecord
                         ? `${it.s.teacher_name || ''}（记录）`
                         : (it.s.teacher_name || '');
-                    if (i < all.length - 1) {
-                        planLines.push([{ text: teacherText + '，', colorType, dim: it.isCancelledOrMoved, isSuperscript: false, startsLine: false }, timeSortKey]);
-                    } else {
-                        planLines.push([{ text: teacherText, colorType, dim: it.isCancelledOrMoved, isSuperscript: false, startsLine: false }, timeSortKey]);
-                    }
-                }
+                    runs.push({
+                        text: teacherText + (i < all.length - 1 ? '，' : ''),
+                        colorType,
+                        dim: it.isCancelledOrMoved,
+                        isSuperscript: false,
+                        startsLine: false
+                    });
+                });
             } else {
-                // 单课程行（或非合并类型）
+                // 单课程段（或非合并类型）
                 const it = group[0];
                 const dtDisp = it.isRecord
                     ? RichTextFormatter.getFoldedDisplayType(it.s)
@@ -215,87 +210,56 @@ class RichTextFormatter {
                 const text = isSingleStudent
                     ? `${dtDisp}(${ts})：${teacherDisp}`
                     : `[${it.s.student_name || ''}]${dtDisp}(${ts})：${teacherDisp}`;
-                planLines.push([{
+                runs.push({
                     text,
                     colorType,
                     dim: it.isCancelledOrMoved,
                     isSuperscript: false,
-                    startsLine: true
-                }, timeSortKey]);
+                    startsLine: false
+                });
             }
+
+            planSegments.push(RichTextFormatter._makeSegment(group, ts, runs));
         }
 
-        // ── 实际列：合并键 = (归一化显示类型, 时段, 地点, 学生) ──
+        // ── 实际列：合并键同上 ──
         // 方案甲：合并组内每位老师带自己的 +/~ 上标（标记跟老师走）
-        const actualGroups = new Map();
-        for (const it of actualItems) {
-            const ts = RichTextFormatter._timeSlot(it.s);
-            const loc = String(it.s.location || '').trim();
-            const sid = it.s.student_id != null ? it.s.student_id : (it.s.student_name || '');
-            const key = `${it.dt}|${ts}|${loc}|${sid}`;
-            if (!actualGroups.has(key)) actualGroups.set(key, []);
-            actualGroups.get(key).push(it);
-        }
-        for (const [key, group] of actualGroups) {
+        for (const [key, group] of RichTextFormatter._groupByMergeKey(actualItems)) {
             const [dt, ts] = key.split('|');
             const colorType = RichTextFormatter.getColorType(dt);
             if (colorType !== 'black') hasColoredCourse = true;
-            const timeSortKey = RichTextFormatter._timeSortKey(ts);
+            const runs = [];
 
-            const isMergedGroup = group.length > 1 && RichTextFormatter.isMergeable(dt);
-
-            if (isMergedGroup) {
-                // 老师按 id 排序（记录类排在后面）
-                const regular = group.filter(it => !it.isRecord)
-                    .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
-                const records = group.filter(it => it.isRecord)
-                    .sort((a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0));
-                const all = [...regular, ...records].filter((it, index, array) => {
-                    const teacherId = it.s.teacher_id || '';
-                    const teacherName = it.s.teacher_name || '';
-                    const key = `${teacherId}|${teacherName}|${it.isRecord}|${it.marker}`;
-                    return array.findIndex(candidate => {
-                        const candidateId = candidate.s.teacher_id || '';
-                        const candidateName = candidate.s.teacher_name || '';
-                        return `${candidateId}|${candidateName}|${candidate.isRecord}|${candidate.marker}` === key;
-                    }) === index;
-                });
-
-                const markerPlacement = ScheduleMarkerPolicy.resolve(
+            if (group.length > 1 && RichTextFormatter.isMergeable(dt)) {
+                const all = RichTextFormatter._orderGroupTeachers(group, true);
+                const { courseMarker, teacherMarkers } = ScheduleMarkerPolicy.resolve(
                     all.map(it => it.marker)
                 );
-                const { courseMarker, teacherMarkers } = markerPlacement;
 
-                const sn = all[0].s.student_name;
-                const studentPrefix = isSingleStudent ? '' : `[${sn}]`;
-                const coursePrefix = `${dt}(${ts})：`;
-
+                const studentPrefix = isSingleStudent ? '' : `[${all[0].s.student_name}]`;
                 if (studentPrefix) {
-                    actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                    runs.push({ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: false });
                 }
                 if (courseMarker) {
-                    actualLines.push([{ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
+                    runs.push({ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: false });
                 }
-                actualLines.push([{
-                    text: coursePrefix,
-                    colorType,
-                    dim: false,
-                    isSuperscript: false,
-                    startsLine: !studentPrefix && !courseMarker
-                }, timeSortKey]);
+                runs.push({ text: `${dt}(${ts})：`, colorType, dim: false, isSuperscript: false, startsLine: false });
 
-                for (let i = 0; i < all.length; i++) {
-                    const it = all[i];
-                    const teacherMarker = teacherMarkers[i];
-                    if (teacherMarker) {
-                        actualLines.push([{ text: teacherMarker, colorType, dim: false, isSuperscript: true, startsLine: false }, timeSortKey]);
+                all.forEach((it, i) => {
+                    if (teacherMarkers[i]) {
+                        runs.push({ text: teacherMarkers[i], colorType, dim: false, isSuperscript: true, startsLine: false });
                     }
                     const teacherText = it.isRecord
                         ? `${it.s.teacher_name || ''}（记录）`
                         : (it.s.teacher_name || '');
-                    const sep = i < all.length - 1 ? '，' : '';
-                    actualLines.push([{ text: teacherText + sep, colorType, dim: false, isSuperscript: false, startsLine: false }, timeSortKey]);
-                }
+                    runs.push({
+                        text: teacherText + (i < all.length - 1 ? '，' : ''),
+                        colorType,
+                        dim: false,
+                        isSuperscript: false,
+                        startsLine: false
+                    });
+                });
             } else {
                 const it = group[0];
                 const dtDisp = it.isRecord
@@ -304,61 +268,162 @@ class RichTextFormatter {
                 const teacherDisp = it.isRecord
                     ? `${it.s.teacher_name || ''}（记录）`
                     : (it.s.teacher_name || '');
-                const studentPrefix = isSingleStudent
-                    ? ''
-                    : `[${it.s.student_name || ''}]`;
-                const coursePrefix = `${dtDisp}(${ts})：`;
+                const studentPrefix = isSingleStudent ? '' : `[${it.s.student_name || ''}]`;
                 const { courseMarker } = ScheduleMarkerPolicy.resolve([it.marker]);
 
                 if (studentPrefix) {
-                    actualLines.push([{ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: true }, timeSortKey]);
+                    runs.push({ text: studentPrefix, colorType, dim: false, isSuperscript: false, startsLine: false });
                 }
                 if (courseMarker) {
-                    actualLines.push([{ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: !studentPrefix }, timeSortKey]);
+                    runs.push({ text: courseMarker, colorType, dim: false, isSuperscript: true, startsLine: false });
                 }
-                actualLines.push([{
-                    text: coursePrefix + teacherDisp,
+                runs.push({
+                    text: `${dtDisp}(${ts})：${teacherDisp}`,
                     colorType,
                     dim: false,
                     isSuperscript: false,
-                    startsLine: !studentPrefix && !courseMarker
-                }, timeSortKey]);
+                    startsLine: false
+                });
             }
+
+            actualSegments.push(RichTextFormatter._makeSegment(group, ts, runs));
         }
 
-        // 各列按时间从早到晚独立排序
-        planLines.sort((a, b) => a[1] - b[1]);
-        actualLines.sort((a, b) => a[1] - b[1]);
+        const rows = RichTextFormatter._assembleRows(planSegments, actualSegments, isSingleStudent);
 
         return {
-            planParts: planLines.map(e => e[0]),
-            actualParts: actualLines.map(e => e[0]),
+            planParts: rows.reduce((acc, r) => acc.concat(r.planParts), []),
+            actualParts: rows.reduce((acc, r) => acc.concat(r.actualParts), []),
+            rows,
             hasColoredCourse
         };
     }
 
     /**
-     * 按 startsLine 将 textParts 切分为“逻辑行”数组
-     * 每个逻辑行是一个 parts 子数组，其首段 startsLine 归一化为 false
-     * （单行内首段是 index 0 不触发换行）
-     * @param {Array} parts - 文本片段数组
-     * @returns {Array<Array>} 逻辑行数组，每行为 parts 子数组
+     * 按合并键分组：(归一化显示类型, 时段, 地点, 学生)
+     * 同一组内的老师会被并入同一段（评审/咨询）
+     * @param {Array} items - 预计算过关键字段的课程项
+     * @returns {Map<string, Array>} 合并键 → 课程项数组（插入序 = 类型优先级序）
      */
-    static splitPartsIntoRows(parts) {
-        if (!parts || parts.length === 0) return [];
-        const rows = [];
-        let current = null;
-        parts.forEach((p, i) => {
-            if (i === 0 || p.startsLine) {
-                // 新行起点：首段 startsLine 归一化为 false
-                current = [];
-                rows.push(current);
-                current.push(Object.assign({}, p, { startsLine: false }));
-            } else {
-                current.push(p);
-            }
+    static _groupByMergeKey(items) {
+        const groups = new Map();
+        for (const it of items) {
+            const ts = RichTextFormatter._timeSlot(it.s);
+            const loc = String(it.s.location || '').trim();
+            const sid = it.s.student_id != null ? it.s.student_id : (it.s.student_name || '');
+            const key = `${it.dt}|${ts}|${loc}|${sid}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(it);
+        }
+        return groups;
+    }
+
+    /**
+     * 合并组内老师排序：常规课按 teacher_id，记录类排在后面
+     * @param {Array} group - 同一合并键下的课程项
+     * @param {boolean} dedupe - 是否按 (教师, 记录类, 标记) 去重（实际列用）
+     * @returns {Array} 排序后的课程项
+     */
+    static _orderGroupTeachers(group, dedupe = false) {
+        const byTeacherId = (a, b) => (a.s.teacher_id || 0) - (b.s.teacher_id || 0);
+        const all = [
+            ...group.filter(it => !it.isRecord).sort(byTeacherId),
+            ...group.filter(it => it.isRecord).sort(byTeacherId)
+        ];
+        if (!dedupe) return all;
+
+        const identityOf = it => [
+            it.s.teacher_id || '',
+            it.s.teacher_name || '',
+            it.isRecord,
+            it.marker
+        ].join('|');
+        const seen = new Set();
+        return all.filter(it => {
+            const id = identityOf(it);
+            if (seen.has(id)) return false;
+            seen.add(id);
+            return true;
         });
-        return rows;
+    }
+
+    /**
+     * 将一个合并组的 runs 包装为“段”，附带归行/排序所需的元信息
+     * @param {Array} group - 同一合并键下的课程项
+     * @param {string} ts - 时段（HH:mm-HH:mm）
+     * @param {Array} runs - 该段的文本片段
+     * @returns {Object} 段对象
+     */
+    static _makeSegment(group, ts, runs) {
+        const first = group[0].s;
+        return {
+            runs,
+            ts,
+            timeSortKey: RichTextFormatter._timeSortKey(ts),
+            studentKey: first.student_id != null
+                ? String(first.student_id)
+                : String(first.student_name || ''),
+            studentName: first.student_name || ''
+        };
+    }
+
+    /**
+     * 把段按时段归并为逻辑行：同一时段的课程同行显示，即使类型不同
+     * 多学生模式下再按学生拆分，避免一行内塞进全部学生
+     * @param {Array} planSegments - 计划列的段
+     * @param {Array} actualSegments - 实际列的段
+     * @param {boolean} isSingleStudent - 是否为单学生模式
+     * @returns {Array<Object>} [{ rowKey, planParts, actualParts }]，按时段从早到晚
+     */
+    static _assembleRows(planSegments, actualSegments, isSingleStudent) {
+        const rows = new Map();
+        const rowOf = (seg) => {
+            const rowKey = isSingleStudent ? seg.ts : `${seg.studentKey}|${seg.ts}`;
+            if (!rows.has(rowKey)) {
+                rows.set(rowKey, {
+                    rowKey,
+                    timeSortKey: seg.timeSortKey,
+                    studentName: seg.studentName,
+                    planParts: [],
+                    actualParts: []
+                });
+            }
+            return rows.get(rowKey);
+        };
+
+        planSegments.forEach(seg => RichTextFormatter._appendSegment(rowOf(seg).planParts, seg.runs));
+        actualSegments.forEach(seg => RichTextFormatter._appendSegment(rowOf(seg).actualParts, seg.runs));
+
+        return [...rows.values()]
+            .sort((a, b) => (a.timeSortKey - b.timeSortKey) ||
+                String(a.studentName).localeCompare(String(b.studentName)))
+            .map(r => ({ rowKey: r.rowKey, planParts: r.planParts, actualParts: r.actualParts }));
+    }
+
+    /**
+     * 把一个段追加进逻辑行：非首段前插入分隔符，仅行首 run 标记 startsLine
+     * 分隔符沿用前一 run 的颜色/dim，避免整行全 dim 时插入一个突兀的黑色分号
+     * @param {Array} target - 该逻辑行已累积的 runs（原地追加）
+     * @param {Array} runs - 待追加段的 runs
+     */
+    static _appendSegment(target, runs) {
+        if (!runs || runs.length === 0) return;
+        const isRowStart = target.length === 0;
+
+        if (!isRowStart) {
+            const prev = target[target.length - 1];
+            target.push({
+                text: ROW_SEGMENT_SEPARATOR,
+                colorType: prev.colorType,
+                dim: prev.dim,
+                isSuperscript: false,
+                startsLine: false
+            });
+        }
+
+        runs.forEach((run, i) => {
+            target.push(Object.assign({}, run, { startsLine: isRowStart && i === 0 }));
+        });
     }
 
     /**
@@ -407,9 +472,12 @@ class RichTextFormatter {
     }
 
     static _timeSortKey(timeSlot) {
-        const [sH, sM] = timeSlot.split('-')[0].split(':').map(Number);
-        const [eH, eM] = timeSlot.split('-')[1].split(':').map(Number);
-        return (sH * 60 + sM) * 10000 + (eH * 60 + eM);
+        const [startPart, endPart] = String(timeSlot || '').split('-');
+        const [sH, sM] = String(startPart || '').split(':').map(Number);
+        const [eH, eM] = String(endPart || '').split(':').map(Number);
+        const key = (sH * 60 + sM) * 10000 + (eH * 60 + eM);
+        // 无时间信息的记录排到最后：行序依赖该键，NaN 会让排序结果不确定
+        return Number.isFinite(key) ? key : Number.MAX_SAFE_INTEGER;
     }
 }
 
