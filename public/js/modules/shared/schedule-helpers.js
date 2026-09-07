@@ -163,16 +163,23 @@ export function getLegendColor(type) {
 
 /**
  * 读取排课记录的「调整类型」
- * 兼容 adjustment_type（权威字段）与历史别名 is_temp。
- * 0 = 原课程 / 已调整调走的原记录；1 = 临时加课；2 = 调整后的新记录
+ *
+ * 数据源已从旧表的 adjustment_type / is_temp 两列换成状态码的类别位
+ * （`status_category`：normal | adjusted | temp，由列表接口透出）。
+ * 这里保持 0/1/2 的返回契约不变，所以全部调用点（水印、今日视图、周视图导出、
+ * 导出「计划安排」筛选）都不需要跟着改 —— 兼容层收拢在这一个函数里。
+ *
+ * 0 = 普通课（含被调走的原记录）；1 = 临时加课；2 = 调整增补
  * @param {object} rec
  * @returns {number} 0 | 1 | 2
  */
 export function getAdjustmentType(rec) {
     if (!rec) return 0;
-    const raw = rec.adjustment_type != null ? rec.adjustment_type : rec.is_temp;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : 0;
+    const category = rec.status_category
+        || (rec.status_code ? String(rec.status_code).split('.')[0] : '');
+    if (category === 'temp') return 1;
+    if (category === 'adjusted') return 2;
+    return 0;
 }
 
 /**
