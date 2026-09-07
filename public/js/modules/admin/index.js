@@ -30,7 +30,6 @@ window.hhmmToMinutes = ScheduleUtils.hhmmToMinutes;
 window.minutesToHHMM = ScheduleUtils.minutesToHHMM;
 window.computeSlotByStartMin = ScheduleUtils.computeSlotByStartMin;
 window.clusterByOverlap = ScheduleUtils.clusterByOverlap;
-window.buildMergedRowText = ScheduleUtils.buildMergedRowText;
 window.updateScheduleStatus = ScheduleUtils.updateScheduleStatus;
 window.renderWeeklyLoading = ScheduleUtils.renderWeeklyLoading;
 window.renderWeeklyError = ScheduleUtils.renderWeeklyError;
