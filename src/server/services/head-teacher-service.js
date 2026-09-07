@@ -7,7 +7,6 @@
  */
 
 const db = require('../db/db');
-const SchemaHelper = require('../utils/schema-helper');
 const logger = require('../utils/logger');
 const { standardResponse } = require('../middleware/validation');
 
@@ -53,14 +52,15 @@ class HeadTeacherService {
                 }
 
                 if (startDate && endDate) {
-                    const dateExpr = await SchemaHelper.getDateExpr('ca');
+                    // 一批学生 id 的重叠查询：派生列 student_ids && $1 一个谓词走 GIN 索引，
+                    // 比把几十个 id 拼成 jsonpath 分支既短也快。
                     const studentsResult = await db.query(`
                         SELECT DISTINCT s.id, s.name
-                        FROM course_arrangement ca
-                        JOIN students s ON ca.student_id = s.id
-                        WHERE ca.student_id = ANY($1::int[])
-                          AND ${dateExpr}::date BETWEEN $2 AND $3
-                          AND ca.status <> 'deleted'
+                        FROM course_sessions cs
+                        JOIN students s ON s.id = ANY(cs.student_ids)
+                        WHERE cs.student_ids && $1::int[]
+                          AND s.id = ANY($1::int[])
+                          AND cs.class_date BETWEEN $2 AND $3
                         ORDER BY s.name
                     `, [studentIds, startDate, endDate]);
                     return { status: 200, body: standardResponse(true, studentsResult.rows, '获取学生列表成功') };
@@ -75,13 +75,13 @@ class HeadTeacherService {
 
             // 有日期参数：查询该时间段内有排课记录的学生
             if (startDate && endDate) {
-                const dateExpr = await SchemaHelper.getDateExpr('ca');
+                // 本人授课过的学生：teacher_ids 粗筛 + 展开学生 pair 取名
                 const studentsResult = await db.query(`
                     SELECT DISTINCT s.id, s.name
-                    FROM course_arrangement ca
-                    JOIN students s ON ca.student_id = s.id
-                    WHERE ca.teacher_id = $1
-                      AND ${dateExpr}::date BETWEEN $2 AND $3
+                    FROM course_sessions cs
+                    JOIN students s ON s.id = ANY(cs.student_ids)
+                    WHERE cs.teacher_ids @> ARRAY[$1::int]
+                      AND cs.class_date BETWEEN $2 AND $3
                     ORDER BY s.name
                 `, [teacherId, startDate, endDate]);
                 return { status: 200, body: standardResponse(true, studentsResult.rows, '获取学生列表成功') };

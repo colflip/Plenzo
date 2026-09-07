@@ -67,10 +67,21 @@ async function updateScheduleType(id, { name, description }, req) {
 
 /**
  * 删除课程类型（有排课引用时禁止删除）。
+ * 引用计数改按教师 pair 算：JSONB 元素拿不到外键，所以这里既是业务校验也是唯一的引用守卫。
+ * `@?` 的 jsonpath 需要字面量常量才走 GIN 索引，所以先把 id 收敛成整数再拼进 path。
  * 返回 { status: 200 } 或 { status: 404|409, error }
  */
 async function deleteScheduleType(id, req) {
-    const refCheck = await db.query('SELECT COUNT(*) as count FROM course_arrangement WHERE course_id = $1', [id]);
+    const typeId = Number(id);
+    if (!Number.isInteger(typeId) || typeId <= 0) {
+        return { status: 404, error: '课程类型不存在' };
+    }
+    const refCheck = await db.query(
+        `SELECT COUNT(*)::int AS count
+           FROM course_sessions cs, jsonb_array_elements(cs.teachers) e
+          WHERE (e->>'type_id')::int = $1`,
+        [typeId]
+    );
     const count = Number(refCheck.rows[0].count);
     if (count > 0) {
         return { status: 409, error: `该类型已被引用 ${count} 次，无法删除` };

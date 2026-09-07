@@ -5,7 +5,6 @@
  */
 
 const db = require('../db/db');
-const SchemaHelper = require('../utils/schema-helper');
 
 // 类型中文 → 英文键（含线上/半次/记录变体）
 const TYPE_EN = {
@@ -95,16 +94,18 @@ function buildPayload(name, start, end, coeff, agg, fee) {
 }
 
 async function getRewardPayload({ userId, name, start, end }) {
-    const dateExpr = await SchemaHelper.getDateExpr('ca');
+    // 计数落在 v_session_pairs（教师 pair × 学生 pair 展开）上：
+    // 「一师带 N 生按 N 次算」的口径要的正是这个展开形状，计数与系数逻辑一字未改。
+    // 旧过滤里的 '0' 随旧表一并消失；活跃判定改看生命周期位。
     const typeStatsResult = await db.query(`
         SELECT
             COALESCE(sty.description, sty.name) as type,
             COUNT(*) as count
-        FROM course_arrangement ca
-        JOIN schedule_types sty ON ca.course_id = sty.id
-        WHERE ca.teacher_id = $1
-          AND ${dateExpr} BETWEEN $2 AND $3
-          AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+        FROM v_session_pairs vp
+        JOIN schedule_types sty ON vp.type_id = sty.id
+        WHERE vp.teacher_id = $1
+          AND vp.class_date BETWEEN $2 AND $3
+          AND vp.status NOT IN ('cancelled', 'modified_away')
         GROUP BY COALESCE(sty.description, sty.name)
         ORDER BY count DESC
     `, [userId, start, end]);

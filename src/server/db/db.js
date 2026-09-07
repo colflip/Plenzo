@@ -22,6 +22,9 @@ const poolOnlyMode = connectionType === 'pool' || connectionType === 'pg';
 const httpOnlyMode = connectionType === 'http' || connectionType === 'neon';
 const allowNeonFallback = !poolOnlyMode && neonFallbackEnabled && isNeonDatabase;
 
+// 连接池上限。放在模块作用域是因为 warmup() 要按它决定预热几条连接。
+const POOL_MAX = isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10);
+
 const isConnectionError = (err) => {
   const code = String(err?.code || '').toUpperCase();
   const message = String(err?.message || '').toLowerCase();
@@ -35,6 +38,10 @@ const isConnectionError = (err) => {
     message.includes('connection terminated') ||
     message.includes('connection timeout') ||
     message.includes('connect timeout') ||
+    // node-postgres 连接池取不到连接时抛的原文就是这句，字面上既不含
+    // 'connection timeout' 也不含 'connect timeout'，漏掉它会导致「握手超时」
+    // 被当成业务错误抛给调用方（接口 500、前端 loading 不消失），而不是回退 Neon HTTP。
+    message.includes('timeout exceeded when trying to connect') ||
     message.includes('socket disconnected') ||
     message.includes('connection reset') ||
     message.includes('server closed the connection') ||
@@ -128,13 +135,17 @@ const pool = new Pool({
     connectionString,
     ssl: needsSSL ? { rejectUnauthorized: isProduction } : undefined,
     keepAlive: true,
-    max: isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10),
-    min: isVercel || isRender ? 0 : 2,
-    idleTimeoutMillis: isVercel || isRender ? 5000 : 30000,
-    // 直连 Neon TCP 在本环境常因连接超时（默认 10s）才回退 Neon HTTP，反而更慢；
-    // 缩短到 3s：健康连接(<1s)不受影响，不健康时快速回退到 Neon HTTP（serverless 推荐驱动）。
-    // 启动 warmup 会在首个用户请求前完成切换，消除 10-24s 延迟。可用 DB_CONNECT_TIMEOUT 覆盖。
-    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT, 10) || 3000,
+    max: POOL_MAX,
+    // 注意：node-postgres 的 Pool **没有 min 选项**（那是 generic-pool 的），连接全部懒建。
+    // 预热靠下面的 warmup() 显式并发建连接，不要指望 min。
+    //
+    // 实测（Neon ap-southeast-1）：建一条新连接约 2000ms，复用已有连接约 250ms —— 差 8 倍。
+    // 一次页面加载会并发打十几个接口，池里只有 1 条热连接时，其余请求各自去建新连接，
+    // 于是每个接口都要多等约 2 秒。所以持久进程下**不要**让空闲连接被回收：
+    // 30s 的 idleTimeout 意味着页面停顿半分钟后再操作又是一次全量冷启动。
+    idleTimeoutMillis: isVercel || isRender ? 5000 : 0,   // 0 = 永不因空闲关闭
+    // 10 条并发握手实测要 2.1-2.9s，3000ms 会让其中几条直接超时失败。
+    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT, 10) || 15000,
     allowExitOnIdle: isVercel || isRender
   });
 
@@ -248,8 +259,17 @@ const runInTransaction = async function (workFn) {
   }
 };
 
+/**
+ * 启动预热：**并发**占住若干条连接，让首个页面加载不必现场握手。
+ *
+ * 只发一条 SELECT 1 只能热一条连接；而一次页面加载会并发打十几个接口，
+ * 其余请求仍要各自建新连接（实测每条约 2000ms，复用则约 250ms）。
+ * 实测 10 条并发：冷池 2881ms，预热后 728ms。
+ * Serverless 下 max=1，预热 1 条即可，不浪费冷启动时间。
+ */
 const warmup = async () => {
-  await query('SELECT 1');
+  const n = Math.min(POOL_MAX, parseInt(process.env.DB_WARMUP, 10) || 5);
+  await Promise.all(Array.from({ length: n }, () => query('SELECT 1')));
 };
 
 module.exports = { query, getClient, runInTransaction, warmup };

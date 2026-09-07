@@ -7,21 +7,47 @@ const logger = require('./logger.js');
 
 const db = require('../db/db');
 
+// 探测结果缓存：表/列结构在部署后恒定，进程内缓存即可复用，避免每个写请求重复打
+// information_schema（Neon HTTP 下每条 ≈250ms）。永不过期会有风险 —— 首次探测若早于
+// 启动迁移补列，会永久遮蔽新列；因此统一带 TTL（60s），稳态 0 探测、迁移窗口自动重探。
+const PROBE_TTL_MS = 60 * 1000;
+
+function probeCacheGet(map, key) {
+    const entry = map.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expireAt) {
+        map.delete(key);
+        return undefined;
+    }
+    return entry.value;
+}
+
+function probeCacheSet(map, key, value) {
+    map.set(key, { value, expireAt: Date.now() + PROBE_TTL_MS });
+}
+
 class SchemaHelper {
     /** @type {string|null} 缓存的日期列表达式 */
     static _dateExprCache = null;
 
-    /** @type {Map<string, boolean>} 列存在性缓存 */
+    /** @type {number} 日期列表达式缓存过期时间戳 */
+    static _dateExprExpireAt = 0;
+
+    /** @type {Map<string, {value: *, expireAt: number}>} 表/列存在性缓存 */
     static _columnCache = new Map();
 
     /**
-     * 获取 course_arrangement 表的日期列表达式
-     * 自动检测 arr_date / class_date / date 列，构建 COALESCE 表达式
+     * 获取排课表的日期列表达式
+     *
+     * @deprecated 一场一行改造后已无运行时调用者：新表 `course_sessions` 与视图
+     * `v_session_pairs` 的日期列固定为 `class_date`，动态列探测（arr_date/class_date/date
+     * 三选一）随旧表 `course_arrangement` 一并作废。保留导出仅为兼容既有单测，
+     * 旧表 DROP 时连这个方法一起删。
      * @param {string} [alias='ca'] 表别名
      * @returns {Promise<string>} 日期列表达式，如 "COALESCE(ca.arr_date, ca.class_date, ca.date)"
      */
     static async getDateExpr(alias = 'ca') {
-        if (SchemaHelper._dateExprCache) {
+        if (SchemaHelper._dateExprCache && Date.now() < SchemaHelper._dateExprExpireAt) {
             if (!alias) {
                 // 无别名：移除所有表别名前缀
                 return SchemaHelper._dateExprCache.replace(/\w+\./g, '');
@@ -54,6 +80,7 @@ class SchemaHelper {
 
             // 缓存带 ca 前缀的表达式
             SchemaHelper._dateExprCache = expr;
+            SchemaHelper._dateExprExpireAt = Date.now() + PROBE_TTL_MS;
 
             // 根据 alias 参数返回对应的表达式
             if (!alias) {
@@ -79,9 +106,8 @@ class SchemaHelper {
      */
     static async hasColumn(table, column) {
         const cacheKey = `${table}.${column}`;
-        if (SchemaHelper._columnCache.has(cacheKey)) {
-            return SchemaHelper._columnCache.get(cacheKey);
-        }
+        const cached = probeCacheGet(SchemaHelper._columnCache, cacheKey);
+        if (cached !== undefined) return cached;
 
         try {
             const result = await db.query(
@@ -89,7 +115,7 @@ class SchemaHelper {
                 [table, column]
             );
             const exists = result.rows.length > 0;
-            SchemaHelper._columnCache.set(cacheKey, exists);
+            probeCacheSet(SchemaHelper._columnCache, cacheKey, exists);
             return exists;
         } catch (error) {
             logger.warn(`检测列 ${table}.${column} 失败:`, error.message);
@@ -104,16 +130,15 @@ class SchemaHelper {
      */
     static async hasTable(table) {
         const cacheKey = `table:${table}`;
-        if (SchemaHelper._columnCache.has(cacheKey)) {
-            return SchemaHelper._columnCache.get(cacheKey);
-        }
+        const cached = probeCacheGet(SchemaHelper._columnCache, cacheKey);
+        if (cached !== undefined) return cached;
         try {
             const result = await db.query(
                 `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1 LIMIT 1`,
                 [table]
             );
             const exists = result.rows.length > 0;
-            SchemaHelper._columnCache.set(cacheKey, exists);
+            probeCacheSet(SchemaHelper._columnCache, cacheKey, exists);
             return exists;
         } catch (error) {
             logger.warn(`检测表 ${table} 失败:`, error.message);
@@ -130,16 +155,15 @@ class SchemaHelper {
     static async getColumns(table, columns) {
         if (!Array.isArray(columns) || columns.length === 0) return new Set();
         const cacheKey = `cols:${table}:${columns.slice().sort().join(',')}`;
-        if (SchemaHelper._columnCache.has(cacheKey)) {
-            return SchemaHelper._columnCache.get(cacheKey);
-        }
+        const cached = probeCacheGet(SchemaHelper._columnCache, cacheKey);
+        if (cached !== undefined) return cached;
         try {
             const result = await db.query(
                 `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = ANY($2)`,
                 [table, columns]
             );
             const existing = new Set(result.rows.map(r => r.column_name));
-            SchemaHelper._columnCache.set(cacheKey, existing);
+            probeCacheSet(SchemaHelper._columnCache, cacheKey, existing);
             return existing;
         } catch (error) {
             logger.warn(`检测列 ${table}.${columns.join('/')} 失败:`, error.message);
@@ -148,10 +172,11 @@ class SchemaHelper {
     }
 
     /**
-     * 清除所有缓存（用于测试）
+     * 清除所有缓存（用于测试，或迁移后强制重探）
      */
     static clearCache() {
         SchemaHelper._dateExprCache = null;
+        SchemaHelper._dateExprExpireAt = 0;
         SchemaHelper._columnCache.clear();
     }
 }
