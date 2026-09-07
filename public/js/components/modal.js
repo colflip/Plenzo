@@ -51,6 +51,8 @@ class ModalManager {
                 right: 0;
                 bottom: 0;
                 background-color: rgba(0, 0, 0, 0.45);
+                backdrop-filter: blur(var(--overlay-blur, 4px));
+                -webkit-backdrop-filter: blur(var(--overlay-blur, 4px));
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -80,20 +82,25 @@ class ModalManager {
             .modal-overlay.visible .modal-container {
                 transform: translateY(0);
             }
-            .modal-header {
+            /* 以下 4 个类名与 dashboard.css 里页面级弹窗的同名规则冲突。本注入 <style> 在
+               所有 <link> 之后进入 <head>，同特异性下后来者胜，会把 5 个静态弹窗
+               （teacher 的 studentEditModal/passwordChangeModal/feeManagementModal、
+               admin 的 scheduleModal、student 的 passwordChangeModal）的内边距一起改掉
+               （实测 20px 24px → 16px 20px、24px → 20px）。加 .modal-container 前缀限定作用域。 */
+            .modal-container .modal-header {
                 padding: 16px 20px;
                 border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
             }
-            .modal-title {
-                font-size: 16px;
+            .modal-container .modal-title {
+                font-size: var(--fs-500);
                 font-weight: 600;
                 color: var(--color-gray-800, #1f2937);
                 margin: 0;
             }
-            .modal-close {
+            .modal-container .modal-close {
                 width: 28px;
                 height: 28px;
                 border: none;
@@ -102,23 +109,23 @@ class ModalManager {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 20px;
+                font-size: var(--fs-600);
                 color: var(--color-gray-400, #9ca3af);
                 transition: color 0.2s;
                 padding: 0;
             }
-            .modal-close:hover {
+            .modal-container .modal-close:hover {
                 color: var(--color-gray-600, #4b5563);
             }
-            .modal-body {
+            .modal-container .modal-body {
                 padding: 20px;
                 overflow-y: auto;
                 flex: 1;
                 color: var(--color-gray-600, #4b5563);
-                font-size: 14px;
-                line-height: 1.6;
+                font-size: var(--fs-300);
+                line-height: var(--lh-base);
             }
-            .modal-footer {
+            .modal-container .modal-footer {
                 padding: 16px 20px;
                 border-top: 1px solid var(--color-gray-200, #e5e7eb);
                 display: flex;
@@ -128,7 +135,7 @@ class ModalManager {
             .modal-btn {
                 padding: 8px 20px;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: var(--fs-300);
                 font-weight: 500;
                 cursor: pointer;
                 transition: background 0.2s;
@@ -169,7 +176,7 @@ class ModalManager {
                 padding: 8px 12px;
                 border: 1px solid var(--color-gray-300, #d1d5db);
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: var(--fs-300);
                 font-family: inherit;
                 color: var(--color-gray-800, #1f2937);
                 background: #fff;
@@ -213,6 +220,8 @@ class ModalManager {
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
         if (title) overlay.setAttribute('aria-label', title);
+        // 不可关闭的弹窗（如强制选择）不参与"点击外部关闭"，由 core/modal-backdrop.js 识别
+        if (!closable) overlay.dataset.pzNoClose = 'true';
 
         // 安全构建 DOM，防止 XSS
         const container = document.createElement('div');

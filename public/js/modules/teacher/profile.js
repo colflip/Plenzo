@@ -445,12 +445,12 @@ function renderStudentList(students) {
                         <td style="padding: 12px;">${student.profession || '-'}</td>
                         <td style="padding: 12px;">${student.contact || '-'}</td>
                         <td style="padding: 12px;">
-                            <span class="status-badge ${getStatusClass(student.status)}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+                            <span class="status-badge ${getStatusClass(student.status)}" style="padding: 4px 8px; border-radius: 4px; font-size: var(--fs-300);">
                                 ${STATUS_TEXT_MAP[String(student.status)] || '未知'}
                             </span>
                         </td>
                         <td style="padding: 12px; text-align: center;">
-                            <button class="edit-student-btn info-btn" data-student-id="${student.id}" style="padding: 6px 12px; font-size: 13px;">
+                            <button class="edit-student-btn info-btn" data-student-id="${student.id}" style="padding: 6px 12px; font-size: var(--fs-300);">
                                 <span class="material-icons-round" style="font-size: 16px;">edit</span> 编辑
                             </button>
                         </td>

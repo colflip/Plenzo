@@ -329,7 +329,7 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
                         <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
                     </div>
                     <div style="position: relative; z-index: 1;">
-                        <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: 15px;">总授课数</h3>
+                        <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">总授课数</h3>
                         <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
                     </div>
                 </div>
@@ -365,7 +365,7 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
                         <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
                     </div>
                     <div style="position: relative; z-index: 1;">
-                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: 15px;">${type}</h3>
+                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">${type}</h3>
                         <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
                     </div>
                 `);
@@ -461,7 +461,7 @@ function updateDisplay(data, startDate, endDate) {
                             <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
                         </div>
                         <div style="position: relative; z-index: 1;">
-                            <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: 15px;">总授课数</h3>
+                            <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">总授课数</h3>
                             <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
                         </div>
                     </div>
@@ -497,7 +497,7 @@ function updateDisplay(data, startDate, endDate) {
                             <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
                         </div>
                         <div style="position: relative; z-index: 1;">
-                            <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: 15px;">${type}</h3>
+                            <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">${type}</h3>
                             <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
                         </div>
                     `);

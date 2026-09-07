@@ -11,7 +11,6 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
 
     <!-- Styles -->
@@ -86,13 +85,13 @@
         }
 
         .brand-header h1 {
-            font-size: 1.5rem;
+            font-size: var(--fs-700);
             /* slightly smaller heading */
             margin-bottom: 0.35rem;
         }
 
         .brand-header p {
-            font-size: 0.9375rem;
+            font-size: var(--fs-300);
             color: var(--color-gray-500);
             margin-bottom: 0;
         }
@@ -134,7 +133,7 @@
             gap: 10px;
             cursor: pointer;
             height: 30px;
-            font-size: 16px;
+            font-size: var(--fs-400);
             color: #334155;
             user-select: none;
             -webkit-user-select: none;
@@ -202,7 +201,7 @@
         .login-footer {
             margin-top: 2rem;
             text-align: center;
-            font-size: 15px;
+            font-size: var(--fs-300);
             color: var(--color-gray-500);
             display: flex;
             align-items: center;
@@ -214,7 +213,7 @@
 
         .login-footer .separator {
             color: var(--color-gray-400);
-            font-size: 12px;
+            font-size: var(--fs-300);
             opacity: 0.6;
         }
 
@@ -225,14 +224,14 @@
 
         /* 登录页局部调整：品牌区/输入框/logo */
         .login-card .brand-header h1 {
-            font-size: 24px;
+            font-size: var(--fs-700);
             margin-bottom: 0;
             padding-top: 0;
             padding-bottom: 0;
         }
 
         .login-card .brand-header p {
-            font-size: 16px;
+            font-size: var(--fs-400);
             padding-top: 10px;
             padding-bottom: 20px;
         }
@@ -296,7 +295,7 @@
             </div>
 
             <button id="loginBtn" class="btn primary-btn"
-                style="width: 100%; justify-content: center; height: 45px; padding: 12px; margin-top: 1.25rem; border-radius: 10px; font-size: 0.95rem; font-weight: 600;">
+                style="width: 100%; justify-content: center; height: 45px; padding: 12px; margin-top: 1.25rem; border-radius: 10px; font-size: var(--fs-300); font-weight: 600;">
                 登录
             </button>
 

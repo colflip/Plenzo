@@ -191,7 +191,7 @@ function applyScopeBadge(sectionId) {
     const badge = document.createElement('span');
     badge.className = 'scope-badge';
     badge.textContent = '范围：我创建的排课';
-    badge.style.cssText = 'display:inline-block;margin-left:10px;padding:2px 10px;font-size:12px;font-weight:400;border-radius:999px;background:#e0f2fe;color:#0369a1;vertical-align:middle;';
+    badge.style.cssText = 'display:inline-block;margin-left:10px;padding:2px 10px;font-size: var(--fs-300);font-weight:400;border-radius:999px;background:#e0f2fe;color:#0369a1;vertical-align:middle;';
     headerTitle.insertAdjacentElement('afterend', badge);
 }
 
