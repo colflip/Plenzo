@@ -84,26 +84,58 @@ async function resolveUserName(db, userType, userId) {
 
 /**
  * 统一状态映射（单一权威来源）
+ *
+ * 教师状态是「类别.生命周期」两段可读码（例 normal.completed / temp.cancelled），
+ * 一个字段承载两个正交维度，取代旧表的 status + adjustment_type + is_temp 三列。
+ * 生命周期字面量沿用旧表原名（含 modified_away），前端判定与 CSS 类名因此无需改动。
  */
-const STATUS_MAP = {
+const LIFECYCLE_MAP = {
     'pending': '待确认',
     'confirmed': '已确认',
-    'cancelled': '已取消',
     'completed': '已完成',
-    'modified_away': '已调整',
-    // 数字键兼容
-    '0': '待确认',
-    '1': '已确认',
-    '2': '已完成'
+    'cancelled': '已取消',
+    'modified_away': '已调整'
 };
 
+/** 类别位标签：normal 不出徽标（普通课不需要标记），temp/adjusted 各出一个 */
+const CATEGORY_MAP = {
+    'normal': '',
+    'adjusted': '调整增补',
+    'temp': '临时加课'
+};
+
+/** 生命周期位为这两个值的 pair 视为不活跃：不占教师活跃名额、不参与冲突与统计 */
+const INACTIVE_LIFECYCLES = ['cancelled', 'modified_away'];
+
+/** 兼容名：历史调用点把生命周期映射叫 STATUS_MAP */
+const STATUS_MAP = LIFECYCLE_MAP;
+
+/** 拆两段码；传入单值（只有生命周期）时类别按 normal 处理 */
+function splitStatus(status) {
+    const s = String(status || '');
+    const i = s.indexOf('.');
+    return i < 0
+        ? { category: 'normal', lifecycle: s }
+        : { category: s.slice(0, i), lifecycle: s.slice(i + 1) };
+}
+
 /**
- * 获取状态中文标签
+ * 获取状态中文标签。接受完整两段码或单独的生命周期位。
  * @param {string} status
  * @returns {string}
  */
 function getStatusLabel(status) {
-    return STATUS_MAP[String(status)] || String(status || '未知');
+    const { lifecycle } = splitStatus(status);
+    return LIFECYCLE_MAP[lifecycle] || String(status || '未知');
+}
+
+/**
+ * 获取类别徽标文本（普通课返回空串）。全仓禁止手写 status.split('.')，统一走这里。
+ * @param {string} status
+ * @returns {string}
+ */
+function getStatusBadge(status) {
+    return CATEGORY_MAP[splitStatus(status).category] || '';
 }
 
 /**
@@ -128,6 +160,11 @@ module.exports = {
     resolveTableName,
     resolveUserName,
     STATUS_MAP,
+    LIFECYCLE_MAP,
+    CATEGORY_MAP,
+    INACTIVE_LIFECYCLES,
+    splitStatus,
     getStatusLabel,
+    getStatusBadge,
     formatDateTime
 };

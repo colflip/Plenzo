@@ -10,6 +10,7 @@ const SchemaHelper = require('../utils/schema-helper');
 const logger = require('../utils/logger');
 const { standardResponse } = require('../middleware/validation');
 const { buildScopeClause, canTouchRecord, requiresOwnDataScope } = require('../utils/admin-permissions');
+const courseSessionService = require('./course-session-service');
 
 /**
  * 权限落地（Phase 1）：为 L3 操作员追加「仅自己创建 + 无主存量」范围过滤。
@@ -35,29 +36,6 @@ function slotToRange(slot) {
     }
 }
 
-/**
- * 动态获取日期列表达式
- * @description 兼容不同数据库 schema 版本
- */
-let caDateExprCache = null;
-async function getCaDateExpr() {
-    if (caDateExprCache) return caDateExprCache;
-    try {
-        // 列存在性检测统一走 SchemaHelper（保留本地 COALESCE 多列合并逻辑，零行为变化）
-        const cols = await SchemaHelper.getColumns('course_arrangement', ['arr_date', 'class_date', 'date']);
-        const parts = [];
-        if (cols.has('arr_date')) parts.push('arr_date');
-        if (cols.has('class_date')) parts.push('class_date');
-        if (cols.has('date')) parts.push('date');
-        const expr = parts.length > 1 ? `COALESCE(${parts.join(', ')})` : (parts[0] || 'date');
-        caDateExprCache = expr;
-        return expr;
-    } catch (_) {
-        caDateExprCache = 'date';
-        return caDateExprCache;
-    }
-}
-
 class ScheduleService {
     /**
      * 获取可用教师列表
@@ -75,7 +53,6 @@ class ScheduleService {
             throw new AppError('必须指定时段或具体起止时间', 400);
         }
 
-        const caDateExpr = await getCaDateExpr();
         const queryFn = `
             SELECT DISTINCT t.*
             FROM teachers t
@@ -85,11 +62,15 @@ class ScheduleService {
             AND (ta.start_time, ta.end_time) OVERLAPS ($2::time, $3::time)
             AND NOT EXISTS (
                 SELECT 1
-                FROM course_arrangement ca
-                WHERE ca.teacher_id = t.id
-                AND ${caDateExpr} = $1
-                AND (ca.start_time, ca.end_time) OVERLAPS ($2::time, $3::time)
-                AND ca.status NOT IN ('cancelled', 'modified_away')
+                FROM course_sessions cs
+                WHERE cs.teacher_ids @> ARRAY[t.id]
+                AND cs.class_date = $1
+                AND (cs.start_time, cs.end_time) OVERLAPS ($2::time, $3::time)
+                AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(cs.teachers) e
+                     WHERE (e->>'teacher_id')::int = t.id
+                       AND split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away')
+                )
             )
         `;
 
@@ -113,7 +94,6 @@ class ScheduleService {
             throw new AppError('必须指定时段或具体起止时间', 400);
         }
 
-        const studentCaDateExpr = await getCaDateExpr();
         const queryFn = `
             SELECT DISTINCT s.*
             FROM students s
@@ -123,11 +103,14 @@ class ScheduleService {
             AND (sa.start_time, sa.end_time) OVERLAPS ($2::time, $3::time)
             AND NOT EXISTS (
                 SELECT 1
-                FROM course_arrangement ca
-                WHERE ca.student_id = s.id
-                AND ${studentCaDateExpr} = $1
-                AND (ca.start_time, ca.end_time) OVERLAPS ($2::time, $3::time)
-                AND ca.status NOT IN ('cancelled', 'modified_away')
+                FROM course_sessions cs
+                WHERE cs.student_ids @> ARRAY[s.id]
+                AND cs.class_date = $1
+                AND (cs.start_time, cs.end_time) OVERLAPS ($2::time, $3::time)
+                AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(cs.teachers) e
+                     WHERE split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away')
+                )
             )
         `;
 
@@ -137,103 +120,127 @@ class ScheduleService {
 
     /**
      * 检查冲突 (原子性检查)
-     * @description 用于事务内部或单独调用
+     * @description 用于事务内部或单独调用。
+     *   两段式：先用派生列 `teacher_ids` / `student_ids` 拿 GIN 索引把候选场次压到个位数，
+     *   再展开 JSONB 判断「这个人在这一场里的 pair 是否还活跃」—— 数组不带状态，
+     *   jsonpath 又拿不到索引，两段各补对方的短板。
+     *   返回形状与旧实现一致：{ hasConflicts, type, message, existing }，
+     *   `existing` 现在是场次行（多带 session_id，少了 teacher_id/student_id 这类 pair 级字段）。
      */
     async checkConflicts(teacherId, studentId, date, timeSlot, startTime, endTime, client = null) {
         const [slotStart, slotEnd] = timeSlot ? slotToRange(timeSlot) : [null, null];
         const qStart = startTime || slotStart;
         const qEnd = endTime || slotEnd;
 
-        const caDateExpr = await getCaDateExpr();
         const executeQuery = client ? client.query.bind(client) : db.query.bind(db);
+        const SESSION_COLS = `cs.id, cs.id AS session_id, cs.class_date AS date,
+                              cs.start_time, cs.end_time, cs.location`;
+        // 活跃 pair：生命周期位不是 cancelled / modified_away
+        const ACTIVE_TEACHER = `EXISTS (SELECT 1 FROM jsonb_array_elements(cs.teachers) e
+                                         WHERE (e->>'teacher_id')::int = $TID
+                                           AND split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away'))`;
+        const ACTIVE_ANY = `EXISTS (SELECT 1 FROM jsonb_array_elements(cs.teachers) e
+                                     WHERE split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away'))`;
 
-        // 1. 完全重复检查
-        const dupRes = await executeQuery(
-            `SELECT id, teacher_id, student_id, course_id, ${caDateExpr} as date, start_time, end_time, status, location
-             FROM course_arrangement
-             WHERE teacher_id = $1 AND student_id = $2 AND ${caDateExpr} = $3
-               AND start_time = $4 AND end_time = $5 AND status NOT IN ('cancelled', 'modified_away')
-             LIMIT 1`,
+        // 三种冲突用一条 UNION ALL 查完，按优先级取第一条。
+        // 原来是三条串行 SELECT，而 createSchedule 会对每个 (教师, 学生) 对各调一次本方法
+        // —— 3 师 × 2 生 就是 18 条语句、远程库每条约 250ms。合成一条后降到 6 条。
+        const combined = await executeQuery(
+            `SELECT * FROM (
+                 (SELECT 1 AS prio, 'duplicate' AS kind, ${SESSION_COLS}
+                    FROM course_sessions cs
+                   WHERE cs.teacher_ids @> ARRAY[$1::int] AND cs.student_ids @> ARRAY[$2::int]
+                     AND cs.class_date = $3 AND cs.start_time = $4 AND cs.end_time = $5
+                     AND ${ACTIVE_TEACHER.replace('$TID', '$1')}
+                   LIMIT 1)
+                 UNION ALL
+                 (SELECT 2 AS prio, 'overlap_teacher' AS kind, ${SESSION_COLS}
+                    FROM course_sessions cs
+                   WHERE cs.teacher_ids @> ARRAY[$1::int]
+                     AND cs.class_date = $3
+                     AND (cs.start_time, cs.end_time) OVERLAPS ($4::time, $5::time)
+                     AND ${ACTIVE_TEACHER.replace('$TID', '$1')}
+                   LIMIT 1)
+                 UNION ALL
+                 (SELECT 3 AS prio, 'overlap_student' AS kind, ${SESSION_COLS}
+                    FROM course_sessions cs
+                   WHERE cs.student_ids @> ARRAY[$2::int]
+                     AND cs.class_date = $3
+                     AND (cs.start_time, cs.end_time) OVERLAPS ($4::time, $5::time)
+                     AND ${ACTIVE_ANY}
+                   LIMIT 1)
+             ) hits ORDER BY prio LIMIT 1`,
             [teacherId, studentId, date, qStart, qEnd]
         );
-        if (dupRes.rows.length > 0) {
-            return { hasConflicts: true, type: 'duplicate', message: '存在完全重复的排课记录', existing: dupRes.rows[0] };
-        }
 
-        // 2. 教师时间冲突
-        const teacherConflict = await executeQuery(
-            `SELECT id, teacher_id, student_id, course_id, ${caDateExpr} as date, start_time, end_time, status, location
-             FROM course_arrangement 
-             WHERE teacher_id = $1 
-               AND ${caDateExpr} = $2 
-               AND (start_time, end_time) OVERLAPS ($3::time, $4::time) 
-               AND status NOT IN ('cancelled', 'modified_away')
-             LIMIT 1`,
-            [teacherId, date, qStart, qEnd]
-        );
-        if (teacherConflict.rows.length > 0) {
-            return { hasConflicts: true, type: 'overlap_teacher', message: '教师时间段与现有排课重叠', existing: teacherConflict.rows[0] };
-        }
-
-        // 3. 学生时间冲突
-        const studentConflict = await executeQuery(
-            `SELECT id, teacher_id, student_id, course_id, ${caDateExpr} as date, start_time, end_time, status, location
-             FROM course_arrangement 
-             WHERE student_id = $1 
-               AND ${caDateExpr} = $2 
-               AND (start_time, end_time) OVERLAPS ($3::time, $4::time) 
-               AND status NOT IN ('cancelled', 'modified_away')
-             LIMIT 1`,
-            [studentId, date, qStart, qEnd]
-        );
-        if (studentConflict.rows.length > 0) {
-            return { hasConflicts: true, type: 'overlap_student', message: '学生时间段与现有排课重叠', existing: studentConflict.rows[0] };
+        const hit = (combined.rows || [])[0];
+        if (hit) {
+            // 报错文案与优先级顺序与三条串行时代逐字一致
+            const MESSAGES = {
+                duplicate: '存在完全重复的排课记录',
+                overlap_teacher: '教师时间段与现有排课重叠',
+                overlap_student: '学生时间段与现有排课重叠'
+            };
+            const { prio, kind, ...existing } = hit;
+            return { hasConflicts: true, type: kind, message: MESSAGES[kind], existing };
         }
 
         return { hasConflicts: false };
     }
 
     /**
-     * 创建课程安排 (支持多学生批量)
+     * 创建课程安排（一场课一次成型：多师多生都在一行里）
+     *
+     * 旧实现是「按学生循环、每个学生插一行」，一场 3 师 × 2 生 要插 6 行；
+     * 现在一次 createSession 就够，教师与学生各是一个 pair 数组。
+     * 冲突检测仍逐对做（沿用「允许重叠但给出提示」的既有口径）。
      */
     async createSchedule(data, userId) {
-        const { teacherId, studentIds, date, timeSlot, startTime, endTime, scheduleTypes, location, adjustment_type, is_temp, isTemp } = data;
+        const { teacherId, teacherIds, studentIds, date, timeSlot, startTime, endTime,
+            scheduleTypes, location, notes, adjustment_type, is_temp, isTemp } = data;
 
-        // 参数归一化
-        const courseId = Array.isArray(scheduleTypes) ? scheduleTypes[0] : scheduleTypes;
+        const typeList = Array.isArray(scheduleTypes) ? scheduleTypes : [scheduleTypes];
+        const courseId = typeList[0];
         if (!courseId) throw new AppError('缺少课程类型', 400);
 
-        const createdIds = [];
-        const caDateExpr = await getCaDateExpr();
+        const teacherList = Array.isArray(teacherIds) && teacherIds.length ? teacherIds : [teacherId];
+        const studentList = Array.isArray(studentIds) ? studentIds : [studentIds];
+        if (!teacherList[0]) throw new AppError('缺少教师', 400);
+        if (!studentList[0]) throw new AppError('缺少学生', 400);
 
-        // 使用事务
-        await db.runInTransaction(async (client) => {
-            // 逐个学生检查冲突并插入
-            for (const studentId of studentIds) {
-                const conflict = await this.checkConflicts(
-                    teacherId, studentId, date, timeSlot, startTime, endTime, client
-                );
+        const [slotStart, slotEnd] = timeSlot ? slotToRange(timeSlot) : [null, null];
+        const qStart = startTime || slotStart;
+        const qEnd = endTime || slotEnd;
 
+        for (const tId of teacherList) {
+            for (const sId of studentList) {
+                const conflict = await this.checkConflicts(tId, sId, date, timeSlot, startTime, endTime);
                 if (conflict.hasConflicts) {
                     throw new AppError(conflict.message, 400, { type: conflict.type, existing: conflict.existing });
                 }
-
-                const insertQuery = `
-                    INSERT INTO course_arrangement
-                    (teacher_id, student_id, course_id, ${caDateExpr}, start_time, end_time, location, status, created_by, adjustment_type)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
-                    RETURNING id
-                `;
-
-                const res = await client.query(insertQuery, [
-                    teacherId, studentId, courseId, date, startTime, endTime, location || null, userId, 
-                    adjustment_type !== undefined ? adjustment_type : (isTemp || is_temp ? 1 : 0)
-                ]);
-                createdIds.push(res.rows[0].id);
             }
-        });
+        }
 
-        return { ids: createdIds };
+        // 「临时加课」落在状态码的类别位上（旧路径经 is_temp / adjustment_type 两个名字来回错位，
+        // 导致新建时勾选不生效 —— 那个 bug 随旧路径一并消失）。
+        const category = Number(adjustment_type) === 1 || isTemp || is_temp ? 'temp' : 'normal';
+
+        const session = await courseSessionService.createSession({
+            class_date: date,
+            start_time: qStart,
+            end_time: qEnd,
+            location: location || null,
+            notes: notes || null,
+            teachers: teacherList.map((tId, i) => ({
+                teacher_id: tId,
+                type_id: typeList[i] || courseId,
+                category,
+                lifecycle: 'pending'
+            })),
+            students: studentList.map(sId => ({ student_id: sId }))
+        }, { id: userId, actorType: 'admin' });
+
+        return { ids: [session.id], session };
     }
 
     /**
@@ -245,29 +252,31 @@ class ScheduleService {
     }
 
     /**
-     * 确认排课状态
+     * 确认某位教师在某一场课里的排课（教师本人或管理员）
+     *
+     * 三个 confirm 入口（通用 / 管理员 / 教师端）现在共用 courseSessionService.setTeacherStatus：
+     * 一条相关子查询原地重建，只改这一个 pair 的生命周期位，类别位原样保留。
+     * @param {number} sessionId 场次 id
+     * @param {string} teacherUid 教师 pair 的 uid
      */
-    async confirmSchedule(scheduleId, operatorId, isOperatorAdmin) {
-        // 1. 检查排课是否存在
-        const checkRes = await db.query('SELECT teacher_id, status FROM course_arrangement WHERE id = $1', [scheduleId]);
-        if (checkRes.rows.length === 0) {
-            throw new AppError('课程不存在', 404);
-        }
+    async confirmSchedule(sessionId, teacherUid, operatorId, isOperatorAdmin) {
+        const session = await courseSessionService.getSessionById(sessionId);
+        if (!session) throw new AppError('课程不存在', 404);
 
-        const schedule = checkRes.rows[0];
+        const pair = (session.teachers || []).find(t => String(t.uid) === String(teacherUid));
+        if (!pair) throw new AppError('课程不存在', 404);
 
-        // 2. 权限检查: 只有授课教师本人或管理员可确认
-        if (!isOperatorAdmin && schedule.teacher_id !== operatorId) {
+        // 权限检查: 只有授课教师本人或管理员可确认
+        if (!isOperatorAdmin && Number(pair.teacher_id) !== Number(operatorId)) {
             throw new AppError('无权操作此课程', 403);
         }
 
-        // 3. 更新状态
-        await db.query(
-            "UPDATE course_arrangement SET status = 'confirmed' WHERE id = $1",
-            [scheduleId]
+        const r = await courseSessionService.setTeacherStatus(
+            sessionId, teacherUid, 'confirmed',
+            { id: operatorId, actorType: isOperatorAdmin ? 'admin' : 'teacher' }
         );
-
-        return { success: true };
+        if (!r.updated) throw new AppError('课程不存在', 404);
+        return { success: true, status: r.status };
     }
 
     /**
@@ -284,14 +293,12 @@ class ScheduleService {
                 endDate = endDate || '2099-12-31';
             }
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
             const values = [startDate, endDate];
 
-            // 检测 teacher/student 表是否包含 status 字段（统一经 SchemaHelper）
-            const [teacherHasStatus, studentHasStatus] = await Promise.all([
-                SchemaHelper.hasColumn('teachers', 'status'),
-                SchemaHelper.hasColumn('students', 'status')
-            ]);
+            // teachers.status / students.status 都是 schema.sql 里 NOT NULL + CHECK 的结构列，
+            // 远程库实测也在 —— 原来每次都探测一遍 information_schema（冷启动各 250ms），
+            // 现在直接写死。administrators 没有 status 列，那边的探测仍然保留。
 
             // 基础 SQL：关联教师与学生以便能够按账号状态过滤，同时关联课程类型获取中文名称
             let sql = `
@@ -302,25 +309,25 @@ class ScheduleService {
                     ca.end_time,
                     ca.status,
                     ca.teacher_id,
+                    ca.teacher_uid,
                     t.name AS teacher_name,
                     ca.student_id,
                     s.name AS student_name,
-                    ca.course_id,
+                    ca.type_id AS course_id,
                     COALESCE(stt.description, stt.name) AS schedule_type_cn,
                     ca.location,
                     ca.transport_fee,
                     ca.other_fee,
-                    ca.adjustment_type,
+                    ca.status_category,
                     ca.fee_status
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN teachers t ON ca.teacher_id = t.id
                 JOIN students s ON ca.student_id = s.id
-                LEFT JOIN schedule_types stt ON ca.course_id = stt.id
+                LEFT JOIN schedule_types stt ON ca.type_id = stt.id
                 WHERE ${dateExpr} BETWEEN $1 AND $2
             `;
 
-            if (teacherHasStatus) sql += ` AND t.status = 1`;
-            if (studentHasStatus) sql += ` AND s.status = 1`;
+            sql += ` AND t.status = 1 AND s.status = 1`;
 
             if (status) {
                 values.push(status);
@@ -328,7 +335,7 @@ class ScheduleService {
             }
             if (type) {
                 values.push(type);
-                sql += ` AND ca.course_id = $${values.length}`;
+                sql += ` AND ca.type_id = $${values.length}`;
             }
 
             // 费用报销状态过滤（与排课状态 status 分开）
@@ -341,7 +348,7 @@ class ScheduleService {
             // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
             // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
             if (String(req.query.show_plan) !== 'true') {
-                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+                sql += ` AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')`;
             }
 
             // 权限落地：L3 仅见自己创建 + 无主存量
@@ -358,7 +365,11 @@ class ScheduleService {
     }
 
     /**
-     * 管理员：获取单条排课详情（逻辑下沉自 admin-controller.getScheduleById）
+     * 管理员：获取单场课详情（编辑弹窗数据源）
+     *
+     * 返回**场次形状**：头部字段 + `teachers[]` / `students[]` 两个 pair 数组 + `version`。
+     * 弹窗改成整场编辑，必须一次拿到全部 pair；pair 里的 id 在这里换成姓名后附上
+     * （`teacher_name` / `student_name` / `type_name` / `created_by_name`），前端不再各自去查。
      */
     async adminGetScheduleById(req) {
         try {
@@ -367,37 +378,27 @@ class ScheduleService {
             if (!Number.isInteger(numId) || numId <= 0) {
                 return { status: 400, body: { message: '无效的排课ID' } };
             }
-            // 日期列表达式统一经 SchemaHelper（ca 别名，配合 FROM course_arrangement ca）
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
 
-            // 防御性兜底：family_participants 是后期加入的可选列，部分存量生产库可能缺失。
-            // 缺失时跳过该列，避免 GET /admin/schedules/:id 因 undefined_column 抛 500（卡片无法打开）。
-            const baseCols = [
-                'ca.id', 'ca.teacher_id', 'ca.student_id', 'ca.course_id',
-                'ca.status', 'ca.start_time', 'ca.end_time', 'ca.location', 'ca.adjustment_type'
-            ];
-            if (await SchemaHelper.hasColumn('course_arrangement', 'family_participants')) {
-                baseCols.push('ca.family_participants');
-            }
-
-            let detailSql = `SELECT ${baseCols.join(', ')},
-                        ${dateExpr} AS date
-                 FROM course_arrangement ca
-                 WHERE ca.id = $1`;
-            const detailParams = [numId];
+            let sql = `SELECT id, class_date, class_date AS date, start_time, end_time, location, notes,
+                              teachers, students, teacher_ids, student_ids, version,
+                              created_by, created_at, updated_by, updated_at
+                         FROM course_sessions cs
+                        WHERE cs.id = $1`;
+            const params = [numId];
 
             // 权限落地：L3 访问他人创建的记录视为不存在（不暴露存在性）
-            const scope = buildScopeClause(req && req.user, "ca");
+            const scope = buildScopeClause(req && req.user, 'cs');
             if (scope) {
-                detailParams.push(scope.actorId);
-                detailSql += ` AND (ca.created_by = $${detailParams.length} OR ca.created_by IS NULL)`;
+                params.push(scope.actorId);
+                sql += ` AND (cs.created_by = $${params.length} OR cs.created_by IS NULL)`;
             }
 
-            const result = await db.query(detailSql, detailParams);
+            const result = await db.query(sql, params);
             if (result.rows.length === 0) {
                 return { status: 404, body: { message: '未找到排课记录' } };
             }
-            return { status: 200, body: result.rows[0] };
+            const session = await this.decorateSessionNames(result.rows[0]);
+            return { status: 200, body: session };
         } catch (error) {
             logger.error('获取排课详情错误:', error);
             return { status: 500, body: { message: '服务器错误' } };
@@ -405,7 +406,60 @@ class ScheduleService {
     }
 
     /**
-     * 管理员：获取网格视图排课（逻辑下沉自 admin-controller.getSchedulesGrid）
+     * 给场次的 pair 补上姓名（教师 / 学生 / 类型 / 各 pair 的添加人）。
+     * 三次批量查询换掉逐 pair 的 JOIN —— Neon 下每条 SQL 都是一次往返，批量取名更划算。
+     */
+    async decorateSessionNames(session) {
+        const teacherIds = (session.teachers || []).map(t => t.teacher_id).filter(Boolean);
+        const studentIds = (session.students || []).map(s => s.student_id).filter(Boolean);
+        const typeIds = (session.teachers || []).map(t => t.type_id).filter(Boolean);
+        const adminIds = [
+            session.created_by, session.updated_by,
+            ...(session.teachers || []).map(t => t.created_by),
+            ...(session.students || []).map(s => s.created_by)
+        ].filter(Boolean);
+
+        const nameMap = async (table, ids, labelExpr) => {
+            const uniq = [...new Set(ids.map(Number).filter(Number.isFinite))];
+            if (uniq.length === 0) return new Map();
+            const r = await db.query(`SELECT id, ${labelExpr} AS label FROM ${table} WHERE id = ANY($1::int[])`, [uniq]);
+            return new Map((r.rows || []).map(x => [Number(x.id), x.label]));
+        };
+
+        const [teachers, students, types, admins] = await Promise.all([
+            nameMap('teachers', teacherIds, 'name'),
+            nameMap('students', studentIds, 'name'),
+            nameMap('schedule_types', typeIds, 'COALESCE(description, name)'),
+            nameMap('administrators', adminIds, 'COALESCE(name, username)')
+        ]);
+
+        return {
+            ...session,
+            created_by_name: admins.get(Number(session.created_by)) || null,
+            updated_by_name: admins.get(Number(session.updated_by)) || null,
+            teachers: (session.teachers || []).map(t => ({
+                ...t,
+                teacher_name: teachers.get(Number(t.teacher_id)) || null,
+                type_name: types.get(Number(t.type_id)) || null,
+                created_by_name: admins.get(Number(t.created_by)) || null,
+                created_by_id: t.created_by != null ? Number(t.created_by) : null
+            })),
+            students: (session.students || []).map(s => ({
+                ...s,
+                student_name: students.get(Number(s.student_id)) || null,
+                created_by_name: admins.get(Number(s.created_by)) || null,
+                created_by_id: s.created_by != null ? Number(s.created_by) : null
+            }))
+        };
+    }
+
+    /**
+     * 管理员：获取网格视图排课（周视图数据源）
+     *
+     * 数据源换成 v_session_pairs（一行 = 一个教师 pair × 一个学生 pair），**返回形状与旧表时代一致**
+     * —— 前端的卡片渲染、水印、配色、状态下拉全部沿用原代码，只需把分组键换成 session_id。
+     * 新增的键：session_id / teacher_uid / student_uid / status_category / status_code / version。
+     * 去掉的键：adjustment_type（改由 status_category 表达）。
      */
     async adminGetSchedulesGrid(req) {
         try {
@@ -416,65 +470,72 @@ class ScheduleService {
                 return { status: 400, body: { message: '缺少开始/结束日期' } };
             }
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            const teacherHasStatus = await SchemaHelper.hasColumn('teachers', 'status');
-            const studentHasStatus = await SchemaHelper.hasColumn('students', 'status');
+            // teachers.status / students.status 都是 schema.sql 里 NOT NULL + CHECK 的结构列，
+            // 远程库实测也在 —— 原来每次都探测一遍 information_schema（冷启动各 250ms），
+            // 现在直接写死。administrators 没有 status 列，那边的探测仍然保留。
 
             let sql = `
                 SELECT
-                    ca.id,
+                    vp.session_id,
+                    vp.session_id AS id,
+                    vp.teacher_uid,
+                    vp.student_uid,
                     s.id AS student_id,
                     s.name AS student_name,
                     t.id AS teacher_id,
                     t.name AS teacher_name,
-                    ca.course_id,
+                    vp.type_id AS course_id,
                     stt.name AS schedule_type,
                     COALESCE(stt.description, stt.name) AS schedule_types,
                     COALESCE(stt.description, stt.name) AS schedule_type_cn,
-                    ${dateExpr} AS date,
-                    ca.start_time,
-                    ca.end_time,
-                    ca.location,
-                    ca.status,
-                    ca.transport_fee,
-                    ca.other_fee,
-                    ca.fee_status,
-                    ca.adjustment_type
-                FROM course_arrangement ca
-                JOIN students s ON ca.student_id = s.id
-                JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types stt ON ca.course_id = stt.id
-                WHERE ${dateExpr}::date >= $1::date AND ${dateExpr}::date <= $2::date
+                    vp.class_date AS date,
+                    vp.start_time,
+                    vp.end_time,
+                    vp.location,
+                    vp.notes,
+                    vp.status,
+                    vp.status_category,
+                    vp.status_code,
+                    vp.transport_fee,
+                    vp.other_fee,
+                    vp.fee_status,
+                    vp.family_participants,
+                    vp.version
+                FROM v_session_pairs vp
+                JOIN students s ON vp.student_id = s.id
+                JOIN teachers t ON vp.teacher_id = t.id
+                JOIN schedule_types stt ON vp.type_id = stt.id
+                WHERE vp.class_date >= $1::date AND vp.class_date <= $2::date
             `;
             const params = [start_date, end_date];
 
             if (status) {
-                sql += ` AND ca.status = $${params.length + 1}`;
+                sql += ` AND vp.status = $${params.length + 1}`;
                 params.push(status);
             }
             if (effectiveTypeId) {
-                sql += ` AND ca.course_id = $${params.length + 1}`;
+                sql += ` AND vp.type_id = $${params.length + 1}`;
                 params.push(effectiveTypeId);
             }
 
-            // [新增] 隐藏已调整且调整类型为0的记录 (Hide modified_away with adjustment_type 0)
+            // 隐藏被调走的原课程（旧口径：status='modified_away' AND adjustment_type=0）
+            // 新口径是单值判定：生命周期位 modified_away 且类别位 normal。
             // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
             if (String(req.query.show_plan) !== 'true') {
-                sql += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+                sql += ` AND NOT (vp.status = 'modified_away' AND vp.status_category = 'normal')`;
             }
 
             // 过滤删除状态：允许正常与暂停，但不显示删除
-            if (teacherHasStatus) sql += ` AND t.status <> -1`;
-            if (studentHasStatus) sql += ` AND s.status <> -1`;
+            sql += ` AND t.status <> -1 AND s.status <> -1`;
             if (teacher_id) {
-                sql += ` AND ca.teacher_id = $${params.length + 1}`;
+                sql += ` AND vp.teacher_id = $${params.length + 1}`;
                 params.push(teacher_id);
             }
 
-            // 权限落地：L3 仅见自己创建 + 无主存量
-            sql = applyOwnerScope(sql, params, req && req.user, "ca");
+            // 权限落地：L3 仅见自己创建 + 无主存量（视图透出场次头部的 created_by）
+            sql = applyOwnerScope(sql, params, req && req.user, 'vp');
 
-            sql += ` ORDER BY ${dateExpr} ASC, s.id ASC, ca.start_time ASC`;
+            sql += ` ORDER BY vp.class_date ASC, s.id ASC, vp.start_time ASC`;
 
             const result = await db.query(sql, params);
             const rows = result.rows || [];
@@ -498,302 +559,263 @@ class ScheduleService {
     }
 
     /**
-     * 管理员：创建排课（逻辑下沉自 admin-controller.createSchedule）
+     * 管理员：创建排课 —— 一场课一行，多师多生一次成型
+     *
+     * 旧实现收 `studentIds` / `scheduleTypes` 数组却只取 `[0]` 插一行，其余学生以
+     * `skipped_students` 静默丢弃（排一场「3 师 × 2 生」要提交 6 次）。现在整场一次写入，
+     * `skipped_students` 连同它的静默丢弃一起删掉。
+     *
+     * 请求体同时兼容新旧两种形状：
+     * - 新：`teachers: [{teacher_id, type_id, category, lifecycle}]` + `students: [{student_id, family_participants}]`
+     * - 旧：`teacherId` / `studentIds[]` / `scheduleTypes[]` / `status` / `is_temp`
      */
     async adminCreateSchedule(req) {
         try {
-            const {
-                teacherId,
-                date,
-                timeSlot,
-                startTime,
-                endTime,
-                studentIds,
-                scheduleTypes,
-                location,
-                status,
-                resolve_strategy,
-                is_temp
-            } = req.body;
+            const b = req.body || {};
+            const { date, startTime, endTime, location, notes, status } = b;
 
-            // 使用统一事务封装，支持 pool client 与 serverless 回退
-            let createdScheduleId = null;
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
+            // 基础验证：时间格式与先后关系（数据库还有 chk_cs_time_order 兜底）
+            const toMinutes = (v) => {
+                const m = /^([0-2]?\d):([0-5]\d)/.exec(String(v || ''));
+                return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+            };
+            const sMin = toMinutes(startTime);
+            const eMin = toMinutes(endTime);
+            if (isNaN(sMin) || isNaN(eMin)) {
+                return { status: 400, body: { message: '开始/结束时间格式不正确（HH:MM）', errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } };
+            }
+            if (eMin <= sMin) {
+                return { status: 400, body: { message: '结束时间必须晚于开始时间', errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } };
+            }
 
-                // 验证教师与学生状态必须为1(正常)（列存在性统一经 SchemaHelper，schema 级检测与事务无关）
-                const hasTeacherStatus = await SchemaHelper.hasColumn('teachers', 'status');
-                const hasStudentStatus = await SchemaHelper.hasColumn('students', 'status');
-                if (hasTeacherStatus) {
-                    const tRes = await q('SELECT status FROM teachers WHERE id = $1', [teacherId]);
-                    if (!tRes.rows.length) throw Object.assign(new Error('教师不存在'), { statusCode: 400 });
-                    const tStatus = Number(tRes.rows[0].status);
-                    if (tStatus !== 1) throw Object.assign(new Error('教师状态非正常，无法参与排课'), { statusCode: 400 });
-                }
-                const firstStudentId = Array.isArray(studentIds) ? studentIds[0] : studentIds;
-                if (hasStudentStatus && firstStudentId != null) {
-                    const sRes = await q('SELECT status FROM students WHERE id = $1', [firstStudentId]);
-                    if (!sRes.rows.length) throw Object.assign(new Error('学生不存在'), { statusCode: 400 });
-                    const sStatus = Number(sRes.rows[0].status);
-                    if (sStatus !== 1) throw Object.assign(new Error('学生状态非正常，无法参与排课'), { statusCode: 400 });
-                }
+            // 归一成 pair 数组
+            const lifecycle = ['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']
+                .includes(String(status || '').trim()) ? String(status).trim() : 'pending';
+            const category = (b.is_temp === 1 || b.is_temp === '1' || b.is_temp === true
+                || Number(b.adjustment_type) === 1) ? 'temp' : 'normal';
+            const typeList = Array.isArray(b.scheduleTypes) ? b.scheduleTypes
+                : (b.scheduleTypes != null ? [b.scheduleTypes] : []);
 
-                // 适配新结构：每条 course_arrangement 代表一个学生的具体安排
-                const firstTypeId = Array.isArray(scheduleTypes) ? scheduleTypes[0] : scheduleTypes;
+            const teachers = Array.isArray(b.teachers) && b.teachers.length
+                ? b.teachers
+                : (Array.isArray(b.teacherIds) && b.teacherIds.length ? b.teacherIds : [b.teacherId])
+                    .filter(v => v != null)
+                    .map((tid, i) => ({ teacher_id: tid, type_id: typeList[i] ?? typeList[0], category, lifecycle }));
 
-                // 日期列表达式统一经 SchemaHelper（无别名，配合 INSERT 列名）
-                const dateExpr = await SchemaHelper.getDateExpr(null);
-                // 基础验证：时间格式与先后关系
-                function toMinutes(t) {
-                    const m = /^([0-2]?\d):([0-5]\d)$/.exec(String(t || ''));
-                    if (!m) return NaN;
-                    return Number(m[1]) * 60 + Number(m[2]);
-                }
-                const sMin = toMinutes(startTime);
-                const eMin = toMinutes(endTime);
-                if (isNaN(sMin) || isNaN(eMin)) {
-                    throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
-                }
-                if (eMin <= sMin) {
-                    throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
-                }
+            const famDefault = b.family_participants !== undefined ? Number(b.family_participants) : 4;
+            const students = Array.isArray(b.students) && b.students.length
+                ? b.students
+                : (Array.isArray(b.studentIds) ? b.studentIds : [b.studentIds])
+                    .filter(v => v != null)
+                    .map(sid => ({ student_id: sid, family_participants: famDefault }));
 
-                // 允许完全重复：不进行重复检测（同一教师/学生/日期/时间段也允许保留多条）
+            if (teachers.length === 0) return { status: 400, body: { message: '至少需要一位教师' } };
+            if (students.length === 0) return { status: 400, body: { message: '至少需要一位学生' } };
 
-                // 冲突检测移除：允许教师同一时间段存在多条排课
-                const overlapPredicate = `NOT (end_time <= $3 OR start_time >= $4)`;
-                // 学生冲突（如提供）
-                // 学生重叠允许：不阻断创建，满足同一时间段同一学生可存在多条记录的需求
-                // 地点冲突移除：允许地点同一时间段存在多条排课
+            // 教师/学生账号状态必须正常（列存在性统一经 SchemaHelper）
+            const statusGuard = await this.assertParticipantsActive(
+                teachers.map(t => t.teacher_id), students.map(s => s.student_id)
+            );
+            if (statusGuard) return { status: 400, body: { message: statusGuard } };
 
-                // 按传入状态写入，默认 pending，且限制为几种合法状态
-                const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
-                const nextStatus = allowedStatuses.has(String(status || '').trim()) ? String(status).trim() : 'pending';
-                // Family participants
-                const familyParticipants = req.body.family_participants !== undefined ? Number(req.body.family_participants) : 4;
+            const session = await courseSessionService.createSession({
+                class_date: date,
+                start_time: startTime,
+                end_time: endTime,
+                location: location || null,
+                notes: notes || null,
+                teachers,
+                students
+            }, { id: req.user.id, actorType: 'admin' });
 
-                const insertSql = `INSERT INTO course_arrangement (teacher_id, student_id, course_id, ${dateExpr}, start_time, end_time, status, location, created_by, family_participants, adjustment_type)
-                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                               RETURNING id`;
-                const insertResult = await q(
-                    insertSql,
-                    [teacherId, firstStudentId, firstTypeId, date, startTime, endTime, nextStatus, location || null, req.user.id, familyParticipants, (is_temp === 1 || is_temp === '1' || is_temp === true) ? 1 : null]
-                );
-
-                // 保存结果，事务提交后再发送响应
-                createdScheduleId = insertResult.rows[0].id;
-            });
-            // 事务成功提交后才发送响应
-            return { status: 201, body: { id: createdScheduleId, skipped_students: Array.isArray(studentIds) ? Math.max(0, studentIds.length - 1) : 0 } };
+            return { status: 201, body: { id: session.id, session } };
         } catch (error) {
             logger.error('创建排课错误:', error);
-            // 友好错误映射
-            const msg = String(error?.message || '');
-            if (error.code === '23503') { // foreign_key_violation
-                return { status: 400, body: { message: '外键约束冲突', errors: [{ field: 'fk', message: '教师/学生/类型不存在或已被删除' }] } };
-            } else if (error.code === '23514') { // check_violation
-                return { status: 400, body: { message: '检查约束冲突', errors: [{ field: 'check', message: '不符合数据库检查约束' }] } };
+            if (error && error.name === 'SessionValidationError') {
+                return { status: 400, body: { message: error.message, errors: [{ field: 'pair', message: error.message }] } };
             }
-            // 结构化错误（由事务内抛出）支持携带 statusCode / payload
-            if (error.statusCode && Number(error.statusCode) >= 400 && Number(error.statusCode) < 600) {
-                const status = Number(error.statusCode);
-                const payload = error.payload || {};
-                return { status, body: Object.assign({ message: error.message }, payload) };
+            if (error.code === '23514') {
+                return { status: 400, body: { message: '检查约束冲突', errors: [{ field: 'check', message: '不符合数据库检查约束（状态码 / 费用 / uid 唯一性）' }] } };
+            }
+            if (error.code === '23503') {
+                return { status: 400, body: { message: '外键约束冲突', errors: [{ field: 'fk', message: '教师/学生/类型不存在或已被删除' }] } };
             }
             return { status: 500, body: { message: '服务器错误', errors: [{ field: 'db', message: '数据库错误' }] } };
         }
     }
 
     /**
-     * 管理员：更新排课（逻辑下沉自 admin-controller.updateSchedule）
+     * 参与人账号状态守卫：任何一位教师/学生状态不是 1（正常）就拒绝排课。
+     * 返回错误消息字符串，或 null 表示通过。
+     */
+    async assertParticipantsActive(teacherIds, studentIds) {
+        const check = async (table, ids, label) => {
+            if (!await SchemaHelper.hasColumn(table, 'status')) return null;
+            const uniq = [...new Set(ids.map(Number).filter(Number.isFinite))];
+            if (uniq.length === 0) return null;
+            const r = await db.query(`SELECT id, status FROM ${table} WHERE id = ANY($1::int[])`, [uniq]);
+            const found = new Map((r.rows || []).map(x => [Number(x.id), Number(x.status)]));
+            for (const id of uniq) {
+                if (!found.has(id)) return `${label}不存在`;
+                if (found.get(id) !== 1) return `${label}状态非正常，无法参与排课`;
+            }
+            return null;
+        };
+        return (await check('teachers', teacherIds, '教师')) || (await check('students', studentIds, '学生'));
+    }
+
+    /**
+     * 管理员：更新一场课
+     *
+     * 拆成三件互不相干的事，各走各的服务方法（不再是一条 UPDATE 拼所有字段）：
+     * 1. 头部字段（日期/时段/地点/备注）→ `updateSessionHeader`，**天然整场生效**，
+     *    旧实现那套「找到同组其他行一起改」的补偿逻辑随之作废；带 `version` 乐观锁。
+     * 2. 某位教师 pair 的内容（类型/评分/评价/费用）→ `patchPair`，白名单裁剪 + `version`。
+     * 3. 生命周期切换 → `setTeacherStatus`（原地重建，不带 `version`）；其中把状态改成
+     *    `modified_away` 会触发**作废+增补**：`adjustTeacherPair` 在一条 UPDATE 里把原 pair
+     *    标成 `*.modified_away` 并追加一个 `adjusted.pending` 的新 pair。
+     *
+     * 请求体里的 `teacher_uid` 指明操作哪一位教师；缺省时若本场只有一位教师就用那一位。
      */
     async adminUpdateSchedule(req) {
         try {
             const { id } = req.params;
-            let resData = null;
-            // 使用 snake_case 字段以匹配验证规则
-            const {
-                teacher_id,
-                date,
-                start_time,
-                end_time,
-                student_ids,
-                type_ids,
-                status,
-                location,
-                family_participants,
-                is_temp
-            } = req.body;
+            const b = req.body || {};
+            const actor = { id: req.user && req.user.id, actorType: 'admin' };
 
-            // 将更新逻辑放入事务中，确保读取-验证-更新在同一连接上执行
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) return { status: 404, body: { message: '排课不存在' } };
 
-                // 日期列表达式统一经 SchemaHelper（无别名，配合 FROM/INSERT 列名）
-                const dateExpr = await SchemaHelper.getDateExpr(null);
-
-                // 读取当前记录，便于缺省字段沿用现值并做冲突校验
-                const currentRes = await q(`
-                  SELECT id, teacher_id, student_id, course_id, ${dateExpr} AS date, start_time, end_time, location, family_participants, created_by, status, adjustment_type
-                  FROM course_arrangement WHERE id = $1
-                `, [id]);
-                if (currentRes.rows.length === 0) {
-                    throw Object.assign(new Error('排课不存在'), { statusCode: 404 });
-                }
-                const current = currentRes.rows[0];
-
-                // 权限落地：L3 只能修改自己创建或无主的记录；越权视为不存在
-                if (!canTouchRecord(current.created_by, req && req.user)) {
-                    throw Object.assign(new Error('排课不存在'), { statusCode: 404 });
-                }
-
-                // 适配并计算生效更新值
-                const nextStudentId = Array.isArray(student_ids) ? student_ids[0] : student_ids;
-                const nextTypeId = Array.isArray(type_ids) ? type_ids[0] : type_ids;
-                const effTeacherId = (teacher_id != null) ? teacher_id : current.teacher_id;
-                const effStudentId = (nextStudentId != null) ? nextStudentId : current.student_id;
-                const effTypeId = (nextTypeId != null) ? nextTypeId : current.course_id;
-                const effDate = (date != null && date !== '') ? date : current.date;
-                const effStart = (start_time != null && start_time !== '') ? start_time : current.start_time;
-                const effEnd = (end_time != null && end_time !== '') ? end_time : current.end_time;
-                const effLocation = (location !== undefined) ? (location || null) : current.location;
-
-                // 验证教师与学生状态（列存在性统一经 SchemaHelper）
-                const hasTeacherStatus = await SchemaHelper.hasColumn('teachers', 'status');
-                const hasStudentStatus = await SchemaHelper.hasColumn('students', 'status');
-                if (hasTeacherStatus) {
-                    const tRes = await q('SELECT status FROM teachers WHERE id = $1', [effTeacherId]);
-                    if (!tRes.rows.length) throw Object.assign(new Error('教师不存在'), { statusCode: 400 });
-                    if (Number(tRes.rows[0].status) !== 1) throw Object.assign(new Error('教师状态非正常，无法参与排课'), { statusCode: 400 });
-                }
-                if (hasStudentStatus) {
-                    const sRes = await q('SELECT status FROM students WHERE id = $1', [effStudentId]);
-                    if (!sRes.rows.length) throw Object.assign(new Error('学生不存在'), { statusCode: 400 });
-                    if (Number(sRes.rows[0].status) !== 1) throw Object.assign(new Error('学生状态非正常，无法参与排课'), { statusCode: 400 });
-                }
-
-                // 时间格式校验 (兼容 HH:MM 和 HH:MM:SS)
-                function toMinutes(t) {
-                    const m = /^([0-2]?\d):([0-5]\d)(?::([0-5]\d))?$/.exec(String(t || ''));
-                    if (!m) return NaN;
-                    return Number(m[1]) * 60 + Number(m[2]);
-                }
-                const sMin = toMinutes(effStart);
-                const eMin = toMinutes(effEnd);
-                if (isNaN(sMin) || isNaN(eMin)) throw Object.assign(new Error('开始/结束时间格式不正确（HH:MM）'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '开始/结束时间格式不正确（HH:MM）' }] } });
-                if (eMin <= sMin) throw Object.assign(new Error('结束时间必须晚于开始时间'), { statusCode: 400, payload: { errors: [{ field: 'time', message: '结束时间必须晚于开始时间' }] } });
-
-                // [重要] 如果状态被设为 'modified_away'，且原状态不是 'modified_away' 且原纪录是非增补课程 (adjustment_type != 2)，执行“逻辑作废+增补”逻辑
-                if (status === 'modified_away' && current.status !== 'modified_away' && Number(current.adjustment_type || 0) !== 2) {
-                     // 1. 将现记录置为 modified_away （仅更新状态）
-                     await q(`UPDATE course_arrangement SET status = 'modified_away', adjustment_type = 0 WHERE id = $1`, [id]);
-
-                     // 2. 插入新的一笔作为调整后的实际课程，类型标记为 2 (临时改动)
-                     const insertSql = `
-                        INSERT INTO course_arrangement
-                        (teacher_id, student_id, course_id, ${dateExpr}, start_time, end_time, location, family_participants, status, created_by, adjustment_type)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', $9, 2)
-                        RETURNING id
-                     `;
-                     const creatorId = req.user ? req.user.id : current.created_by;
-                     const effFamilyParticipants = (family_participants !== undefined) ?
-                        (family_participants === null ? 4 : Number(family_participants)) :
-                        (current.family_participants === null ? 4 : Number(current.family_participants));
-
-                     const newRes = await q(insertSql, [
-                        effTeacherId, effStudentId, effTypeId, effDate, effStart, effEnd, effLocation,
-                        isNaN(effFamilyParticipants) ? 4 : effFamilyParticipants, creatorId
-                     ]);
-
-                     resData = standardResponse(true, { newId: newRes.rows[0].id }, '排课已成功调整，原记录已归档');
-                     return;
-                }
-
-                // 正常更新流程
-                const sets = [];
-                const values = [];
-                let vi = 1;
-                if (teacher_id != null) { sets.push(`teacher_id = $${vi++}`); values.push(teacher_id); }
-                if (date != null) { sets.push(`${dateExpr} = $${vi++}`); values.push(date); }
-                if (start_time != null) { sets.push(`start_time = $${vi++}`); values.push(start_time); }
-                if (end_time != null) { sets.push(`end_time = $${vi++}`); values.push(end_time); }
-                if (status != null) {
-                    const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'modified_away']);
-                    const finalStatus = allowedStatuses.has(String(status).trim()) ? String(status).trim() : current.status;
-                    sets.push(`status = $${vi++}`);
-                    values.push(finalStatus);
-                }
-                if (nextStudentId != null) { sets.push(`student_id = $${vi++}`); values.push(nextStudentId); }
-                if (nextTypeId != null) { sets.push(`course_id = $${vi++}`); values.push(nextTypeId); }
-                if (location !== undefined) { sets.push(`location = $${vi++}`); values.push(location || null); }
-                if (family_participants !== undefined) { sets.push(`family_participants = $${vi++}`); values.push((family_participants === null) ? 4 : Number(family_participants)); }
-
-                // 权限落地：L3 修改无主记录时自动认领归属
-                if (requiresOwnDataScope(req && req.user) && (current.created_by === null || current.created_by === undefined)) {
-                    sets.push(`created_by = $${vi++}`);
-                    values.push(req.user.id);
-                }
-
-                // 适配 adjustment_type
-                const adjType = req.body.adjustment_type !== undefined ? req.body.adjustment_type : (req.body.is_temp ? 1 : undefined);
-                // adjustment_type=2 是「调整」流程写入的溯源标记（增补记录），不是用户可编辑属性。
-                // 普通更新一律不得把它改掉，否则记录会丢失「调」水印与报销/统计口径
-                // （历史上编辑表单默认回传 adjustment_type=0，正是这样把已调整记录降级成普通课程的）。
-                const isSupplementary = Number(current.adjustment_type || 0) === 2;
-                if (adjType !== undefined && !isSupplementary) {
-                    sets.push(`adjustment_type = $${vi++}`);
-                    values.push(adjType);
-                } else if (adjType !== undefined && isSupplementary && Number(adjType) !== 2) {
-                    logger.warn(`[adminUpdateSchedule] 忽略对增补记录 ${id} 的 adjustment_type 降级请求（${current.adjustment_type} → ${adjType}）`);
-                }
-
-                if (sets.length === 0) throw Object.assign(new Error('无更新字段'), { statusCode: 400 });
-
-                const sql = `UPDATE course_arrangement SET ${sets.join(', ')} WHERE id = $${vi}`;
-                values.push(id);
-                await q(sql, values);
-
-                resData = standardResponse(true, null, '排课更新成功');
-            });
-
-            if (!resData) {
-                return { status: 400, body: standardResponse(false, null, '未检测到任何字段修改') };
+            // 权限落地：L3 只能改自己创建的记录（越权视为不存在，不暴露存在性）
+            // 注意参数顺序是 (记录的 created_by, 操作者)，全仓其余 9 个调用点都是这个顺序；
+            // 这里曾经写反成 (req.user, session)，导致 requiresOwnDataScope 把 session 当操作者、
+            // 取不到 permissionLevel 而按最低档 L3 判定，再拿 Number(req.user) 去比 session.id
+            // —— 结果任何级别的管理员保存排课都恒定 404。
+            if (!canTouchRecord(session.created_by, req && req.user)) {
+                return { status: 404, body: { message: '排课不存在' } };
             }
-            return { status: 200, body: resData };
+
+            let version = b.version !== undefined ? Number(b.version) : Number(session.version);
+            let current = session;
+
+            // 1) 头部字段
+            const headerPatch = {};
+            if (b.date !== undefined) headerPatch.class_date = b.date;
+            if (b.class_date !== undefined) headerPatch.class_date = b.class_date;
+            if (b.start_time !== undefined) headerPatch.start_time = b.start_time;
+            if (b.end_time !== undefined) headerPatch.end_time = b.end_time;
+            if (b.location !== undefined) headerPatch.location = b.location;
+            if (b.notes !== undefined) headerPatch.notes = b.notes;
+            if (Object.keys(headerPatch).length > 0) {
+                current = await courseSessionService.updateSessionHeader(id, headerPatch, actor, version, current);
+                version = Number(current.version);
+            }
+
+            const rejectedFields = [];
+            if (Array.isArray(b.teachers) || Array.isArray(b.students)) {
+                // ---- 整场保存：请求带 teachers[] / students[]（每个元素 uid 有则 patch、无则 add）----
+                // 合并「去重难点」一页：uid 项 = updatePair（整列 patch + 生命周期）；无 uid = addPair。
+                const result = await courseSessionService.updatePairsBatch(id, b, actor, version, current);
+                if (result.notFound) return { status: 404, body: { message: '排课不存在' } };
+                current = result.session;
+                version = Number(current.version);
+                rejectedFields.push(...(result.rejectedFields || []));
+
+                // 旧字段（teacher_uid / type_id / lifecycle / family_participants）仍然兼容：
+                // 批量描述未覆盖到的部分，由下方原有「单教师」逻辑兜底处理
+            }
+
+            // 定位教师 pair：URL :uid > body teacher_uid > 单教师自动检测 > teacher_id 匹配
+            // （仅在没有批量 teachers 数组时才走到这里 —— 批量命中后其上已处理完所有 pair）
+            const teachers = current.teachers || [];
+            let teacherUid = b.teacher_uid || req.params.uid;
+            if (!teacherUid && teachers.length === 1) teacherUid = teachers[0].uid;
+            if (!teacherUid && b.teacher_id != null) {
+                const hit = teachers.find(p => Number(p.teacher_id) === Number(b.teacher_id));
+                if (hit) teacherUid = hit.uid;
+            }
+
+            if (teacherUid && !(Array.isArray(b.teachers) && b.teachers.length)) {
+                // 2) pair 内容
+                const pairPatch = {};
+                if (b.type_id !== undefined) pairPatch.type_id = b.type_id;
+                if (Array.isArray(b.type_ids) && b.type_ids.length) pairPatch.type_id = b.type_ids[0];
+                if (b.teacher_rating !== undefined) pairPatch.teacher_rating = b.teacher_rating;
+                if (b.teacher_comment !== undefined) pairPatch.teacher_comment = b.teacher_comment;
+                if (b.transport_fee !== undefined) pairPatch.transport_fee = b.transport_fee;
+                if (b.other_fee !== undefined) pairPatch.other_fee = b.other_fee;
+                if (Object.keys(pairPatch).length > 0) {
+                    const r = await courseSessionService.patchPair(id, 'teacher', teacherUid, pairPatch, actor, version, current);
+                    if (r.notFound) return { status: 404, body: { message: '排课不存在' } };
+                    current = r.session;
+                    version = Number(current.version);
+                    rejectedFields.push(...(r.rejectedFields || []));
+                }
+
+                // 3) 生命周期
+                const lifecycle = b.lifecycle || b.status;
+                if (lifecycle) {
+                    const pair = (current.teachers || []).find(x => String(x.uid) === String(teacherUid));
+                    const wasAdjusted = pair && pair.status.startsWith('adjusted.');
+                    if (lifecycle === 'modified_away' && pair && !pair.status.endsWith('.modified_away') && !wasAdjusted) {
+                        // 作废+增补：原 pair 标记调走，同一条 UPDATE 追加 adjusted.pending 新 pair
+                        const r = await courseSessionService.adjustTeacherPair(
+                            id, teacherUid, { type_id: b.type_id || (Array.isArray(b.type_ids) ? b.type_ids[0] : undefined) }, actor, version, current
+                        );
+                        if (r.notFound) return { status: 404, body: { message: '排课不存在' } };
+                        current = r.session;
+                        version = Number(current.version);
+                    } else {
+                        const r = await courseSessionService.setTeacherStatus(id, teacherUid, lifecycle, actor, b.notes, current);
+                        if (!r.updated) return { status: 404, body: { message: '排课不存在' } };
+                        current = r.session;
+                        version = Number(current.version);
+                    }
+                }
+            }
+
+            // 学生 pair 的家属人数（唯一由旧表单顺带传来的学生侧字段）
+            if (b.family_participants !== undefined && !(Array.isArray(b.students) && b.students.length)) {
+                const studentUid = b.student_uid
+                    || ((current.students || []).length === 1 ? current.students[0].uid : null);
+                if (studentUid) {
+                    const r = await courseSessionService.patchPair(
+                        id, 'student', studentUid, { family_participants: b.family_participants }, actor, version, current
+                    );
+                    if (!r.notFound) {
+                        current = r.session;
+                        version = Number(current.version);
+                        rejectedFields.push(...(r.rejectedFields || []));
+                    }
+                }
+            }
+
+            const body = await this.decorateSessionNames(current);
+            if (rejectedFields.length) body.rejectedFields = [...new Set(rejectedFields)];
+            return { status: 200, body };
         } catch (error) {
+            if (error && error.name === 'VersionConflictError') {
+                return { status: 409, body: { message: error.message } };
+            }
+            if (error && error.name === 'SessionValidationError') {
+                return { status: 400, body: { message: error.message, rejectedFields: error.rejectedFields } };
+            }
             logger.error('更新排课错误:', error);
-
-            // 友好错误映射
-            let mapped = { message: '服务器错误', code: error.code || 'UNKNOWN_ERROR', errors: [] };
-            if (error.statusCode === 404) {
-                 return { status: 404, body: standardResponse(false, null, error.message) };
-            }
-
-            if (error.code === '23505') { // unique_violation
-                mapped.message = '数据唯一性约束冲突';
-                mapped.errors = [{ field: 'unique', message: '相同教师/学生/时间段的排课已存在' }];
-            } else if (error.code === '23503') { // foreign_key_violation
-                mapped.message = '外键约束冲突';
-                mapped.errors = [{ field: 'fk', message: '教师/学生/类型不存在或已被删除' }];
-            } else if (error.code === '23514') { // check_violation
-                mapped.message = '检查约束冲突';
-                mapped.errors = [{ field: 'check', message: '不符合数据库检查约束' }];
-            } else {
-                mapped.errors = [{ field: 'db', message: '数据库操作失败' }];
-            }
-            return { status: error.statusCode || 500, body: standardResponse(false, null, mapped.message, mapped.errors) };
+            return { status: 500, body: { message: '服务器错误' } };
         }
     }
 
     /**
-     * 管理员：删除排课（逻辑下沉自 admin-controller.deleteSchedule）
+     * 管理员：删除整场课（含全部教师与学生 pair）
+     * 三张审计表随 `ON DELETE CASCADE` 一并清理。
+     * 只删一位教师/学生请走 `adminRemovePair`。
      */
     async adminDeleteSchedule(req) {
         try {
             const { id } = req.params;
 
             // 先验证排课是否存在（含 L3 归属校验：越权视为不存在）
-            const existing = await db.query('SELECT id, created_by FROM course_arrangement WHERE id = $1', [id]);
+            const existing = await db.query('SELECT id, created_by FROM course_sessions WHERE id = $1', [id]);
             if (!existing.rows || existing.rows.length === 0) {
                 return { status: 404, body: { message: '未找到该排课记录' } };
             }
@@ -801,14 +823,77 @@ class ScheduleService {
                 return { status: 404, body: { message: '未找到该排课记录' } };
             }
 
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-                await q('DELETE FROM course_arrangement WHERE id = $1', [id]);
-            });
-            // 事务成功提交后才发送响应
+            // 不开事务：deleteSession 的主语句是单条 DELETE（本身原子），
+            // 随后那条 session_change_logs 审计是「失败只告警」的旁路，包进事务也不会
+            // 因它回滚删除。而每个 runInTransaction 要额外付 BEGIN + COMMIT 两次往返
+            // （远程库每条约 250ms），这里省 500ms。
+            await courseSessionService.deleteSession(id, { id: req.user && req.user.id, actorType: 'admin' });
             return { status: 200, body: { message: '排课删除成功' } };
         } catch (error) {
             logger.error('删除排课错误:', error);
+            return { status: 500, body: { message: '服务器错误' } };
+        }
+    }
+
+    /**
+     * 管理员：从一场课里移除一位教师或学生（删除的第二种粒度）。
+     * 移除后该数组为空的场次会被整场删除 —— 这一点在确认弹窗里要如实提示。
+     */
+    async adminRemovePair(req) {
+        try {
+            const { id, uid } = req.params;
+            const kind = req.params.kind === 'students' ? 'student' : 'teacher';
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) return { status: 404, body: { message: '未找到该排课记录' } };
+            if (!canTouchRecord(session.created_by, req && req.user)) {
+                return { status: 404, body: { message: '未找到该排课记录' } };
+            }
+            const version = req.body && req.body.version !== undefined ? Number(req.body.version) : Number(session.version);
+            const arr = kind === 'teacher' ? (session.teachers || []) : (session.students || []);
+
+            // 最后一位 → 整场删除（服务层会拒绝把数组删空，这里把语义显式化）
+            if (arr.length <= 1) {
+                await courseSessionService.deleteSession(id, { id: req.user && req.user.id, actorType: 'admin' });
+                return { status: 200, body: { message: '这是本场最后一位，已删除整场排课', deletedSession: true } };
+            }
+            const r = await courseSessionService.removePair(id, kind, uid, { id: req.user.id, actorType: 'admin' }, version);
+            if (r.notFound) return { status: 404, body: { message: '未找到该 pair' } };
+            return { status: 200, body: await this.decorateSessionNames(r.session) };
+        } catch (error) {
+            if (error && error.name === 'VersionConflictError') return { status: 409, body: { message: error.message } };
+            if (error && error.name === 'SessionValidationError') return { status: 400, body: { message: error.message } };
+            logger.error('移除排课 pair 错误:', error);
+            return { status: 500, body: { message: '服务器错误' } };
+        }
+    }
+
+    /**
+     * 管理员：往一场课里加一位教师或学生
+     */
+    async adminAddPair(req) {
+        try {
+            const { id } = req.params;
+            const kind = req.params.kind === 'students' ? 'student' : 'teacher';
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) return { status: 404, body: { message: '未找到该排课记录' } };
+            if (!canTouchRecord(session.created_by, req && req.user)) {
+                return { status: 404, body: { message: '未找到该排课记录' } };
+            }
+            const version = req.body && req.body.version !== undefined ? Number(req.body.version) : Number(session.version);
+            const guard = kind === 'teacher'
+                ? await this.assertParticipantsActive([req.body.teacher_id], [])
+                : await this.assertParticipantsActive([], [req.body.student_id]);
+            if (guard) return { status: 400, body: { message: guard } };
+
+            const r = await courseSessionService.addPair(id, kind, req.body, { id: req.user.id, actorType: 'admin' }, version);
+            if (r.notFound) return { status: 404, body: { message: '未找到该排课记录' } };
+            const body = await this.decorateSessionNames(r.session);
+            body.uid = r.uid;
+            return { status: 201, body };
+        } catch (error) {
+            if (error && error.name === 'VersionConflictError') return { status: 409, body: { message: error.message } };
+            if (error && error.name === 'SessionValidationError') return { status: 400, body: { message: error.message } };
+            logger.error('新增排课 pair 错误:', error);
             return { status: 500, body: { message: '服务器错误' } };
         }
     }
@@ -822,7 +907,7 @@ class ScheduleService {
             const { adminConfirmed } = req.body;
 
             // 权限落地：先校验存在性与 L3 归属（越权视为不存在）
-            const targetRes = await db.query('SELECT id, created_by FROM course_arrangement WHERE id = $1', [id]);
+            const targetRes = await db.query('SELECT id, created_by FROM course_sessions WHERE id = $1', [id]);
             if (!targetRes.rows || targetRes.rows.length === 0) {
                 return { status: 404, body: { message: '未找到排课记录' } };
             }
@@ -830,15 +915,18 @@ class ScheduleService {
                 return { status: 404, body: { message: '未找到排课记录' } };
             }
 
-            // 适配新结构：更新 course_arrangement 状态，并维护更新时间
-            // 注意：数据库schema中不包含notes字段，避免引用不存在的列
-            await db.query(
-                `UPDATE course_arrangement
-                 SET status = CASE WHEN $2 THEN 'confirmed' ELSE status END,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1`,
-                [id, !!adminConfirmed]
-            );
+            // 确认收敛到 setTeacherStatus（原地重建，只改生命周期位，类别位保留）。
+            // 没指定 teacher_uid 时确认本场全部教师 pair —— 与旧的「整行置 confirmed」语义等价。
+            if (adminConfirmed) {
+                const actor = { id: req.user && req.user.id, actorType: 'admin' };
+                const session = await courseSessionService.getSessionById(id);
+                const uids = req.body.teacher_uid
+                    ? [req.body.teacher_uid]
+                    : (session.teachers || []).map(p => p.uid);
+                for (const uid of uids) {
+                    await courseSessionService.setTeacherStatus(id, uid, 'confirmed', actor, req.body.notes);
+                }
+            }
 
             return { status: 200, body: { message: '课程确认状态更新成功' } };
         } catch (error) {
@@ -854,32 +942,30 @@ class ScheduleService {
         try {
             const { startDate, endDate, status } = req.query;
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             let query = `
                 SELECT
                     ca.id,
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
-                    ca.teacher_id, ca.location,
+                    ca.teacher_id, ca.teacher_uid, ca.location,
                     t.name as teacher_name,
                     ca.transport_fee, ca.other_fee,
                     ca.fee_status,
-                    ca.adjustment_type,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
                     st.name as student_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN students st ON ca.student_id = st.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            if (await SchemaHelper.hasColumn('teachers', 'status')) query += ` AND t.status = 1`;
-            if (await SchemaHelper.hasColumn('students', 'status')) query += ` AND st.status = 1`;
+            query += ` AND t.status = 1 AND st.status = 1`;
 
             const values = [req.user.id, startDate, endDate];
 
@@ -897,7 +983,7 @@ class ScheduleService {
             // 默认隐藏调走的原课程；"显示全部安排"时与管理员端一致展示
             // 兼容字符串与布尔（Joi boolean 校验会把 'true' 转为布尔 true）
             if (String(req.query.show_plan) !== 'true') {
-                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+                query += ` AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')`;
             }
 
             query += ` ORDER BY date, ca.start_time`;
@@ -911,104 +997,104 @@ class ScheduleService {
     }
 
     /**
-     * 教师：确认课程（逻辑下沉自 teacher-controller.confirmSchedule）
+     * 教师：确认自己那个 pair 的课
+     * 收敛到 `teacherUpdateScheduleStatus`（同一个原地重建语句），只是生命周期固定 confirmed。
      */
     async teacherConfirmSchedule(req) {
-        try {
-            const { id } = req.params;
-            const { teacherConfirmed, notes } = req.body;
-
-            // 查询课程信息，验证是否是该教师的课程
-            const schedule = await db.query(
-                'SELECT id, teacher_id FROM course_arrangement WHERE id = $1',
-                [id]
-            );
-
-            if (schedule.rows.length === 0) {
-                return { status: 404, body: { message: '未找到相关课程' } };
-            }
-
-            if (Number(schedule.rows[0].teacher_id) !== Number(req.user.id) && req.user.userType !== 'admin') {
-                return { status: 403, body: { message: '无权操作' } };
-            }
-
-            // 更新课程状态与教师评价备注
-            await db.query(
-                `UPDATE course_arrangement
-                 SET status = CASE
-                        WHEN $2::boolean THEN 'confirmed'
-                        ELSE COALESCE(status, 'pending')
-                    END,
-                     teacher_comment = COALESCE($3, teacher_comment),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1`,
-                [id, !!teacherConfirmed, notes || null]
-            );
-
+        const { teacherConfirmed, notes, teacher_uid } = req.body || {};
+        if (!teacherConfirmed) {
             return { status: 200, body: { message: '课程确认状态更新成功' } };
-        } catch (error) {
-            logger.error('确认课程错误:', error);
-            return { status: 500, body: { message: '服务器错误' } };
         }
+        return this.teacherUpdateScheduleStatus({
+            ...req,
+            body: { lifecycle: 'confirmed', notes, teacher_uid }
+        });
     }
 
     /**
-     * 教师：更新课程状态（逻辑下沉自 teacher-controller.updateScheduleStatus）
+     * 教师 / 班主任：切换某位教师 pair 的生命周期位
+     *
+     * 这是非管理员唯一能写 `teachers` 列的路径，走 `setTeacherStatus` 的原地重建：
+     * 语句结构上只能改 `status` 一个键、只匹配一个 uid —— **语句形态即权限**，
+     * 比字段白名单更硬（白名单写错会误改字段，语句写错则是写不成）。
+     * 服务层再断言这个 uid 的 `teacher_id === actor.id`（班主任则断言本场学生在其名下）。
      */
     async teacherUpdateScheduleStatus(req) {
         try {
             const { id } = req.params;
-            const { status, notes } = req.body || {};
+            const { status, lifecycle, notes, teacher_uid } = req.body || {};
+            const wanted = lifecycle || status;
 
-            if (!status) {
+            if (!wanted) {
                 return { status: 400, body: { message: '缺少课程状态' } };
             }
-
-            // 规范化并验证状态值
-            const normalizedStatus = String(status).trim().toLowerCase();
+            const normalizedStatus = String(wanted).trim().toLowerCase();
             if (!LESSON_STATUS_SET.has(normalizedStatus)) {
                 return { status: 400, body: { message: '非法的课程状态值' } };
             }
 
-            // 获取排课详细信息以进行权限检查
-            const scheduleCheck = await db.query('SELECT teacher_id, student_id FROM course_arrangement WHERE id = $1', [id]);
-            if (scheduleCheck.rows.length === 0) {
+            const session = await courseSessionService.getSessionById(id);
+            if (!session) {
                 return { status: 404, body: { message: '未找到相关课程' } };
             }
 
-            const { teacher_id, student_id } = scheduleCheck.rows[0];
-            let hasPermission = false;
-
-            if (teacher_id === req.user.id) {
-                hasPermission = true; // 自己是任课教师
-            } else {
-                // 检查是否为该学生班主任
-                const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [req.user.id]);
-                if (teacherResult.rows.length > 0 && teacherResult.rows[0].student_ids) {
-                    const studentIdsStr = teacherResult.rows[0].student_ids;
-                    const studentIds = studentIdsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-                    if (studentIds.includes(Number(student_id))) {
-                        hasPermission = true;
-                    }
+            // 定位 pair：显式 teacher_uid 优先；否则取本人在这一场里的那个 pair
+            const teachers = session.teachers || [];
+            let uid = teacher_uid;
+            if (!uid) {
+                const own = teachers.filter(p => Number(p.teacher_id) === Number(req.user.id));
+                if (own.length === 1) uid = own[0].uid;
+                else if (own.length > 1) {
+                    return { status: 400, body: { message: '本场课您有多条记录，请指明 teacher_uid' } };
                 }
             }
+            const pair = teachers.find(p => String(p.uid) === String(uid));
+            if (!pair) {
+                return { status: 404, body: { message: '未找到相关课程' } };
+            }
 
+            // 权限：本人任课，或该场学生在自己名下（班主任）
+            let hasPermission = Number(pair.teacher_id) === Number(req.user.id);
+            if (!hasPermission) {
+                const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [req.user.id]);
+                const raw = teacherResult.rows.length ? teacherResult.rows[0].student_ids : null;
+                if (raw) {
+                    const bound = String(raw).split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+                    hasPermission = (session.students || []).some(s => bound.includes(Number(s.student_id)));
+                }
+            }
             if (!hasPermission) {
                 return { status: 403, body: { message: '无权修改该课程状态（非本人任课且不属于所负责学生）' } };
             }
 
-            const result = await db.query(
-                `UPDATE course_arrangement
-                 SET status = $2,
-                     teacher_comment = COALESCE($3, teacher_comment),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1
-                 RETURNING id, status, start_time, end_time, location`,
-                [id, normalizedStatus, notes || null]
+            const r = await courseSessionService.setTeacherStatus(
+                id, uid, normalizedStatus,
+                { id: req.user.id, actorType: req.user.userType === 'admin' ? 'admin' : 'teacher' },
+                notes
             );
-
-            return { status: 200, body: { message: '课程状态更新成功', schedule: result.rows[0] } };
+            if (!r.updated) {
+                return { status: 404, body: { message: '未找到相关课程' } };
+            }
+            return {
+                status: 200,
+                body: {
+                    message: '课程状态更新成功',
+                    schedule: {
+                        id: Number(id),
+                        session_id: Number(id),
+                        teacher_uid: uid,
+                        status: normalizedStatus,
+                        status_code: r.status,
+                        start_time: r.session.start_time,
+                        end_time: r.session.end_time,
+                        location: r.session.location
+                    }
+                }
+            };
         } catch (error) {
+            if (error && error.name === 'SessionValidationError') {
+                return { status: 400, body: { message: error.message } };
+            }
             logger.error('更新课程状态错误:', error);
             return { status: 500, body: { message: '服务器错误' } };
         }
@@ -1023,7 +1109,7 @@ class ScheduleService {
             const limit = Math.min(1000, Number(req.query.limit) || 0) || null;
             const offset = Number(req.query.offset) || 0;
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             let query = `
                 SELECT
@@ -1034,16 +1120,15 @@ class ScheduleService {
                     st.name as student_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN students st ON ca.student_id = st.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            if (await SchemaHelper.hasColumn('teachers', 'status')) query += ` AND t.status = 1`;
-            if (await SchemaHelper.hasColumn('students', 'status')) query += ` AND st.status = 1`;
+            query += ` AND t.status = 1 AND st.status = 1`;
 
             const values = [req.user.id, startDate, endDate];
 
@@ -1085,14 +1170,7 @@ class ScheduleService {
                 return { status: 200, body: { students: [], schedules: [] } };
             }
 
-            // 查询所有关联学生的基本信息（即使没有排课也要显示）
-            const studentsResult = await db.query(
-                `SELECT id, name FROM students WHERE id = ANY($1::int[]) ORDER BY id`,
-                [studentIds]
-            );
-            const students = studentsResult.rows;
-
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             // 查询关联学生的所有课程，过滤掉已取消的
             let query = `
@@ -1102,21 +1180,21 @@ class ScheduleService {
                     ca.start_time, ca.end_time, ca.status,
                     ca.location, ca.transport_fee, ca.other_fee,
                     ca.fee_status,
-                    ca.adjustment_type,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
+                    ca.teacher_uid,
                     t.name as teacher_name, t.id as teacher_id,
                     st.name as student_name, st.id as student_id,
                     sty.name as schedule_type, sty.description as schedule_type_cn
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN students st ON ca.student_id = st.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.student_id = ANY($1::int[])
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
             if (String(req.query.show_plan) !== 'true') {
-                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+                query += ` AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')`;
             }
 
             // 费用报销状态过滤（班主任视图同样支持）
@@ -1128,8 +1206,12 @@ class ScheduleService {
 
             query += ` ORDER BY date, ca.start_time`;
 
-            const result = await db.query(query, headParams);
-            return { status: 200, body: { students, schedules: result.rows } };
+            // 学生名单与排课都只依赖上面解析出的 studentIds，彼此无关 —— 并发省一次往返
+            const [studentsResult, result] = await Promise.all([
+                db.query(`SELECT id, name FROM students WHERE id = ANY($1::int[]) ORDER BY id`, [studentIds]),
+                db.query(query, headParams)
+            ]);
+            return { status: 200, body: { students: studentsResult.rows, schedules: result.rows } };
         } catch (error) {
             logger.error('获取班主任学生排课错误:', error);
             return { status: 500, body: { message: '服务器错误' } };
@@ -1143,29 +1225,27 @@ class ScheduleService {
         try {
             const { startDate, endDate, status } = req.query;
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
             let query = `
                 SELECT
                     ca.id,
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.adjustment_type,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
                     ca.teacher_id, t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn,
-                    ca.course_id
-                FROM course_arrangement ca
+                    ca.type_id AS course_id
+                FROM v_session_pairs ca
                 JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 JOIN students s ON ca.student_id = s.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
             `;
 
-            if (await SchemaHelper.hasColumn('teachers', 'status')) query += ` AND t.status = 1`;
-            if (await SchemaHelper.hasColumn('students', 'status')) query += ` AND s.status = 1`;
+            query += ` AND t.status = 1 AND s.status = 1`;
 
             const values = [req.user.id, startDate, endDate];
 
@@ -1176,7 +1256,7 @@ class ScheduleService {
 
             // 默认隐藏调走的原课程；"显示全部安排"时与管理员端一致展示
             if (req.query.show_plan !== 'true') {
-                query += ` AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)`;
+                query += ` AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')`;
             }
 
             query += ` ORDER BY date, ca.start_time`;
@@ -1189,61 +1269,48 @@ class ScheduleService {
         }
     }
 
-    /**
-     * 学生：确认课程（逻辑下沉自 student-controller.confirmSchedule）
-     */
-    async studentConfirmSchedule(req) {
-        try {
-            const scheduleId = req.params.id;
-
-            // 验证课程是否属于该学生
-            const checkResult = await db.query(
-                'SELECT id FROM course_arrangement WHERE id = $1 AND student_id = $2',
-                [scheduleId, req.user.id]
-            );
-
-            if (checkResult.rows.length === 0) {
-                return { status: 404, body: { message: '未找到该课程或无权限' } };
-            }
-
-            // 更新状态为已确认
-            await db.query(
-                'UPDATE course_arrangement SET status = $1 WHERE id = $2',
-                ['confirmed', scheduleId]
-            );
-
-            return { status: 200, body: { message: '课程确认成功' } };
-        } catch (error) {
-            logger.error('确认课程错误:', error);
-            return { status: 500, body: { message: '服务器错误' } };
-        }
-    }
     // ============ 统计相关（逻辑下沉自 admin/teacher/student controller 的 stats 方法） ============
 
     /** 管理员：总览统计（教师/学生数量、排课统计等） */
     async adminOverviewStats(req) {
         try {
-            const caDateExpr = await SchemaHelper.getDateExpr('');
             // 权限落地：排课衍生指标对 L3 按创建者范围过滤；教师/学生数为全局实体计数保持不变
-            const scope = buildScopeClause(req && req.user, "course_arrangement");
+            const scope = buildScopeClause(req && req.user, 'v_session_pairs');
             let scopeSql = '';
             const params = [];
             if (scope) {
                 params.push(scope.actorId);
                 scopeSql = ` AND ${scope.clause.replace('$ACTOR_ID', '$1')}`;
             }
+            // 8 个指标压在同一条语句的 subselect 里。多几个 subselect 不多一次往返，
+            // 而前端原来是「另外拉 /admin/schedules 全量（实测 164KB / 2.6s）再在浏览器里数
+            // 本周/本年/已完成/已取消」—— 4 个整数换一次全量传输，这里把它换掉。
+            const ACTIVE = `NOT (status = 'modified_away' AND status_category = 'normal')`;
             const stats = await db.query(`
                 SELECT
                     (SELECT COUNT(*) FROM teachers) as teacher_count,
                     (SELECT COUNT(*) FROM students) as student_count,
-                    (SELECT COUNT(*) FROM course_arrangement
-                       WHERE ${caDateExpr} >= DATE_TRUNC('month', CURRENT_DATE)
-                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)${scopeSql}) as monthly_schedules,
-                    (SELECT COUNT(*) FROM course_arrangement
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE class_date >= DATE_TRUNC('month', CURRENT_DATE)
+                         AND ${ACTIVE}${scopeSql}) as monthly_schedules,
+                    (SELECT COUNT(*) FROM v_session_pairs
                        WHERE status = 'pending'
-                         AND NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)${scopeSql}) as pending_count,
-                    (SELECT COUNT(*) FROM course_arrangement
-                       WHERE NOT (status = 'modified_away' AND COALESCE(adjustment_type, 0) = 0)${scopeSql}) as total_schedules
+                         AND ${ACTIVE}${scopeSql}) as pending_count,
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE ${ACTIVE}${scopeSql}) as total_schedules,
+                    -- 本周：周一为一周之首，与前端原来的 getDay() 折算口径一致
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE class_date >= DATE_TRUNC('week', CURRENT_DATE)
+                         AND class_date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+                         AND ${ACTIVE}${scopeSql}) as weekly_schedules,
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE class_date >= DATE_TRUNC('year', CURRENT_DATE)
+                         AND class_date < DATE_TRUNC('year', CURRENT_DATE) + INTERVAL '1 year'
+                         AND ${ACTIVE}${scopeSql}) as yearly_schedules,
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE status = 'completed' AND ${ACTIVE}${scopeSql}) as completed_schedules,
+                    (SELECT COUNT(*) FROM v_session_pairs
+                       WHERE status = 'cancelled' AND ${ACTIVE}${scopeSql}) as cancelled_schedules
             `, params);
 
             const rows = (stats && stats.rows) ? stats.rows : (Array.isArray(stats) ? stats : []);
@@ -1255,7 +1322,11 @@ class ScheduleService {
                         student_count: 0,
                         monthly_schedules: 0,
                         pending_count: 0,
-                        total_schedules: 0
+                        total_schedules: 0,
+                        weekly_schedules: 0,
+                        yearly_schedules: 0,
+                        completed_schedules: 0,
+                        cancelled_schedules: 0
                     }
                 };
             }
@@ -1284,17 +1355,17 @@ class ScheduleService {
                 endDate = lastDay.toISOString().split('T')[0];
             }
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             // 权限落地：L3 仅统计自己创建 + 无主存量的排课
             let statQuery = `
                 SELECT
                     COALESCE(st.description, st.name) as type,
                     COUNT(*) as count
-                FROM course_arrangement ca
-                JOIN schedule_types st ON ca.course_id = st.id
+                FROM v_session_pairs ca
+                JOIN schedule_types st ON ca.type_id = st.id
                 WHERE ${dateExpr} BETWEEN $1 AND $2
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
             `;
             const statParams = [startDate, endDate];
             statQuery = applyOwnerScope(statQuery, statParams, req && req.user, "ca");
@@ -1328,7 +1399,7 @@ class ScheduleService {
                 endDate = lastDay.toISOString().split('T')[0];
             }
 
-            const dateExpr2 = await SchemaHelper.getDateExpr('ca');
+            const dateExpr2 = 'ca.class_date';
 
             // 权限落地：L3 仅统计自己创建 + 无主存量的排课（教师/学生名单本身保持全员）
             const userScope = buildScopeClause(req && req.user, "ca");
@@ -1339,37 +1410,39 @@ class ScheduleService {
                 userScopeSql = ` AND ${userScope.clause.replace('$ACTOR_ID', `$${userParams.length}`)}`;
             }
 
-            const teacherStats = await db.query(`
+            // 两条聚合参数相同、互不依赖，并发省一次往返（远程库每条约 250ms）
+            const [teacherStats, studentStats] = await Promise.all([
+                db.query(`
                 SELECT
                     t.id as teacher_id,
                     t.name as teacher_name,
                     COALESCE(st.description, st.name, '未分类') as schedule_type,
                     COUNT(ca.id) as type_count
                 FROM teachers t
-                LEFT JOIN course_arrangement ca ON t.id = ca.teacher_id
+                LEFT JOIN v_session_pairs ca ON t.id = ca.teacher_id
                     AND ${dateExpr2} BETWEEN $1 AND $2
-                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')${userScopeSql}
-                LEFT JOIN schedule_types st ON ca.course_id = st.id
+                    AND ca.status NOT IN ('cancelled', 'modified_away')${userScopeSql}
+                LEFT JOIN schedule_types st ON ca.type_id = st.id
                 WHERE t.status != -1
                 GROUP BY t.id, t.name, COALESCE(st.description, st.name, '未分类')
                 ORDER BY t.name
-            `, userParams);
-
-            const studentStats = await db.query(`
+            `, userParams),
+                db.query(`
                 SELECT
                     s.id as student_id,
                     s.name as student_name,
                     COALESCE(st.description, st.name, '未分类') as schedule_type,
                     COUNT(ca.id) as type_count
                 FROM students s
-                LEFT JOIN course_arrangement ca ON s.id = ca.student_id
+                LEFT JOIN v_session_pairs ca ON s.id = ca.student_id
                     AND ${dateExpr2} BETWEEN $1 AND $2
-                    AND ca.status NOT IN ('cancelled', '0', 'modified_away')${userScopeSql}
-                LEFT JOIN schedule_types st ON ca.course_id = st.id
+                    AND ca.status NOT IN ('cancelled', 'modified_away')${userScopeSql}
+                LEFT JOIN schedule_types st ON ca.type_id = st.id
                 WHERE s.status != -1
                 GROUP BY s.id, s.name, COALESCE(st.description, st.name, '未分类')
                 ORDER BY s.name
-            `, userParams);
+            `, userParams)
+            ]);
 
             const aggregateByPerson = (rows, idKey, nameKey) => {
                 const map = new Map();
@@ -1412,18 +1485,18 @@ class ScheduleService {
         try {
             const { startDate, endDate } = req.query;
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             const [typeStatsResult, dailyStatsResult, monthlyStatsResult] = await Promise.all([
                 db.query(`
                 SELECT
                     COALESCE(sty.description, sty.name) as type,
                     COUNT(*) as count
-                FROM course_arrangement ca
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                FROM v_session_pairs ca
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]),
@@ -1433,11 +1506,11 @@ class ScheduleService {
                     to_char(DATE_TRUNC('day', ${dateExpr}), 'YYYY-MM-DD') as date,
                     COALESCE(sty.description, sty.name) as type,
                     COUNT(*) as count
-                FROM course_arrangement ca
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                FROM v_session_pairs ca
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 GROUP BY DATE_TRUNC('day', ${dateExpr}), COALESCE(sty.description, sty.name)
                 ORDER BY date, count DESC
             `, [req.user.id, startDate, endDate]),
@@ -1446,10 +1519,10 @@ class ScheduleService {
                 SELECT
                     DATE_TRUNC('month', ${dateExpr}) as month,
                     COUNT(*) as count
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 GROUP BY DATE_TRUNC('month', ${dateExpr})
                 ORDER BY month
             `, [req.user.id, startDate, endDate])
@@ -1507,11 +1580,12 @@ class ScheduleService {
             const yearStartStr = formatDate(firstDayOfYear);
             const yearEndStr = formatDate(lastDayOfYear);
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
-            const teacherHasStatus = await SchemaHelper.hasColumn('teachers', 'status');
-            const studentHasStatus = await SchemaHelper.hasColumn('students', 'status');
+            const dateExpr = 'ca.class_date';
+            // teachers.status / students.status 都是 schema.sql 里 NOT NULL + CHECK 的结构列，
+            // 远程库实测也在 —— 原来每次都探测一遍 information_schema（冷启动各 250ms），
+            // 现在直接写死。administrators 没有 status 列，那边的探测仍然保留。
 
-            const statsResult = await db.query(`
+            const statsQuery = `
                 SELECT
                     SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as weekly_count,
                     SUM(CASE WHEN ${dateExpr} BETWEEN $4 AND $5 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as monthly_count,
@@ -1519,16 +1593,17 @@ class ScheduleService {
                     SUM(CASE WHEN ca.status = 'pending' THEN 1 ELSE 0 END)::int as total_pending,
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
                     SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
-                FROM course_arrangement ca
-                ${teacherHasStatus ? 'JOIN teachers t ON ca.teacher_id = t.id' : ''}
+                FROM v_session_pairs ca
+                JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.teacher_id = $1
-                  ${teacherHasStatus ? 'AND t.status = 1' : ''}
-            `, [
+                  AND t.status = 1
+            `;
+            const statsParams = [
                 req.user.id,
                 weekStartStr, weekEndStr,
                 monthStartStr, monthEndStr,
                 yearStartStr, yearEndStr
-            ]);
+            ];
 
             let todayQuery = `
                 SELECT
@@ -1537,24 +1612,27 @@ class ScheduleService {
                     ${dateExpr} AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
                     t.name as teacher_name,
                     s.name as student_name,
                     sty.name as schedule_type
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN students s ON ca.student_id = s.id
-                LEFT JOIN schedule_types sty ON ca.course_id = sty.id
+                LEFT JOIN schedule_types sty ON ca.type_id = sty.id
                 JOIN teachers t ON ca.teacher_id = t.id
                 WHERE ca.teacher_id = $1
                   AND ${dateExpr} = $2
             `;
 
-            if (teacherHasStatus) todayQuery += ` AND t.status = 1`;
-            if (studentHasStatus) todayQuery += ` AND s.status = 1`;
+            todayQuery += ` AND t.status = 1 AND s.status = 1`;
 
             todayQuery += ` ORDER BY ca.start_time`;
 
-            const todaySchedules = await db.query(todayQuery, [req.user.id, todayStr]);
+            // 统计与今日课表互不依赖，并发省一次往返（远程库每条约 250ms）
+            const [statsResult, todaySchedules] = await Promise.all([
+                db.query(statsQuery, statsParams),
+                db.query(todayQuery, [req.user.id, todayStr])
+            ]);
 
             return {
                 status: 200,
@@ -1582,18 +1660,18 @@ class ScheduleService {
                 return { status: 400, body: { message: '请提供日期范围' } };
             }
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
             const [typeStats, monthlyStats, schedules] = await Promise.all([
                 db.query(`
                 SELECT
                     COALESCE(sty.description, sty.name) as type,
                     COUNT(*)::int as count
-                FROM course_arrangement ca
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                FROM v_session_pairs ca
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 GROUP BY COALESCE(sty.description, sty.name)
                 ORDER BY count DESC
             `, [req.user.id, startDate, endDate]),
@@ -1602,10 +1680,10 @@ class ScheduleService {
                 SELECT
                     TO_CHAR(${dateExpr}, 'YYYY-MM') as month,
                     COUNT(*)::int as count
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 GROUP BY TO_CHAR(${dateExpr}, 'YYYY-MM')
                 ORDER BY month
             `, [req.user.id, startDate, endDate]),
@@ -1616,16 +1694,16 @@ class ScheduleService {
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 LEFT JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} BETWEEN $2 AND $3
-                  AND ca.status NOT IN ('cancelled', '0', 'modified_away')
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
                 ORDER BY date DESC, ca.start_time ASC
             `, [req.user.id, startDate, endDate])
             ]);
@@ -1682,9 +1760,11 @@ class ScheduleService {
             const yearStartStr = formatDate(firstDayOfYear);
             const yearEndStr = formatDate(lastDayOfYear);
 
-            const dateExpr = await SchemaHelper.getDateExpr('ca');
+            const dateExpr = 'ca.class_date';
 
-            const statsResult = await db.query(`
+            // 统计与今日课表互不依赖，并发省一次往返（远程库每条约 250ms）
+            const [statsResult, todaySchedules] = await Promise.all([
+                db.query(`
                 SELECT
                     SUM(CASE WHEN ${dateExpr} BETWEEN $2 AND $3 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as weekly_count,
                     SUM(CASE WHEN ${dateExpr} BETWEEN $4 AND $5 AND ca.status IN ('pending', 'confirmed', 'completed') THEN 1 ELSE 0 END)::int as monthly_count,
@@ -1692,34 +1772,34 @@ class ScheduleService {
                     SUM(CASE WHEN ca.status IN ('pending', 'confirmed') THEN 1 ELSE 0 END)::int as total_pending,
                     SUM(CASE WHEN ca.status = 'completed' THEN 1 ELSE 0 END)::int as total_completed,
                     SUM(CASE WHEN ca.status = 'cancelled' THEN 1 ELSE 0 END)::int as total_cancelled
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 WHERE ca.student_id = $1
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')
             `, [
                 req.user.id,
                 weekStartStr, weekEndStr,
                 monthStartStr, monthEndStr,
                 yearStartStr, yearEndStr
-            ]);
-
-            const todaySchedules = await db.query(`
+            ]),
+                db.query(`
                 SELECT
                     ca.id,
                     (${dateExpr})::text AS date,
                     ca.start_time, ca.end_time, ca.status,
                     ca.location,
-                    ca.adjustment_type AS is_temp,
+                    ca.status_category,
                     t.name as teacher_name,
                     sty.name as schedule_type,
                     sty.description as schedule_type_cn
-                FROM course_arrangement ca
+                FROM v_session_pairs ca
                 JOIN teachers t ON ca.teacher_id = t.id
-                JOIN schedule_types sty ON ca.course_id = sty.id
+                JOIN schedule_types sty ON ca.type_id = sty.id
                 WHERE ca.student_id = $1
                   AND ${dateExpr} = $2
-                  AND NOT (ca.status = 'modified_away' AND COALESCE(ca.adjustment_type, 0) = 0)
+                  AND NOT (ca.status = 'modified_away' AND ca.status_category = 'normal')
                 ORDER BY ca.start_time
-            `, [req.user.id, todayStr]);
+            `, [req.user.id, todayStr])
+            ]);
 
             return {
                 status: 200,
