@@ -74,15 +74,15 @@ function validateFeeStatusTransition(role, from, to) {
 }
 
 // 在事务内写入费用状态流转审计（q 为事务 query 或 db.query，均接受 (text, params)）
-async function writeFeeStatusLog(q, { scheduleId, oldStatus, newStatus, operatorId, actorType, note }) {
+async function writeFeeStatusLog(q, { sessionId, teacherUid, oldStatus, newStatus, operatorId, actorType, note }) {
     try {
-        // 审计表存在性检查统一走 SchemaHelper（全局 db，schema 级检测与事务无关）
-        if (!(await SchemaHelper.hasTable('fee_status_logs'))) return;
+        // 审计按 (session_id, teacher_uid) 记账：费用挂在教师 pair 上，一趟一笔
+        if (!(await SchemaHelper.hasTable('session_fee_status_logs'))) return;
         await q(
-            `INSERT INTO fee_status_logs
-             (schedule_id, old_status, new_status, operator_id, actor_type, note, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
-            [scheduleId, normalizeStatus(oldStatus), newStatus, operatorId, actorType || 'admin', note || null]
+            `INSERT INTO session_fee_status_logs
+             (session_id, teacher_uid, old_status, new_status, operator_id, actor_type, note, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+            [sessionId, teacherUid, normalizeStatus(oldStatus), newStatus, operatorId, actorType || 'admin', note || null]
         );
     } catch (_) {
         // 审计失败不阻断主流程
@@ -95,17 +95,17 @@ async function writeFeeStatusLog(q, { scheduleId, oldStatus, newStatus, operator
 async function writeBatchFeeStatusLogs(q, { items, newStatus, operatorId, actorType, note }) {
     try {
         if (!Array.isArray(items) || items.length === 0) return;
-        if (!(await SchemaHelper.hasTable('fee_status_logs'))) return;
+        if (!(await SchemaHelper.hasTable('session_fee_status_logs'))) return;
         const valueRows = [];
         const params = [];
         items.forEach((it, i) => {
-            const b = i * 6;
-            valueRows.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, CURRENT_TIMESTAMP)`);
-            params.push(it.scheduleId, normalizeStatus(it.oldStatus), newStatus, operatorId, actorType || 'admin', note || null);
+            const b = i * 7;
+            valueRows.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, CURRENT_TIMESTAMP)`);
+            params.push(it.sessionId, it.teacherUid, normalizeStatus(it.oldStatus), newStatus, operatorId, actorType || 'admin', note || null);
         });
         await q(
-            `INSERT INTO fee_status_logs
-             (schedule_id, old_status, new_status, operator_id, actor_type, note, created_at)
+            `INSERT INTO session_fee_status_logs
+             (session_id, teacher_uid, old_status, new_status, operator_id, actor_type, note, created_at)
              VALUES ${valueRows.join(', ')}`,
             params
         );

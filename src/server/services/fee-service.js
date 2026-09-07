@@ -13,6 +13,7 @@
 
 const SchemaHelper = require('../utils/schema-helper');
 const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/fee-status');
+const logger = require('../utils/logger');
 
 /**
  * 费用金额归一：空值/未传 → null（NULL，表示未填）；数字字符串 → number；
@@ -36,63 +37,129 @@ function hasFilledFee(tFee, oFee) {
 /**
  * 排课范围授权（领域规则，集中此处以便 admin/teacher 复用）：
  * - admin：无限制；
- * - headteacher：仅能操作绑定学生（actor.studentIds）；
- * - teacher：仅能操作本人课时（actor.id）。
+ * - headteacher：仅能操作绑定学生（actor.studentIds）—— 场次里任一学生在名下即通过；
+ * - teacher：仅能操作本人的教师 pair。
+ * 入参 `pair` 是 { session, teacher }（场次行 + 该教师 pair）。
  * 返回 null 表示通过；返回字符串表示越权原因（供控制器 403 / service 跳过）。
  */
-function checkScheduleScope(actor, row, id) {
+function checkScheduleScope(actor, pair, id) {
     if (!actor || actor.actorType === 'admin') return null;
+    const session = pair && pair.session ? pair.session : pair;
+    const teacher = pair && pair.teacher ? pair.teacher : null;
+
     if (actor.actorType === 'headteacher') {
-        if (!actor.studentIds || !actor.studentIds.includes(Number(row.student_id))) {
-            return `排课 ID ${id} 不在您管理的班级范围内`;
-        }
+        const bound = actor.studentIds || [];
+        const inScope = (session.students || []).some(s => bound.includes(Number(s.student_id)));
+        if (!inScope) return `排课 ID ${id} 不在您管理的班级范围内`;
         return null;
     }
-    // teacher
-    if (Number(row.teacher_id) !== Number(actor.id)) {
+    // teacher：只能碰自己那个 pair
+    if (!teacher || Number(teacher.teacher_id) !== Number(actor.id)) {
         return `排课 ID ${id} 不属于您`;
     }
     return null;
 }
 
-/**
- * 在事务内更新单条排课费用，并按需在 fee_audit_logs 写入审计。
- * 返回 { updated: true }；费用审计表不存在时静默跳过（不影响主流程）。
- */
-async function updateScheduleFeesInTx(tx, id, { tFee, oFee, oldTFee, oldOFee, operatorId, operatorRole }) {
-    await tx(
-        `UPDATE course_arrangement
-         SET transport_fee = $1, other_fee = $2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [tFee, oFee, id]
-    );
+/** 从场次里取出某个教师 pair；uid 缺省时若本场只有一位教师就用那一位 */
+function locateTeacherPair(session, teacherUid) {
+    const teachers = (session && session.teachers) || [];
+    if (teacherUid) return teachers.find(t => String(t.uid) === String(teacherUid)) || null;
+    return teachers.length === 1 ? teachers[0] : null;
+}
 
-    if (await SchemaHelper.hasTable('fee_audit_logs')) {
-        await tx(
-            `INSERT INTO fee_audit_logs
-             (schedule_id, operator_id, operator_role, old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [id, operatorId, operatorRole, oldTFee, tFee, oldOFee, oFee]
-        );
-    }
+/**
+ * 原地重建教师 pair 的若干键（费用 / 费用状态共用）。
+ * 与状态路径同形：一条语句、按 uid 匹配、EXISTS 守卫、ORDER BY ord 保序，
+ * 结构上改不到别的 pair、也改不到别的字段。
+ */
+function buildPairPatchSql(keys) {
+    // jsonb_set 逐键嵌套：jsonb_set(jsonb_set(e,'{a}',$3),'{b}',$4)
+    let expr = 'e';
+    keys.forEach((k, i) => {
+        expr = `jsonb_set(${expr}, '{${k}}', $${i + 3}::jsonb)`;
+    });
+    return `
+        UPDATE course_sessions cs
+           SET teachers = (
+                 SELECT jsonb_agg(CASE WHEN e->>'uid' = $2 THEN ${expr} ELSE e END ORDER BY ord)
+                   FROM jsonb_array_elements(cs.teachers) WITH ORDINALITY AS a(e, ord)),
+               updated_at = CURRENT_TIMESTAMP
+         WHERE cs.id = $1
+           AND EXISTS (SELECT 1 FROM jsonb_array_elements(cs.teachers) x WHERE x->>'uid' = $2)`;
+}
+
+const asJsonb = (v) => JSON.stringify(v === undefined ? null : v);
+
+/**
+ * 在事务内更新单个教师 pair 的费用（必要时同步折叠费用报销状态）。
+ * 费用是「一趟一笔」：挂在教师 pair 上，与本场学生人数无关 —— 旧实现按行累加，
+ * 一位老师带 2 个学生的上门会被算两笔交通费，那个重复计费在新结构下从根上消失。
+ *
+ * 性能契约：**单条 UPDATE 一次完成**。旧实现是「更新金额」+「autoSubmit 再单独
+ * 更新 fee_status」两条语句（各一次远程往返 ≈250ms）；这里把 fee_status 并入同一
+ * 条 buildPairPatchSql 的键集合，两条变一条。审计两行（金额 + 状态）随后并行落地，
+ * 失败只告警不阻断（与 recordAudit / writeStatusLogs 同口径）。
+ *
+ * @param {*} q 事务内查询函数（controller 传 client.query；无事务时传 db.query）
+ * @param {{sessionId:number, teacherUid:string}} target
+ * @param {object} opt tFee/oFee 金额；targetStatus 非 null 时一并写入 fee_status
+ *   （由调用方按 resolveAutoFeeStatus 决定；null = 保持原状态）
+ */
+async function updateScheduleFeesInTx(tx, target, {
+    tFee, oFee, oldTFee, oldOFee, targetStatus, oldStatus, operatorId, operatorRole
+}) {
+    const sessionId = typeof target === 'object' ? target.sessionId : target;
+    const teacherUid = typeof target === 'object' ? target.teacherUid : null;
+
+    const keys = ['transport_fee', 'other_fee'];
+    if (targetStatus != null) keys.push('fee_status');
+    const params = [sessionId, String(teacherUid), asJsonb(tFee), asJsonb(oFee)];
+    if (targetStatus != null) params.push(asJsonb(targetStatus));
+    await tx(buildPairPatchSql(keys), params);
+
+    // 金额审计与状态审计互不依赖，并发落地省一次往返；任一条失败只告警。
+    await Promise.all([
+        (async () => {
+            try {
+                await tx(
+                    `INSERT INTO session_fee_audit_logs
+                     (session_id, teacher_uid, operator_id, operator_role,
+                      old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [sessionId, String(teacherUid), operatorId, operatorRole, oldTFee, tFee, oldOFee, oFee]
+                );
+            } catch (e) {
+                logger.warn('[fee-service] 费用审计写入跳过:', e.message);
+            }
+        })(),
+        (async () => {
+            if (targetStatus == null) return;
+            try {
+                await writeFeeStatusLog(tx, {
+                    sessionId, teacherUid, oldStatus, newStatus: targetStatus,
+                    operatorId, actorType: operatorRole || 'admin', note: '保存并提交'
+                });
+            } catch (e) {
+                logger.warn('[fee-service] 费用状态审计写入跳过:', e.message);
+            }
+        })()
+    ]);
     return { updated: true };
 }
 
 /**
- * 单条费用报销状态流转（含状态机校验 + 审计）。
+ * 单个教师 pair 的费用报销状态流转（含状态机校验 + 审计）。
  * 返回 { ok: true, fee_status } 或 { ok: false, error }
  */
-async function transitionFeeStatus(tx, { id, from, target, note, operatorId, actorType }) {
+async function transitionFeeStatus(tx, { sessionId, teacherUid, id, from, target, note, operatorId, actorType }) {
+    const sid = sessionId != null ? sessionId : id;
     const check = validateFeeStatusTransition(actorType, from, target);
     if (!check.ok) {
         return { ok: false, error: check.reason };
     }
-    await tx(
-        `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-        [target, id]
-    );
+    await tx(buildPairPatchSql(['fee_status']), [sid, String(teacherUid), asJsonb(target)]);
     await writeFeeStatusLog(tx, {
-        scheduleId: id, oldStatus: from, newStatus: target,
+        sessionId: sid, teacherUid, oldStatus: from, newStatus: target,
         operatorId, actorType, note
     });
     return { ok: true, fee_status: target };
@@ -104,130 +171,214 @@ async function transitionFeeStatus(tx, { id, from, target, note, operatorId, act
  * 幂等：无需流转时不产生任何写入。
  * @returns {{ changed: boolean, fee_status: string }} fee_status 为流转后的最终状态
  */
-async function autoSubmitFeeStatus(tx, { id, from, actorType, operatorId, note }) {
+async function autoSubmitFeeStatus(tx, { sessionId, teacherUid, id, from, actorType, operatorId, note }) {
     const target = resolveAutoFeeStatus(actorType, from);
     if (!target) return { changed: false, fee_status: from };
     const r = await transitionFeeStatus(tx, {
-        id, from, target, note: note || '保存并提交', operatorId, actorType
+        sessionId: sessionId != null ? sessionId : id, teacherUid,
+        from, target, note: note || '保存并提交', operatorId, actorType
     });
     return r.ok ? { changed: true, fee_status: r.fee_status } : { changed: false, fee_status: from };
 }
 
 /**
- * 批量费用报销状态流转（已授权 targetIds 内逐条校验 + 审计）。
- * actor：可选，传入后对非 admin 身份逐条做范围授权（越权记录跳过，与历史行为一致）。
- * skipStatus：跳过已是该状态的记录（避免重复审计）。
- * 返回实际更新条数。
+ * 批量费用报销状态流转。
  *
- * 性能约定：Neon HTTP 驱动下每条 SQL 都是一次网络往返（本机实测 ~300ms/次），
- * 旧实现逐条 SELECT+UPDATE+INSERT 在整周记录上可达数十秒，前端表现为点击后长时间无响应。
- * 此处压缩为固定 3 次往返：批量读 → 批量写 → 批量审计；逐条校验逻辑保持不变。
+ * 性能约定（不可回退成逐条循环）：Neon HTTP 驱动下每条 SQL 都是一次网络往返（实测 ~300ms），
+ * 所以固定 3 步：① 一次批量读场次 → ② Node 内逐 pair 跑状态机与范围授权 → ③ 一次批量写 + 一次批量审计。
+ * targets 支持两种写法：`{ session_id, teacher_uid }` 对象，或旧的裸 id（此时取本场唯一教师 pair）。
+ * 返回实际生效的 pair 数。
  */
-async function batchTransitionFeeStatus(tx, { targetIds, target, note, operatorId, actorType, skipStatus, actor }) {
-    if (!Array.isArray(targetIds) || targetIds.length === 0) return 0;
+async function batchTransitionFeeStatus(tx, { targetIds, targets, target, note, operatorId, actorType, skipStatus, actor }) {
+    const list = Array.isArray(targets) && targets.length ? targets : (targetIds || []);
+    if (!Array.isArray(list) || list.length === 0) return 0;
 
-    // 去重：与旧实现语义一致（同 id 二次出现时 from===to 必然被状态机拒绝，不应产生重复审计）
-    const ids = [...new Set(targetIds.map(Number).filter(n => !Number.isNaN(n)))];
-    if (ids.length === 0) return 0;
-
-    const cur = await tx(
-        'SELECT id, fee_status, student_id, teacher_id FROM course_arrangement WHERE id = ANY($1)',
-        [ids]
-    );
-    const byId = new Map();
-    (cur.rows || []).forEach(r => byId.set(Number(r.id), r));
-
-    const updatableIds = [];
-    const auditItems = [];
-    for (const sid of ids) {
-        const row = byId.get(Number(sid));
-        if (!row) continue;
-        if (actor) {
-            const scopeMsg = checkScheduleScope(actor, row, sid);
-            if (scopeMsg) continue; // 越权记录跳过
-        }
-        const from = row.fee_status;
-        if (skipStatus && from === skipStatus) continue;
-        const check = validateFeeStatusTransition(actorType, from, target);
-        if (!check.ok) continue;
-        updatableIds.push(Number(row.id));
-        auditItems.push({ scheduleId: Number(row.id), oldStatus: from });
+    // 去重：同一 (场次, uid) 二次出现时 from===to 必然被状态机拒绝，不应产生重复审计
+    const wanted = new Map();
+    for (const item of list) {
+        const sid = Number(typeof item === 'object' ? (item.session_id ?? item.id) : item);
+        if (!Number.isFinite(sid)) continue;
+        const uid = typeof item === 'object' ? (item.teacher_uid || null) : null;
+        wanted.set(`${sid}|${uid || ''}`, { sid, uid });
     }
-    if (updatableIds.length === 0) return 0;
+    if (wanted.size === 0) return 0;
 
+    const sessionIds = [...new Set([...wanted.values()].map(v => v.sid))];
+    const cur = await tx(
+        'SELECT id, teachers, students, version FROM course_sessions WHERE id = ANY($1::int[])',
+        [sessionIds]
+    );
+    const byId = new Map((cur.rows || []).map(r => [Number(r.id), r]));
+
+    const writes = new Map();   // sessionId → teachers 数组（改完的）
+    const auditItems = [];
+    for (const { sid, uid } of wanted.values()) {
+        const session = byId.get(sid);
+        if (!session) continue;
+        const teachers = writes.get(sid) || session.teachers || [];
+        // uid 为空 → 覆盖本场全部教师 pair（与旧的「按 id 改整行」语义最接近）
+        const picks = uid ? teachers.filter(t => String(t.uid) === String(uid)) : teachers;
+        let next = teachers;
+        for (const pair of picks) {
+            if (actor) {
+                const scopeMsg = checkScheduleScope(actor, { session, teacher: pair }, sid);
+                if (scopeMsg) continue;   // 越权记录跳过，与历史行为一致
+            }
+            const from = pair.fee_status;
+            if (skipStatus && from === skipStatus) continue;
+            const check = validateFeeStatusTransition(actorType, from, target);
+            if (!check.ok) continue;
+            next = next.map(t => (String(t.uid) === String(pair.uid) ? { ...t, fee_status: target } : t));
+            auditItems.push({ sessionId: sid, teacherUid: pair.uid, oldStatus: from });
+        }
+        if (next !== teachers) writes.set(sid, next);
+    }
+    if (auditItems.length === 0) return 0;
+
+    // 批量写回：一条 UPDATE ... FROM (VALUES ...) 覆盖所有受影响场次
+    const rows = [...writes.entries()];
+    const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
+    const params = [operatorId, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
     await tx(
-        `UPDATE course_arrangement SET fee_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($2)`,
-        [target, updatableIds]
+        `UPDATE course_sessions cs
+            SET teachers = v.teachers, version = cs.version + 1,
+                updated_at = CURRENT_TIMESTAMP, updated_by = $1
+           FROM (VALUES ${valueRows.join(', ')}) AS v(id, teachers)
+          WHERE cs.id = v.id`,
+        params
     );
     await writeBatchFeeStatusLogs(tx, {
         items: auditItems, newStatus: target, operatorId, actorType, note
     });
-    return updatableIds.length;
+    return auditItems.length;
 }
 
 /**
- * 批量更新排课费用（事务内逐条：解析 + 负数拒绝 + 范围授权 + 无变化跳过 + 写入 + 审计）。
- * actor：resolveActor 结果，用于范围授权（班主任限关联学生、普通教师限本人课时）。
- * autoSubmitActorType：传入后对每条「本次填写了费用」的已授权记录执行「保存并提交」自动流转
- *   （教师端 → 待审核）。留空 / 清除（金额置 null）的记录不改状态，避免批量弹窗里
- *   未填写的同学生课时被连带提交。金额填写但未变化的记录仍会流转（点击提交即表示提交本条）。
- * 任一记录负数或越权均抛错（由控制器事务回滚）；无变化记录跳过不写费用审计。
+ * 批量更新费用（事务内：解析 + 负数拒绝 + 范围授权 + 无变化跳过 + 写入 + 审计）。
+ * 同样压成固定几步往返：一次批量读 → Node 内计算 → 一次批量写 → 一次批量审计。
+ * autoSubmitActorType：对每条「本次填写了费用」的已授权 pair 执行「保存并提交」自动流转；
+ *   留空 / 清除（金额置 null）的不改状态，避免批量弹窗里未填写的同学生课时被连带提交。
  * 返回 { changed, submitted }。
  */
 async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, autoSubmitActorType }) {
-    const hasAuditTable = await SchemaHelper.hasTable('fee_audit_logs');
+    if (!Array.isArray(updates) || updates.length === 0) return { changed: 0, submitted: 0 };
+
+    const norm = updates.map(u => ({
+        sessionId: Number(u.session_id ?? u.id),
+        teacherUid: u.teacher_uid || null,
+        tFee: parseFeeAmount(u.transport_fee),
+        oFee: parseFeeAmount(u.other_fee)
+    })).filter(u => Number.isFinite(u.sessionId));
+
+    for (const u of norm) {
+        if ((u.tFee !== null && u.tFee < 0) || (u.oFee !== null && u.oFee < 0)) {
+            throw new Error(`排课 ID ${u.sessionId} 包含负数费用`);
+        }
+    }
+
+    const cur = await tx(
+        'SELECT id, teachers, students, version FROM course_sessions WHERE id = ANY($1::int[])',
+        [[...new Set(norm.map(u => u.sessionId))]]
+    );
+    const byId = new Map((cur.rows || []).map(r => [Number(r.id), r]));
+
+    const hasAuditTable = await SchemaHelper.hasTable('session_fee_audit_logs');
+    const writes = new Map();
+    const feeAudits = [];
+    const statusAudits = [];
     let changed = 0;
     let submitted = 0;
-    for (const item of updates) {
-        const id = item.id;
-        const tFee = parseFeeAmount(item.transport_fee);
-        const oFee = parseFeeAmount(item.other_fee);
 
-        if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
-            throw new Error(`排课 ID ${id} 包含负数费用`);
-        }
+    for (const u of norm) {
+        const session = byId.get(u.sessionId);
+        if (!session) continue;
+        const teachers = writes.get(u.sessionId) || session.teachers || [];
+        const pair = locateTeacherPair({ teachers }, u.teacherUid);
+        if (!pair) continue;
 
-        const originalResult = await tx(
-            'SELECT transport_fee, other_fee, student_id, teacher_id, fee_status FROM course_arrangement WHERE id = $1',
-            [id]
-        );
-        if (originalResult.rows.length === 0) continue;
-
-        const row = originalResult.rows[0];
-        const scopeMsg = checkScheduleScope(actor, row, id);
+        const scopeMsg = checkScheduleScope(actor, { session, teacher: pair }, u.sessionId);
         if (scopeMsg) throw new Error(scopeMsg);
 
-        const { transport_fee: old_t_fee, other_fee: old_o_fee } = row;
+        let nextPair = { ...pair };
 
-        // 「保存并提交」自动流转：仅对本次填写了费用的记录（留空 / 清除的不动状态）
-        if (autoSubmitActorType && hasFilledFee(tFee, oFee)) {
-            const auto = await autoSubmitFeeStatus(tx, {
-                id, from: row.fee_status, actorType: autoSubmitActorType, operatorId
-            });
-            if (auto.changed) submitted++;
+        // 「保存并提交」自动流转：仅对本次填写了费用的 pair
+        if (autoSubmitActorType && hasFilledFee(u.tFee, u.oFee)) {
+            const target = resolveAutoFeeStatus(autoSubmitActorType, pair.fee_status);
+            if (target && validateFeeStatusTransition(autoSubmitActorType, pair.fee_status, target).ok) {
+                statusAudits.push({ sessionId: u.sessionId, teacherUid: pair.uid, oldStatus: pair.fee_status, newStatus: target });
+                nextPair.fee_status = target;
+                submitted++;
+            }
         }
 
-        // null 安全对比：NULL 与 0 视为不同值；原值可能为字符串/数字/NULL
-        const norm = (v) => (v === null || v === undefined ? null : parseFloat(v));
-        if (norm(old_t_fee) === tFee && norm(old_o_fee) === oFee) continue; // 无变化
-
-        await tx(
-            `UPDATE course_arrangement
-             SET transport_fee = $1, other_fee = $2, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
-            [tFee, oFee, id]
-        );
-
-        if (hasAuditTable) {
-            await tx(
-                `INSERT INTO fee_audit_logs
-                 (schedule_id, operator_id, operator_role, old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                [id, operatorId, 'teacher_batch', old_t_fee, tFee, old_o_fee, oFee]
-            );
+        // null 安全对比：NULL 与 0 视为不同值（未填 vs 填 0）
+        const toNum = (v) => (v === null || v === undefined ? null : parseFloat(v));
+        const feeChanged = toNum(pair.transport_fee) !== u.tFee || toNum(pair.other_fee) !== u.oFee;
+        if (feeChanged) {
+            if (hasAuditTable) {
+                feeAudits.push({
+                    sessionId: u.sessionId, teacherUid: pair.uid,
+                    oldT: pair.transport_fee, newT: u.tFee,
+                    oldO: pair.other_fee, newO: u.oFee
+                });
+            }
+            nextPair.transport_fee = u.tFee;
+            nextPair.other_fee = u.oFee;
+            changed++;
         }
-        changed++;
+
+        if (feeChanged || nextPair.fee_status !== pair.fee_status) {
+            writes.set(u.sessionId, teachers.map(t => (String(t.uid) === String(pair.uid) ? nextPair : t)));
+        }
     }
+
+    // 全部跳过：输入有更新但无一命中（session 不存在 / teacher pair 未匹配），抛错让调用方感知
+    if (norm.length > 0 && writes.size === 0 && feeAudits.length === 0 && statusAudits.length === 0) {
+        throw new Error('未能定位到任何有效的排课记录，请确认 teacher_uid 已正确传递');
+    }
+
+    if (writes.size > 0) {
+        const rows = [...writes.entries()];
+        const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
+        const params = [operatorId, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
+        await tx(
+            `UPDATE course_sessions cs
+                SET teachers = v.teachers, version = cs.version + 1,
+                    updated_at = CURRENT_TIMESTAMP, updated_by = $1
+               FROM (VALUES ${valueRows.join(', ')}) AS v(id, teachers)
+              WHERE cs.id = v.id`,
+            params
+        );
+    }
+
+    if (feeAudits.length > 0) {
+        const valueRows = feeAudits.map((_, i) => {
+            const b = i * 8;
+            return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8})`;
+        });
+        await tx(
+            `INSERT INTO session_fee_audit_logs
+             (session_id, teacher_uid, operator_id, operator_role,
+              old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
+             VALUES ${valueRows.join(', ')}`,
+            feeAudits.flatMap(a => [a.sessionId, a.teacherUid, operatorId, 'teacher_batch', a.oldT, a.newT, a.oldO, a.newO])
+        );
+    }
+
+    // 状态审计按目标状态分组批量写：resolveAutoFeeStatus 的结果依赖每个 pair 的原状态，
+    // 所以不能一把塞进同一个 newStatus；但实际只会有一两个不同的目标状态，
+    // 分组后往返次数是「目标状态种数」而不是「pair 数」（每条语句约 250ms）。
+    const byTarget = new Map();
+    for (const a of statusAudits) {
+        if (!byTarget.has(a.newStatus)) byTarget.set(a.newStatus, []);
+        byTarget.get(a.newStatus).push({ sessionId: a.sessionId, teacherUid: a.teacherUid, oldStatus: a.oldStatus });
+    }
+    for (const [newStatus, items] of byTarget) {
+        await writeBatchFeeStatusLogs(tx, {
+            items, newStatus, operatorId, actorType: autoSubmitActorType, note: '保存并提交'
+        });
+    }
+
     return { changed, submitted };
 }
 
@@ -235,6 +386,8 @@ module.exports = {
     parseFeeAmount,
     hasFilledFee,
     checkScheduleScope,
+    locateTeacherPair,
+    buildPairPatchSql,
     updateScheduleFeesInTx,
     transitionFeeStatus,
     autoSubmitFeeStatus,

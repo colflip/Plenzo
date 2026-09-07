@@ -470,9 +470,10 @@
 
     // 自适应单元格（列索引 1~5）：字号收缩 → 单行 → 双行截断
     function fitAdaptiveCell(td, idx) {
-        const BASE = idx === 1 ? 15 : 14; // 日期时间 15px，其余 14px
-        // 老师列（idx=2）不缩字号，保持 14px（反馈）；其余列字号下限 13px
-        const MIN = idx === 2 ? 14 : 13;
+        // 全站字号下限已统一为 14px（PC 端），这里不再向下收缩字号，
+        // 直接进入单行 → 双行截断的降级路径，靠 -webkit-line-clamp 控制高度。
+        const BASE = 14;
+        const MIN = 14;
         if (td._fmOrig === undefined) td._fmOrig = td.innerHTML;
         else td.innerHTML = td._fmOrig;   // resize 重排时从原始内容重新判定
 
@@ -516,9 +517,12 @@
         setFont(MIN);
     }
 
-    // 汇总行「排课及状态」双行（类型一行 + 状态一行）：字号收缩到能放下两行
+    // 汇总行「排课及状态」双行（类型一行 + 状态一行）
     function fitMergedCell(td) {
-        const MIN = 12;
+        // 原先字号从 14px 递减到 12px 以塞进固定 60px 行高。PC 端字号下限已统一为 14px，
+        // 这里改为固定 14px：行高不够时由 dashboard.css 的 -webkit-line-clamp 截断，
+        // 而不是把中文缩到 12px 以下。
+        const MIN = 14;
         const lines = td.querySelectorAll('.fm-ms-line');
         const setFont = (s) => {
             td.style.fontSize = s + 'px';
@@ -575,8 +579,10 @@
                 cells.forEach(td => fitAdaptiveCell(td, idx));
                 return;
             }
-            // 其余列（学生 / 交通 / 其他 / 总计）沿用原【按列统一】压缩（最小 12px）
-            const MIN = 12;
+            // 其余列（学生 / 交通 / 其他 / 总计）：原先按列统一压缩到最小 12px。
+            // PC 端字号下限已统一为 14px，且这个循环以 getComputedStyle 为起点——
+            // 若仍允许下探，任何 CSS 侧的字号上调都会被它缩回去、只多出省略号。
+            const MIN = 14;
             cells.forEach(td => {
                 td.style.whiteSpace = 'nowrap';
                 td.style.overflow = 'hidden';
@@ -1130,7 +1136,7 @@
 
     // 一键清除某生范围内全部课时费用（置 null/未填写 后提交，不弹窗）
     async function batchClear(config, mountEl, list) {
-        const updates = list.map(s => ({ id: s.id, transport_fee: null, other_fee: null }));
+        const updates = list.map(s => ({ id: s.id, teacher_uid: s.teacher_uid, transport_fee: null, other_fee: null }));
         try {
             await persist(config, updates);
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('费用已清除', 'success');
@@ -1155,16 +1161,16 @@
     function fmConfirm({ title = '确认操作', message = '', confirmText = '确定', cancelText = '取消', danger = false } = {}) {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);z-index:100003;display:flex;align-items:center;justify-content:center;';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(var(--overlay-blur, 4px));-webkit-backdrop-filter:blur(var(--overlay-blur, 4px));z-index:100003;display:flex;align-items:center;justify-content:center;';
             const box = document.createElement('div');
             box.style.cssText = 'background:#fff;border-radius:12px;padding:22px 24px;max-width:380px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,.2);font-family:inherit;';
             const confirmColor = danger ? '#E74C3C' : '#2ECC71';
             box.innerHTML = `
-                <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px;">${esc(title)}</div>
-                ${message ? `<div style="font-size:14px;color:#64748b;margin-bottom:18px;line-height:1.5;">${esc(message)}</div>` : '<div style="height:6px;"></div>'}
+                <div style="font-size: var(--fs-400);font-weight:600;color:#1e293b;margin-bottom:8px;">${esc(title)}</div>
+                ${message ? `<div style="font-size: var(--fs-300);color:#64748b;margin-bottom:18px;line-height:1.5;">${esc(message)}</div>` : '<div style="height:6px;"></div>'}
                 <div style="display:flex;gap:10px;justify-content:flex-end;">
-                    <button id="fmConfirmCancel" style="padding:8px 18px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size:14px;color:#475569;">${esc(cancelText)}</button>
-                    <button id="fmConfirmOk" style="padding:8px 18px;border:none;background:${confirmColor};color:#fff;border-radius:6px;cursor:pointer;font-size:14px;">${esc(confirmText)}</button>
+                    <button id="fmConfirmCancel" style="padding:8px 18px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size: var(--fs-300);color:#475569;">${esc(cancelText)}</button>
+                    <button id="fmConfirmOk" style="padding:8px 18px;border:none;background:${confirmColor};color:#fff;border-radius:6px;cursor:pointer;font-size: var(--fs-300);">${esc(confirmText)}</button>
                 </div>
             `;
             overlay.appendChild(box);
@@ -1208,7 +1214,7 @@
                         </div>
                         <div class="form-group">
                             <label><strong>总计费用 (元)</strong></label>
-                            <div id="fmTotalDisplay" style="font-size:18px; font-weight:bold; color:#27AE60; margin-top:8px;">0.00</div>
+                            <div id="fmTotalDisplay" style="font-size: var(--fs-500); font-weight:bold; color:#27AE60; margin-top:8px;">0.00</div>
                         </div>
                         <div class="modal-footer" style="margin-top:24px; display:flex; gap:10px; justify-content:flex-end;">
                             <button type="button" class="btn btn-secondary" id="fmClearBtn" style="background:#9ca3af;">清除费用</button>
@@ -1302,11 +1308,11 @@
                         <div class="fm-day-item-title">${esc(s.student_name || '学生')} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}</div>
                         <div class="fm-day-item-inputs">
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
-                                <label style="font-size:12px;">交通费</label>
+                                <label style="font-size: var(--fs-300);">交通费</label>
                                 <input type="number" class="fm-dyn-trans" data-id="${esc(s.id)}" step="0.5" min="0" value="${isUnfilled(s.transport_fee) ? '' : esc(String(s.transport_fee))}" placeholder="0.00">
                             </div>
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
-                                <label style="font-size:12px;">其他</label>
+                                <label style="font-size: var(--fs-300);">其他</label>
                                 <input type="number" class="fm-dyn-other" data-id="${esc(s.id)}" step="0.5" min="0" value="${isUnfilled(s.other_fee) ? '' : esc(String(s.other_fee))}" placeholder="0.00">
                             </div>
                         </div>
@@ -1369,12 +1375,16 @@
         const mode = activeModal ? activeModal.mode : 'single';
         if (mode === 'multi') {
             const container = modal.querySelector('#fmDynamicFeeInputsContainer');
+            // teacher_uid 随 pair 不同而不同，需从 schedule 记录里查找
+            const scheduleMap = new Map((activeModal.schedules || []).map(s => [String(s.id), s]));
             const updates = [];
             container.querySelectorAll('.fm-dyn-trans').forEach(tInp => {
                 const id = tInp.dataset.id;
                 const oInp = container.querySelector(`.fm-dyn-other[data-id="${id}"]`);
+                const rec = scheduleMap.get(String(id));
                 updates.push({
                     id,
+                    teacher_uid: rec ? rec.teacher_uid : null,
                     transport_fee: parseInputFee(tInp.value),
                     other_fee: parseInputFee(oInp ? oInp.value : null),
                 });
@@ -1384,6 +1394,7 @@
         const rec = activeModal.schedules[0] || {};
         return [{
             id: rec.id,
+            teacher_uid: rec.teacher_uid,
             transport_fee: parseInputFee(modal.querySelector('#fmTransportInput').value),
             other_fee: parseInputFee(modal.querySelector('#fmOtherInput').value),
         }];
@@ -1394,10 +1405,12 @@
             return window.apiUtils.post(config.batchEndpoint, { updates });
         }
         // 单条模式：逐条 PATCH（批量选择时也逐条提交，保证各端点兼容）
+        // teacher_uid 用于后端定位教师 pair（费用挂在 pair 上）
         await Promise.all(updates.map(u =>
             window.apiUtils.patch(config.feeEndpoint(u.id), {
                 transport_fee: u.transport_fee,
                 other_fee: u.other_fee,
+                teacher_uid: u.teacher_uid,
             })
         ));
     }
@@ -1439,7 +1452,7 @@
         });
         if (!ok) return;
         const updates = (mode === 'multi' ? schedules : [schedules[0]]).map(s => ({
-            id: s.id, transport_fee: null, other_fee: null,
+            id: s.id, teacher_uid: s.teacher_uid, transport_fee: null, other_fee: null,
         }));
         const saveBtn = document.getElementById('fmSaveBtn');
         saveBtn.disabled = true;
