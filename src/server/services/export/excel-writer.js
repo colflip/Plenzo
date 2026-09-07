@@ -7,13 +7,13 @@
  */
 
 const ExcelJS = require('exceljs');
-const { RICH_TEXT_COLORS } = require('./export-constants');
+const { RICH_TEXT_COLORS, EXPORT_FONTS } = require('./export-constants');
 const RichTextFormatter = require('./rich-text-formatter');
 
 // ============================================================
 // 预定义样式常量 — 避免在循环中重复创建对象
 // ============================================================
-const STYLE_FONT = { name: '宋体', size: 11 };
+const STYLE_FONT = { name: EXPORT_FONTS.CJK, size: EXPORT_FONTS.SIZE_BODY };
 const STYLE_BORDER = {
     top:    { style: 'thin', color: { argb: 'FFD4D4D4' } },
     bottom: { style: 'thin', color: { argb: 'FFD4D4D4' } },
@@ -232,7 +232,7 @@ class ExcelWriter {
 
         // 设置表头样式
         const headerRow = worksheet.getRow(1);
-        headerRow.font = { name: '宋体', size: 12, bold: true };
+        headerRow.font = { name: EXPORT_FONTS.CJK, size: EXPORT_FONTS.SIZE_HEADER, bold: true };
         headerRow.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -454,8 +454,8 @@ class ExcelWriter {
 
             // 基础字体配置
             const font = {
-                name: '宋体',
-                size: part.isSuperscript ? 7 : 11,
+                name: EXPORT_FONTS.CJK,
+                size: part.isSuperscript ? EXPORT_FONTS.SIZE_SUPERSCRIPT : EXPORT_FONTS.SIZE_BODY,
                 color: { argb: color },
                 italic: isDim || false
             };
@@ -469,7 +469,7 @@ class ExcelWriter {
             if (index > 0 && part.startsLine) {
                 richText.push({
                     text: '\n',
-                    font: { name: '宋体', size: 11, color: { argb: RICH_TEXT_COLORS.BLACK } }
+                    font: { name: EXPORT_FONTS.CJK, size: EXPORT_FONTS.SIZE_BODY, color: { argb: RICH_TEXT_COLORS.BLACK } }
                 });
             }
 
@@ -653,10 +653,10 @@ class ExcelWriter {
                     wrapText: false
                 };
                 cell.font = {
-                    name: 'Apple Chancery',
-                    size: 11,
+                    name: EXPORT_FONTS.DECORATIVE,
+                    size: EXPORT_FONTS.SIZE_BODY,
                     bold: true,
-                    color: { argb: 'FF000000' }
+                    color: { argb: RICH_TEXT_COLORS.BLACK }
                 };
             }
 

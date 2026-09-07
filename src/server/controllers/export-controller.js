@@ -107,12 +107,22 @@ const exportController = {
                     return res.status(403).json(standardResponse(false, null, '无导出权限'));
             }
 
-            // ===== 4. 获取用户名 =====
-            const userName = await resolveUserName(db, userType, userId);
-
-            // ===== 5. 记录导出开始 =====
-            try {
-                logId = await logService.logExportStart({
+            // ===== 4-6. 用户名 / 导出开始日志 / 原始数据 =====
+            // 三条互不依赖（userName 第 7 步才用，logId 第 9 步才用），并发省两次往返（每条约 250ms）
+            const rawDataPromise = exportType === 'student_schedule'
+                ? scheduleQueries.queryStudentSchedule(startDate, endDate, {
+                    student_id: studentId
+                })
+                : scheduleQueries.queryTeacherSchedule(startDate, endDate, {
+                    teacher_id: teacherId,
+                    student_id: studentId,
+                    student_ids: studentIds
+                });
+            const [userName, rawData] = await Promise.all([
+                resolveUserName(db, userType, userId),
+                rawDataPromise,
+                // 开始日志失败不能影响导出，就地告警并吞掉，不参与解构
+                logService.logExportStart({
                     userId,
                     userType: logUserType,
                     startDate,
@@ -120,25 +130,10 @@ const exportController = {
                     studentId,
                     teacherId,
                     exportType
-                });
-            } catch (e) {
-                logger.warn('记录导出开始日志失败:', e.message);
-            }
-
-            // ===== 6. 查询原始数据 =====
-            let rawData;
-
-            if (exportType === 'student_schedule') {
-                rawData = await scheduleQueries.queryStudentSchedule(startDate, endDate, {
-                    student_id: studentId
-                });
-            } else {
-                rawData = await scheduleQueries.queryTeacherSchedule(startDate, endDate, {
-                    teacher_id: teacherId,
-                    student_id: studentId,
-                    student_ids: studentIds
-                });
-            }
+                }).then(id => { logId = id; }).catch(e => {
+                    logger.warn('记录导出开始日志失败:', e.message);
+                })
+            ]);
 
             if (!rawData || rawData.length === 0) {
                 return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
@@ -169,18 +164,16 @@ const exportController = {
                 studentLabel
             });
 
-            // ===== 9. 记录成功 =====
+            // ===== 9. 记录成功（审计不阻塞文件下发：发出即走，失败只告警） =====
             if (logId) {
-                try {
-                    await logService.logExportSuccess(logId, {
-                        recordCount: rawData.length,
-                        fileSize: excelResult.buffer.length,
-                        fileName: excelResult.filename,
-                        duration: Date.now() - startTime
-                    });
-                } catch (e) {
+                logService.logExportSuccess(logId, {
+                    recordCount: rawData.length,
+                    fileSize: excelResult.buffer.length,
+                    fileName: excelResult.filename,
+                    duration: Date.now() - startTime
+                }).catch(e => {
                     logger.warn('记录导出成功日志失败:', e.message);
-                }
+                });
             }
 
             // ===== 10. 发送文件 =====

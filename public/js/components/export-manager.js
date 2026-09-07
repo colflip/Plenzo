@@ -546,7 +546,9 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
 
                 const markerOf = item => {
-                    const adjustmentType = item.is_temp ?? item.adjustment_type;
+                    // 类别位取代旧的两列魔数：temp→1、adjusted→2、其余 0
+                    const cat = item.status_category || (item.status_code ? String(item.status_code).split('.')[0] : '');
+                    const adjustmentType = cat === 'temp' ? 1 : (cat === 'adjusted' ? 2 : 0);
                     if (adjustmentType == 1) return '⁺';
                     if (adjustmentType == 2 || String(item.status || '').toLowerCase() === 'modified_away') return '~';
                     return '';
@@ -688,7 +690,12 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
         // 核心过滤逻辑：计划列只包含原始排课(不为 1 和 2 的默认算 0)；实际列排除调走(modified_away)和已取消(cancelled)。
         // 注意：status '0' = 待确认，属正常课程，不在排除之列（前后端一致按 shared-utils 映射）。
-        const planItems = dayRows.filter(r => (r.is_temp ?? r.adjustment_type) != 1 && (r.is_temp ?? r.adjustment_type) != 2);
+        // 「计划安排」排除临时加课与调整增补：类别位为 normal 才算计划内
+        // （语义与旧的 `!= 1 && != 2` 完全一致，只是判定从两个字段的三个魔数变成一次比较）
+        const planItems = dayRows.filter(r => {
+            const cat = r.status_category || (r.status_code ? String(r.status_code).split('.')[0] : 'normal');
+            return cat === 'normal';
+        });
         const actualItems = dayRows.filter(r => {
             const status = String(r.status || r['状态'] || '').toLowerCase();
             return status !== 'modified_away' && status !== 'cancelled' && status !== '已取消';

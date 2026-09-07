@@ -12,6 +12,10 @@ const TYPE_PRIORITY = {
     '试教': 5
 };
 
+// 逻辑行内的段间分隔符
+// 每日排课明细的一行代表一个时段，同时段的不同类型课程以此分隔（老师之间用 '，'）
+const ROW_SEGMENT_SEPARATOR = '；';
+
 // 星期映射
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -127,6 +131,21 @@ const RICH_TEXT_COLORS = {
     BLACK_LIGHT: 'FF999999'   // 其他课程 取消/调整：浅灰色
 };
 
+// 导出字体配置（Excel 字号单位为磅 pt）
+// 集中在此处是为了让 Excel 与前端 PNG 导出（weekly-view-export.js 的 WEEKLY_VIEW_STYLE）
+// 有唯一可比对的字号来源，避免两条渲染路径各自漂移
+const EXPORT_FONTS = {
+    CJK: '宋体',                    // 正文字体：Excel 中文环境的默认宋体
+    // 祝福语装饰字体。原为 'Apple Chancery'——macOS 内置、Windows Excel 会静默回退成主题字体，
+    // 同一份工作簿在两个平台上长得不一样。Brush Script MT 随 Microsoft Office 在
+    // Windows 与 macOS 双平台分发，装饰意图得以保留；exceljs 的 font.name 只接受单个字体名，
+    // 无法像 CSS 那样给回退链，所以这里只能挑一个双平台都在的。
+    DECORATIVE: 'Brush Script MT',
+    SIZE_BODY: 11,                  // 数据单元格 / Rich Text 正文
+    SIZE_HEADER: 12,                // 表头行
+    SIZE_SUPERSCRIPT: 7             // 上标标记（原/调/加）
+};
+
 // 不可计数的状态
 const NON_COUNTABLE_STATUSES = ['cancelled', 'modified_away'];
 
@@ -149,12 +168,14 @@ const CACHE_CONFIG = {
 
 module.exports = {
     TYPE_PRIORITY,
+    ROW_SEGMENT_SEPARATOR,
     WEEKDAYS,
     STATUS_MAP,
     FAMILY_MAP,
     TYPE_NORMALIZATION,
     TYPE_DISPLAY_MAP,
     RICH_TEXT_COLORS,
+    EXPORT_FONTS,
     NON_COUNTABLE_STATUSES,
     EXPORT_LIMITS,
     BATCH_CONFIG,
