@@ -26,7 +26,6 @@ let cachedSchedules = [];
 let scheduleLoadSeq = 0;
 
 window.teacherShowPlan = false;
-window.teacherFeeShow = false;
 
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
@@ -41,13 +40,6 @@ export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
     syncShowPlanButton();
-    ensureTeacherFeeHideStyle();
-    syncTeacherFeeButton();
-    const feeToggleBtn = document.getElementById('toggleTeacherFeeBtn');
-    if (feeToggleBtn && !feeToggleBtn.__teacherFeeBound) {
-        feeToggleBtn.addEventListener('click', window.toggleTeacherFeeVisibility);
-        feeToggleBtn.__teacherFeeBound = true;
-    }
     initFeeModal();
     await loadSchedules(currentWeekStart);
 }
@@ -71,45 +63,6 @@ function syncShowPlanButton() {
         btn.style.borderColor = color;
         btn.style.color = '#fff';
     }
-}
-
-// ── 费用显隐（与管理端一致）────────────────────────────
-function syncTeacherFeeButton() {
-    const btn = document.getElementById('toggleTeacherFeeBtn');
-    const text = document.getElementById('teacherFeeBtnText');
-    if (text) text.textContent = window.teacherFeeShow ? '隐藏费用' : '显示费用';
-    if (btn) {
-        const isActive = !!window.teacherFeeShow;
-        const color = isActive ? '#ef4444' : '#2ECC71';
-        btn.classList.toggle('schedule-toggle-active', isActive);
-        btn.setAttribute('aria-pressed', String(isActive));
-        btn.style.backgroundColor = color;
-        btn.style.borderColor = color;
-        btn.style.color = '#fff';
-    }
-    if (!window.teacherFeeShow) {
-        document.body.classList.add('global-hide-teacher-fee');
-    } else {
-        document.body.classList.remove('global-hide-teacher-fee');
-    }
-}
-
-window.toggleTeacherFeeVisibility = function () {
-    window.teacherFeeShow = !window.teacherFeeShow;
-    syncTeacherFeeButton();
-};
-
-// 注入费用显隐样式，统一管理端：通过 body 类名 + CSS 覆盖后续动态生成的 DOM
-function ensureTeacherFeeHideStyle() {
-    if (document.getElementById('teacher-fee-visibility-style')) return;
-    const style = document.createElement('style');
-    style.id = 'teacher-fee-visibility-style';
-    style.innerHTML = `
-        body.global-hide-teacher-fee .teacher-fee-element {
-            display: none !important;
-        }
-    `;
-    document.head.appendChild(style);
 }
 
 function bindNavigation() {
@@ -387,7 +340,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
         // 学生名称
         const nameSpan = createElement('span', '', {
             textContent: studentName,
-            style: 'font-weight: 500; font-size: 15px;'
+            style: 'font-weight: 500; font-size: var(--fs-300);'
         });
         card.appendChild(nameSpan);
 
@@ -405,7 +358,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
 
         // 状态快速切换下拉框
         const statusSelect = createElement('select', `status-select chip status-${status}`, {
-            style: 'margin-left: 2px; padding: 2px 4px; font-size: 13px; border: none; background-color: transparent; appearance: menulist;'
+            style: 'margin-left: 2px; padding: 2px 4px; font-size: var(--fs-300); border: none; background-color: transparent; appearance: menulist;'
         });
         statusSelect.dataset.lastStatus = status;
 
@@ -478,7 +431,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const timeText = formatTimeRange(first.start_time, first.end_time);
     const timeSpan = createElement('span', '', {
         textContent: timeText,
-        style: 'font-size: 15px; font-weight: 500;'
+        style: 'font-size: var(--fs-300); font-weight: 500;'
     });
     card.appendChild(timeSpan);
 
@@ -489,40 +442,11 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     const locationText = first.location || DEFAULT_LOCATION_PLACEHOLDER;
     const locationSpan = createElement('span', '', {
         textContent: locationText,
-        style: 'color: #9CA3AF; font-size: 14px;'
+        style: 'color: #9CA3AF; font-size: var(--fs-300);'
     });
     card.appendChild(locationSpan);
 
-    // 费用显示 + 按钮（移动端）
-    const mTFee = parseFloat(first.transport_fee) || 0;
-    const mOFee = parseFloat(first.other_fee) || 0;
-    const mHasFee = mTFee > 0 || mOFee > 0;
-
-    const feeWrapper = createElement('div', 'teacher-fee-element', { style: 'margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; gap: 6px;' });
-
-    if (mHasFee) {
-        const feeInfo = createElement('span', '', {
-            style: 'font-size: 12px; color: #d97706; background: #fef3c7; padding: 3px 8px; border-radius: 4px; cursor: pointer;'
-        });
-        feeInfo.textContent = `交通¥${mTFee} 其他¥${mOFee}`;
-        feeInfo.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(first);
-        });
-        feeWrapper.appendChild(feeInfo);
-    } else {
-        const feeBtn = createElement('button', 'info-btn', {
-            textContent: '添加费用',
-            style: 'padding: 4px 8px; font-size: 12px; min-width: auto;'
-        });
-        feeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(first);
-        });
-        feeWrapper.appendChild(feeBtn);
-    }
-
-    card.appendChild(feeWrapper);
+    // 费用在「费用管理」（fees）页统一管理，此处不再渲染费用按钮（2026-09-07）
 
     return card;
 }
@@ -741,7 +665,7 @@ function buildScheduleCard(group) {
         const marqueeContent = createElement('div', 'marquee-content');
         marqueeContent.style.paddingRight = '0';
         const typeSpan = createElement('span', 'course-type-text', {
-            textContent: `(${typeStr})`
+            textContent: typeStr
         });
         marqueeContent.appendChild(typeSpan);
 
@@ -802,40 +726,14 @@ function buildScheduleCard(group) {
     const loc = first.location || '';
 
     const timeDiv = createElement('div', 'time-text', { textContent: timeRange });
-    const locDiv = createElement('div', 'location-text', { 
+    const locDiv = createElement('div', 'location-text', {
         textContent: loc,
         style: 'flex:1;'
     });
     footer.appendChild(timeDiv);
     footer.appendChild(locDiv);
 
-    const tFee = parseFloat(first.transport_fee) || 0;
-    const oFee = parseFloat(first.other_fee) || 0;
-    const hasFee = tFee > 0 || oFee > 0;
-
-    // 费用显示行（已填写时显示，且作为可点击的触发器）
-    if (hasFee) {
-        const feeInfo = createElement('span', 'teacher-fee-element', {
-            style: 'font-size: 11px; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; cursor: pointer;'
-        });
-        feeInfo.textContent = `交通¥${tFee} 其他¥${oFee}`;
-        feeInfo.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(first);
-        });
-        footer.appendChild(feeInfo);
-    } else {
-        // 无费用时，显示“添加费用”按钮
-        const feeBtn = createElement('button', 'info-btn teacher-fee-element', {
-            textContent: '添加费用',
-            style: 'padding: 2px 6px; font-size: 12px; min-width: auto; margin-left: 6px; height: 24px;'
-        });
-        feeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFeeModal(first);
-        });
-        footer.appendChild(feeBtn);
-    }
+    // 费用在「费用管理」（fees）页统一管理，此处不再渲染费用按钮（2026-09-07）
 
     footer.style.display = 'flex';
     footer.style.alignItems = 'center';
@@ -1023,73 +921,16 @@ export function refreshSchedules() {
 }
 
 // ==========================================
-// Fee Management
+// Fee Management（无入口调用了——费用在「费用管理」页统一管理。此弹窗与 openFeeModal
+// 依赖 #feeManagementModal DOM，保留代码但移除挂载点绑定的周期注释见下方）
+// 2026-09-07：费用录入已彻底移入「费用管理」（fees）页，原排课卡片上的费用入口已全部删除，
+// 本弹窗（字段初始化、提交、开窗）不再被任何调用方使用，是死代码。
 // ==========================================
-let currentFeeScheduleId = null;
 
-function initFeeModal() {
-    const modal = document.getElementById('feeManagementModal');
-    if (!modal) return;
+/**
 
-    const closeBtn = document.getElementById('closeFeeModal');
-    const cancelBtn = document.getElementById('cancelFeeBtn');
-    const form = document.getElementById('feeManagementForm');
-    const overlay = modal.querySelector('.modal-overlay');
-
-    const transportInput = document.getElementById('feeTransportInput');
-    const otherInput = document.getElementById('feeOtherInput');
-    const totalDisplay = document.getElementById('feeTotalDisplay');
-
-    const closeModal = () => {
-        modal.style.display = 'none';
-        currentFeeScheduleId = null;
-        form.reset();
-        totalDisplay.textContent = '0.00';
-    };
-
-    closeBtn?.addEventListener('click', closeModal);
-    cancelBtn?.addEventListener('click', closeModal);
-    overlay?.addEventListener('click', closeModal);
-
-    const updateTotal = () => {
-        const transport = parseFloat(transportInput.value) || 0;
-        const other = parseFloat(otherInput.value) || 0;
-        totalDisplay.textContent = (transport + other).toFixed(2);
-    };
-
-    transportInput?.addEventListener('input', updateTotal);
-    otherInput?.addEventListener('input', updateTotal);
-
-    form?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        if (!currentFeeScheduleId) return;
-
-        const transport_fee = parseFloat(transportInput.value) || 0;
-        const other_fee = parseFloat(otherInput.value) || 0;
-
-        try {
-            const submitBtn = form.querySelector('button[type="submit"]');
-            const originalText = submitBtn.textContent;
-            submitBtn.textContent = '保存中...';
-            submitBtn.disabled = true;
-
-            const res = await window.apiUtils.patch(`/teacher/schedules/${currentFeeScheduleId}/fees`, {
-                transport_fee,
-                other_fee
-            });
-
-            if (res && !res.error) {
-                if (window.apiUtils.showSuccessToast) {
-                    window.apiUtils.showSuccessToast('费用记录已保存');
-                } else {
-                    showInlineFeedback(elements.feedback(), '费用记录已保存', 'success');
-                }
-                closeModal();
-                refreshSchedules();
-            } else {
-                throw new Error(res?.message || '保存失败');
-            }
-        } catch (error) {
+ * 更新课程状态 (使用 window.apiUtils 保持一致)
+ */
             
             if (window.apiUtils.showErrorToast) {
                 window.apiUtils.showErrorToast(error.message || '保存费用失败');
@@ -1111,6 +952,7 @@ function openFeeModal(schedule) {
     if (!modal) return;
 
     currentFeeScheduleId = schedule.id;
+    currentFeeTeacherUid = schedule.teacher_uid || null;
 
     const transportInput = document.getElementById('feeTransportInput');
     const otherInput = document.getElementById('feeOtherInput');
