@@ -20,17 +20,15 @@ function toISODate(date) {
 
 
 
-// 检查 Chart.js 是否可用
+// 检查 Chart.js 是否可用，若未加载则触发异步加载并返回 false（当前调用跳过，
+// 等用户再次切换 tab 时 Chart 已就绪）
 function isChartAvailable() {
-    if (typeof window.Chart === 'undefined') {
-        // 如果实在没找到，尝试探测是否有局部的 Chart 进行后备挂载
-        if (typeof Chart !== 'undefined') {
-            window.Chart = Chart;
-            return true;
-        }
-        return false;
+    if (typeof window.Chart !== 'undefined') return true;
+    // 触发异步加载，下次调用时 Chart 就绪
+    if (typeof window.loadChart === 'function') {
+        window.loadChart().catch(function() {});
     }
-    return true;
+    return false;
 }
 
 // 安全解析 Response JSON（兼容空响应或非 JSON 内容）

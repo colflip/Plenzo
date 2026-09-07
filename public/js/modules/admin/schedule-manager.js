@@ -6,6 +6,9 @@
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import {
+    initPairForm, resetPairRows, fillPairRows, collectPairs, refitPairSelects
+} from './schedule-pair-form.js';
 
 
 // --- Global State ---
@@ -120,11 +123,8 @@ function normalizeScheduleRows(rows) {
             end_time: end,
             location: (r.location || '').trim(),
             status: r.status,
-            transport_fee: r.transport_fee,
-            transportFee: r.transportFee,
-            other_fee: r.other_fee,
-            otherFee: r.otherFee,
-            adjustment_type: r.adjustment_type,
+            status_category: r.status_category,
+            status_code: r.status_code,
             startMin: start ? (Number(start.split(':')[0]) * 60 + Number(start.split(':')[1])) : NaN,
             endMin: end ? (Number(end.split(':')[0]) * 60 + Number(end.split(':')[1])) : NaN
         };
@@ -188,8 +188,9 @@ function applyFormMemory() {
     try {
         const startTimeEl = document.getElementById('scheduleStartTime');
         const endTimeEl = document.getElementById('scheduleEndTime');
-        const teacherEl = document.getElementById('scheduleTeacher');
-        const typeEl = document.getElementById('scheduleTypeSelect');
+        // 教师与类型现在在第一行 pair 上（不再是弹窗顶部的单选控件）
+        const teacherEl = document.querySelector('#scheduleTeacherRows .pair-teacher');
+        const typeEl = document.querySelector('#scheduleTeacherRows .pair-type');
 
         if (startTimeEl && memory.start_time) startTimeEl.value = memory.start_time;
         if (endTimeEl && memory.end_time) endTimeEl.value = memory.end_time;
@@ -218,12 +219,15 @@ function optimisticAdd(scheduleData) {
 
 /**
  * 乐观更新：立即更新UI中的排课卡片
- * @param {string|number} id - 排课ID
+ * @param {string|number} id - 场次 ID
  * @param {Object} changes - 要更新的字段
+ * @param {string} [teacherUid] - 教师 pair 的 uid；多师多生下 (session_id, teacher_uid) 才唯一定位一行
  * @returns {Object} 包含原始数据的backup对象
  */
-function optimisticUpdate(id, changes) {
-    const row = document.querySelector(`[data-schedule-id="${id}"]`);
+function optimisticUpdate(id, changes, teacherUid) {
+    const row = teacherUid
+        ? document.querySelector(`[data-schedule-id="${id}"][data-teacher-uid="${teacherUid}"]`)
+        : document.querySelector(`[data-schedule-id="${id}"]`);
     if (!row) {
 
         return { backup: null };
@@ -235,6 +239,7 @@ function optimisticUpdate(id, changes) {
     const backup = {
         row,
         changes,
+        teacherUid,
         oldStatus: ''
     };
 
@@ -311,7 +316,7 @@ function rollbackOperation(backup, operation) {
                 // 通过再次应用旧状态实现回滚，避免覆写innerHTML销毁事件监听器
                 if (backup.row && backup.changes && backup.changes.status !== undefined) {
                     backup.row.classList.remove('optimistic-loading');
-                    optimisticUpdate(backup.row.dataset.scheduleId, { status: backup.oldStatus });
+                    optimisticUpdate(backup.row.dataset.scheduleId, { status: backup.oldStatus }, backup.teacherUid);
                     backup.row.classList.remove('optimistic-loading');
                 }
                 break;
@@ -1096,10 +1101,9 @@ function scrollWidthWithBuffer(el) {
 function renderGroupedMergedSlots(td, items, student, dateKey) {
     const groups = new Map();
     items.forEach(item => {
-        const loc = (item.location || '').trim();
-        const start = item.start_time ? item.start_time.substring(0, 5) : '';
-        const end = item.end_time ? item.end_time.substring(0, 5) : '';
-        const key = `${start}|${end}|${loc}`;
+        // 分组键就是场次 id。旧实现拼 `${start}|${end}|${loc}` 当键，任一行的时间或地点
+        // 被改动就会让这一组静默裂开；现在后端每行都带 session_id，一场课就是一张卡片。
+        const key = item.session_id != null ? String(item.session_id) : String(item.id);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
     });
@@ -1155,6 +1159,13 @@ function buildAdminScheduleCard(group, student, dateKey) {
     const card = document.createElement('div');
     card.classList.add('schedule-card-group', `slot-${slot}`);
 
+    // 整卡可点：卡片范围内（含底部时间/地点区域）点击都进编辑；
+    // 卡片之外的单元格空白处由 td 的 click 弹「添加排课」（stopPropagation 挡住冒泡）
+    card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editSchedule(first.session_id != null ? first.session_id : first.id);
+    });
+
     const allCancelled = group.every(rec => (rec.status || '').toLowerCase() === 'cancelled');
     if (allCancelled) {
         card.classList.add('status-cancelled');
@@ -1205,13 +1216,16 @@ function buildAdminScheduleCard(group, student, dateKey) {
         } else if (st === 'modified_away') {
             row.classList.add('status-modified_away');
         }
-        row.dataset.scheduleId = rec.id; // Critical for optimisticDelete
+        row.dataset.scheduleId = rec.session_id != null ? rec.session_id : rec.id;
+        // 同一场课会出现在多个学生列里，session id 不再唯一 —— 行的唯一标识是
+        // (session_id, teacher_uid)，乐观更新与状态切换都按这两个键定位。
+        if (rec.teacher_uid) row.dataset.teacherUid = rec.teacher_uid;
         row.title = '点击修改';
         row.style.cursor = 'pointer';
 
         row.addEventListener('click', (e) => {
             e.stopPropagation();
-            editSchedule(rec.id);
+            editSchedule(rec.session_id != null ? rec.session_id : rec.id);
         });
 
         // Left: Name + Type
@@ -1219,13 +1233,12 @@ function buildAdminScheduleCard(group, student, dateKey) {
         left.className = 'row-left';
 
         const typeStr = (rec.schedule_type_cn || rec.schedule_types || '').toString();
-        let typeLabel = `(${typeStr})`;
 
         const leftHtml = `
             <span class="teacher-name" style="flex-shrink: 0; white-space: nowrap;">${rec.teacher_name || '未分配'}</span>
             <div class="marquee-wrapper" style="flex: 1; min-width: 0; max-width: none;">
                 <div class="marquee-content" style="padding-right: 0;">
-                    <span class="course-type-text">${typeLabel}</span>
+                    <span class="course-type-text">${typeStr}</span>
                 </div>
             </div>
         `;
@@ -1264,7 +1277,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
             statusSelect.blur(); // Remove focus
 
             // 统一调用 updateScheduleStatus，由其内部处理 optimistic UI 和 API 同步
-            updateScheduleStatus(rec.id, newStatus);
+            updateScheduleStatus(rec.session_id != null ? rec.session_id : rec.id, rec.teacher_uid, newStatus);
         });
 
         // Checkmark for completed status
@@ -1307,27 +1320,37 @@ function buildAdminScheduleCard(group, student, dateKey) {
 
 // --- Status & Edit Logic ---
 
-export async function updateScheduleStatus(id, newStatus) {
+/**
+ * 切换某位教师在某一场课里的生命周期状态。
+ * 签名从 (id, status) 变为 (sessionId, teacherUid, lifecycle)：状态挂在教师 pair 上，
+ * 定位需要「场次 id + uid」两个键。后端走原地重建，只改这一个 pair 的 status。
+ */
+export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
     if (!window.apiUtils) return;
 
-    const row = document.querySelector(`[data-schedule-id="${id}"]`);
+    const row = teacherUid
+        ? document.querySelector(`[data-schedule-id="${sessionId}"][data-teacher-uid="${teacherUid}"]`)
+        : document.querySelector(`[data-schedule-id="${sessionId}"]`);
     if (row) row.classList.add('optimistic-loading');
 
     try {
         // 远程优先：先同步到数据库
-        await window.apiUtils.put(`/admin/schedules/${id}`, { status: newStatus });
+        await window.apiUtils.patch(`/admin/sessions/${sessionId}/teachers/${teacherUid}/status`, { lifecycle: newStatus });
 
         // 远程成功后再更新本地缓存与UI
         for (const entry of WeeklyDataStore.schedules.values()) {
             if (entry.rows) {
-                const t = entry.rows.find(r => String(r.id) == String(id));
-                if (t) t.status = newStatus;
+                entry.rows
+                    .filter(r => String(r.session_id ?? r.id) === String(sessionId)
+                        && (!teacherUid || String(r.teacher_uid) === String(teacherUid)))
+                    .forEach(r => { r.status = newStatus; });
             }
         }
-        optimisticUpdate(id, { status: newStatus });
+        optimisticUpdate(sessionId, { status: newStatus }, teacherUid);
         if (row) row.classList.remove('optimistic-loading');
         window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
-            id,
+            id: sessionId,
+            teacher_uid: teacherUid,
             status: newStatus,
             role: 'admin'
         });
@@ -1339,23 +1362,33 @@ export async function updateScheduleStatus(id, newStatus) {
     }
 }
 
+/**
+ * 删除整场课（含全部教师与学生）。
+ *
+ * 删除现在有三种粒度，这是第一种；另外两种是教师行 / 学生行的 [删除]（`removeSessionPair`）。
+ * 确认文案要如实报出影响面 —— 一场课可能带着好几位老师和学生。
+ */
 export async function deleteSchedule(id) {
-    if (!await Modal.confirm('确定要删除此排课吗？', { title: '删除排课', confirmText: '删除', confirmStyle: 'danger' })) return;
-
-    // 先从缓存中获取记录信息（在乐观删除之前，确保能获取到数据）
+    // 从缓存里数一下这一场有多少师生，确认弹窗才能说清影响面
     let dateKey = null;
-    let studentId = null;
-
+    const studentIds = new Set();
+    const teacherUids = new Set();
     for (const entry of WeeklyDataStore.schedules.values()) {
-        if (entry && entry.rows) {
-            const rec = entry.rows.find(r => String(r.id) === String(id));
-            if (rec) {
-                dateKey = rec.date || rec.class_date;
-                studentId = rec.student_id;
-                break;
-            }
+        if (!entry || !entry.rows) continue;
+        for (const rec of entry.rows) {
+            if (String(rec.session_id ?? rec.id) !== String(id)) continue;
+            dateKey = dateKey || rec.date || rec.class_date;
+            if (rec.student_id != null) studentIds.add(Number(rec.student_id));
+            if (rec.teacher_uid) teacherUids.add(rec.teacher_uid);
         }
     }
+    const scale = (teacherUids.size > 1 || studentIds.size > 1)
+        ? `这一场共有 ${teacherUids.size || 1} 位老师、${studentIds.size || 1} 位学生，将一并删除。`
+        : '';
+    if (!await Modal.confirm(`确定要删除此排课吗？${scale}`,
+        { title: '删除整场排课', confirmText: '删除', confirmStyle: 'danger' })) return;
+
+    const studentId = studentIds.values().next().value ?? null;
 
     // 获取按钮反馈上下文
     const delBtn = document.getElementById('scheduleFormDelete');
@@ -1390,10 +1423,11 @@ export async function deleteSchedule(id) {
 
         if (window.apiUtils) window.apiUtils.showSuccessToast('排课删除成功');
 
-        // 静默刷新的局部更新流程
+        // 静默刷新的局部更新流程：**每一位**涉及学生的格子都要刷
+        // （旧实现只刷一个格子，多生场次下会留下脏格子）
         await WeeklyDataStore.getAllSchedules(true);
-        if (studentId && dateKey) {
-            await refreshCell(studentId, dateKey);
+        if (studentIds.size && dateKey) {
+            for (const sid of studentIds) await refreshCell(sid, dateKey);
         } else {
             // 如果定位失败，执行无动画的周视图重绘
             await loadSchedules(false, false);
@@ -1401,6 +1435,7 @@ export async function deleteSchedule(id) {
         window.eventBus?.emit(window.EVENTS?.SCHEDULE_DELETED || 'schedule:deleted', {
             id,
             studentId,
+            studentIds: [...studentIds],
             dateKey
         });
     } catch (err) {
@@ -1411,6 +1446,65 @@ export async function deleteSchedule(id) {
         if (delBtn) {
             delBtn.disabled = false;
             delBtn.textContent = originalText;
+        }
+    }
+}
+
+/**
+ * 把每一行 pair 的 [删除] 接到「从这一场移除这一位」上（删除的第二、三种粒度）。
+ * 移除后该数组为空的场次会被整场删除 —— 这一点在确认文案里说清。
+ */
+export function resetSchedulePairRows() {
+    initPairForm();
+    resetPairRows();
+}
+
+function bindPairRemoveButtons(sessionId, form) {
+    document.querySelectorAll('#scheduleTeacherRows .pair-row, #scheduleStudentRows .pair-row').forEach(row => {
+        const btn = row.querySelector('.pair-remove');
+        const uid = row.dataset.uid;
+        if (!btn || !uid) return;   // 新加的行还没落库，本地移除即可
+        const fresh = btn.cloneNode(true);
+        btn.parentNode.replaceChild(fresh, btn);
+        fresh.disabled = row.parentNode.querySelectorAll('.pair-row').length <= 1
+            ? false : fresh.disabled;   // 最后一位允许点，走「整场删除」分支
+        fresh.addEventListener('click', () => removeSessionPair(sessionId, row.dataset.kind, uid, form));
+    });
+}
+
+/** 从一场课里移除一位老师或学生；移除最后一位时提示并走整场删除 */
+async function removeSessionPair(sessionId, kind, uid, form) {
+    const container = kind === 'teacher' ? 'scheduleTeacherRows' : 'scheduleStudentRows';
+    const isLast = document.querySelectorAll(`#${container} .pair-row`).length <= 1;
+    const label = kind === 'teacher' ? '老师' : '学生';
+    const msg = isLast
+        ? `这是本场最后一位${label}，移除会删除整场排课，确定吗？`
+        : `确定从这一场里移除这位${label}吗？`;
+    if (!await Modal.confirm(msg, { title: `移除${label}`, confirmText: '移除', confirmStyle: 'danger' })) return;
+
+    try {
+        const version = form && form.dataset.version ? Number(form.dataset.version) : undefined;
+        const path = `/admin/sessions/${sessionId}/${kind === 'teacher' ? 'teachers' : 'students'}/${uid}`;
+        await window.apiUtils.delete(path, version !== undefined ? { version } : undefined);
+        WeeklyDataStore.invalidateSchedules();
+        if (isLast) {
+            const formContainer = document.getElementById('scheduleFormContainer');
+            const overlay = document.getElementById('modalOverlay');
+            if (formContainer) formContainer.style.display = 'none';
+            if (overlay) overlay.style.display = 'none';
+            if (window.apiUtils) window.apiUtils.showSuccessToast('已删除整场排课');
+        } else {
+            if (window.apiUtils) window.apiUtils.showSuccessToast(`已移除该${label}`);
+            await editSchedule(sessionId);   // 重新拉一次拿到新的 version 与 pair 列表
+        }
+        await loadSchedules(true, false);
+        window.eventBus?.emit(window.EVENTS?.SCHEDULE_UPDATED || 'schedule:updated', { id: sessionId });
+    } catch (err) {
+        if (window.apiUtils) {
+            window.apiUtils.showToast(
+                err && err.status === 409 ? '该排课已被他人修改，请刷新后重试' : `移除失败: ${err.message || ''}`,
+                'error'
+            );
         }
     }
 }
@@ -1442,6 +1536,8 @@ function openCellEditor(student, dateISO) {
             studentReadonlyDiv.textContent = student.name || String(student.id);
             studentReadonlyDiv.style.display = 'block';
         }
+        const studentGroup = document.getElementById('scheduleStudentGroup');
+        if (studentGroup) studentGroup.style.display = 'block';
 
         if (dateInput) {
             dateInput.value = dateISO;
@@ -1456,10 +1552,19 @@ function openCellEditor(student, dateISO) {
         form.querySelector('#scheduleStartTime').value = '19:00';
         form.querySelector('#scheduleEndTime').value = '22:00';
         form.querySelector('#scheduleLocation').value = student.visit_location || '';
-        form.querySelector('#scheduleTypeSelect').value = '';
-        form.querySelector('#scheduleTeacher').value = '';
-        if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = 'confirmed';
-        if (document.getElementById('scheduleIsTemp')) document.getElementById('scheduleIsTemp').checked = false;
+        if (form.querySelector('#scheduleNotes')) form.querySelector('#scheduleNotes').value = '';
+        form.dataset.version = '';
+
+        // pair 行：各留一行空行，学生行预置成点开的那位学生
+        initPairForm();
+        resetPairRows();
+        const firstStudent = document.querySelector('#scheduleStudentRows .pair-student');
+        if (firstStudent) firstStudent.value = String(student.id);
+        // 教师行默认选第一位老师与第一个类型（沿用旧行为，减少点击）
+        const firstTeacher = document.querySelector('#scheduleTeacherRows .pair-teacher');
+        const firstType = document.querySelector('#scheduleTeacherRows .pair-type');
+        if (firstTeacher && firstTeacher.options.length > 1 && !firstTeacher.value) firstTeacher.selectedIndex = 1;
+        if (firstType && firstType.options.length > 1 && !firstType.value) firstType.selectedIndex = 1;
 
         // 首次加载后触发一次冲突检测
         updateTeacherStatusHints();
@@ -1467,19 +1572,10 @@ function openCellEditor(student, dateISO) {
         // 应用表单记忆
         applyFormMemory();
 
-        // 默认选择第一个老师和课程类型（如果有）
-        const tempTeacher = form.querySelector('#scheduleTeacher');
-        const tempType = form.querySelector('#scheduleTypeSelect');
-        if (tempTeacher && tempTeacher.options.length > 1 && !tempTeacher.value) {
-            tempTeacher.selectedIndex = 1;
-        }
-        if (tempType && tempType.options.length > 1 && !tempType.value) {
-            tempType.selectedIndex = 1;
-        }
-
         const overlay = document.getElementById('modalOverlay');
         if (overlay) overlay.style.display = 'block';
         container.style.display = 'block';
+        refitPairSelects();   // 上面直接改过 value/selectedIndex，不触发 change，宽度要重量
     });
 }
 
@@ -1509,13 +1605,13 @@ export async function editSchedule(id) {
             newDel.addEventListener('click', () => deleteSchedule(id));
         }
 
-        const studentSel = form.querySelector('#scheduleStudent');
         const studentReadonlyDiv = document.getElementById('scheduleStudentReadonly');
         const dateInput = form.querySelector('#scheduleDate');
         const dateReadonlyDiv = document.getElementById('scheduleDateReadonly');
 
-        if (studentSel) { studentSel.disabled = false; studentSel.style.display = 'block'; studentSel.value = data.student_id; }
         if (studentReadonlyDiv) studentReadonlyDiv.style.display = 'none';
+        const studentGroup = document.getElementById('scheduleStudentGroup');
+        if (studentGroup) studentGroup.style.display = 'none';
 
         if (dateInput) {
             let iso = data.date;
@@ -1533,28 +1629,26 @@ export async function editSchedule(id) {
         }
         if (dateReadonlyDiv) dateReadonlyDiv.style.display = 'none';
 
-        form.querySelector('#scheduleTeacher').value = data.teacher_id || '';
         form.querySelector('#scheduleStartTime').value = sanitizeTimeString(data.start_time);
         form.querySelector('#scheduleEndTime').value = sanitizeTimeString(data.end_time);
         form.querySelector('#scheduleLocation').value = data.location || '';
-        form.querySelector('#scheduleTypeSelect').value = data.course_id || '';
-        if (form.querySelector('#scheduleStatus')) form.querySelector('#scheduleStatus').value = data.status || 'confirmed';
-        if (document.getElementById('scheduleIsTemp')) {
-            document.getElementById('scheduleIsTemp').checked = (data.adjustment_type === 1);
-        }
+        if (form.querySelector('#scheduleNotes')) form.querySelector('#scheduleNotes').value = data.notes || '';
 
-        // 如果某些字段为空，可以应用表单记忆
-        const memory = loadFormMemory();
-        if (memory) {
-            const teacherEl = form.querySelector('#scheduleTeacher');
-            const typeEl = form.querySelector('#scheduleTypeSelect');
-            if (teacherEl && !teacherEl.value && memory.teacher_id) teacherEl.value = memory.teacher_id;
-            if (typeEl && !typeEl.value && memory.type_id) typeEl.value = memory.type_id;
-        }
+        // 详情接口返回的是场次形状（teachers[] / students[] + version），按 pair 逐行回填；
+        // version 带上是因为「改 pair 内容 / 增删 pair」是整列写，要走乐观锁。
+        form.dataset.version = data.version != null ? String(data.version) : '';
+        initPairForm();
+        fillPairRows(data);
+
+        // 每行的 [删除] 改为「从这一场移除这一位」（删除的第二、三种粒度）
+        bindPairRemoveButtons(id, form);
+
+        // 编辑态不套用表单记忆：pair 已按库里的真实值回填，不该被上次新建的记忆覆盖
 
         const overlay = document.getElementById('modalOverlay');
         if (overlay) overlay.style.display = 'block';
         container.style.display = 'block';
+        refitPairSelects();
         form.dataset.snapshot = JSON.stringify(data);
 
         // 编辑模式下初始触发一次冲突检测
@@ -1645,8 +1739,12 @@ async function loadScheduleFormOptions() {
  */
 async function updateTeacherStatusHints() {
     const form = document.getElementById('scheduleForm');
-    const teacherSel = document.getElementById('scheduleTeacher');
-    if (!form || !teacherSel) return;
+    // 教师下拉现在每行一个（模板控件 #scheduleTeacher 只提供选项），冲突提示要逐行标注
+    const teacherSelects = [
+        document.getElementById('scheduleTeacher'),
+        ...document.querySelectorAll('#scheduleTeacherRows .pair-teacher')
+    ].filter(Boolean);
+    if (!form || teacherSelects.length === 0) return;
 
     const date = form.querySelector('#scheduleDate')?.value;
     const start = form.querySelector('#scheduleStartTime')?.value;
@@ -1661,29 +1759,31 @@ async function updateTeacherStatusHints() {
 
         const conflicts = await window.apiUtils.get('/admin/teachers/conflicts', params);
 
-        Array.from(teacherSel.options).forEach(opt => {
-            if (!opt.value) return;
-            const tId = opt.value;
-            const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim().replace(/^[⚠◌]\s*/, '');
-            if (!opt.dataset.baseName) opt.dataset.baseName = baseName;
+        teacherSelects.forEach(sel => {
+            Array.from(sel.options).forEach(opt => {
+                if (!opt.value) return;
+                const tId = opt.value;
+                const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim().replace(/^[⚠◌]\s*/, '');
+                if (!opt.dataset.baseName) opt.dataset.baseName = baseName;
 
-            let hint = '';
-            let prefix = '';
-            let color = '';
-            const status = conflicts[tId];
-            if (status) {
-                if (status.hasClass) {
-                    hint = ' (已有排课)';
-                    prefix = '⚠️ ';
-                    color = '#f87171'; // 红色：时间冲突（高风险）
-                } else if (status.isUnavailable) {
-                    hint = ' (个人无空闲)';
-                    prefix = '◌ ';
-                    color = '#fbbf24'; // 橙色：无空闲（中风险）
+                let hint = '';
+                let prefix = '';
+                let color = '';
+                const status = conflicts[tId];
+                if (status) {
+                    if (status.hasClass) {
+                        hint = ' (已有排课)';
+                        prefix = '⚠️ ';
+                        color = '#f87171'; // 红色：时间冲突（高风险）
+                    } else if (status.isUnavailable) {
+                        hint = ' (个人无空闲)';
+                        prefix = '◌ ';
+                        color = '#fbbf24'; // 橙色：无空闲（中风险）
+                    }
                 }
-            }
-            opt.textContent = prefix + baseName + hint;
-            opt.style.color = color || '';
+                opt.textContent = prefix + baseName + hint;
+                opt.style.color = color || '';
+            });
         });
 
         // 根据当前选中教师显示/隐藏风险横幅
@@ -1697,12 +1797,14 @@ async function updateTeacherStatusHints() {
  */
 function updateConflictWarningBanner(conflicts) {
     const form = document.getElementById('scheduleForm');
-    const teacherSel = document.getElementById('scheduleTeacher');
-    if (!form || !teacherSel) return;
+    if (!form) return;
 
     let banner = document.getElementById('ai-conflict-warning');
-    const selectedId = teacherSel.value;
-    const status = selectedId ? conflicts[selectedId] : null;
+    // 多师一场：任一行选中的老师有冲突就提示（取第一个命中的）
+    const selectedIds = [...document.querySelectorAll('#scheduleTeacherRows .pair-teacher')]
+        .map(s => s.value).filter(Boolean);
+    const hitId = selectedIds.find(id => conflicts[id] && (conflicts[id].hasClass || conflicts[id].isUnavailable));
+    const status = hitId ? conflicts[hitId] : null;
 
     if (!status || (!status.hasClass && !status.isUnavailable)) {
         if (banner) banner.remove();
@@ -1712,7 +1814,7 @@ function updateConflictWarningBanner(conflicts) {
     if (!banner) {
         banner = document.createElement('div');
         banner.id = 'ai-conflict-warning';
-        banner.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;';
+        banner.style.cssText = 'padding:8px 12px;border-radius:8px;font-size: var(--fs-300);margin-bottom:10px;line-height:1.5;';
         form.parentElement.insertBefore(banner, form);
     }
 
@@ -1765,33 +1867,29 @@ export async function setupScheduleEventListeners() {
             const id = form.dataset.id;
             let snapshot = {};
             try { snapshot = JSON.parse(form.dataset.snapshot || '{}'); } catch (_) { snapshot = {}; }
-            const oldStudentId = snapshot.student_id || snapshot.student_ids?.[0] || null;
+            // 编辑前这一场的第一位学生（用于把移动前的旧格子也刷一遍）
+            const oldStudentId = snapshot.students?.[0]?.student_id || snapshot.student_id || null;
             const oldDateKey = snapshot.date || snapshot.class_date || null;
 
-            const teacherId = form.querySelector('#scheduleTeacher').value || null;
-            const studentId = form.querySelector('#scheduleStudent').value;
-            const courseId = form.querySelector('#scheduleTypeSelect').value || null;
+            // 读取两个 pair 列表（多师多生）。uid 只用于编辑态定位，不进 payload。
+            const pairs = collectPairs();
+            if (pairs.error) {
+                if (window.apiUtils) window.apiUtils.showToast(pairs.error, 'error');
+                return;
+            }
 
-            // 构建符合后端验证规则的 Payload
             const body = {
-                student_ids: studentId ? [Number(studentId)] : [],
-                teacher_id: teacherId ? Number(teacherId) : null,
                 date: form.querySelector('#scheduleDate').value,
                 start_time: form.querySelector('#scheduleStartTime').value,
                 end_time: form.querySelector('#scheduleEndTime').value,
                 location: form.querySelector('#scheduleLocation').value,
-                type_ids: courseId ? [Number(courseId)] : [], // 统一使用 type_ids 数组
-                status: form.querySelector('#scheduleStatus') ? form.querySelector('#scheduleStatus').value : 'confirmed',
+                notes: form.querySelector('#scheduleNotes') ? form.querySelector('#scheduleNotes').value : null,
                 resolve_strategy: 'override', // 默认覆盖
-                // adjustment_type：1=临时加课（勾选框），2=「调整」流程生成的增补记录（溯源标记，非用户可编辑属性）。
-                // 编辑 adjustment_type=2 的记录时必须原样带回，否则会被表单默认值 0 覆盖，
-                // 导致该记录丢失「调」水印与报销/统计口径。
-                adjustment_type: (document.getElementById('scheduleIsTemp') && document.getElementById('scheduleIsTemp').checked)
-                    ? 1
-                    : (Number(snapshot.adjustment_type) === 2 ? 2 : 0)
+                teachers: pairs.teachers.map(({ uid, ...rest }) => rest),
+                students: pairs.students.map(({ uid, ...rest }) => rest)
             };
 
-            if (!body.student_ids.length || !body.date || !body.start_time || !body.end_time) {
+            if (!body.date || !body.start_time || !body.end_time) {
                 if (window.apiUtils) window.apiUtils.showToast('请填写必填项', 'error');
                 return;
             }
@@ -1812,14 +1910,14 @@ export async function setupScheduleEventListeners() {
                     // 禁用乐观添加动画，直接保存
                     // backup = optimisticAdd(body);
 
-                    // 后台保存
-                    const result = await window.apiUtils.post('/admin/schedules', body);
+                    // 后台保存：一次 POST 写整场（多师多生一次成型）
+                    const result = await window.apiUtils.post('/admin/sessions', body);
 
                     saveFormMemory({
                         start_time: body.start_time,
                         end_time: body.end_time,
-                        teacher_id: body.teacher_id,
-                        type_id: body.type_ids && body.type_ids.length ? body.type_ids[0] : null
+                        teacher_id: body.teachers[0] && body.teachers[0].teacher_id,
+                        type_id: body.teachers[0] && body.teachers[0].type_id
                     });
 
 
@@ -1853,14 +1951,50 @@ export async function setupScheduleEventListeners() {
                     //                         window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`);
                     //                     }
 
-                    // 异步请求后端
-                    await window.apiUtils.put(`/admin/schedules/${id}`, body);
+                    // 编辑：拆成三类请求（服务端也是这样分的）
+                    //   ① 头部字段（日期/时段/地点/备注）—— 整场生效，带 version
+                    //   ② 每个 pair 的内容（类型/费用/评分/评价、家属人数）—— 带 version
+                    //   ③ 生命周期 —— 走独立的状态端点，不带 version（原地重建，不产生 409）
+                    const version = form.dataset.version ? Number(form.dataset.version) : undefined;
+                    const header = {
+                        date: body.date, start_time: body.start_time,
+                        end_time: body.end_time, location: body.location, notes: body.notes
+                    };
+                    if (version !== undefined) header.version = version;
+                    await window.apiUtils.patch(`/admin/sessions/${id}`, header);
+
+                    // pair 内容与状态：逐 pair 提交（新增的行没有 uid，走「加一位」端点）。
+                    // 费用（交通费/其他）与评分/评价归财务页面处理，排课表单不再携带与覆盖这些字段。
+                    for (const p of pairs.teachers) {
+                        if (!p.uid) {
+                            await window.apiUtils.post(`/admin/sessions/${id}/teachers`, {
+                                teacher_id: p.teacher_id, type_id: p.type_id,
+                                category: p.category, lifecycle: p.lifecycle
+                            });
+                            continue;
+                        }
+                        await window.apiUtils.patch(`/admin/sessions/${id}/teachers/${p.uid}`, {
+                            type_id: p.type_id
+                        });
+                        await window.apiUtils.patch(
+                            `/admin/sessions/${id}/teachers/${p.uid}/status`, { lifecycle: p.lifecycle }
+                        );
+                    }
+                    for (const p of pairs.students) {
+                        if (!p.uid) {
+                            await window.apiUtils.post(`/admin/sessions/${id}/students`, {
+                                student_id: p.student_id
+                            });
+                            continue;
+                        }
+                        await window.apiUtils.patch(`/admin/sessions/${id}/students/${p.uid}`, {});
+                    }
 
                     saveFormMemory({
                         start_time: body.start_time,
                         end_time: body.end_time,
-                        teacher_id: body.teacher_id,
-                        type_id: body.type_ids && body.type_ids.length ? body.type_ids[0] : null
+                        teacher_id: body.teachers[0] && body.teachers[0].teacher_id,
+                        type_id: body.teachers[0] && body.teachers[0].type_id
                     });
 
                     // 成功后，去处特效
@@ -1886,15 +2020,16 @@ export async function setupScheduleEventListeners() {
                 // 由于后端目前只返回 ID，我们先强制同步内存，但不触发全局 UI 重载
                 await WeeklyDataStore.getAllSchedules(true);
 
-                // 提取日期和学生 ID 进行定点刷新
-                const finalStudentId = body.student_ids ? (Array.isArray(body.student_ids) ? body.student_ids[0] : body.student_ids) : null;
+                // 定点刷新：一场课可能涉及多位学生，每一位的格子都要刷（否则会留脏格子）
+                const finalStudentIds = body.students.map(s => s.student_id).filter(v => v != null);
+                const finalStudentId = finalStudentIds[0] ?? null;
                 const finalDateKey = body.date;
 
-                if (finalStudentId && finalDateKey) {
-                    await refreshCell(finalStudentId, finalDateKey);
+                if (finalStudentIds.length && finalDateKey) {
+                    for (const sid of finalStudentIds) await refreshCell(sid, finalDateKey);
                     // Editing a schedule can move it. Refresh the old location as well.
                     if (mode === 'edit' && oldStudentId && oldDateKey &&
-                        (String(oldStudentId) !== String(finalStudentId) || oldDateKey !== finalDateKey)) {
+                        (!finalStudentIds.map(String).includes(String(oldStudentId)) || oldDateKey !== finalDateKey)) {
                         await refreshCell(oldStudentId, oldDateKey);
                     }
                 } else {
@@ -1924,7 +2059,15 @@ export async function setupScheduleEventListeners() {
                     currentCard.classList.remove('optimistic-updating');
                 }
 
-                if (window.apiUtils) window.apiUtils.showToast('保存失败: ' + (err.message || ''), 'error');
+                if (window.apiUtils) {
+                    // 409 = 乐观锁冲突：别人在你打开弹窗后改过这一场
+                    window.apiUtils.showToast(
+                        err && err.status === 409
+                            ? '该排课已被他人修改，请刷新后重试'
+                            : '保存失败: ' + (err.message || ''),
+                        'error'
+                    );
+                }
             } finally {
                 if (btn) {
                     btn.disabled = false;
@@ -2051,4 +2194,3 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
 }
 
 // Expose required methods to window for legacy code
-
