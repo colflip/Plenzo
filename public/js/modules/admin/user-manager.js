@@ -87,6 +87,12 @@ async function handleUserFormSubmit(e) {
         const userIdInput = document.getElementById('userId');
         if (canEditUserId() && userIdInput && userIdInput.value) {
             const parsedId = parseInt(userIdInput.value, 10);
+            // 号段前置校验：与后端 ID_RANGES 同一套规则，提前到提交前提示，
+            // 避免等接口 400 才看到「范围应该为 1000-1999」这类过期文案
+            const range = USER_ID_RANGES[type];
+            if (range && (!Number.isInteger(parsedId) || parsedId < range[0] || parsedId > range[1])) {
+                throw new Error(`${USER_ID_LABELS[type]} ID 必须在 ${range[0]}-${range[1]} 之间`);
+            }
             if (mode === 'add') {
                 body.id = parsedId;
             } else if (mode === 'edit' && String(parsedId) !== String(id)) {
@@ -740,7 +746,8 @@ function hideEmptyColumns() {
 // 以后端 next-id 为准而不是 window.__usersCache：该缓存只装了一页，
 // 用户超过一页后本地 max 会偏小，预填的 ID 会撞上已存在的行并被创建接口拒掉。
 // 各角色 ID 号段（与后端 user-service 的 ID_RANGES 保持一致）
-const USER_ID_RANGES = { admin: [1000, 1999], teacher: [2000, 2999], student: [3000, 3999] };
+const USER_ID_RANGES = { admin: [100, 999], teacher: [2000, 2999], student: [3000, 3999] };
+const USER_ID_LABELS = { admin: '管理员', teacher: '教师', student: '学生' };
 
 async function generateNextUserId() {
     const form = document.getElementById('userForm');
