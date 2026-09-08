@@ -164,6 +164,10 @@ const scheduleValidation = {
         // 生命周期单独一个键（与 status 同义，二者取其一）
         lifecycle: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away').optional(),
         type_id: Joi.number().integer().positive().optional(),
+        // 换人 / 改类别：单 pair 提交路径（批量路径走 teachers[] / students[] 里的同名键）
+        student_id: Joi.number().integer().positive().optional(),
+        category: Joi.string().valid('normal', 'temp').optional()
+            .messages({ 'any.only': '类别只能是normal或temp' }),
         teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
         teacher_comment: Joi.string().max(500).allow('', null),
         transport_fee: Joi.number().min(0).allow(null),

@@ -66,12 +66,18 @@ const HEADER_COLUMNS = ['class_date', 'start_time', 'end_time', 'location', 'not
  */
 const PAIR_WRITE_WHITELIST = {
     admin: {
-        teacher: ['type_id', 'teacher_rating', 'teacher_comment', 'transport_fee', 'other_fee', 'fee_status'],
-        student: ['student_rating', 'student_comment', 'family_participants']
+        // teacher_id / student_id / category 是 2026-09-08 补进来的：编辑弹窗里换老师、换学生、
+        // 改类别（普通 ↔ 临时加课）三个入口此前前端根本没提交、服务端也不放行，
+        // 于是「保存成功」的 toast 照弹，库里一行没动。
+        teacher: ['teacher_id', 'category', 'type_id', 'teacher_rating', 'teacher_comment', 'transport_fee', 'other_fee', 'fee_status'],
+        student: ['student_id', 'student_rating', 'student_comment', 'family_participants']
     },
     headteacher: { teacher: ['transport_fee', 'other_fee', 'fee_status'], student: [] },
     teacher: { teacher: ['transport_fee', 'other_fee', 'fee_status'], student: [] }
 };
+
+/** 编辑弹窗可直接改写的类别位；adjusted 是溯源属性，只有「作废+增补」流程能写 */
+const EDITABLE_CATEGORIES = ['normal', 'temp'];
 
 /**
  * 生成 jsonpath 谓词：按类别或生命周期筛课。
@@ -207,7 +213,8 @@ function applyPairPatch(kind, patch, actor) {
 function normalizePairPatch(kind, patch) {
     const out = {};
     for (const [k, v] of Object.entries(patch)) {
-        if (k === 'type_id' || k === 'teacher_rating' || k === 'student_rating' || k === 'family_participants') {
+        if (k === 'type_id' || k === 'teacher_id' || k === 'student_id'
+            || k === 'teacher_rating' || k === 'student_rating' || k === 'family_participants') {
             out[k] = intOrNull(v);
         } else if (k === 'transport_fee' || k === 'other_fee') {
             const n = numOrNull(v);
@@ -596,9 +603,39 @@ async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
 
     const column = kind === 'teacher' ? 'teachers' : 'students';
     const arr = session[column] || [];
-    if (!findPair(arr, uid)) return { notFound: true, rejectedFields };
+    const target = findPair(arr, uid);
+    if (!target) return { notFound: true, rejectedFields };
 
-    if (normalized.type_id !== undefined) await assertReferences({ typeIds: [normalized.type_id] });
+    // 类别位不是独立列，而是 status 的前缀（"temp.confirmed"）。改类别 = 换前缀、生命周期后缀原样保留；
+    // 走同样的「只换一段、另一段保留」规则，不另外引入 category 列，避免两处真值互相打架。
+    if (normalized.category !== undefined) {
+        if (!EDITABLE_CATEGORIES.includes(normalized.category)) {
+            throw new SessionValidationError(`类别不能改成 ${normalized.category}`);
+        }
+        normalized.status = `${normalized.category}.${splitStatus(target.status).lifecycle}`;
+        delete normalized.category;
+    }
+
+    // 换人必须验引用 + 查重：否则能把同一位老师写进同一场两次，或写进一个不存在的 id。
+    // 查重排除自己（uid 不同才算冲突），且只算活跃 pair —— 已取消/已调走的不占名额。
+    if (kind === 'teacher' && normalized.teacher_id !== undefined) {
+        if (arr.some(p => String(p.uid) !== String(uid)
+            && Number(p.teacher_id) === Number(normalized.teacher_id) && isActive(p.status))) {
+            throw new SessionValidationError('这位老师已经在这一场课里了');
+        }
+    }
+    if (kind === 'student' && normalized.student_id !== undefined) {
+        if (arr.some(p => String(p.uid) !== String(uid)
+            && Number(p.student_id) === Number(normalized.student_id))) {
+            throw new SessionValidationError('这位学生已经在这一场课里了');
+        }
+    }
+
+    const refs = {};
+    if (normalized.type_id !== undefined) refs.typeIds = [normalized.type_id];
+    if (normalized.teacher_id !== undefined) refs.teacherIds = [normalized.teacher_id];
+    if (normalized.student_id !== undefined) refs.studentIds = [normalized.student_id];
+    if (Object.keys(refs).length > 0) await assertReferences(refs);
 
     const next = arr.map(p => (String(p.uid) === String(uid) ? { ...p, ...normalized } : p));
     const r = await db.query(
@@ -739,6 +776,13 @@ async function updatePairsBatch(id, body, actor, version, prev) {
         const uid = item && item.uid != null ? String(item.uid) : null;
         if (uid) {
             const patch = {};
+            // 换老师与改类别必须进 patch，否则编辑弹窗里改了这两项，请求里一个键都不带 →
+            // 服务端「什么都没改」照返回 200，前端照弹成功提示（2026-09-08 修的那类静默失败）。
+            // adjusted 不进 patch：它是溯源属性，只有作废+增补能写，普通编辑一律忽略。
+            if (item.teacher_id !== undefined) patch.teacher_id = item.teacher_id;
+            if (item.category !== undefined && EDITABLE_CATEGORIES.includes(item.category)) {
+                patch.category = item.category;
+            }
             if (item.type_id !== undefined) patch.type_id = item.type_id;
             if (item.teacher_rating !== undefined) patch.teacher_rating = item.teacher_rating;
             if (item.teacher_comment !== undefined) patch.teacher_comment = item.teacher_comment;
@@ -778,6 +822,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
         const uid = item && item.uid != null ? String(item.uid) : null;
         if (uid) {
             const patch = {};
+            if (item.student_id !== undefined) patch.student_id = item.student_id;
             if (item.family_participants !== undefined) patch.family_participants = item.family_participants;
             if (item.student_rating !== undefined) patch.student_rating = item.student_rating;
             if (item.student_comment !== undefined) patch.student_comment = item.student_comment;
