@@ -655,21 +655,16 @@ function initializeStatisticsTabs() {
     const studentEl = document.getElementById('statsStudent');
     if (!tabBtns.length || !overviewEl || !teacherEl || !studentEl) return;
 
-    // 把公共查询区域（日期/查询/快捷按钮）移动到目标视图顶部。
+    // 把公共查询区域（日期/查询/快捷按钮）移动到目标视图卡片顶部。
     // 三个视图共用同一 DOM 实例：以总体概览的实现为唯一基准，教师/学生视图
     // 不再各自维护一份（避免样式漂移与三组日期互相同步的复杂度）。
-    // 教师/学生视图没有整体背景卡片，查询栏直接挂在 stats-view 根元素下。
+    // 三个视图都有整体背景卡片（stats-unified-card），目标即各视图的卡片。
     function moveQuerySection(view) {
         const qs = document.querySelector('.statistics-container .query-section');
         if (!qs) return;
-        let target;
-        if (view === 'overview') {
-            target = document.querySelector('#statsOverview .stats-unified-card');
-        } else {
-            target = document.getElementById(view === 'teacher' ? 'statsTeacher' : 'statsStudent');
-        }
-        if (target && qs.parentElement !== target) {
-            target.insertBefore(qs, target.firstChild);
+        const targetCard = document.querySelector(`#stats${view.charAt(0).toUpperCase() + view.slice(1)} .stats-unified-card`);
+        if (targetCard && qs.parentElement !== targetCard) {
+            targetCard.insertBefore(qs, targetCard.firstChild);
         }
     }
 
@@ -739,7 +734,50 @@ function getStatisticsActiveView() {
     return activeBtn ? (activeBtn.dataset.view || activeBtn.getAttribute('data-view')) : 'overview';
 }
 
+// 统计页加载态的最短可见时长（ms）。
+// 背景：接口常在 100ms 内返回，遮罩一闪而过 + 200ms 淡出，用户感知不到"正在加载"，
+// 表现为"进入页面没有任何加载动画"。统一保证动画至少可见这段时间。
+const STATS_LOADING_MIN_MS = 450;
+
+// 各视图的加载遮罩挂载点（与下方渲染容器保持一致）
+function statsLoadingContainer(view, wrapper) {
+    if (!wrapper) return null;
+    if (view === 'overview') return wrapper.querySelector('.charts-section');
+    if (view === 'teacher') return wrapper.querySelector('.teacher-charts-container');
+    if (view === 'student') return wrapper.querySelector('.student-charts-container');
+    return null;
+}
+
 async function loadStatistics() {
+    // 获取反馈元素
+    const statsFeedback = document.getElementById('statisticsFeedback');
+    const activeView = getStatisticsActiveView();
+    const activeWrapper = document.getElementById('stats' + activeView.charAt(0).toUpperCase() + activeView.slice(1));
+
+    // 进入即显示加载动画：不等 StatsLogic、不等接口返回。
+    // StatsLogic 由 type="module" 的 stats-logic.js 挂载，最坏情况需要等待 3s 才就绪，
+    // 若把动画放到请求之后，这段空窗期页面毫无反馈。
+    const showStatsLoading = () => {
+        if (activeWrapper) activeWrapper.classList.add('stats-loading');
+        const box = statsLoadingContainer(activeView, activeWrapper);
+        if (box && window.UIHelper) {
+            window.UIHelper.showTableLoading(box, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
+        }
+        if (statsFeedback) {
+            statsFeedback.textContent = '正在加载统计数据...';
+            statsFeedback.className = 'feedback info';
+            statsFeedback.style.display = 'block';
+        }
+    };
+    const hideStatsLoading = () => {
+        if (activeWrapper) activeWrapper.classList.remove('stats-loading');
+        const box = statsLoadingContainer(activeView, activeWrapper);
+        if (box && window.UIHelper) window.UIHelper.hideTableLoading(box);
+        if (statsFeedback) statsFeedback.style.display = 'none';
+    };
+
+    showStatsLoading();
+
     // stats-logic.js 以 type="module" 加载，执行晚于 defer 脚本
     // 若 StatsLogic 尚未就绪，等待其加载完成后再继续
     if (!window.StatsLogic) {
@@ -751,9 +789,6 @@ async function loadStatistics() {
             setTimeout(() => { clearInterval(check); resolve(); }, 3000);
         });
     }
-
-    // 获取反馈元素
-    const statsFeedback = document.getElementById('statisticsFeedback');
 
     try {
         const statsStartEl = document.getElementById('statsStartDate');
@@ -776,25 +811,16 @@ async function loadStatistics() {
             if (statsEndEl) statsEndEl.value = endDate;
         }
 
-        // 显示加载反馈 (Legacy)
-        if (statsFeedback) {
-            statsFeedback.textContent = '正在加载统计数据...';
-            statsFeedback.className = 'feedback info';
-            statsFeedback.style.display = 'block';
-        }
-
-        const activeView = getStatisticsActiveView();
-        const activeWrapper = document.getElementById('stats' + activeView.charAt(0).toUpperCase() + activeView.slice(1));
-        if (activeWrapper) activeWrapper.classList.add('stats-loading');
+        // 加载态已在进入函数时统一显示（showStatsLoading），此处仅同步日期控件状态
 
         // 概览视图：饼图 + 教师/学生堆叠横向柱
         if (activeView === 'overview') {
             try {
-                // 使用统一的加载动画工具
+                // 使用统一的加载动画工具（幂等：遮罩已存在时不重复创建）
                 if (activeWrapper && window.UIHelper) {
                     const chartsSection = activeWrapper.querySelector('.charts-section');
                     if (chartsSection) {
-                        window.UIHelper.showTableLoading(chartsSection, '正在加载统计数据...');
+                        window.UIHelper.showTableLoading(chartsSection, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
                     }
                 }
 
@@ -827,15 +853,10 @@ async function loadStatistics() {
 
                     // 检查数据有效性 - 如果加载失败,显示错误提示而非假数据
                     if (!statsData || !userStatsData) {
-
-
-                        // 移除加载覆盖层
-                        if (loadingOverlay) loadingOverlay.remove();
-                        if (overviewContainer) overviewContainer.classList.remove('stats-loading');
-                        if (statsFeedback) statsFeedback.style.display = 'none';
+                        hideStatsLoading();
 
                         // 显示错误提示
-                        const chartsSection = overviewContainer?.querySelector('.charts-section');
+                        const chartsSection = activeWrapper?.querySelector('.charts-section');
                         if (chartsSection) {
                             chartsSection.innerHTML = `
                                 <div class="stats-error-message" style="
@@ -865,15 +886,10 @@ async function loadStatistics() {
 
                     // 检查关键数据是否存在
                     if (!scheduleDist || scheduleDist.length === 0) {
-
-
-                        // 移除加载覆盖层
-                        if (loadingOverlay) loadingOverlay.remove();
-                        if (overviewContainer) overviewContainer.classList.remove('stats-loading');
-                        if (statsFeedback) statsFeedback.style.display = 'none';
+                        hideStatsLoading();
 
                         // 显示错误提示
-                        const chartsSection = overviewContainer?.querySelector('.charts-section');
+                        const chartsSection = activeWrapper?.querySelector('.charts-section');
                         if (chartsSection) {
                             chartsSection.innerHTML = `
                                 <div class="stats-error-message" style="
@@ -922,18 +938,16 @@ async function loadStatistics() {
                                 });
                             });
                         });
+
+                        // 6. 图表真正画完后再撤加载态，避免"遮罩已消失但图还没出来"的空窗
+                        hideStatsLoading();
                     }, 50);
 
                 } catch (generalError) {
-
-
-                    // 移除加载覆盖层
-                    if (loadingOverlay) loadingOverlay.remove();
-                    if (overviewContainer) overviewContainer.classList.remove('stats-loading');
-                    if (statsFeedback) statsFeedback.style.display = 'none';
+                    hideStatsLoading();
 
                     // 显示错误提示
-                    const chartsSection = overviewContainer?.querySelector('.charts-section');
+                    const chartsSection = activeWrapper?.querySelector('.charts-section');
                     if (chartsSection) {
                         chartsSection.innerHTML = `
                             <div class="stats-error-message" style="
@@ -952,15 +966,6 @@ async function loadStatistics() {
                     }
                 }
 
-                // Hide feedback
-                if (activeWrapper) {
-                    activeWrapper.classList.remove('stats-loading');
-                    const chartsSection = activeWrapper.querySelector('.charts-section');
-                    if (chartsSection && window.UIHelper) {
-                        window.UIHelper.hideTableLoading(chartsSection);
-                    }
-                }
-                if (statsFeedback) statsFeedback.style.display = 'none';
                 return;
             } catch (overviewError) {
 
@@ -979,7 +984,7 @@ async function loadStatistics() {
             
             const teacherContainer = document.querySelector('.teacher-charts-container');
             if (teacherContainer && window.UIHelper) {
-                window.UIHelper.showTableLoading(teacherContainer, '正在加载统计数据...');
+                window.UIHelper.showTableLoading(teacherContainer, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
                 
                 // Reset animations
                 const chartContainers = teacherContainer.querySelectorAll('.chart-container');
@@ -996,7 +1001,7 @@ async function loadStatistics() {
 
             const studentContainer = document.querySelector('.student-charts-container');
             if (studentContainer && window.UIHelper) {
-                window.UIHelper.showTableLoading(studentContainer, '正在加载统计数据...');
+                window.UIHelper.showTableLoading(studentContainer, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
                 
                 // Reset animations
                 const chartContainers = studentContainer.querySelectorAll('.chart-container');
@@ -1151,9 +1156,7 @@ async function loadStatistics() {
         if (statsFeedback) statsFeedback.style.display = 'none';
 
     } catch (error) {
-        const activeView = getStatisticsActiveView();
-        const activeWrapper = document.getElementById('stats' + activeView.charAt(0).toUpperCase() + activeView.slice(1));
-        
+        // activeView / activeWrapper 已在函数顶部计算，此处复用（视图在加载期间不会变化）
         if (activeWrapper) {
             activeWrapper.classList.remove('stats-loading');
             

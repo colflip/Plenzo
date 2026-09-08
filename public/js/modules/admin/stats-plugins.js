@@ -433,6 +433,16 @@
         ? stacks
         : [{ label: '无数据', data: new Array(formattedLabels.length).fill(0) }];
 
+      // 「从时间起点画到终点」的揭示动画：X 轴一次性固定完整范围，
+      // 可见数据窗口从起点开始逐帧向终点推进，曲线/柱像播放一样沿时间轴生长。
+      // revealAnimation:false 可关闭；点数不足 3 个时直接静态渲染。
+      const revealEnabled = opts.revealAnimation !== false && formattedLabels.length > 2;
+      const REVEAL_START_POINTS = 2;
+      const revealState = revealEnabled ? { count: REVEAL_START_POINTS } : null;
+      const sliceForReveal = (arr) => (revealState ? arr.slice(0, revealState.count) : arr);
+      const fullSeries = normalizedStacks.map(s => sanitizeArray(s.data));
+      let fullTotalPerDay = null;
+
       // 计算异常值边界
       const clampMax = computeClampMaxFromSeries(normalizedStacks);
 
@@ -442,7 +452,7 @@
         const color = colorFor(s.label, i);
         return {
           label: s.label,
-          data: sanitizeArray(s.data),
+          data: sliceForReveal(fullSeries[i]),
           borderColor: color,
           backgroundColor: addAlpha(color, 0.78),
           borderWidth: 1.5,
@@ -467,6 +477,7 @@
         const totalPerDay = formattedLabels.map((_, dayIdx) => {
           return normalizedStacks.reduce((sum, stack) => sum + (stack.data[dayIdx] || 0), 0);
         });
+        fullTotalPerDay = totalPerDay;
 
         // 美观的渐变蓝色（带透明度）
         const lineColor = 'rgba(59, 130, 246, 0.85)';  // 蓝色，85%透明度
@@ -475,7 +486,7 @@
         datasets.push({
           type: 'line',
           label: '总计',
-          data: totalPerDay,
+          data: sliceForReveal(totalPerDay),
           borderColor: lineColor,
           backgroundColor: 'transparent',
           borderWidth: 3,                  // 稍微加粗
@@ -600,6 +611,11 @@
           scales: {
             x: {
               stacked: true,
+              // 揭示动画期间固定完整时间范围，避免轴随可见窗口伸缩跳动
+              ...(revealState ? {
+                min: formattedLabels[0],
+                max: formattedLabels[formattedLabels.length - 1]
+              } : {}),
               grid: {
                 display: false
               },
@@ -652,6 +668,28 @@
       // 创建图表实例
       const chart = new Chart(el.getContext('2d'), chartConfig);
 
+      // 逐帧揭示：可见数据窗口从时间起点向终点推进，update('none') 跳过内建动画
+      if (revealState) {
+        if (el._revealTimer) clearInterval(el._revealTimer);
+        const total = formattedLabels.length;
+        const step = Math.max(1, Math.round(total / 36));   // 约 36 帧，总时长 ~1.5s
+        const timer = setInterval(() => {
+          // 图表已被销毁/替换（重复查询、切视图）时自动停止，防止泄漏
+          if (window.Chart.getChart(el) !== chart) { clearInterval(timer); return; }
+          revealState.count = Math.min(total, revealState.count + step);
+          chart.data.labels = formattedLabels.slice(0, revealState.count);
+          chart.data.datasets.forEach((ds, i) => {
+            const full = ds.$isTotalLine
+              ? (fullTotalPerDay || [])
+              : (fullSeries[i] || []);
+            ds.data = full.slice(0, revealState.count);
+          });
+          chart.update('none');
+          if (revealState.count >= total) clearInterval(timer);
+        }, 40);
+        el._revealTimer = timer;
+      }
+
       // 隐藏加载状态
       if (loadingContainer) {
         loadingContainer.style.display = 'none';
@@ -679,6 +717,7 @@
 
       // 存储清理函数
       el._chartCleanup = () => {
+        if (el._revealTimer) clearInterval(el._revealTimer);
         window.removeEventListener('resize', handleResize);
         try { chart.destroy(); } catch (_) { }
       };

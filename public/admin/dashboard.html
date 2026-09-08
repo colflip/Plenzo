@@ -1463,55 +1463,57 @@
                         </div>
                     </div>
                     <div id="statsTeacher" class="stats-view">
-                        <!-- 查询区域（公共实例，切换视图时由 JS 移入本视图顶部）。
-                             每张视图表独立成卡（与总体概览的三张图表一致），无整体背景卡片 -->
-                        <div class="teacher-charts-container">
-                            <div class="chart-card teacher-summary-card">
-                                <div class="summary-card-header">
-                                    <h4 id="teacherSummaryChartTitle" class="summary-chart-title">
-                                        按日期汇总
-                                        <div id="teacherSummaryTitleTooltip" class="teacher-title-tooltip"
-                                            style="display: none;"></div>
-                                    </h4>
-                                    <div class="filter-group">
-                                        <label for="statsTeacherSelect"></label>
-                                        <select id="statsTeacherSelect">
-                                            <option value="">全部教师</option>
-                                        </select>
+                        <div class="stats-unified-card">
+                            <!-- 查询区域（公共实例，切换视图时由 JS 移入本卡片顶部） -->
+                            <div class="teacher-charts-container">
+                                <div class="chart-card teacher-summary-card">
+                                    <div class="summary-card-header">
+                                        <h4 id="teacherSummaryChartTitle" class="summary-chart-title">
+                                            按日期汇总
+                                            <div id="teacherSummaryTitleTooltip" class="teacher-title-tooltip"
+                                                style="display: none;"></div>
+                                        </h4>
+                                        <div class="filter-group">
+                                            <label for="statsTeacherSelect"></label>
+                                            <select id="statsTeacherSelect">
+                                                <option value="">全部教师</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container summary-chart">
+                                        <canvas id="teacherDailyTypeStackChart"></canvas>
                                     </div>
                                 </div>
-                                <div class="chart-container summary-chart">
-                                    <canvas id="teacherDailyTypeStackChart"></canvas>
-                                </div>
+                                <!-- 单人视图表：独立卡片，与汇总卡平级 -->
+                                <div id="teacherChartsContainer" class="teacher-charts-grid"></div>
                             </div>
-                            <!-- 单人视图表：独立卡片，与汇总卡平级 -->
-                            <div id="teacherChartsContainer" class="teacher-charts-grid"></div>
                         </div>
                     </div>
                     <div id="statsStudent" class="stats-view">
-                        <!-- 查询区域（公共实例，切换视图时由 JS 移入本视图顶部）。
-                             每张视图表独立成卡（与总体概览的三张图表一致），无整体背景卡片 -->
-                        <div class="student-charts-container">
-                            <div class="chart-card student-summary-card">
-                                <div class="summary-card-header">
-                                    <h4 id="studentSummaryChartTitle" class="summary-chart-title">
-                                        按日期汇总
-                                        <div id="studentSummaryTitleTooltip" class="student-title-tooltip"
-                                            style="display: none;"></div>
-                                    </h4>
-                                    <div class="filter-group">
-                                        <label for="statsStudentSelect"></label>
-                                        <select id="statsStudentSelect">
-                                            <option value="">全部学生</option>
-                                        </select>
+                        <div class="stats-unified-card">
+                            <!-- 查询区域（公共实例，切换视图时由 JS 移入本卡片顶部） -->
+                            <div class="student-charts-container">
+                                <div class="chart-card student-summary-card">
+                                    <div class="summary-card-header">
+                                        <h4 id="studentSummaryChartTitle" class="summary-chart-title">
+                                            按日期汇总
+                                            <div id="studentSummaryTitleTooltip" class="student-title-tooltip"
+                                                style="display: none;"></div>
+                                        </h4>
+                                        <div class="filter-group">
+                                            <label for="statsStudentSelect"></label>
+                                            <select id="statsStudentSelect">
+                                                <option value="">全部学生</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container summary-chart">
+                                        <canvas id="studentDailyTypeStackChart"></canvas>
                                     </div>
                                 </div>
-                                <div class="chart-container summary-chart">
-                                    <canvas id="studentDailyTypeStackChart"></canvas>
-                                </div>
+                                <!-- 单人视图表：独立卡片，与汇总卡平级 -->
+                                <div id="studentChartsContainer" class="student-charts-grid"></div>
                             </div>
-                            <!-- 单人视图表：独立卡片，与汇总卡平级 -->
-                            <div id="studentChartsContainer" class="student-charts-grid"></div>
                         </div>
                     </div>
                 </div>

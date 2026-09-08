@@ -412,38 +412,8 @@
 .teacher-charts-container,
 .student-charts-container {
     position: relative;
-    /* 公共查询区域（query-section）切换视图时移入本视图顶部，
-       四周留白与 overview 的 charts-section 保持一致 */
-    padding: 0;
-}
-
-/* 教师/学生视图：查询栏独立成卡（无整体背景卡片包裹） */
-#statsTeacher > .query-section,
-#statsStudent > .query-section {
-    border: 1px solid var(--stats-border);
-    border-radius: var(--stats-radius-lg);
-    box-shadow: var(--stats-shadow-sm);
-    margin-bottom: 24px;
-}
-
-/* 教师/学生视图：汇总图表卡独立成卡（同 overview 三图的卡片观感） */
-#statsTeacher .teacher-summary-card,
-#statsStudent .student-summary-card {
-    background: var(--stats-surface);
-    border: 1px solid var(--stats-border);
-    border-radius: var(--stats-radius-lg);
-    box-shadow: var(--stats-shadow-sm);
-    padding: 20px;
-}
-
-/* 内嵌汇总图表不再自带卡片外观，融入独立汇总卡 */
-#statsTeacher .chart-container.summary-chart,
-#statsStudent .chart-container.summary-chart {
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    padding: 0;
-    height: 340px;
+    /* 整体背景卡片（stats-unified-card）内，四周留白与 overview 的 charts-section 一致 */
+    padding: 24px;
 }
 
 .teacher-charts-grid,
