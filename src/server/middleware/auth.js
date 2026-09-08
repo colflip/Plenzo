@@ -46,6 +46,23 @@ function parseCookies(req) {
 }
 
 /**
+ * 令牌纪元（token epoch）。
+ *
+ * JWT 载荷里存的是用户 id。用户改主键（new_id）或批量重编 ID 后，在途 token 里的旧 id
+ * 会指向一个不存在的用户 —— 中间件只验签名不查库，结果不是干净的 401，而是请求通过认证
+ * 后在业务层悄悄查空。引入递增纪元值：改号/重编时把 TOKEN_EPOCH +1，所有旧 token 立即失效，
+ * 前端收到 401 自动跳登录页（api-client 已有该逻辑），无需逐个踢人。
+ *
+ * 零每请求开销：只在签名与验签时读一次环境变量。
+ */
+const TOKEN_EPOCH_DEFAULT = 1;
+
+function getTokenEpoch() {
+    const n = parseInt(process.env.TOKEN_EPOCH, 10);
+    return Number.isInteger(n) && n > 0 ? n : TOKEN_EPOCH_DEFAULT;
+}
+
+/**
  * 认证中间件
  * @description 验证 JWT 令牌并注入真实用户身份
  * 令牌来源优先级：httpOnly Cookie（推荐，防 XSS 窃取）> Authorization 头（兼容旧客户端）
@@ -68,6 +85,15 @@ const authMiddleware = async (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+
+        // 纪元不匹配 = 该 token 签发于上一次「用户 ID 变更」之前，身份已不可信。
+        // 带固定 code 供前端识别；message 会被 api-client 直接展示。
+        if (decoded.tv !== getTokenEpoch()) {
+            return res.status(401).json({
+                code: 'SESSION_EPOCH_MISMATCH',
+                message: '账号信息已变更，请重新登录'
+            });
+        }
 
         req.user = {
             id: decoded.id,
@@ -106,5 +132,6 @@ module.exports = {
     authMiddleware,
     adminOnly,
     checkPermissionLevel,
-    getJwtSecret
+    getJwtSecret,
+    getTokenEpoch
 };

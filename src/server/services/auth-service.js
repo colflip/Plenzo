@@ -9,6 +9,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../db/db');
 const { AppError } = require('../middleware/error');
+const { getTokenEpoch } = require('../middleware/auth');
 
 // 用户类型映射表
 const TABLE_MAP = {
@@ -157,11 +158,13 @@ class AuthService {
         }
 
         // 5. 生成 Token — 根据 rememberMe 决定过期时间
+        // tv（token epoch）：用户改号/重编 ID 后 +1 即可让全部旧 token 失效，见 middleware/auth.js
         const token = jwt.sign(
             {
                 id: user.id,
                 userType,
-                permissionLevel: user.permission_level || null
+                permissionLevel: user.permission_level || null,
+                tv: getTokenEpoch()
             },
             getJwtSecret(),
             { expiresIn: getJwtExpiresIn(rememberMe) }
@@ -172,7 +175,8 @@ class AuthService {
             {
                 id: user.id,
                 userType,
-                type: 'refresh'
+                type: 'refresh',
+                tv: getTokenEpoch()
             },
             getJwtSecret(),
             { expiresIn: getRefreshTokenExpiresIn(rememberMe) }
