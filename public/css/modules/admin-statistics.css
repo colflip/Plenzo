@@ -322,15 +322,33 @@
 }
 
 /* Summary Chart Title */
+/* 与单人卡片（.person-card-header）一致的行内标题风格：左对齐、小字号，
+   位于汇总卡片 header 行左侧，右侧放教师/学生筛选下拉 */
 .summary-chart-title {
-    font-size: var(--fs-500);
-    font-weight: 700;
+    font-size: var(--fs-300);
+    font-weight: 600;
     color: var(--stats-text-main);
-    margin-bottom: 20px;
-    text-align: center;
+    margin: 0;
+    text-align: left;
     position: relative;
     cursor: help;
     /* Indicate interactability */
+}
+
+/* 汇总卡片 header 行：左标题 + 右筛选下拉（教师/学生视图） */
+.summary-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 14px 16px 0;
+}
+
+.summary-card-header .filter-group select {
+    height: 34px;
+    padding: 4px 10px;
+    font-size: var(--fs-300);
 }
 
 /* Tooltip Styles */
@@ -394,6 +412,9 @@
 .teacher-charts-container,
 .student-charts-container {
     position: relative;
+    /* 公共查询区域（query-section）切换视图时移入本容器所在卡片顶部，
+       四周留白与 overview 的 charts-section 保持一致 */
+    padding: 24px;
 }
 
 .teacher-charts-grid,

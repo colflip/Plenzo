@@ -388,27 +388,10 @@ function initializeStatisticsControls() {
     statsStart.value = sDate;
     statsEnd.value = eDate;
 
-    // 教师/学生周期控件如果存在且为空则也默认设置为上个月
-    const tStart = document.getElementById('teacherStartDate');
-    const tEnd = document.getElementById('teacherEndDate');
-    if (tStart && tEnd) {
-        if (!tStart.value) tStart.value = sDate;
-        if (!tEnd.value) tEnd.value = eDate;
-    }
-
-    const sStart = document.getElementById('studentStartDate');
-    const sEnd = document.getElementById('studentEndDate');
-    if (sStart && sEnd) {
-        if (!sStart.value) sStart.value = sDate;
-        if (!sEnd.value) sEnd.value = eDate;
-    }
-
     // --- Date Synchronization Logic ---
-    const dateGroups = [
-        { prefix: 'stats', start: 'statsStartDate', end: 'statsEndDate' },
-        { prefix: 'teacher', start: 'teacherStartDate', end: 'teacherEndDate' },
-        { prefix: 'student', start: 'studentStartDate', end: 'studentEndDate' }
-    ];
+    // 三个视图共用总体概览的一组日期控件（statsStartDate/statsEndDate），
+    // 教师/学生视图的独立控件已随其 query-section 移除，无需再互相同步。
+    const statsGroup = { prefix: 'stats', start: 'statsStartDate', end: 'statsEndDate' };
 
     let isGlobalSyncing = false;
     function syncDateInputs(sourcePrefix, triggerQuery = true) {
@@ -416,51 +399,23 @@ function initializeStatisticsControls() {
         isGlobalSyncing = true;
 
         try {
-            const startId = sourcePrefix === 'stats' ? 'statsStartDate' : `${sourcePrefix}StartDate`;
-            const endId = sourcePrefix === 'stats' ? 'statsEndDate' : `${sourcePrefix}EndDate`;
+            const sVal = document.getElementById(statsGroup.start).value;
+            const eVal = document.getElementById(statsGroup.end).value;
 
-            const sVal = document.getElementById(startId).value;
-            const eVal = document.getElementById(endId).value;
-
-            dateGroups.forEach(group => {
-                if (group.prefix !== sourcePrefix) {
-                    const sEl = document.getElementById(group.start);
-                    const eEl = document.getElementById(group.end);
-                    if (sEl) sEl.value = sVal;
-                    if (eEl) eEl.value = eVal;
-                }
-
-                // 同步当前组的高亮状态
-                const containerSelector = `.preset-buttons[data-target="${group.prefix}"]`;
-                const container = document.querySelector(containerSelector);
-                if (container && window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
-                    window.DateRangeUtils.syncPresetButtons(sVal, eVal, container);
-                }
-
-                // 如果需要触发查询且不是源端，则点击对应的查询按钮
-                if (triggerQuery && group.prefix !== sourcePrefix) {
-                    let searchBtnId = '';
-                    if (group.prefix === 'stats') searchBtnId = 'statisticsSearchBtn';
-                    else if (group.prefix === 'teacher') searchBtnId = 'teacherStatsSearchBtn';
-                    else if (group.prefix === 'student') searchBtnId = 'studentStatsSearchBtn';
-
-                    const btn = document.getElementById(searchBtnId);
-                    if (btn && typeof btn.click === 'function') {
-                        btn.click();
-                    }
-                }
-            });
+            // 同步快捷按钮高亮状态
+            const container = document.querySelector(`.preset-buttons[data-target="${statsGroup.prefix}"]`);
+            if (container && window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
+                window.DateRangeUtils.syncPresetButtons(sVal, eVal, container);
+            }
         } finally {
             isGlobalSyncing = false;
         }
     }
 
-    dateGroups.forEach(group => {
-        const sEl = document.getElementById(group.start);
-        const eEl = document.getElementById(group.end);
-        if (sEl) sEl.addEventListener('change', () => syncDateInputs(group.prefix));
-        if (eEl) eEl.addEventListener('change', () => syncDateInputs(group.prefix));
-    });
+    const sEl = document.getElementById(statsGroup.start);
+    const eEl = document.getElementById(statsGroup.end);
+    if (sEl) sEl.addEventListener('change', () => syncDateInputs(statsGroup.prefix));
+    if (eEl) eEl.addEventListener('change', () => syncDateInputs(statsGroup.prefix));
     // 绑定统计页面的预设按钮（今日/本周/本月/本季度），并同步到导出对话框
     // 绑定统计页面的预设按钮（今日/本周/本月/上月/本季度）
     try {
@@ -508,47 +463,10 @@ function initializeStatisticsControls() {
 
     // 初次进入页面，触发一次同步高亮
     if (window.DateRangeUtils && window.DateRangeUtils.syncPresetButtons) {
-        dateGroups.forEach(group => {
-            const sEl = document.getElementById(group.start);
-            const eEl = document.getElementById(group.end);
-            const containerSelector = group.prefix === 'stats' ? '.inline-tabs' : `.preset-buttons[data-target="${group.prefix}"]`;
-            const container = document.querySelector(containerSelector);
-            if (sEl && eEl && container) {
-                window.DateRangeUtils.syncPresetButtons(sEl.value, eEl.value, container);
-            }
-        });
-    }
-
-    // Bind Search Buttons
-    const statsSearchBtn = document.getElementById('statsSearchBtn');
-    if (statsSearchBtn) {
-        statsSearchBtn.addEventListener('click', () => { if (typeof loadStatistics === 'function') loadStatistics(); });
-    }
-    const teacherStatsSearchBtn = document.getElementById('teacherStatsSearchBtn');
-    if (teacherStatsSearchBtn) {
-        teacherStatsSearchBtn.addEventListener('click', () => {
-            // 将教师日期输入框的值同步到主统计日期输入框
-            const tStart = document.getElementById('teacherStartDate');
-            const tEnd = document.getElementById('teacherEndDate');
-            const sEl = document.getElementById('statsStartDate');
-            const eEl = document.getElementById('statsEndDate');
-            if (tStart && tStart.value && sEl) sEl.value = tStart.value;
-            if (tEnd && tEnd.value && eEl) eEl.value = tEnd.value;
-            if (typeof loadStatistics === 'function') loadStatistics();
-        });
-    }
-    const studentStatsSearchBtn = document.getElementById('studentStatsSearchBtn');
-    if (studentStatsSearchBtn) {
-        studentStatsSearchBtn.addEventListener('click', () => {
-            // 将学生日期输入框的值同步到主统计日期输入框
-            const sStart = document.getElementById('studentStartDate');
-            const sEnd = document.getElementById('studentEndDate');
-            const sEl = document.getElementById('statsStartDate');
-            const eEl = document.getElementById('statsEndDate');
-            if (sStart && sStart.value && sEl) sEl.value = sStart.value;
-            if (sEnd && sEnd.value && eEl) eEl.value = sEnd.value;
-            if (typeof loadStatistics === 'function') loadStatistics();
-        });
+        const presetContainer = document.querySelector(`.preset-buttons[data-target="${statsGroup.prefix}"]`);
+        if (sEl && eEl && presetContainer) {
+            window.DateRangeUtils.syncPresetButtons(sEl.value, eEl.value, presetContainer);
+        }
     }
 }
 
@@ -737,6 +655,18 @@ function initializeStatisticsTabs() {
     const studentEl = document.getElementById('statsStudent');
     if (!tabBtns.length || !overviewEl || !teacherEl || !studentEl) return;
 
+    // 把公共查询区域（日期/查询/快捷按钮）移动到目标视图卡片顶部。
+    // 三个视图共用同一 DOM 实例：以总体概览的实现为唯一基准，教师/学生视图
+    // 不再各自维护一份（避免样式漂移与三组日期互相同步的复杂度）。
+    function moveQuerySection(view) {
+        const qs = document.querySelector('.statistics-container .query-section');
+        if (!qs) return;
+        const targetCard = document.querySelector(`#stats${view.charAt(0).toUpperCase() + view.slice(1)} .stats-unified-card`);
+        if (targetCard && qs.parentElement !== targetCard) {
+            targetCard.insertBefore(qs, targetCard.firstChild);
+        }
+    }
+
     const showView = (view) => {
         const currentActive = document.querySelector('.stats-view.active');
         const nextActive = view === 'overview' ? overviewEl : (view === 'teacher' ? teacherEl : studentEl);
@@ -758,10 +688,12 @@ function initializeStatisticsTabs() {
             setTimeout(() => {
                 currentActive.classList.remove('active', 'fade-out');
                 fadeIn(nextActive);
+                moveQuerySection(view);
                 loadStatistics();
             }, 300);
         } else {
             fadeIn(nextActive);
+            moveQuerySection(view);
             loadStatistics();
         }
     };
