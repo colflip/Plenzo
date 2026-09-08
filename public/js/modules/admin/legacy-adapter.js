@@ -31,6 +31,20 @@ function isChartAvailable() {
     return false;
 }
 
+// 确保 Chart.js 加载完成并返回可 await 的 promise。
+// 背景：6a7c232 把阻塞的 Chart.js <script> 换成按需加载器后，首次进入统计页
+// 没有任何调用点触发 loader，各渲染函数的 isChartAvailable() 守卫直接 return，
+// 表现为「首屏空白、点查询才有图」——点查询时上一次守卫已顺带把 loader 触发过。
+// 此处统一预热 + 渲染前 await：Chart 与 API 请求并行加载，不增加可感知延迟。
+function ensureChartReady() {
+    if (typeof window.Chart !== 'undefined') return Promise.resolve();
+    if (typeof window.loadChart !== 'function') return Promise.resolve();
+    if (!window.__chartReadyPromise) {
+        window.__chartReadyPromise = window.loadChart().catch(function () {});
+    }
+    return window.__chartReadyPromise;
+}
+
 // 安全解析 Response JSON（兼容空响应或非 JSON 内容）
 async function safeJson(resp) {
     try {
@@ -701,7 +715,9 @@ function ensureStatisticsInitialized() {
     if (statisticsInitialized) return;
     statisticsInitialized = true;
 
-
+    // 预热 Chart.js 懒加载：与下方日期初始化、首次 API 请求并行进行，
+    // 保证 loadStatistics 渲染阶段 Chart 已就绪（否则首屏图表静默跳过）
+    ensureChartReady();
 
     // 初始化日期控件为当月
     initializeStatisticsControls();
@@ -947,7 +963,9 @@ async function loadStatistics() {
                         : getDefaultStudentStack();
 
                     // 4. Render - 延迟一小段时间确保 DOM 稳定（特别是 Canvas 尺寸）
-                    setTimeout(() => {
+                    setTimeout(async () => {
+                        // Chart.js 懒加载就绪后再渲染，避免首屏 isChartAvailable() 守卫静默跳过
+                        await ensureChartReady();
                         renderScheduleTypeChart(scheduleDist);
                         // 两个汇总图按较多人数对齐：人数少的一方补空沉底
                         const summarySlots = (window.StatsLogic && window.StatsLogic.computeSummarySlotTarget)
@@ -1092,6 +1110,9 @@ async function loadStatistics() {
         const dayLabels = (window.StatsPlugins && typeof window.StatsPlugins.buildDayLabels === 'function')
             ? window.StatsPlugins.buildDayLabels(startDate, endDate)
             : buildDatesRange(startDate, endDate).map(d => toISODate(d));
+
+        // 教师/学生视图渲染前同样确保 Chart.js 就绪（懒加载场景的首屏时序问题）
+        await ensureChartReady();
 
         if (activeView === 'teacher') {
             try {
