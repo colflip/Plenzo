@@ -7,14 +7,14 @@ import { getStatusLabel } from './schedule-helpers.js';
 import { createInlineLoading } from './loading-ui.js';
 
 // 需要在“今日排课”中隐藏的状态
-export const HIDDEN_TODAY_STATUSES = new Set(['cancelled', 'modified_away']);
+const HIDDEN_TODAY_STATUSES = new Set(['cancelled', 'modified_away']);
 
 // —— 日期导航辅助（上一天 / 下一天）——
 
 /**
  * Date -> 'YYYY-MM-DD'（本地时区，避免 UTC 偏移问题）
  */
-export function toDateStr(date) {
+function toDateStr(date) {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
@@ -183,7 +183,7 @@ export function showTodayScheduleError(container, text = '今日排课加载失�
  * @param {Array<Object>} schedules
  * @returns {Array<Object>}
  */
-export function getVisibleTodaySchedules(schedules) {
+function getVisibleTodaySchedules(schedules) {
     return (Array.isArray(schedules) ? schedules : [])
         .filter(schedule => {
             const status = String(schedule.status || 'pending').toLowerCase();
@@ -205,7 +205,7 @@ export function getVisibleTodaySchedules(schedules) {
  * @param {string} [options.secondaryFallback] 次要人员为空时不显示；非空时使用该兜底
  * @param {boolean} [options.nameFirst] 人员姓名是否放在行首（时段/时间之前），默认 false
  */
-export function renderTodayScheduleList(container, schedules, options = {}) {
+function renderTodayScheduleList(container, schedules, options = {}) {
     if (!container) return;
 
     const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -240,7 +240,7 @@ export function renderTodayScheduleList(container, schedules, options = {}) {
  * @param {boolean} [options.hidePerson] 为 true 时主要人员姓名隐藏但保留占位（用于同学生多节课的续行对齐）
  * @returns {HTMLTableRowElement}
  */
-export function buildTodayScheduleRow(schedule, options = {}) {
+function buildTodayScheduleRow(schedule, options = {}) {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const status = String(opts.statusOverride || schedule.status || 'pending').toLowerCase();
     const displayStatus = getStatusLabel(status);

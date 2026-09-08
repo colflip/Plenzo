@@ -215,23 +215,6 @@ export function getScheduleWatermarkText(scheduleOrGroup) {
 }
 
 /**
- * 排课按类型和ID排序
- * @param {Array} items
- * @param {string} nameKey - 'teacher_name' 或 'student_name'
- * @returns {Array}
- */
-export function sortSchedulesByTypeAndId(items, nameKey = 'teacher_name') {
-    return [...(items || [])].sort((a, b) => {
-        const typeA = a.schedule_type || a.scheduleType || '';
-        const typeB = b.schedule_type || b.scheduleType || '';
-        if (typeA !== typeB) return typeA.localeCompare(typeB, 'zh');
-        const nameA = a[nameKey] || '';
-        const nameB = b[nameKey] || '';
-        return nameA.localeCompare(nameB, 'zh');
-    });
-}
-
-/**
  * 判断是否为移动端视图
  * @returns {boolean}
  */
