@@ -1941,43 +1941,45 @@ export async function setupScheduleEventListeners() {
                     //                         window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`);
                     //                     }
 
-                    // 编辑：拆成三类请求（服务端也是这样分的）
-                    //   ① 头部字段（日期/时段/地点/备注）—— 整场生效，带 version
-                    //   ② 每个 pair 的内容（类型/费用/评分/评价、家属人数）—— 带 version
-                    //   ③ 生命周期 —— 走独立的状态端点，不带 version（原地重建，不产生 409）
+                    // 编辑：一次提交整场（头部 + 全部 pair），服务端走 updatePairsBatch 顺序应用。
+                    //   ① 头部（日期/时段/地点/备注）—— 整场生效，带 version 乐观锁
+                    //   ② teachers[] / students[] —— 带 uid 的项按 uid patch（换人/改类型/改类别/改状态），
+                    //      不带 uid 的项由服务端 addPair 新增
+                    //   ③ 生命周期 —— 服务端 setTeacherStatus 原地重建，不带 version，不产生 409
+                    //
+                    // 之前这里是「每个 pair 各发一条 type PATCH + 一条 status PATCH」的串行循环，
+                    // 而且 type 那条只带 type_id：换老师 / 换学生 / 改类别三个改动一个键都没提交，
+                    // 服务端「什么都没改」照回 200，前端照弹「排课更新成功」—— 静默失败。
                     const version = form.dataset.version ? Number(form.dataset.version) : undefined;
-                    const header = {
-                        date: body.date, start_time: body.start_time,
-                        end_time: body.end_time, location: body.location, notes: body.notes
+                    const payload = {
+                        date: body.date,
+                        start_time: body.start_time,
+                        end_time: body.end_time,
+                        location: body.location,
+                        notes: body.notes,
+                        teachers: pairs.teachers.map(p => ({
+                            ...(p.uid ? { uid: p.uid } : {}),
+                            teacher_id: p.teacher_id,
+                            type_id: p.type_id,
+                            // adjusted 是溯源属性，只读展示；下发会撞 Joi 白名单，这里直接不带
+                            ...(p.category && p.category !== 'adjusted' ? { category: p.category } : {}),
+                            lifecycle: p.lifecycle
+                        })),
+                        students: pairs.students.map(p => ({
+                            ...(p.uid ? { uid: p.uid } : {}),
+                            student_id: p.student_id
+                        }))
                     };
-                    if (version !== undefined) header.version = version;
-                    await window.apiUtils.patch(`/admin/sessions/${id}`, header);
+                    if (version !== undefined) payload.version = version;
 
-                    // pair 内容与状态：逐 pair 提交（新增的行没有 uid，走「加一位」端点）。
-                    // 费用（交通费/其他）与评分/评价归财务页面处理，排课表单不再携带与覆盖这些字段。
-                    for (const p of pairs.teachers) {
-                        if (!p.uid) {
-                            await window.apiUtils.post(`/admin/sessions/${id}/teachers`, {
-                                teacher_id: p.teacher_id, type_id: p.type_id,
-                                category: p.category, lifecycle: p.lifecycle
-                            });
-                            continue;
-                        }
-                        await window.apiUtils.patch(`/admin/sessions/${id}/teachers/${p.uid}`, {
-                            type_id: p.type_id
-                        });
-                        await window.apiUtils.patch(
-                            `/admin/sessions/${id}/teachers/${p.uid}/status`, { lifecycle: p.lifecycle }
+                    const saved = await window.apiUtils.patch(`/admin/sessions/${id}`, payload);
+
+                    // 服务端按身份裁剪白名单之外的键。有残留 = 这次有字段没落库，
+                    // 必须吭声，否则又是「提示成功但数据没变」。
+                    if (saved && Array.isArray(saved.rejectedFields) && saved.rejectedFields.length) {
+                        window.apiUtils.showToast(
+                            `以下字段未被保存：${saved.rejectedFields.join('、')}`, 'warning'
                         );
-                    }
-                    for (const p of pairs.students) {
-                        if (!p.uid) {
-                            await window.apiUtils.post(`/admin/sessions/${id}/students`, {
-                                student_id: p.student_id
-                            });
-                            continue;
-                        }
-                        await window.apiUtils.patch(`/admin/sessions/${id}/students/${p.uid}`, {});
                     }
 
                     saveFormMemory({
