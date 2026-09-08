@@ -995,6 +995,19 @@ async function countUserImpact(userId, kind) {
 }
 
 /**
+ * admin pair 内 created_by 的定位谓词。
+ *
+ * **不能用 ::text LIKE**：PG 的 jsonb `::text` 输出在冒号与逗号后都带空格
+ * （`{"created_by": 7, ...}`），而 created_by 经 jsonb 规范化后可能排在对象任意位置、
+ * 也可能是最后一个键（后跟 `}` 而非 `,`）—— 任何固定格式的模式都会漏，此前
+ * `LIKE '%"created_by":7,%'`（无空格）就因此一次都匹配不到，改管理员 ID 时
+ * pair 级 created_from 从未被同步过。
+ * 改用 jsonb_path_exists：不依赖文本格式与键位置；vars 同时给 number 和 string
+ * 两种形态（历史数据 jsonb_typeof 实测全是 number，string 分支是防御性的）。
+ */
+const ADMIN_CREATED_BY_PATH = '$[*].created_by ? (@ == $n || @ == $s)';
+
+/**
  * 用户改主键（new_id）时同步 JSONB pair 引用 —— 这里的 teacher_id / student_id / created_by
  * 没有外键，表级 ON UPDATE CASCADE 够不到，必须在同一事务里手动改写。
  * kind: 'teacher' | 'student' | 'admin'（admin 只动 pair 内 created_by）。
@@ -1007,13 +1020,15 @@ async function renameUserInAllSessions(userId, newId, kind, tx = null) {
     const q = typeof tx === 'function' ? tx : (tx ? tx.query.bind(tx) : db.query);
 
     // 找出所有可能引用旧 ID 的场次：teacher/student 走派生列（GIN 索引），
-    // admin 的 created_by 藏在 pair JSON 里没有索引，只能全表扫过滤（管理员数量少、改动极少，可接受）
+    // admin 的 created_by 藏在 pair JSON 里没有可用的 jsonb_path_ops 谓词索引，
+    // 全表扫过滤（管理员数量少、改号极少，成本与旧实现持平）
     let rows;
     if (kind === 'admin') {
         const r = await q(
             `SELECT id, teachers, students FROM course_sessions
-              WHERE teachers::text LIKE $1 OR students::text LIKE $2`,
-            [`%"created_by":${uid},%`, `%"created_by":${uid},%`]
+              WHERE jsonb_path_exists(teachers, $1, $2::jsonb)
+                 OR jsonb_path_exists(students, $1, $2::jsonb)`,
+            [ADMIN_CREATED_BY_PATH, JSON.stringify({ n: uid, s: String(uid) })]
         );
         rows = r.rows || [];
     } else {
