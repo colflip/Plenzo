@@ -727,17 +727,23 @@ class ScheduleService {
 
             // 定位教师 pair：URL :uid > body teacher_uid > 单教师自动检测 > teacher_id 匹配
             // （仅在没有批量 teachers 数组时才走到这里 —— 批量命中后其上已处理完所有 pair）
+            // URL 上是 /students/:uid 时不走这条分支：拿学生 uid 找教师 pair 必然落空。
+            const kindFromUrl = req.params.kind;
             const teachers = current.teachers || [];
-            let teacherUid = b.teacher_uid || req.params.uid;
-            if (!teacherUid && teachers.length === 1) teacherUid = teachers[0].uid;
-            if (!teacherUid && b.teacher_id != null) {
-                const hit = teachers.find(p => Number(p.teacher_id) === Number(b.teacher_id));
-                if (hit) teacherUid = hit.uid;
+            let teacherUid = b.teacher_uid || (kindFromUrl === 'student' ? null : req.params.uid);
+            if (kindFromUrl !== 'student') {
+                if (!teacherUid && teachers.length === 1) teacherUid = teachers[0].uid;
+                if (!teacherUid && b.teacher_id != null) {
+                    const hit = teachers.find(p => Number(p.teacher_id) === Number(b.teacher_id));
+                    if (hit) teacherUid = hit.uid;
+                }
             }
 
             if (teacherUid && !(Array.isArray(b.teachers) && b.teachers.length)) {
                 // 2) pair 内容
                 const pairPatch = {};
+                if (b.teacher_id !== undefined) pairPatch.teacher_id = b.teacher_id;
+                if (b.category !== undefined) pairPatch.category = b.category;
                 if (b.type_id !== undefined) pairPatch.type_id = b.type_id;
                 if (Array.isArray(b.type_ids) && b.type_ids.length) pairPatch.type_id = b.type_ids[0];
                 if (b.teacher_rating !== undefined) pairPatch.teacher_rating = b.teacher_rating;
@@ -774,13 +780,18 @@ class ScheduleService {
                 }
             }
 
-            // 学生 pair 的家属人数（唯一由旧表单顺带传来的学生侧字段）
-            if (b.family_participants !== undefined && !(Array.isArray(b.students) && b.students.length)) {
+            // 学生 pair 的内容：URL /students/:uid 或 body student_uid 指明哪一位。
+            // 换学生（student_id）2026-09-08 补上 —— 此前与换老师同病：请求带了也进不了白名单。
+            if (!(Array.isArray(b.students) && b.students.length)) {
                 const studentUid = b.student_uid
+                    || (kindFromUrl === 'student' ? req.params.uid : null)
                     || ((current.students || []).length === 1 ? current.students[0].uid : null);
-                if (studentUid) {
+                const studentPatch = {};
+                if (b.student_id !== undefined) studentPatch.student_id = b.student_id;
+                if (b.family_participants !== undefined) studentPatch.family_participants = b.family_participants;
+                if (studentUid && Object.keys(studentPatch).length > 0) {
                     const r = await courseSessionService.patchPair(
-                        id, 'student', studentUid, { family_participants: b.family_participants }, actor, version, current
+                        id, 'student', studentUid, studentPatch, actor, version, current
                     );
                     if (!r.notFound) {
                         current = r.session;
