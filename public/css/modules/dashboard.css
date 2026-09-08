@@ -985,48 +985,6 @@ body {
     margin-bottom: 0;
 }
 
-/* form-row 自己吃满一整行栅格，内部再横向平分。
-   原来用 display:contents 会把行拆散成栅格项，被两列布局切成
-   「日期+开始时间」「结束时间+入户地点」，正是要避免的错位。 */
-.form-container form .form-row {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.form-container form .form-row .form-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1 1 0;
-    min-width: 0;
-}
-
-.form-container form .form-row .form-group label {
-    white-space: nowrap;
-    margin-bottom: 0;
-}
-
-.form-container form .form-row .form-group input,
-.form-container form .form-row .form-group textarea {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-/* -compact 行（日期/时间）：控件按内容宽度靠左排。
-   date/time 的可输入内容是定长的，平分整行只会在每个框里留出大片空白。
-   这里不需要量文字（不像 select 会被最长 option 撑开）—— 撤掉拉伸、交回
-   UA 的固有宽度就够，各浏览器都是贴着日期/时间格式给宽度。 */
-.form-container form .form-row-compact .form-group {
-    flex: 0 0 auto;
-    min-width: 0;
-}
-
-.form-container form .form-row-compact .form-group input {
-    flex: 0 0 auto;
-    width: auto;
-}
 
 .form-container form .form-group textarea {
     width: 100%;

@@ -80,43 +80,6 @@ function logOperation(action, status, details = {}) {
 
 // 前端排课类型数据存储与管理（内存 + 本地缓存）
 // 已迁移至 public/js/schedule-types-store.js，避免此处覆盖全局对象
-/*
-const ScheduleTypesStore = {
-    list: [],
-    map: new Map(),
-    loadedAt: null,
-    cacheKey: 'schedule_types_cache_v1',
-    load(types) {
-        if (!Array.isArray(types)) return;
-        this.list = types.slice();
-        this.map = new Map(types.map(t => [Number(t.id), t]));
-        this.loadedAt = Date.now();
-        try {
-            const payload = { list: this.list, loadedAt: this.loadedAt };
-            localStorage.setItem(this.cacheKey, JSON.stringify(payload));
-        } catch (_) { }
-    },
-    fromCache() {
-        try {
-            const txt = localStorage.getItem(this.cacheKey);
-            if (!txt) return false;
-            const obj = JSON.parse(txt);
-            if (!obj || !Array.isArray(obj.list)) return false;
-            this.list = obj.list;
-            this.map = new Map(this.list.map(t => [Number(t.id), t]));
-            this.loadedAt = obj.loadedAt || Date.now();
-            return true;
-        } catch (e) {
-            return false;
-        }
-    },
-    getAll() { return this.list.slice(); },
-    getById(id) { return this.map.get(Number(id)); },
-    clear() { this.list = []; this.map.clear(); this.loadedAt = null; }
-};
-// 暴露到全局，供统计插件映射 ID -> 名称
-window.ScheduleTypesStore = ScheduleTypesStore;
-*/
 
 // 周视图数据缓存（学生与排课，含TTL）
 // 委托给 schedule-manager.js 中的实现
@@ -187,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.Overview && window.Overview.loadOverviewStats) window.Overview.loadOverviewStats();
     else if (window.Overview?.loadOverviewStats) window.loadOverviewStats();
     loadTodaySchedules();
-    setupEventListeners();
     setupScheduleTypeListeners();
     // 调整排课筛选下拉框最小宽度，确保选项文字完整显示
     adjustSelectMinWidth(document.getElementById('statusFilter'));
@@ -287,13 +249,7 @@ function getUserStatusClass(s) {
 // loadOverviewStats and setupAdminOverviewCardClicks have been moved to overview.js
 
 
-// 设置事件监听器
-// 设置事件监听器
-function setupEventListeners() {
-    // 用户管理部分的监听器已迁移至 user-manager.js，此处移除以避免双重绑定导致性能问题和逻辑错误
-
-    // 保留其他非用户管理的监听器（如果有）
-}
+// setupEventListeners 已废弃：监听器全部迁入 user-manager.js / schedule-manager.js / index.js
 
 // 排课筛选（移除顶部日期切周，保留类型与状态）
 const typeFilter = document.getElementById('typeFilter');
@@ -352,276 +308,6 @@ document.addEventListener('click', (e) => {
 // 排课管理 - 表单提交
 // [FIX] 移除重复监听器：表单提交已在 schedule-manager.js 中统一处理
 // 原有的 scheduleForm.addEventListener('submit', ...) 逻辑已删除，以避免重复创建排课记录。
-/*
-const scheduleForm = document.getElementById('scheduleForm');
-if (scheduleForm) {
-    scheduleForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        try {
-            const teacherId = scheduleForm.querySelector('#scheduleTeacher').value;
-            const studentId = scheduleForm.querySelector('#scheduleStudent').value;
-            let date = scheduleForm.querySelector('#scheduleDate').value;
-            // 统一清洗时间为 HH:MM，避免 HH:MM:SS 导致校验失败
-            const startTimeInputEl = scheduleForm.querySelector('#scheduleStartTime');
-            const endTimeInputEl = scheduleForm.querySelector('#scheduleEndTime');
-            const startTimeRaw = startTimeInputEl ? startTimeInputEl.value : '';
-            const endTimeRaw = endTimeInputEl ? endTimeInputEl.value : '';
-            const startTime = sanitizeTimeString(startTimeRaw) || startTimeRaw;
-            const endTime = sanitizeTimeString(endTimeRaw) || endTimeRaw;
-            // 写回清洗后的值，保证UI显示与提交一致
-            if (startTimeInputEl) startTimeInputEl.value = startTime;
-            if (endTimeInputEl) endTimeInputEl.value = endTime;
-            const timeSlotEl = scheduleForm.querySelector('#scheduleTimeSlot');
-            // 编辑态：当隐藏/禁用的日期控件未能承载值时，使用只读展示或原始值回退，并规范化为YYYY-MM-DD
-            let effectiveDate = date;
-            if (!effectiveDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
-                const readonlyDiv = scheduleForm.querySelector('#scheduleDateReadonly');
-                const candidateText = readonlyDiv ? String(readonlyDiv.textContent || '').trim() : '';
-
-                const originalDate = (scheduleForm.__originalData && scheduleForm.__originalData.date) ? String(scheduleForm.__originalData.date).trim() : '';
-                let candidate = candidateText || originalDate || '';
-                if (candidate) {
-                    try {
-                        effectiveDate = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : toISODate(new Date(candidate));
-                    } catch (e) {
-                        effectiveDate = candidate.slice(0, 10);
-                    }
-                    const dateEl = scheduleForm.querySelector('#scheduleDate');
-                    if (dateEl) dateEl.value = effectiveDate;
-                }
-            }
-            // 基础必填与格式校验
-            try {
-                if (window.apiUtils && window.apiUtils.validate) {
-                    window.apiUtils.validate.required(teacherId, '授课教师');
-                    window.apiUtils.validate.required(studentId, '学生');
-                    window.apiUtils.validate.required(effectiveDate, '日期');
-                    window.apiUtils.validate.required(startTime, '开始时间');
-                    window.apiUtils.validate.required(endTime, '结束时间');
-                    window.apiUtils.validate.date(effectiveDate, '日期');
-                    window.apiUtils.validate.time(startTime, '开始时间');
-                    window.apiUtils.validate.time(endTime, '结束时间');
-                }
-            } catch (ve) {
-                if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
-                    window.apiUtils.handleError(new window.ApiError(ve.message, 400, [{ field: 'form', message: ve.message }], '/admin/schedules'));
-                } else {
-                    window.Toast.warning(ve.message);
-                }
-                return;
-            }
-
-            // 时间先后关系校验
-            const toMinutes = (t) => {
-                const m = /^([0-2]?\d):([0-5]\d)$/.exec(String(t || ''));
-                if (!m) return NaN;
-                return Number(m[1]) * 60 + Number(m[2]);
-            };
-            const sMin = toMinutes(startTime);
-            const eMin = toMinutes(endTime);
-            if (isNaN(sMin) || isNaN(eMin) || eMin <= sMin) {
-                window.apiUtils.showToast('结束时间必须晚于开始时间', 'warning');
-                return;
-            }
-            // 自动推断时段：优先使用选择的值，否则按开始时间计算
-            let timeSlot = (timeSlotEl && timeSlotEl.value) ? timeSlotEl.value : null;
-            if (!timeSlot) {
-                const [sh, sm] = (startTime || '').split(':').map(n => parseInt(n, 10));
-                const minutes = (isNaN(sh) ? 0 : sh) * 60 + (isNaN(sm) ? 0 : sm);
-                if (minutes < 12 * 60) timeSlot = 'morning';
-                else if (minutes < 18 * 60) timeSlot = 'afternoon';
-                else timeSlot = 'evening';
-            }
-            // 类型选择（单选或多选）
-            const typeSel = scheduleForm.querySelector('#scheduleTypeSelect');
-            let scheduleTypes = [];
-            if (typeSel) {
-                if (typeSel.multiple) {
-                    scheduleTypes = Array.from(typeSel.selectedOptions).map(o => Number(o.value)).filter(Boolean);
-                } else {
-                    const val = Number(typeSel.value);
-                    if (val) scheduleTypes = [val];
-                }
-            }
-            // 兜底：如果未选择类型，优先精确默认“入户”，否则回退为 1（排除“半次入户”）
-            if (scheduleTypes.length === 0) {
-                const typesAll = ScheduleTypesStore.getAll();
-                let defaultType = typesAll.find(t => {
-                    const name = String(t.name || '').trim();
-                    const desc = String(t.description || '').trim();
-                    return desc === '入户' || name === '入户' || name === 'visit';
-                });
-                if (!defaultType) {
-                    defaultType = typesAll.find(t => {
-                        const name = String(t.name || '').trim();
-                        const desc = String(t.description || '').trim();
-                        return (name.includes('入户') || desc.includes('入户')) && !(name.includes('半次') || desc.includes('半次'));
-                    });
-                }
-                if (defaultType) {
-                    scheduleTypes = [Number(defaultType.id)];
-                } else {
-                    scheduleTypes = [1];
-                }
-            }
-            // 地点：校验并传递
-            const locationInput = scheduleForm.querySelector('#scheduleLocation');
-            const location = locationInput && locationInput.value ? locationInput.value.trim() : '';
-            // 家庭参加人员
-            const familyParticipantsSelect = scheduleForm.querySelector('#scheduleFamilyParticipants');
-            const familyParticipants = familyParticipantsSelect ? Number(familyParticipantsSelect.value) : 4;
-
-            const mode = scheduleForm.getAttribute('data-mode') || 'add';
-            const currentId = scheduleForm.getAttribute('data-id') || '';
-            // 校验入户地点
-            const locOk = location.length > 0 && location.length <= 100 && /^[\u4e00-\u9fa5A-Za-z0-9\s\-，,]+$/.test(location);
-            if (!locOk) {
-                window.apiUtils.showToast('入户地点不合法：请填写1-100字符，允许中文、字母、数字、空格、连字符', 'warning');
-                return;
-            }
-
-            // 防重复提交
-            const submitBtn = document.getElementById('scheduleFormSubmit');
-            if (submitBtn) submitBtn.disabled = true;
-
-            if (mode === 'edit' && currentId) {
-                // 老师时间/地点冲突不再提示且不阻断提交
-                // 编辑模式不修改学生信息，仅更新教师/类型/时间/地点
-                const statusSel = scheduleForm.querySelector('#scheduleStatus');
-                const rawStatus = statusSel ? String(statusSel.value || '').trim() : '';
-                const allowedStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed']);
-                const updatePayload = {
-                    teacher_id: Number(teacherId) || undefined,
-                    start_time: startTime,
-                    end_time: endTime,
-                    type_ids: scheduleTypes,
-                    location,
-                    family_participants: familyParticipants
-                };
-                // 仅当日期发生变化时才提交日期，避免后端不必要的日期校验
-                try {
-                    const originalDate = (scheduleForm.__originalData && scheduleForm.__originalData.date) ? String(scheduleForm.__originalData.date) : '';
-                    if (String(effectiveDate || '') !== String(originalDate || '')) {
-                        updatePayload.date = effectiveDate;
-                    }
-                } catch (_) {
-                    // 若无法确定原始日期，则按原逻辑提交
-                    updatePayload.date = effectiveDate;
-                }
-                if (allowedStatuses.has(rawStatus)) {
-                    updatePayload.status = rawStatus;
-                }
-                try {
-                    await window.apiUtils.put(`/admin/schedules/${currentId}`, updatePayload);
-                    if (window.apiUtils && typeof window.apiUtils.showSuccessToast === 'function') {
-                        window.apiUtils.showSuccessToast('排课已更新');
-                    }
-                    // 立即关闭窗口，提升响应速度
-                    const container = document.getElementById('scheduleFormContainer');
-                    if (container) container.style.display = 'none';
-
-                    // 非阻塞刷新列表和差异检测
-                    (async () => {
-                        try {
-                            if (window.WeeklyDataStore && WeeklyDataStore.schedules) WeeklyDataStore.schedules.clear();
-                            loadSchedules();
-                        } catch (_) { }
-                    })();
-                } catch (err) {
-                    if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
-                        window.apiUtils.handleError(err);
-                    } else {
-                        window.Toast.error('更新排课失败');
-                    }
-                } finally {
-                    const submitBtn = document.getElementById('scheduleFormSubmit');
-                    if (submitBtn) submitBtn.disabled = false;
-                }
-            } else {
-                const payload = {
-                    teacherId,
-                    studentIds: [studentId].filter(Boolean),
-                    date: effectiveDate,
-                    timeSlot,
-                    startTime,
-                    endTime,
-                    scheduleTypes,
-                    location,
-                    family_participants: familyParticipants
-                };
-                // 老师时间/地点冲突不再提示且不阻断提交
-                // 创建模式支持选择状态
-                const statusSel = scheduleForm.querySelector('#scheduleStatus');
-                const rawStatus = statusSel ? String(statusSel.value || '').trim() : '';
-                const allowedCreateStatuses = new Set(['pending', 'confirmed', 'cancelled', 'completed']);
-                if (allowedCreateStatuses.has(rawStatus)) {
-                    payload.status = rawStatus;
-                }
-
-                // 直接创建排课
-                let result = null;
-                result = await window.apiUtils.post('/admin/schedules', payload);
-                const newId = result && result.id ? result.id : null;
-                // 创建后确认并检测差异
-                try {
-                    if (newId) {
-                        const confirmItem = await withRetry(() => window.apiUtils.get(`/admin/schedules/${newId}`));
-                        const item = (confirmItem && confirmItem.data) ? confirmItem.data : confirmItem;
-                        let mismatch = false;
-                        mismatch = mismatch || (Number(item.teacher_id) !== Number(payload.teacherId));
-                        const expStu = Array.isArray(payload.studentIds) ? Number(payload.studentIds[0]) : Number(payload.studentIds);
-                        if (!Number.isNaN(expStu)) mismatch = mismatch || (Number(item.student_id) !== Number(expStu));
-                        const idate = String(item.date || '').slice(0, 10);
-                        mismatch = mismatch || (String(idate) !== String(payload.date));
-                        mismatch = mismatch || (String(item.start_time || '') !== String(payload.startTime || ''));
-                        mismatch = mismatch || (String(item.end_time || '') !== String(payload.endTime || ''));
-                        const expType = Array.isArray(payload.scheduleTypes) ? Number(payload.scheduleTypes[0]) : Number(payload.scheduleTypes);
-                        if (!Number.isNaN(expType)) mismatch = mismatch || (Number(item.course_id) !== Number(expType));
-                        if (typeof payload.location !== 'undefined') {
-                            mismatch = mismatch || (String(item.location || '') !== String(payload.location || ''));
-                        }
-                        if (typeof payload.status !== 'undefined') {
-                            mismatch = mismatch || (String(item.status || '') !== String(payload.status || ''));
-                        }
-                        if (mismatch && window.apiUtils) {
-                            window.apiUtils.showToast('检测到后端存在差异，已刷新最新数据', 'warning');
-                        }
-                    }
-                } catch (confirmErr) {
-                    
-                }
-                // 若用户选择“已确认”，且后端未按选择设置，可进行二次确认；否则不自动确认
-                if (newId && rawStatus === 'confirmed') {
-                    try {
-                        await window.apiUtils.post(`/admin/schedules/${newId}/confirm`, { adminConfirmed: true });
-                        if (window.apiUtils && typeof window.apiUtils.showSuccessToast === 'function') {
-                            window.apiUtils.showSuccessToast('排课已创建并确认');
-                        }
-                    } catch (confirmErr) {
-                        
-                        if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
-                            window.apiUtils.showToast('排课已创建，但自动确认失败', 'error');
-                        }
-                    }
-                }
-            }
-            document.getElementById('scheduleFormContainer').style.display = 'none';
-            try { if (window.WeeklyDataStore && WeeklyDataStore.schedules) WeeklyDataStore.schedules.clear(); } catch (_) { }
-            loadSchedules();
-        } catch (err) {
-            
-            if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
-                window.apiUtils.handleError(err);
-            } else {
-                window.Toast.error('创建排课失败，请稍后重试');
-            }
-        } finally {
-            const submitBtn = document.getElementById('scheduleFormSubmit');
-            if (submitBtn) submitBtn.disabled = false;
-        }
-    });
-}
-*/
 // 已在顶部绑定筛选事件
 
 // 统计日期范围
@@ -2351,53 +2037,7 @@ if (!window.__weeklyAutoRefreshInit) {
     }, 15000);
 }
 
-// 打开编辑（新建）排课并自动填充学生与日期及默认地点/时间
-function openCellEditor(student, isoDate) {
-    const formContainer = document.getElementById('scheduleFormContainer');
-    const form = document.getElementById('scheduleForm');
-    if (!formContainer || !form) return;
-    // 加载表单选项后再填充
-    loadScheduleFormOptions().then(() => {
-        // 设置模式
-        form.dataset.mode = 'add';
-        form.dataset.id = '';
-        document.getElementById('scheduleFormTitle').textContent = '添加排课';
-        // 预填学生与日期、默认时间
-        const studentSel = form.querySelector('#scheduleStudent');
-        const studentReadonlyDiv = form.querySelector('#scheduleStudentReadonly');
-        const dateInput = form.querySelector('#scheduleDate');
-        const dateReadonlyDiv = form.querySelector('#scheduleDateReadonly');
-        const startTimeInput = form.querySelector('#scheduleStartTime');
-        const endTimeInput = form.querySelector('#scheduleEndTime');
-        const locationInput = form.querySelector('#scheduleLocation');
-        if (studentSel) studentSel.value = String(student.id);
-        if (dateInput) dateInput.value = isoDate;
-        if (startTimeInput) startTimeInput.value = '19:00';
-        if (endTimeInput) endTimeInput.value = '22:00';
-        if (locationInput) locationInput.value = student.visit_location || '';
-        // 锁定学生与日期（不可修改）：显示只读视图并禁用输入控件
-        if (studentSel) {
-            studentSel.disabled = true;
-            studentSel.style.display = 'none';
-            if (studentReadonlyDiv) {
-                studentReadonlyDiv.textContent = student.name || String(student.id);
-                studentReadonlyDiv.style.display = 'block';
-            }
-        }
-        if (dateInput) {
-            dateInput.disabled = true;
-            dateInput.style.display = 'none';
-            if (dateReadonlyDiv) {
-                dateReadonlyDiv.textContent = isoDate;
-                dateReadonlyDiv.style.display = 'block';
-            }
-        }
-        formContainer.style.display = 'block';
-    });
-}
-
-
-// --- Stats logic has been moved to stats-logic.js --- 
+// --- Stats logic has been moved to stats-logic.js ---
 
 
 // 用户管理相关函数
@@ -2475,12 +2115,6 @@ function openCellEditor(student, date) {
 }
 async function confirmSchedule(id) {
     if (window.ScheduleManager) return window.ScheduleManager.updateScheduleStatus(id, 'confirmed');
-}
-
-// Override setupEventListeners to prevent conflict
-function setupEventListeners() {
-
-    // Modules (UserManager, ScheduleManager, UIHelper) attach their own listeners in index.js
 }
 
 // ==========================================
