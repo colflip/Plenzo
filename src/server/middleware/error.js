@@ -56,6 +56,27 @@ const handleJwtError = (err) => {
 };
 
 /**
+ * 重复错误日志节流：同一 (code+message) 10s 内只记录一次完整堆栈。
+ */
+const ERROR_LOG_WINDOW = 10000;
+const recentErrorKeys = new Map();
+
+const shouldLogDetail = (err) => {
+    const key = `${err.code || ''}|${err.message || ''}`;
+    const now = Date.now();
+    const last = recentErrorKeys.get(key);
+    if (last && now - last < ERROR_LOG_WINDOW) return false;
+    recentErrorKeys.set(key, now);
+    // 防止 Map 无界增长：过期项顺手清掉
+    if (recentErrorKeys.size > 200) {
+        for (const [k, t] of recentErrorKeys) {
+            if (now - t > ERROR_LOG_WINDOW) recentErrorKeys.delete(k);
+        }
+    }
+    return true;
+};
+
+/**
  * 全局错误处理中间件
  */
 const errorHandler = (err, req, res, next) => {
@@ -67,6 +88,12 @@ const errorHandler = (err, req, res, next) => {
     // 处理已知的操作性错误
     if (err.isOperational) {
         return res.status(statusCode).json(errorResponse(false, message, errors));
+    }
+
+    // 数据库熔断 / 不可达：快速失败时返回 503，让前端能区分「服务故障」与「业务错误」，
+    // 而不是当成 500 内部错误或静默空数据。详细信息只在服务端日志里保留。
+    if (err.code === 'DB_UNAVAILABLE') {
+        return res.status(503).json(errorResponse(false, '数据库暂时不可用，请稍后重试'));
     }
 
     // 处理数据库错误
@@ -93,8 +120,9 @@ const errorHandler = (err, req, res, next) => {
         }));
     }
 
-    // 非生产环境记录详细错误
-    if (process.env.NODE_ENV !== 'production') {
+    // 非生产环境记录详细错误。
+    // 节流：DB 不可达时每个请求都会走到这里，逐条打印堆栈会把首个真实原因淹掉。
+    if (process.env.NODE_ENV !== 'production' && shouldLogDetail(err)) {
         logger.error('[Error]', {
             message: err.message,
             stack: err.stack,

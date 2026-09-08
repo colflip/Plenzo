@@ -1,10 +1,12 @@
+// 环境变量必须先于任何读取 process.env 的模块加载（logger / db.js / middleware / services）
+const { loadEnv } = require('./utils/env-loader.js');
+const envInfo = loadEnv();
 const logger = require('./utils/logger.js');
 /**
  * 应用入口文件
  * @description 初始化 Express 应用，配置中间件、路由和全局错误处理
  */
 
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -291,15 +293,68 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
+/**
+ * 数据库启动门控：先做一次带超时的连通性探测，再决定是否跑迁移。
+ *
+ * 之前是无条件 fire-and-forget 跑迁移：DB 不可达时，迁移里每一条 information_schema
+ * 探测都会各自走完「5 次重试 + 1/2/4/8s 退避」，启动日志被几十条相同告警淹没，第一条
+ * 真实错误反而被挤到看不见；同时这些请求还会和首批用户请求抢连接池。
+ * 现在探测失败就明确告知并跳过（迁移全部幂等，DB 恢复后下次启动会补跑）。
+ */
+function printDbUnreachableGuide(status, probeError) {
+    const reason = probeError
+        ? db.describeError(probeError)
+        : (status.lastError || '连接失败');
+    const lines = [
+        '',
+        '🚨 数据库不可达，已跳过迁移。服务仍在本机启动，但所有数据接口会返回 503。',
+        `   目标: ${status.host}${status.database ? '/' + status.database : ''} (驱动: ${status.driver})`,
+        `   原因: ${reason}`,
+        '   排查顺序:',
+        '     1) 网络是否可达该主机（本机是否断网 / 代理是否失效 / DNS 是否被污染）',
+        '     2) 若目标是生产库，本地开发应改用本地或测试库，避免误连生产',
+        '     3) 本地库：在项目根目录建 .env.local 覆盖 DATABASE_URL（git 已忽略），',
+        '        例如 DATABASE_URL=postgres://postgres:postgres@localhost:5432/plenzo_dev',
+        `   已加载环境文件: ${envInfo.loadedFiles.length ? envInfo.loadedFiles.join(', ') : '无（使用系统环境变量）'}`,
+        ''
+    ];
+    lines.forEach(l => l ? logger.error(l) : logger.error(''));
+}
+
+async function bootstrapDatabase() {
+    const status = db.getStatus();
+    if (!status.host || status.host === '(未配置 DATABASE_URL)') {
+        logger.error('❌ 未配置 DATABASE_URL，已跳过迁移；请在 .env 或 .env.local 中配置数据库连接串');
+        return false;
+    }
+
+    const probe = await db.ping();
+    if (!probe.ok) {
+        printDbUnreachableGuide(db.getStatus(), probe.error);
+        // 已确认不可达，直接开路：否则前几个真实请求要各自耗完 pg 握手 +
+        // Neon fetch 超时（实测 26s）才能把熔断"攒"开。
+        db.forceOpenBreaker(probe.error);
+        return false;
+    }
+
+    try {
+        await runDatabaseMigrations();
+    } catch (err) {
+        logger.error('❌ 数据库迁移失败:', db.describeError(err));
+    }
+    return true;
+}
+
 // 运行数据库迁移（幂等，失败不阻断启动）。
 // 注意：原先仅在非 Vercel 的 listen 回调中执行，导致 Vercel Serverless 环境下
 // 迁移表（holidays / feedbacks / fee_audit_logs / ai_config 等）从未被创建。
 // 改为在模块加载时触发（测试环境跳过），使所有部署形态都能拿到最新表结构。
-if (process.env.NODE_ENV !== 'test') {
-    runDatabaseMigrations().catch(err => {
-        logger.error('❌ 数据库迁移启动失败:', err.message);
-    });
-}
+const dbBootstrapPromise = (process.env.NODE_ENV !== 'test')
+    ? bootstrapDatabase().catch(err => {
+        logger.error('❌ 数据库启动门控异常:', db.describeError(err));
+        return false;
+    })
+    : Promise.resolve(false);
 
 // 启动服务器逻辑：除非在 Vercel Serverless 环境，否则一律启动监听
 if (process.env.VERCEL) {
@@ -310,12 +365,19 @@ if (process.env.VERCEL) {
         logger.log(``);
         logger.log(`🚀 Plenzo 服务已启动 | ${process.env.NODE_ENV || 'development'} | 端口 ${PORT}`);
 
-        // 预热数据库连接（减少首次请求的重试）
-        dbWarmup().then(() => {
-            logger.log(`[DB] 连接预热成功`);
-        }).catch(err => {
-            logger.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', err.message);
-        });
+        // 预热数据库连接（减少首次请求的重试）。
+        // 启动门控已确认 DB 不可达时不再预热：那只会再触发一轮重试日志。
+        dbBootstrapPromise.then(dbOk => {
+            if (!dbOk) {
+                logger.warn('[DB] 跳过连接预热：启动探测未通过（详见上方告警）');
+                return null;
+            }
+            return dbWarmup().then(() => {
+                logger.log(`[DB] 连接预热成功`);
+            }).catch(err => {
+                logger.warn('[DB] ⚠️ 连接预热失败（不影响正常使用）:', db.describeError(err));
+            });
+        }).catch(() => {});
 
         try {
             initScheduler();
