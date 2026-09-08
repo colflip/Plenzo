@@ -22,6 +22,7 @@ const courseSessionService = require('./course-session-service');
 const { getActorLevel, visibleColumns, filterObjectByLevel } = require('../utils/admin-permissions');
 
 const TABLES = { admin: 'administrators', teacher: 'teachers', student: 'students' };
+const ROLE_LABELS = { admin: '管理员', teacher: '教师', student: '学生' };
 
 const BASE_COLUMNS = {
     admin: 'id, username, name, nickname, email, permission_level, last_login, created_at',
@@ -38,7 +39,8 @@ const ALLOWED_ADDITIONAL = {
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/i;
 
 // 各角色的 ID 号段（新用户生成与手工指定 ID 都限制在号段内；历史 ID 不迁移，允许号段外存量存在）
-const ID_RANGES = { admin: [1000, 1999], teacher: [2000, 2999], student: [3000, 3999] };
+// 号段彼此互不重叠，配合下方 assertIdFreeAcrossRoles 保证同一数值 ID 不会同时属于两个角色
+const ID_RANGES = { admin: [100, 999], teacher: [2000, 2999], student: [3000, 3999] };
 
 function idRangeHint(userType) {
     const [lo, hi] = ID_RANGES[userType] || [0, 0];
@@ -48,6 +50,23 @@ function idRangeHint(userType) {
 function inIdRange(userType, id) {
     const [lo, hi] = ID_RANGES[userType] || [0, 0];
     return Number.isInteger(id) && id >= lo && id <= hi;
+}
+
+/**
+ * 跨角色 ID 占用检查：目标 ID 不得已被其他角色占用。
+ * 三个号段本不重叠，此检查兜住两类历史遗留：号段外存量 ID（如教师旧 1xxx 段）与
+ * 手工指定的越界 ID —— 若不加它，教师取 2000 而学生恰好也有 2000 时，
+ * 多态列（operator_id/submitter_id）只靠 role 列消歧，极易在排查时看错人。
+ * 返回命中的角色名，无冲突返回 null。
+ */
+async function findCrossRoleConflict(userType, id, client = null) {
+    const q = client ? client.query.bind(client) : db.query.bind(db);
+    const others = Object.keys(TABLES).filter(t => t !== userType);
+    for (const role of others) {
+        const res = await q(`SELECT username FROM ${TABLES[role]} WHERE id = $1 LIMIT 1`, [Number(id)]);
+        if (normalizeRows(res).length > 0) return role;
+    }
+    return null;
 }
 
 function resolveTable(userType) {
@@ -233,6 +252,13 @@ async function createUser(payload, req) {
     if (normalizeRows(existingIdRow).length > 0) {
         return { status: 400, body: { message: '该用户 ID 已被占用' } };
     }
+    // 自定义 ID 不得与其他角色的现存 ID 重号（跨角色同号会让多态列只靠 role 消歧）
+    if (id) {
+        const clashRole = await findCrossRoleConflict(userType, id);
+        if (clashRole) {
+            return { status: 409, body: { message: `该 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个` } };
+        }
+    }
 
     let createdUser = null;
     await db.runInTransaction(async (client, usePool) => {
@@ -416,6 +442,11 @@ async function updateUser(userType, id, payload, req) {
         const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
         if (normalizeRows(checkNewId).length > 0) {
             return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
+        }
+        // 新 ID 不得与其他角色的现存 ID 重号（改主键最容易把两个角色搅在一起的地方）
+        const clashRole = await findCrossRoleConflict(userType, newIdInt);
+        if (clashRole) {
+            return { status: 409, body: standardResponse(false, null, `新 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个`) };
         }
     }
 
