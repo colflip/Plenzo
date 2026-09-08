@@ -17,6 +17,7 @@
 
 const db = require('./db');
 const logger = require('../utils/logger.js');
+const { tableExists } = require('./table-utils');
 
 /** 生命周期位：沿用旧表字面量（含 modified_away），前端 16 处判定与 3 条 CSS 规则因此无需改动 */
 const LIFECYCLES = ['pending', 'confirmed', 'completed', 'cancelled', 'modified_away'];
@@ -32,14 +33,6 @@ const CHANGE_ACTIONS = ['create', 'header', 'pair_patch', 'pair_add', 'pair_remo
 
 
 const sqlArray = (values) => values.map(v => `'${v}'`).join(',');
-
-async function tableExists(name) {
-    const r = await db.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
-        [name]
-    );
-    return (r.rows || []).length > 0;
-}
 
 const FN_PAIR_IDS = `
 CREATE OR REPLACE FUNCTION jsonb_pair_ids(arr jsonb, key text)
