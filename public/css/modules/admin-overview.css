@@ -402,39 +402,3 @@
 
 
 
-/* ==========================================================================
-   Student Schedule Grouping
-   ========================================================================== */
-
-.student-schedule-group {
-    border-radius: 12px;
-    padding: 12px;
-    margin-bottom: 0;
-    margin-top: -10px;
-    width: 100%;
-}
-
-.student-schedule-group:first-child {
-    margin-top: 0;
-}
-
-/* 分组内的卡片样式覆盖 */
-.student-schedule-group .today-card-modern {
-    width: 100%;
-    margin-bottom: 0;
-}
-
-/* 不同学生背景颜色 */
-.student-schedule-group:nth-child(even) {
-    background-color: #EFF6FF;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-
-
-    .student-schedule-group {
-        width: 100%;
-        padding: 2px;
-    }
-}
