@@ -12,6 +12,7 @@ import * as ScheduleUtils from './schedule-utils.js';
 import * as HolidayManager from './holiday-manager.js';
 import * as FeedbackManager from './feedback-manager.js';
 import * as aiAssistant from '../shared/ai-assistant-redesign.js';
+import { refreshVisibleSection } from '../shared/view-utils.js';
 
 // Expose modules globally
 window.UserManager = UserManager;
@@ -68,13 +69,6 @@ const globalExports = {
 
 Object.assign(window, globalExports);
 
-function refreshAdminSection(sectionId, refresher) {
-    const section = document.getElementById(sectionId);
-    if (section?.classList.contains('active')) {
-        Promise.resolve(refresher()).catch(() => {});
-    }
-}
-
 function setupDataSyncSubscriptions() {
     if (!window.eventBus || window.__adminSyncSubscriptionsBound) return;
     window.__adminSyncSubscriptionsBound = true;
@@ -87,24 +81,24 @@ function setupDataSyncSubscriptions() {
     ];
     scheduleEvents.forEach(eventName => {
         window.eventBus.on(eventName, () => {
-            refreshAdminSection('overview', Overview.loadOverviewStats);
-            refreshAdminSection('schedule', () => ScheduleManager.loadSchedules(true, false));
-            refreshAdminSection('statistics', () => window.loadStatistics?.());
+            refreshVisibleSection('overview', Overview.loadOverviewStats);
+            refreshVisibleSection('schedule', () => ScheduleManager.loadSchedules(true, false));
+            refreshVisibleSection('statistics', () => window.loadStatistics?.());
         });
     });
 
     window.eventBus.on(window.EVENTS?.USER_CHANGED || 'user:changed', detail => {
         if (detail?.action === 'invalidate') return;
-        refreshAdminSection('overview', Overview.loadOverviewStats);
+        refreshVisibleSection('overview', Overview.loadOverviewStats);
         const activeType = window.__usersState?.type || detail?.type;
         if (activeType && detail?.type === activeType) {
-            refreshAdminSection('users', () => UserManager.loadUsers(activeType, { reset: true }));
+            refreshVisibleSection('users', () => UserManager.loadUsers(activeType, { reset: true }));
         }
     });
 
     window.eventBus.on(window.EVENTS?.SCHEDULE_TYPE_CHANGED || 'scheduleType:changed', () => {
-        refreshAdminSection('schedule', () => ScheduleManager.loadSchedules(false, false));
-        refreshAdminSection('statistics', () => window.loadStatistics?.());
+        refreshVisibleSection('schedule', () => ScheduleManager.loadSchedules(false, false));
+        refreshVisibleSection('statistics', () => window.loadStatistics?.());
     });
 }
 

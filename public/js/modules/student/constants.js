@@ -46,11 +46,8 @@ export const STATUS_COLORS = {
     [SCHEDULE_STATUS.MODIFIED_AWAY]: '#94A3B8'
 };
 
-export const TIME_SLOT_CONFIG = Object.freeze([
-    { id: 'morning', label: '上午', rangeLabel: '上午', start: '08:00', end: '12:00', icon: 'wb_sunny' },
-    { id: 'afternoon', label: '下午', rangeLabel: '下午', start: '13:00', end: '17:00', icon: 'light_mode' },
-    { id: 'evening', label: '晚上', rangeLabel: '晚上', start: '18:00', end: '21:00', icon: 'bedtime' }
-]);
+// 时段定义统一由 shared/schedule-helpers.js 提供（原此处有一份逐字相同的副本）
+export { TIME_SLOT_CONFIG } from '../../shared/schedule-helpers.js';
 
 export const EMPTY_STATES = Object.freeze({
     todaySchedules: '今日暂无课程安排',

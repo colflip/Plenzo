@@ -24,6 +24,7 @@ import {
     createDashboardController,
 } from '../shared/dashboard-kit.js';
 import * as aiAssistant from '../shared/ai-assistant-redesign.js';
+import { refreshVisibleSection } from '../shared/view-utils.js';
 
 let controller = null;
 
@@ -89,13 +90,6 @@ async function initDashboard() {
     await Promise.all([typesReady, controller.init()]);
     ensureStudentDataGroupOpen();
     setupDataSyncSubscriptions();
-}
-
-function refreshVisibleSection(sectionId, refresher) {
-    const section = document.getElementById(sectionId);
-    if (section?.classList.contains('active')) {
-        Promise.resolve(refresher()).catch(() => {});
-    }
 }
 
 function setupDataSyncSubscriptions() {

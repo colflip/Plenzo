@@ -4,6 +4,13 @@ import { STATUS_LABELS } from '../student/constants.js';
 import { getScheduleTypeLabel } from './constants.js';
 import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
+import { syncToggleButton } from '../shared/view-utils.js';
+import {
+    appendScheduleWatermark,
+    groupSchedulesBySlot,
+    bindWeekNavigation,
+    updateTeacherScheduleStatus as updateScheduleStatus
+} from '../shared/schedule-view-utils.js';
 import {
     clearChildren,
     createElement,
@@ -24,17 +31,6 @@ let scheduleLoadSeq = 0;
 // 全局：班主任学生排课「显示全部安排」开关，默认隐藏
 window.teacherStudentShowPlan = false;
 
-function syncToggleButton(button, isActive) {
-    if (!button) return;
-    const active = !!isActive;
-    const color = active ? '#ef4444' : '#2ECC71';
-    button.classList.toggle('schedule-toggle-active', active);
-    button.setAttribute('aria-pressed', String(active));
-    button.style.backgroundColor = color;
-    button.style.borderColor = color;
-    button.style.color = '#fff';
-}
-
 window.toggleTeacherStudentShowPlan = async function () {
     window.teacherStudentShowPlan = !window.teacherStudentShowPlan;
     syncShowPlanButton();
@@ -46,25 +42,6 @@ function syncShowPlanButton() {
     const toggleBtn = document.getElementById('toggleTeacherStudentShowPlanBtn');
     if (btnText) btnText.textContent = window.teacherStudentShowPlan ? '隐藏全部安排' : '显示全部安排';
     syncToggleButton(toggleBtn, window.teacherStudentShowPlan);
-}
-
-function appendScheduleWatermark(card, watermarkText) {
-    if (!watermarkText) return;
-    card.classList.add('is-temp-card');
-    card.style.position = 'relative';
-    card.style.overflow = 'hidden';
-    const watermark = createElement('span', '');
-    watermark.setAttribute('aria-hidden', 'true');
-    const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
-    watermark.style.cssText = [
-        'position: absolute', 'bottom: -10px', 'right: 5px',
-        `font-size: ${wmFontSize}`,
-        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-        'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-        'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-    ].join(';');
-    watermark.textContent = watermarkText;
-    card.appendChild(watermark);
 }
 
 export async function initStudentSchedulesSection() {
@@ -97,43 +74,19 @@ export async function initStudentSchedulesSection() {
     await loadSchedules(currentWeekStart);
 }
 
-async function updateScheduleStatus(id, newStatus) {
-    if (!window.apiUtils) {
-        throw new Error('apiUtils 未就绪');
-    }
-    const response = await window.apiUtils.put(`/teacher/schedules/${id}/status`, {
-        status: newStatus
-    });
-
-    if (response && response.error) {
-        throw new Error(response.message || '更新失败');
-    }
-    window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
-        id,
-        status: newStatus,
-        role: 'teacher'
-    });
-    return response;
-}
-
 function bindNavigation() {
-    const prevBtn = document.getElementById('ssPrevWeek');
-    const nextBtn = document.getElementById('ssNextWeek');
-
-    if (prevBtn && !prevBtn.__scheduleNavBound) {
-        prevBtn.addEventListener('click', () => {
+    bindWeekNavigation({
+        prevBtn: document.getElementById('ssPrevWeek'),
+        nextBtn: document.getElementById('ssNextWeek'),
+        onPrev: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() - 7);
             loadSchedules(currentWeekStart);
-        });
-        prevBtn.__scheduleNavBound = true;
-    }
-    if (nextBtn && !nextBtn.__scheduleNavBound) {
-        nextBtn.addEventListener('click', () => {
+        },
+        onNext: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() + 7);
             loadSchedules(currentWeekStart);
-        });
-        nextBtn.__scheduleNavBound = true;
-    }
+        }
+    });
 }
 
 export async function refreshStudentSchedules() {
@@ -433,16 +386,6 @@ function renderTableHeader(weekDates) {
         headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
-}
-
-function groupSchedulesBySlot(schedules) {
-    const slots = new Map();
-    schedules.forEach(s => {
-        const key = `${s.start_time}-${s.end_time}-${s.location || ''}`;
-        if (!slots.has(key)) slots.set(key, []);
-        slots.get(key).push(s);
-    });
-    return Array.from(slots.values());
 }
 
 function renderMobileScheduleTable(weekDates, schedules) {

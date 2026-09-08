@@ -238,3 +238,13 @@ export function sortSchedulesByTypeAndId(items, nameKey = 'teacher_name') {
 export function isMobileView() {
     return window.innerWidth <= 768;
 }
+
+/**
+ * 上午/下午/晚上三个时段的定义（原 student 与 teacher constants 各存一份逐字相同的副本，
+ * 现统一从这里出；两端的 constants.js 仍按原名 re-export，调用方不受影响）。
+ */
+export const TIME_SLOT_CONFIG = Object.freeze([
+    { id: 'morning', label: '上午', rangeLabel: '上午', start: '08:00', end: '12:00', icon: 'wb_sunny' },
+    { id: 'afternoon', label: '下午', rangeLabel: '下午', start: '13:00', end: '17:00', icon: 'light_mode' },
+    { id: 'evening', label: '晚上', rangeLabel: '晚上', start: '18:00', end: '21:00', icon: 'bedtime' }
+]);

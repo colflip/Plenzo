@@ -6,13 +6,10 @@
 const ADMIN_ROUTE_BASE = '/admin/dashboard';
 const DEFAULT_SECTION = 'overview';
 
+import { isValidSection } from '../shared/view-utils.js';
+
 function normalizePath(pathname) {
     return pathname.replace(/\.html(?=\/|$)/, '').replace(/\/$/, '') || '/';
-}
-
-function isValidSection(sectionId) {
-    if (!sectionId || !document.getElementById(sectionId)) return false;
-    return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
 }
 
 // 权限落地（Phase 2）：区块是否对当前级别开放（users 仅 L2+，system-settings 仅 L1）
