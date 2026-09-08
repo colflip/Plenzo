@@ -5,7 +5,7 @@
  * 关闭按钮走 data-action="reward-close"（action-delegate 全局分发）。
  */
 
-export function createRewardModal() {
+function createRewardModal() {
     if (document.getElementById('rewardModal')) return;
 
     const modal = document.createElement('div');
@@ -49,7 +49,7 @@ export function showReward(title, value, type) {
     createConfetti();
 }
 
-export function createConfetti() {
+function createConfetti() {
     const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#EC4899'];
     const container = document.getElementById('rewardModal');
 
