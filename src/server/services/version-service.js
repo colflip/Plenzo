@@ -7,11 +7,18 @@ const { execFile } = require('child_process');
 const https = require('https');
 const path = require('path');
 
+let cachedMeta = null;
+let cachedAt = 0;
+
 const REPO_ROOT = path.join(__dirname, '../../..');
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-let cachedMeta = null;
-let cachedAt = 0;
+// GitHub 元数据只用于展示「仓库最近更新时间」，与 shortSha 无关（shortSha 走本地 git）。
+// 但它在网络不通时会白等 2.5s 超时——实测本机断网时首个 dashboard 请求因此慢 1932ms。
+// 两道闸：1) 非部署环境（本地 dev）根本不发这个请求；2) 失败后冷却，避免每 5 分钟重付一次。
+const isDeployedRuntime = Boolean(process.env.VERCEL || process.env.RENDER);
+const GITHUB_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
+let githubFailedAt = 0;
 
 /**
  * 异步执行 git 命令，避免阻塞事件循环
@@ -153,10 +160,16 @@ async function getVersionMeta() {
     const repo = await getGitHubRepo();
     let meta = null;
 
-    try {
-        meta = await getGitHubMeta(repo);
-    } catch (error) {
-        meta = null;
+    // 仅部署环境（Vercel/Render）才查 GitHub：本地 dev 的 shortSha 来自本地 git，
+    // 查 GitHub 只会增加一个必然超时的外网往返。
+    const githubAllowed = isDeployedRuntime && (Date.now() - githubFailedAt > GITHUB_FAIL_COOLDOWN_MS);
+    if (githubAllowed) {
+        try {
+            meta = await getGitHubMeta(repo);
+        } catch (error) {
+            meta = null;
+            githubFailedAt = Date.now();
+        }
     }
 
     if (!meta) {
