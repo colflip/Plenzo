@@ -6,6 +6,7 @@
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { syncToggleButton } from '../shared/view-utils.js';
 import {
     initPairForm, resetPairRows, fillPairRows, collectPairs, refitPairSelects
 } from './schedule-pair-form.js';
@@ -13,17 +14,6 @@ import {
 
 // --- Global State ---
 window.adminShowPlan = false;
-
-function syncToggleButton(button, isActive) {
-    if (!button) return;
-    const active = !!isActive;
-    const color = active ? '#ef4444' : '#2ECC71';
-    button.classList.toggle('schedule-toggle-active', active);
-    button.setAttribute('aria-pressed', String(active));
-    button.style.backgroundColor = color;
-    button.style.borderColor = color;
-    button.style.color = '#fff';
-}
 
 window.toggleAdminShowPlan = async function () {
     window.adminShowPlan = !window.adminShowPlan;

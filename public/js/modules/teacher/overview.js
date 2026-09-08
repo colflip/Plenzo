@@ -1,5 +1,6 @@
 import { setText } from './utils.js';
 import { createInlineLoading } from '../shared/loading-ui.js';
+import { showReward } from '../shared/reward-view.js';
 import {
     renderGroupedTodayScheduleList,
     showTodayScheduleError,
@@ -120,68 +121,7 @@ function showStatsErrorState() {
     }
 }
 
-// Reward Modal Logic
-function createRewardModal() {
-    if (document.getElementById('rewardModal')) return;
-
-    const modal = document.createElement('div');
-    modal.className = 'reward-modal-overlay';
-    modal.id = 'rewardModal';
-    modal.innerHTML = `
-        <div class="reward-modal-content">
-            <span class="material-icons-round reward-icon" id="rewardIcon">emoji_events</span>
-            <div class="reward-title" id="rewardTitle">Title</div>
-            <div class="reward-value" id="rewardValue">0</div>
-            <button class="reward-close-btn" data-action="reward-close">Awesome!</button>
-        </div>
-    `;
-    document.body.appendChild(modal);
-
-    // Close on overlay click
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.classList.remove('active');
-    });
-}
-
-function showReward(title, value, type) {
-    createRewardModal(); // Ensure it exists
-    const modal = document.getElementById('rewardModal');
-
-    document.getElementById('rewardTitle').textContent = title;
-    document.getElementById('rewardValue').textContent = value;
-
-    // Icon selection
-    const icons = {
-        'weekly': 'date_range',
-        'monthly': 'calendar_today',
-        'yearly': 'star',
-        'pending': 'pending_actions',
-        'completed': 'verified',
-        'cancelled': 'cancel'
-    };
-    document.getElementById('rewardIcon').textContent = icons[type] || 'emoji_events';
-
-    modal.classList.add('active');
-    createConfetti();
-}
-
-function createConfetti() {
-    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#6366F1', '#EC4899'];
-    const container = document.getElementById('rewardModal');
-
-    for (let i = 0; i < 50; i++) {
-        const confetti = document.createElement('div');
-        confetti.className = 'reward-confetti';
-        confetti.style.left = Math.random() * 100 + '%';
-        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-        confetti.style.animationDuration = (Math.random() * 3 + 2) + 's';
-        confetti.style.animationDelay = Math.random() * 2 + 's';
-        container.appendChild(confetti);
-
-        // Cleanup
-        setTimeout(() => confetti.remove(), 5000);
-    }
-}
+// 酬劳达成弹窗逻辑见 shared/reward-view.js
 
 function updateOverviewStats(overviewData) {
     // 卡片数据列表（HTML 已包含渐变卡片结构，仅更新数值）

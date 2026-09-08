@@ -4,6 +4,8 @@
  * 包含: 侧边栏切换、图表字体、鉴权、登出、模态框关闭、用户名显示、导航控制器
  */
 
+import { isValidSection } from './view-utils.js';
+
 /**
  * 侧边栏切换
  * @param {{storageKey?: string, autoCollapseOnLoad?: boolean, autoCollapseDelay?: number}} [opts]
@@ -339,10 +341,7 @@ export function createDashboardController(cfg) {
         }
     }
 
-    function isValidSection(sectionId) {
-        if (!sectionId || !document.getElementById(sectionId)) return false;
-        return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
-    }
+    // isValidSection 从 shared/view-utils.js 引入（与 admin/ui-layout.js 共用一份实现）
 
     async function activateRouteSection(sectionId, { replace = false, showFeedback = false } = {}) {
         const validSection = isValidSection(sectionId) ? sectionId : fallbackSection;

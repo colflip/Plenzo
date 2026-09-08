@@ -13,6 +13,7 @@ import { initAvailabilitySection, refreshAvailability } from './availability.js?
 import { initSchedulesSection, refreshSchedules } from './schedules.js?v=20260806-toggle';
 import { initStatisticsSection, loadLearningStats } from './statistics.js';
 import * as aiAssistant from '../shared/ai-assistant-redesign.js';
+import { refreshVisibleSection } from '../shared/view-utils.js';
 import {
     setupSidebarToggle,
     applyChartFontFromCSSVars,
@@ -78,13 +79,6 @@ async function initDashboard() {
     });
     await Promise.all([typesReady, controller.init()]);
     setupDataSyncSubscriptions();
-}
-
-function refreshVisibleSection(sectionId, refresher) {
-    const section = document.getElementById(sectionId);
-    if (section?.classList.contains('active')) {
-        Promise.resolve(refresher()).catch(() => {});
-    }
 }
 
 function setupDataSyncSubscriptions() {

@@ -1,6 +1,13 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
 import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
-import { showTableLoading, hideTableLoading, showTableLoadingRow } from '../shared/loading-ui.js';
+import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
+import {
+    appendScheduleWatermark,
+    groupSchedulesByDate,
+    groupSchedulesBySlot,
+    bindWeekNavigation,
+    updateTeacherScheduleStatus as updateScheduleStatus
+} from '../shared/schedule-view-utils.js';
 import {
     clearChildren,
     createElement,
@@ -66,41 +73,18 @@ function syncShowPlanButton() {
 }
 
 function bindNavigation() {
-    const prevBtn = elements.prevWeekBtn();
-    const nextBtn = elements.nextWeekBtn();
-    if (prevBtn && !prevBtn.__scheduleNavBound) {
-        prevBtn.addEventListener('click', () => {
+    bindWeekNavigation({
+        prevBtn: elements.prevWeekBtn(),
+        nextBtn: elements.nextWeekBtn(),
+        onPrev: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() - 7);
             loadSchedules(currentWeekStart);
-        });
-        prevBtn.__scheduleNavBound = true;
-    }
-    if (nextBtn && !nextBtn.__scheduleNavBound) {
-        nextBtn.addEventListener('click', () => {
+        },
+        onNext: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() + 7);
             loadSchedules(currentWeekStart);
-        });
-        nextBtn.__scheduleNavBound = true;
-    }
-}
-
-function appendScheduleWatermark(card, watermarkText) {
-    if (!watermarkText) return;
-    card.classList.add('is-temp-card');
-    card.style.position = 'relative';
-    card.style.overflow = 'hidden';
-    const watermark = createElement('span', '');
-    watermark.setAttribute('aria-hidden', 'true');
-    const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
-    watermark.style.cssText = [
-        'position: absolute', 'bottom: -10px', 'right: 5px',
-        `font-size: ${wmFontSize}`,
-        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-        'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-        'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-    ].join(';');
-    watermark.textContent = watermarkText;
-    card.appendChild(watermark);
+        }
+    });
 }
 
 export async function loadSchedules(baseDate, showLoading = true) {
@@ -451,30 +435,6 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
     return card;
 }
 
-
-function groupSchedulesByDate(weekDates, schedules) {
-    const grouped = new Map();
-    weekDates.forEach(date => grouped.set(toISODate(date), []));
-
-    schedules.forEach(item => {
-        const keyCandidates = [
-            item.date,
-            item.start_date,
-            item.lesson_date,
-            item.schedule_date
-        ];
-        const key = keyCandidates
-            .map(normalizeDateKey)
-            .find(Boolean);
-        if (!key) return;
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(item);
-    });
-
-    grouped.forEach(list => list.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
-    return grouped;
-}
-
 function renderHeader(weekDates) {
     const thead = elements.header();
     if (!thead) return;
@@ -566,19 +526,6 @@ function renderFullEmptyState(weekDates) {
         row.appendChild(cell);
     });
     tbody.appendChild(row);
-}
-
-/**
- * 将排课记录按时间/地点分组 (仿管理员端逻辑)
- */
-function groupSchedulesBySlot(schedules) {
-    const slots = new Map();
-    schedules.forEach(s => {
-        const key = `${s.start_time}-${s.end_time}-${s.location || ''}`;
-        if (!slots.has(key)) slots.set(key, []);
-        slots.get(key).push(s);
-    });
-    return Array.from(slots.values());
 }
 
 /**
@@ -747,24 +694,7 @@ function buildScheduleCard(group) {
 /**
  * 更新课程状态 (使用 window.apiUtils 保持一致)
  */
-async function updateScheduleStatus(id, newStatus) {
-    if (!window.apiUtils) {
-        throw new Error('apiUtils 未就绪');
-    }
-    const response = await window.apiUtils.put(`/teacher/schedules/${id}/status`, {
-        status: newStatus
-    });
-
-    if (response && response.error) {
-        throw new Error(response.message || '更新失败');
-    }
-    window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
-        id,
-        status: newStatus,
-        role: 'teacher'
-    });
-    return response;
-}
+// updateScheduleStatus 由 shared/schedule-view-utils.js 提供（别名导入）
 
 function showStatusActionSheet(schedule, card) {
     const status = (schedule.status || 'pending').toLowerCase();
@@ -813,13 +743,6 @@ function renderScheduleErrorState(weekDates, weekStart) {
     cell.appendChild(retry);
     row.appendChild(cell);
     tbody.appendChild(row);
-}
-
-function showLoadingState() {
-    const tbody = elements.body();
-    if (!tbody) return;
-    // 统一加载视觉：与遮罩同款 spinner + 文案
-    showTableLoadingRow(tbody, { colspan: 7, text: '正在加载课程安排数据...' });
 }
 
 function updateWeekRangeLabel(weekDates) {
@@ -920,50 +843,3 @@ export function refreshSchedules() {
     return loadSchedules(currentWeekStart);
 }
 
-// ==========================================
-// Fee Management（无入口调用了——费用在「费用管理」页统一管理。此弹窗与 openFeeModal
-// 依赖 #feeManagementModal DOM，保留代码但移除挂载点绑定的周期注释见下方）
-// 2026-09-07：费用录入已彻底移入「费用管理」（fees）页，原排课卡片上的费用入口已全部删除，
-// 本弹窗（字段初始化、提交、开窗）不再被任何调用方使用，是死代码。
-// ==========================================
-
-/**
-
- * 更新课程状态 (使用 window.apiUtils 保持一致)
- */
-            
-            if (window.apiUtils.showErrorToast) {
-                window.apiUtils.showErrorToast(error.message || '保存费用失败');
-            } else {
-                showInlineFeedback(elements.feedback(), error.message || '保存费用失败', 'error');
-            }
-        } finally {
-            const submitBtn = form.querySelector('button[type="submit"]');
-            if (submitBtn) {
-                submitBtn.textContent = '保存记录';
-                submitBtn.disabled = false;
-            }
-        }
-    });
-}
-
-function openFeeModal(schedule) {
-    const modal = document.getElementById('feeManagementModal');
-    if (!modal) return;
-
-    currentFeeScheduleId = schedule.id;
-    currentFeeTeacherUid = schedule.teacher_uid || null;
-
-    const transportInput = document.getElementById('feeTransportInput');
-    const otherInput = document.getElementById('feeOtherInput');
-    const totalDisplay = document.getElementById('feeTotalDisplay');
-
-    if (transportInput) transportInput.value = schedule.transport_fee || '';
-    if (otherInput) otherInput.value = schedule.other_fee || '';
-
-    const transport = parseFloat(schedule.transport_fee) || 0;
-    const other = parseFloat(schedule.other_fee) || 0;
-    if (totalDisplay) totalDisplay.textContent = (transport + other).toFixed(2);
-
-    modal.style.display = 'flex';
-}

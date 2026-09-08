@@ -4,6 +4,7 @@
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading, setButtonLoading } from '../shared/loading-ui.js';
+import { setupDateRangePickers, formatDate, getLegendColor } from '../shared/stats-view-utils.js';
 import { initRewardEasterEgg } from './reward-easter-egg.js';
 
 let currentTeachingData = null;
@@ -29,34 +30,7 @@ export async function initStatisticsSection() {
     }
 }
 
-/**
- * Setup date range pickers with default values (current month)
- */
-function setupDateRangePickers() {
-    const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    const startDateInput = document.getElementById('teachingStartDate');
-    const endDateInput = document.getElementById('teachingEndDate');
-
-    if (startDateInput) {
-        startDateInput.value = formatDate(firstDay);
-    }
-    if (endDateInput) {
-        endDateInput.value = formatDate(lastDay);
-    }
-}
-
-/**
- * Format date to YYYY-MM-DD
- */
-function formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
+// setupDateRangePickers / formatDate / getLegendColor 由 shared/stats-view-utils.js 提供
 
 /**
  * Apply date preset
@@ -541,19 +515,6 @@ function updateDisplay(data, startDate, endDate) {
 }
 
 let dailyChartInstance = null;
-
-/**
- * Get color for teaching type
- */
-function getLegendColor(name) {
-    if (window.ColorUtils && window.ColorUtils.getLegendColor) {
-        return window.ColorUtils.getLegendColor(name);
-    }
-    // Fallback if not loaded
-    const hash = Array.from(String(name || '')).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    const fallbackPalette = ['#3366CC', '#FF9933', '#33CC99', '#DC3912', '#7C4DFF'];
-    return fallbackPalette[hash % fallbackPalette.length];
-}
 
 // generateDateRange is imported from ../shared/schedule-helpers.js
 

@@ -1,6 +1,12 @@
 import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
 import { isMobileView, getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
-import { showTableLoading, hideTableLoading, showTableLoadingRow } from '../shared/loading-ui.js';
+import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
+import {
+    appendScheduleWatermark,
+    groupSchedulesByDate,
+    groupSchedulesBySlot,
+    bindWeekNavigation
+} from '../shared/schedule-view-utils.js';
 import {
     clearChildren,
     createElement,
@@ -101,43 +107,19 @@ function syncShowPlanButton() {
     }
 }
 
-function appendScheduleWatermark(card, watermarkText) {
-    if (!watermarkText) return;
-    card.classList.add('is-temp-card');
-    card.style.position = 'relative';
-    card.style.overflow = 'hidden';
-    const watermark = createElement('span', '');
-    watermark.setAttribute('aria-hidden', 'true');
-    const wmFontSize = watermarkText.length > 1 ? '66px' : '99px';
-    watermark.style.cssText = [
-        'position: absolute', 'bottom: -10px', 'right: 5px',
-        `font-size: ${wmFontSize}`,
-        'font-family: "Ma Shan Zheng","Kaiti SC","STXingkai","KaiTi",cursive,serif',
-        'color: rgba(0,102,204,0.1)', 'pointer-events: none',
-        'z-index: 0', 'transform: rotate(-15deg)', 'line-height: 1', 'user-select: none'
-    ].join(';');
-    watermark.textContent = watermarkText;
-    card.appendChild(watermark);
-}
-
 function bindNavigation() {
-    const prevBtn = elements.prevWeekBtn();
-    const nextBtn = elements.nextWeekBtn();
-
-    if (prevBtn && !prevBtn.__scheduleNavBound) {
-        prevBtn.addEventListener('click', () => {
+    bindWeekNavigation({
+        prevBtn: elements.prevWeekBtn(),
+        nextBtn: elements.nextWeekBtn(),
+        onPrev: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() - 7);
             loadSchedules(currentWeekStart);
-        });
-        prevBtn.__scheduleNavBound = true;
-    }
-    if (nextBtn && !nextBtn.__scheduleNavBound) {
-        nextBtn.addEventListener('click', () => {
+        },
+        onNext: () => {
             currentWeekStart.setDate(currentWeekStart.getDate() + 7);
             loadSchedules(currentWeekStart);
-        });
-        nextBtn.__scheduleNavBound = true;
-    }
+        }
+    });
 }
 
 function bindShowPlanButton() {
@@ -253,30 +235,6 @@ function renderSchedules(weekDates, schedules) {
         renderBody(weekDates, schedules);
     }
 }
-
-function groupSchedulesByDate(weekDates, schedules) {
-    const grouped = new Map();
-    weekDates.forEach(date => grouped.set(toISODate(date), []));
-
-    schedules.forEach(item => {
-        const keyCandidates = [
-            item.date,
-            item.start_date,
-            item.lesson_date,
-            item.schedule_date
-        ];
-        const key = keyCandidates
-            .map(normalizeDateKey)
-            .find(Boolean);
-        if (!key) return;
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(item);
-    });
-
-    grouped.forEach(list => list.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
-    return grouped;
-}
-
 
 // 移动端2列7行表格渲染
 function renderMobileScheduleTable(weekDates, grouped) {
@@ -579,19 +537,6 @@ function renderFullEmptyState(weekDates) {
 // --------------------------------------------------------------------------
 
 /**
- * 将排课记录按时间/地点分组 (学生端聚合逻辑)
- */
-function groupSchedulesBySlot(schedules) {
-    const slots = new Map();
-    schedules.forEach(s => {
-        const key = `${s.start_time}-${s.end_time}-${s.location || ''}`;
-        if (!slots.has(key)) slots.set(key, []);
-        slots.get(key).push(s);
-    });
-    return Array.from(slots.values());
-}
-
-/**
  * 构建排课卡片 (仿照管理员端样式 - 学生只读版)
  * @param {Array} group 相同时间/地点的排课记录组
  */
@@ -770,12 +715,5 @@ function getDisplayStatus(schedule) {
         'modified_away': '已调整'
     };
     return statusMap[status] || status;
-}
-
-function showLoadingState() {
-    const tbody = elements.body();
-    if (!tbody) return;
-    // 统一加载视觉：与遮罩同款 spinner + 文案（shared/loading-ui.js）
-    showTableLoadingRow(tbody, { colspan: 7, text: '正在加载课程安排数据...' });
 }
 
