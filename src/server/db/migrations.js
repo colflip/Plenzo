@@ -22,7 +22,9 @@ async function runDatabaseMigrations() {
     try {
         await migrateCourseSessions();
     } catch (error) {
-        logger.error('course_sessions 迁移失败:', error);
+        // 打印因果链而非整个 Error 对象：undici 的 "fetch failed" 只有展开 cause
+        // 才能看出是 DNS / 超时 / TLS；直接打对象则是一屏堆栈，信息量反而更低。
+        logger.error('course_sessions 迁移失败:', db.describeError(error));
     }
 
     try {
@@ -350,7 +352,7 @@ async function runDatabaseMigrations() {
         logger.log(`数据库迁移完成：${LEGACY_SCHEMA_KEY}（后续启动只查一次版本标记）`);
 
     } catch (error) {
-        logger.error('数据库迁移失败:', error);
+        logger.error('数据库迁移失败:', db.describeError(error));
         // 不要因为迁移失败而中断应用启动
     }
 }

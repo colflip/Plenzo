@@ -33,7 +33,10 @@ const checkDatabaseHealth = async () => {
             status: 'unhealthy',
             latency: `${latency}ms`,
             error: error.message,
-            code: error.code
+            code: error.code,
+            // 熔断状态与目标主机：DB 不通时最有价值的两条信息（是断网？DNS？还是连错库？）
+            ...(db.getStatus ? { target: `${db.getStatus().host}/${db.getStatus().database}` } : {}),
+            ...(db.getStatus ? { breakerOpen: db.getStatus().breakerOpen } : {})
         };
     }
 };
