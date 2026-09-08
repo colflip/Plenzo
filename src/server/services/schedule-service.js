@@ -1290,26 +1290,26 @@ class ScheduleService {
                 SELECT
                     (SELECT COUNT(*) FROM teachers) as teacher_count,
                     (SELECT COUNT(*) FROM students) as student_count,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE class_date >= DATE_TRUNC('month', CURRENT_DATE)
                          AND ${ACTIVE}${scopeSql}) as monthly_schedules,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE status = 'pending'
                          AND ${ACTIVE}${scopeSql}) as pending_count,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE ${ACTIVE}${scopeSql}) as total_schedules,
                     -- 本周：周一为一周之首，与前端原来的 getDay() 折算口径一致
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE class_date >= DATE_TRUNC('week', CURRENT_DATE)
                          AND class_date < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
                          AND ${ACTIVE}${scopeSql}) as weekly_schedules,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE class_date >= DATE_TRUNC('year', CURRENT_DATE)
                          AND class_date < DATE_TRUNC('year', CURRENT_DATE) + INTERVAL '1 year'
                          AND ${ACTIVE}${scopeSql}) as yearly_schedules,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE status = 'completed' AND ${ACTIVE}${scopeSql}) as completed_schedules,
-                    (SELECT COUNT(*) FROM v_session_pairs
+                    (SELECT COUNT(DISTINCT session_id) FROM v_session_pairs
                        WHERE status = 'cancelled' AND ${ACTIVE}${scopeSql}) as cancelled_schedules
             `, params);
 
@@ -1357,11 +1357,13 @@ class ScheduleService {
 
             const dateExpr = 'ca.class_date';
 
-            // 权限落地：L3 仅统计自己创建 + 无主存量的排课
+            // 权限落地：L3 仅统计自己创建 + 无主存量的排课。
+            // 口径：总览的课程类型分布按「课程」计数（DISTINCT session_id）——
+            // 同一场课关联多名教师时叉积展开多行，不去重会把同一门课按人头重复计入。
             let statQuery = `
                 SELECT
                     COALESCE(st.description, st.name) as type,
-                    COUNT(*) as count
+                    COUNT(DISTINCT ca.session_id) as count
                 FROM v_session_pairs ca
                 JOIN schedule_types st ON ca.type_id = st.id
                 WHERE ${dateExpr} BETWEEN $1 AND $2

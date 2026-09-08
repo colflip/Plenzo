@@ -655,15 +655,21 @@ function initializeStatisticsTabs() {
     const studentEl = document.getElementById('statsStudent');
     if (!tabBtns.length || !overviewEl || !teacherEl || !studentEl) return;
 
-    // 把公共查询区域（日期/查询/快捷按钮）移动到目标视图卡片顶部。
+    // 把公共查询区域（日期/查询/快捷按钮）移动到目标视图顶部。
     // 三个视图共用同一 DOM 实例：以总体概览的实现为唯一基准，教师/学生视图
     // 不再各自维护一份（避免样式漂移与三组日期互相同步的复杂度）。
+    // 教师/学生视图没有整体背景卡片，查询栏直接挂在 stats-view 根元素下。
     function moveQuerySection(view) {
         const qs = document.querySelector('.statistics-container .query-section');
         if (!qs) return;
-        const targetCard = document.querySelector(`#stats${view.charAt(0).toUpperCase() + view.slice(1)} .stats-unified-card`);
-        if (targetCard && qs.parentElement !== targetCard) {
-            targetCard.insertBefore(qs, targetCard.firstChild);
+        let target;
+        if (view === 'overview') {
+            target = document.querySelector('#statsOverview .stats-unified-card');
+        } else {
+            target = document.getElementById(view === 'teacher' ? 'statsTeacher' : 'statsStudent');
+        }
+        if (target && qs.parentElement !== target) {
+            target.insertBefore(qs, target.firstChild);
         }
     }
 
