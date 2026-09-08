@@ -1,6 +1,7 @@
 const logger = require('../utils/logger.js');
 // 在主应用启动时运行数据库迁移
 const db = require('./db');
+const { tableExists } = require('./table-utils');
 const { migrateCourseSessions, isApplied, markApplied } = require('./migrations-course-sessions');
 
 /**
@@ -12,14 +13,6 @@ const { migrateCourseSessions, isApplied, markApplied } = require('./migrations-
  * fire-and-forget 发出的，正好和首批用户请求抢同一个连接池。加标记后稳态是 0 条。
  */
 const LEGACY_SCHEMA_KEY = 'legacy_migrations@v1';
-
-async function tableExists(name) {
-    const r = await db.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
-        [name]
-    );
-    return (r.rows || []).length > 0;
-}
 
 async function runDatabaseMigrations() {
     // course_sessions 先跑，并独占一个 try/catch。
