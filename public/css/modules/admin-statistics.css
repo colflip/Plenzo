@@ -128,14 +128,22 @@
     box-shadow: var(--stats-shadow-sm);
     overflow: hidden;
     /* For rounded corners */
+    /* dashboard.css 同名规则设了 flex gap:20px，会叠加到 query-section 自带的
+       margin-bottom 上，令查询栏与图表间多出 40px。统计页间距统一由
+       query-section 的 margin 与 charts-section 的 padding 负责，此处归零。 */
+    gap: 0;
 }
 
 /* Query Section (Top Toolbar) */
-.query-section {
+/* 用 .statistics-container 前缀对齐 dashboard.css 8266 行同规则的特异性（0-2-0），
+   否则那边的 margin-bottom:20px / padding 会盖过这里的归零与排版意图。 */
+.statistics-container .query-section {
     padding: 20px 24px;
     border-bottom: 1px solid var(--stats-border);
     background-color: #FAFAFA;
     /* Subtle differentiation */
+    /* 抵消 dashboard.css 的 margin-bottom:20px（与卡片 flex gap 叠加成 40px） */
+    margin-bottom: 0;
 }
 
 .query-controls {
@@ -417,6 +425,10 @@
 /* 三图等大正方形：chart-box 宽度占满列，高度由 aspect-ratio 跟随宽度 */
 #statsOverview .charts-section .chart-container.overview-chart {
     height: auto;
+    /* dashboard.css 的 #statsOverview .chart-container 还设了 min-height:360px，
+       会把内容不足的卡片撑高、底部留出 40px+ 空白 —— 一并归零，
+       使卡片高度完全由内容决定，面板四周间距与左右 padding 一致。 */
+    min-height: 0;
     justify-content: flex-start;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
