@@ -527,6 +527,22 @@ export const WeeklyDataStore = {
     },
 
     /**
+     * 用户资料（教师）在别处被改动后调用：内存与 localStorage 一起清。
+     * 只清内存不够 —— getTeachers() 在内存为空时会回退读 localStorage，
+     * 1 小时 TTL 内旧数据直接回填并重新计时，表现为「改了名字，弹窗下拉还是旧名字」。
+     */
+    invalidateTeachers() {
+        this.teachers = { list: [], loadedAt: 0 };
+        try { localStorage.removeItem(this._CACHE_KEY_prefix + 'teachers'); } catch (_) { }
+    },
+
+    /** 同 invalidateTeachers：学生资料变更后连 localStorage 一起清 */
+    invalidateStudents() {
+        this.students = { list: [], loadedAt: 0 };
+        try { localStorage.removeItem(this._CACHE_KEY_prefix + 'students'); } catch (_) { }
+    },
+
+    /**
      * 局部更新内存中的排课数据
      * @param {Object|number} recordOrId - 完整的排课记录对象或 ID (删除时)
      * @param {boolean} isDelete - 是否为删除操作

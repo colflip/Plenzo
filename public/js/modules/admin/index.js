@@ -90,6 +90,10 @@ function setupDataSyncSubscriptions() {
     window.eventBus.on(window.EVENTS?.USER_CHANGED || 'user:changed', detail => {
         if (detail?.action === 'invalidate') return;
         refreshVisibleSection('overview', Overview.loadOverviewStats);
+        // 改名/改状态会同时影响排课卡片上显示的老师名与统计页图表：
+        // 周视图数据来自 SQL join，必须重拉才能看到新名字，所以这里也要刷排课区块。
+        refreshVisibleSection('schedule', () => ScheduleManager.loadSchedules(true, false));
+        refreshVisibleSection('statistics', () => window.loadStatistics?.());
         const activeType = window.__usersState?.type || detail?.type;
         if (activeType && detail?.type === activeType) {
             refreshVisibleSection('users', () => UserManager.loadUsers(activeType, { reset: true }));
