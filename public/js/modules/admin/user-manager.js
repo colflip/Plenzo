@@ -268,8 +268,17 @@ function invalidateUserCaches(type, userId = null) {
     const storageKey = `cached_${type}s_full`;
     try { localStorage.removeItem(storageKey); } catch (_) { }
     if (window.WeeklyDataStore) {
-        if (type === 'student') window.WeeklyDataStore.students = { list: [], loadedAt: 0 };
-        if (type === 'teacher') window.WeeklyDataStore.teachers = { list: [], loadedAt: 0 };
+        // 必须连 localStorage 一起清：getTeachers/getStudents 在内存为空时会回退读
+        // localStorage（1 小时 TTL），只清内存的话旧名单马上被回填——
+        // 用户改了姓名/状态，排课弹窗下拉、统计页等最长 1 小时还在显示旧信息。
+        if (type === 'student') {
+            if (window.WeeklyDataStore.invalidateStudents) window.WeeklyDataStore.invalidateStudents();
+            else window.WeeklyDataStore.students = { list: [], loadedAt: 0 };
+        }
+        if (type === 'teacher') {
+            if (window.WeeklyDataStore.invalidateTeachers) window.WeeklyDataStore.invalidateTeachers();
+            else window.WeeklyDataStore.teachers = { list: [], loadedAt: 0 };
+        }
     }
     window.eventBus?.emit(window.EVENTS?.USER_CHANGED || 'user:changed', {
         action: 'invalidate', type, userId
