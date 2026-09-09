@@ -395,6 +395,11 @@ const adminController = {
         return res.status(out.status).json(out.body);
     },
 
+    async getDailyScheduleStats(req, res) {
+        const out = await scheduleService.adminDailyScheduleStats(req);
+        return res.status(out.status).json(out.body);
+    },
+
     async getUserStats(req, res) {
         const out = await scheduleService.adminUserStats(req);
         return res.status(out.status).json(out.body);

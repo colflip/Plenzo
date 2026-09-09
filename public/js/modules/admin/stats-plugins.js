@@ -158,6 +158,39 @@
     }));
   }
 
+  // 从统计接口（每日 × 类型，session 去重口径）构建堆叠数据集。
+  // 教师视图/学生视图的「按日期汇总」用这份权威口径，不再从 grid 的
+  // pair 行自行聚合 —— grid 为排课管理做了师生 JOIN 与删除过滤，
+  // 会缺"已删除师生参与"的课程，导致图例类型不全。
+  function buildStacksFromDailyStats(dailyStats, dayLabels) {
+    const byType = new Map();
+    (Array.isArray(dailyStats) ? dailyStats : []).forEach(row => {
+      if (!row) return;
+      const label = String(row.type || '未分类');
+      if (!byType.has(label)) {
+        const dayMap = {};
+        dayLabels.forEach(d => { dayMap[d] = 0; });
+        byType.set(label, dayMap);
+      }
+      const dayMap = byType.get(label);
+      const iso = ensureISO(row.date);
+      if (dayMap[iso] === undefined) return;
+      dayMap[iso] += Number(row.count) || 0;
+    });
+    return Array.from(byType.entries())
+      .map(([label, dayMap]) => {
+        let total = 0;
+        const data = dayLabels.map(d => {
+          const v = dayMap[d] || 0;
+          total += v;
+          return v;
+        });
+        return { label, data, total };
+      })
+      .sort((a, b) => b.total - a.total)
+      .map(({ label, data }) => ({ label, data }));
+  }
+
   function buildStackedByTypePerDay(rows, dayLabels) {
     const typeSet = new Set();
     const dayTypeCount = dayLabels.map(() => ({}));
@@ -328,6 +361,8 @@
   // 「划线」揭示插件：动画期间把绘制裁剪到 chartArea 左缘 → 当前进度处，
   // 曲线/面积沿时间路径逐步显现（线条像被笔画出来），坐标轴在裁剪范围外不受影响。
   // 进度由 renderStackedBarChart 的 rAF 循环驱动（options.plugins.revealClip）。
+  // easeInOutCubic：起步与收尾略缓、中段流畅，贴近手写划线的节奏。
+  const REVEAL_EASE = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
   const REVEAL_CLIP_PLUGIN = {
     id: 'revealClip',
     beforeDatasetsDraw(chart, args, opts) {
@@ -335,7 +370,7 @@
       const area = chart.chartArea;
       if (!area || area.right <= area.left) return;
       const p = Math.min(1, (Date.now() - opts.startTime) / opts.duration);
-      const clipX = area.left + (area.right - area.left) * p;
+      const clipX = area.left + (area.right - area.left) * REVEAL_EASE(p);
       const ctx = chart.ctx;
       ctx.save();
       ctx.beginPath();
@@ -599,12 +634,16 @@
                   chart.setDatasetVisibility(idx, !vis);
                   chart.update();
                 } catch (err) {
-                  
+
                 }
               },
               labels: {
+                // 压缩图例：小色点 + 紧凑间距，类型多时自动换行，保证全部类型可见
                 usePointStyle: true,
-                padding: 20
+                boxWidth: 9,
+                boxHeight: 9,
+                padding: 12,
+                font: { size: 12 }
               }
             },
             title: {
@@ -656,9 +695,11 @@
                 display: false
               },
               ticks: {
-                autoSkip: true,
+                // 逐日展示：不跳过任何日期标签；空间不足由 45° 旋转 + 压缩字号消化
+                autoSkip: false,
                 maxRotation: 45,
                 minRotation: 45,
+                font: { size: 11 },
                 color: function (context) {
                   // 根据日期判断是否为周末,设置不同颜色
                   const index = context.index;
@@ -789,6 +830,7 @@
     buildTopEntitiesByCount,
     buildDailySeriesForEntities,
     buildStackedByTypePerDay,
+    buildStacksFromDailyStats,
     renderSmoothMultiLineChart,
     renderStackedBarChart
   };
