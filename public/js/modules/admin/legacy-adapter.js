@@ -1057,10 +1057,22 @@ async function loadStatistics() {
         // 教师/学生视图渲染前同样确保 Chart.js 就绪（懒加载场景的首屏时序问题）
         await ensureChartReady();
 
+        // 每日汇总改用统计口径的权威数据源（每日 × 类型，session 去重、无师生 JOIN 过滤），
+        // grid 数据源会缺"已删除师生参与"的课程导致图例类型不全；接口失败降级回 grid 聚合。
+        let dailyTypeStacks = null;
+        try {
+            const dailyStats = await window.apiUtils.get('/admin/statistics/daily-schedules', { startDate, endDate });
+            if (Array.isArray(dailyStats) && window.StatsPlugins && typeof window.StatsPlugins.buildStacksFromDailyStats === 'function') {
+                dailyTypeStacks = window.StatsPlugins.buildStacksFromDailyStats(dailyStats, dayLabels);
+            }
+        } catch (dailyStatsError) {
+            console.warn('[statistics] 每日统计接口失败，回退 grid 聚合:', dailyStatsError);
+        }
+
         if (activeView === 'teacher') {
             try {
                 if (window.StatsPlugins) {
-                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
                     window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
                     // 设置汇总图表标题的悬停提示
                     setupStatsTooltip(rawSchedules, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
@@ -1105,7 +1117,7 @@ async function loadStatistics() {
         if (activeView === 'student') {
             try {
                 if (window.StatsPlugins) {
-                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
                     window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
                     // 设置汇总图表标题的悬停 tooltip
                     setupStatsTooltip(rawSchedules, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');

@@ -61,6 +61,7 @@ router.post('/schedules/batch-fee-status', authMiddleware, adminOnly, requireCap
 // 统计数据路由：排课衍生指标对 L3 做范围过滤；用户数统计保持全局
 router.get('/statistics/overview', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getOverviewStats);
 router.get('/statistics/schedules', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getScheduleStats);
+router.get('/statistics/daily-schedules', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getDailyScheduleStats);
 router.get('/statistics/users', authMiddleware, adminOnly, requireCapability('statistics:read'), adminController.getUserStats);
 
 // 课程类型管理路由：查询保持登录可读（教师/学生端展示依赖）；增删改仅 L1

@@ -1395,6 +1395,48 @@ class ScheduleService {
         }
     }
 
+    /** 管理员：每日 × 类型 课程数（session 去重口径，供教师/学生视图的每日汇总图）。
+     *  与 adminScheduleStats 同源同条件；特意不走 /schedules/grid —— 那边为排课管理
+     *  做了师生 INNER JOIN 与删除过滤，会把"已删除师生参与"的课程整场丢掉，
+     *  统计图例因此缺类型。 */
+    async adminDailyScheduleStats(req) {
+        try {
+            let { startDate, endDate } = req.query;
+
+            if (!startDate || startDate === '') {
+                const now = new Date();
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+            }
+            if (!endDate || endDate === '') {
+                const now = new Date();
+                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+            }
+
+            const dateExpr = 'ca.class_date';
+            let sql = `
+                SELECT ${dateExpr}::date::text AS date,
+                       COALESCE(st.description, st.name) AS type,
+                       COUNT(DISTINCT ca.session_id) AS count
+                FROM v_session_pairs ca
+                JOIN schedule_types st ON ca.type_id = st.id
+                WHERE ${dateExpr} BETWEEN $1 AND $2
+                  AND ca.status NOT IN ('cancelled', 'modified_away')
+            `;
+            const params = [startDate, endDate];
+            sql = applyOwnerScope(sql, params, req && req.user, 'ca');
+            sql += `
+                GROUP BY 1, 2
+                ORDER BY 1, count DESC
+            `;
+
+            const result = await db.query(sql, params);
+            return { status: 200, body: result.rows };
+        } catch (error) {
+            logger.error('获取每日课程统计错误:', error);
+            return { status: 503, body: { message: '数据库暂时不可用，请稍后重试' } };
+        }
+    }
+
     /** 管理员：用户（教师/学生）汇总统计（按类型分组） */
     async adminUserStats(req) {
         try {
