@@ -30,6 +30,15 @@
     --color-error: #ef4444;
     --color-info: #3b82f6;
 
+    /* Error scale —— 统一错误提示专用（错误态背景/描边/文字，禁止再散落硬编码色值）
+       50: 错误卡/图标底色  100: 描边  500: 图标与强调  700: 标题  800: 正文 */
+    --color-error-50: #fef2f2;
+    --color-error-100: #fee2e2;
+    --color-error-500: #ef4444;
+    --color-error-600: #dc2626;
+    --color-error-700: #b91c1c;
+    --color-error-800: #991b1b;
+
     /* Typography — 字体栈
        中文产品：Latin 交给系统 UI 字体，CJK 靠 per-glyph 回退命中 PingFang / 雅黑。
        原先的栈以 'Inter' 开头，但 Inter 只在 index.html 里加载，三个 dashboard 从未加载它，

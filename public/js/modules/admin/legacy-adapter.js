@@ -92,6 +92,19 @@ function logOperation(action, status, details = {}) {
     } catch (_) { }
 }
 
+/**
+ * 统一错误态渲染（shared/error-ui.js 的经典脚本适配层）。
+ * error-ui 是 ES Module，经 window.ErrorUI 暴露；模块图未就绪时降级为纯文本，保证错误可见。
+ */
+function renderUnifiedError(container, { title, detail, error, onRetry } = {}) {
+    if (!container) return;
+    if (window.ErrorUI && typeof window.ErrorUI.renderErrorState === 'function') {
+        window.ErrorUI.renderErrorState(container, { title, detail, error, onRetry });
+    } else {
+        container.textContent = (title || '数据加载失败') + (detail ? `，${detail}` : '，请重试');
+    }
+}
+
 // 前端排课类型数据存储与管理（内存 + 本地缓存）
 // 已迁移至 public/js/schedule-types-store.js，避免此处覆盖全局对象
 
@@ -666,6 +679,10 @@ function initializeStatisticsTabs() {
         if (targetCard && qs.parentElement !== targetCard) {
             targetCard.insertBefore(qs, targetCard.firstChild);
         }
+        // 「全部教师」选择框位于公共查询栏内，随 query-section 在三视图间移动；
+        // 仅教师视图需要它，故按当前视图切换可见性（概览/学生视图隐藏）。
+        const tf = document.getElementById('queryTeacherFilter');
+        if (tf) tf.style.display = (view === 'teacher') ? '' : 'none';
     }
 
     const showView = (view) => {
@@ -855,24 +872,13 @@ async function loadStatistics() {
                     if (!statsData || !userStatsData) {
                         hideStatsLoading();
 
-                        // 显示错误提示
+                        // 统一错误态：接口失败（区分于下方「暂无数据」的空态）
                         const chartsSection = activeWrapper?.querySelector('.charts-section');
-                        if (chartsSection) {
-                            chartsSection.innerHTML = `
-                                <div class="stats-error-message" style="
-                                    display: flex;
-                                    flex-direction: column;
-                                    align-items: center;
-                                    justify-content: center;
-                                    padding: 60px 20px;
-                                    min-height: 300px;
-                                ">
-                                    <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
-                                    <div style="font-size: 18px; font-weight: 500; color: #ef4444; margin-bottom: 8px;">数据加载失败</div>
-                                    <div style="font-size: 14px; color: #6b7280;">请检查网络连接或稍后重试</div>
-                                </div>
-                            `;
-                        }
+                        renderUnifiedError(chartsSection, {
+                            title: '数据加载失败',
+                            detail: '请检查网络连接后重试',
+                            onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+                        });
                         return;
                     }
 
@@ -888,23 +894,14 @@ async function loadStatistics() {
                     if (!scheduleDist || scheduleDist.length === 0) {
                         hideStatsLoading();
 
-                        // 显示错误提示
+                        // 「暂无数据」是空态而非错误：不使用错误样式，避免误导用户重试
                         const chartsSection = activeWrapper?.querySelector('.charts-section');
                         if (chartsSection) {
-                            chartsSection.innerHTML = `
-                                <div class="stats-error-message" style="
-                                    display: flex;
-                                    flex-direction: column;
-                                    align-items: center;
-                                    justify-content: center;
-                                    padding: 60px 20px;
-                                    min-height: 300px;
-                                ">
-                                    <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
-                                    <div style="font-size: 18px; font-weight: 500; color: #ef4444; margin-bottom: 8px;">数据加载失败</div>
-                                    <div style="font-size: 14px; color: #6b7280;">暂无可用数据</div>
-                                </div>
-                            `;
+                            chartsSection.replaceChildren();
+                            const emptyNote = document.createElement('div');
+                            emptyNote.className = 'empty-state-note';
+                            emptyNote.textContent = '当前统计周期内暂无排课数据';
+                            chartsSection.appendChild(emptyNote);
                         }
                         return;
                     }
@@ -946,24 +943,13 @@ async function loadStatistics() {
                 } catch (generalError) {
                     hideStatsLoading();
 
-                    // 显示错误提示
+                    // 统一错误态 + 重试入口
                     const chartsSection = activeWrapper?.querySelector('.charts-section');
-                    if (chartsSection) {
-                        chartsSection.innerHTML = `
-                            <div class="stats-error-message" style="
-                                display: flex;
-                                flex-direction: column;
-                                align-items: center;
-                                justify-content: center;
-                                padding: 60px 20px;
-                                min-height: 300px;
-                            ">
-                                <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
-                                <div style="font-size: 18px; font-weight: 500; color: #ef4444; margin-bottom: 8px;">数据加载失败</div>
-                                <div style="font-size: 14px; color: #6b7280;">发生未知错误，请稍后重试</div>
-                            </div>
-                        `;
-                    }
+                    renderUnifiedError(chartsSection, {
+                        error: generalError,
+                        detail: '发生未知错误，请稍后重试',
+                        onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+                    });
                 }
 
                 return;
@@ -1074,6 +1060,8 @@ async function loadStatistics() {
                 if (window.StatsPlugins) {
                     const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
                     window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
+                    // 右侧文字摘要：共 N 节 / 各类型计数 / 折算：评审
+                    renderDailySummaryPanel('teacher', typeStacks);
                     // 设置汇总图表标题的悬停提示
                     setupStatsTooltip(rawSchedules, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
                 }
@@ -1087,7 +1075,11 @@ async function loadStatistics() {
                     console.error('[statistics] 教师个人图表渲染失败:', filterError);
                     const grid = document.getElementById('teacherChartsContainer');
                     if (grid && !grid.querySelector('.person-stat-card')) {
-                        grid.innerHTML = '<div style="padding:16px;color:#ef4444;">个人图表渲染失败，请查看控制台</div>';
+                        renderUnifiedError(grid, {
+                            title: '个人图表渲染失败',
+                            detail: '请刷新页面后重试',
+                            onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+                        });
                     }
                 }
             } finally {
@@ -1119,6 +1111,8 @@ async function loadStatistics() {
                 if (window.StatsPlugins) {
                     const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
                     window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
+                    // 右侧文字摘要：共 N 节 / 各类型计数 / 折算：评审
+                    renderDailySummaryPanel('student', typeStacks);
                     // 设置汇总图表标题的悬停 tooltip
                     setupStatsTooltip(rawSchedules, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');
                 }
@@ -1131,8 +1125,8 @@ async function loadStatistics() {
                     // 不再静默吞错：个人图渲染失败会表现为"只剩按日期汇总"，必须可见
                     console.error('[statistics] 学生个人图表渲染失败:', filterError);
                     const grid = document.getElementById('studentChartsContainer');
-                    if (grid && !grid.querySelector('.person-stat-card')) {
-                        grid.innerHTML = '<div style="padding:16px;color:#ef4444;">个人图表渲染失败，请查看控制台</div>';
+                    if (grid && !grid.querySelector('.error-state')) {
+                        renderUnifiedError(grid, { title: '个人图表渲染失败', detail: '请刷新页面后重试', onRetry: () => window.loadStatistics && window.loadStatistics() });
                     }
                 }
             } finally {
@@ -1253,6 +1247,35 @@ function getDefaultStudentStack() {
             }
         ]
     };
+}
+
+// 「按日期汇总」右侧文字摘要面板：共 N 节 / 各类型计数 / 折算：评审 M
+// stacks：buildStacksFromDailyStats / buildStackedByTypePerDay 的输出（type → 每日计数数组）。
+// 注意：大评审 此前已在 stats-plugins 内归一为 评审，故其计数已含在 typeTotals['评审'] 中。
+function renderDailySummaryPanel(view, stacks) {
+    const panel = document.getElementById(`${view}DailySummaryPanel`);
+    if (!panel) return;
+    const stackArr = Array.isArray(stacks) ? stacks : [];
+    let total = 0;
+    const typeTotals = {};
+    stackArr.forEach(s => {
+        const label = (s && s.label) || '未分类';
+        const sum = (s.data || []).reduce((a, v) => a + (Number(v) || 0), 0);
+        typeTotals[label] = (typeTotals[label] || 0) + sum;
+        total += sum;
+    });
+    // 折算：评审家族合计（评审 + (线上)评审 + 评审记录；大评审已归一进评审）
+    const REVIEW_KEYS = ['评审', '（线上）评审', '(线上)评审', '线上评审', '评审记录'];
+    let reviewConverted = 0;
+    REVIEW_KEYS.forEach(k => { reviewConverted += (typeTotals[k] || 0); });
+
+    const lines = [{ cls: 'summary-total', text: `共 ${total} 节` }];
+    Object.keys(typeTotals).forEach(label => {
+        lines.push({ cls: 'summary-type', text: `${label} ${typeTotals[label]}` });
+    });
+    lines.push({ cls: 'summary-conv', text: `折算：评审 ${reviewConverted}` });
+
+    panel.innerHTML = lines.map(l => `<div class="summary-line ${l.cls}">${l.text}</div>`).join('');
 }
 
 // --- Chart Rendering Implementations ---

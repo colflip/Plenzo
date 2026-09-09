@@ -13,6 +13,8 @@ class DataTransformer {
      */
     static normalizeTypeKey(typeKey) {
         const lower = String(typeKey || '').toLowerCase().trim();
+        // 大评审 归一为评审：业务口径中「大评审」等同于「评审」参与统计与折算
+        if (lower === '大评审' || lower === '大評審' || lower === 'big_review' || lower === 'bigreview') return 'review';
         if (lower === 'review_online' || lower === 'online_review') return 'review';
         if (lower === 'visit_online' || lower === 'online_visit') return 'visit';
         if (lower === 'consultation_online' || lower === 'online_consultation' ||

@@ -1,6 +1,7 @@
 import { DEFAULT_LOCATION_PLACEHOLDER, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
 import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 import {
     appendScheduleWatermark,
     groupSchedulesByDate,
@@ -47,7 +48,8 @@ export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
     syncShowPlanButton();
-    initFeeModal();
+    // 旧版课表内嵌的费用弹窗已随 77caebf 迁往「费用管理」页（FeeManager 统一接管），
+    // 函数本体已删除；残留的调用会抛 ReferenceError 并炸掉整个课程安排区块的初始化。
     await loadSchedules(currentWeekStart);
 }
 
@@ -727,22 +729,14 @@ function renderScheduleErrorState(weekDates, weekStart) {
 
     const tbody = elements.body();
     if (!tbody) return;
-    clearChildren(tbody);
-    const row = document.createElement('tr');
-    const cell = createElement('td', 'no-schedule');
-    cell.colSpan = 7;
-    cell.style.cssText = 'padding:32px 16px;text-align:center;color:#b42318;';
-
-    const message = createElement('div', '', { textContent: '课程安排加载失败，暂时无法显示数据。' });
-    const retry = createElement('button', 'btn-retry-schedules', { textContent: '重试' });
-    retry.type = 'button';
-    retry.style.cssText = 'margin-top:12px;padding:8px 18px;border:none;border-radius:8px;background:#b42318;color:#fff;font-weight:600;cursor:pointer;';
-    retry.addEventListener('click', () => loadSchedules(weekStart, true));
-
-    cell.appendChild(message);
-    cell.appendChild(retry);
-    row.appendChild(cell);
-    tbody.appendChild(row);
+    // 统一错误态（shared/error-ui.js）替代内联样式的错误行
+    renderTableErrorRow(tbody, {
+        colspan: 7,
+        title: '课程安排加载失败',
+        detail: '暂时无法显示数据，请点击重试',
+        onRetry: () => loadSchedules(weekStart, true),
+        retryText: '重试'
+    });
 }
 
 function updateWeekRangeLabel(weekDates) {

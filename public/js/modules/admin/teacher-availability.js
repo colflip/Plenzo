@@ -1,5 +1,6 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 // formatDate is available globally via window.formatDate
 
@@ -112,16 +113,15 @@ export async function loadAvailability() {
         renderAvailabilityBody(teachers, dates);
     } catch (error) {
         if (requestId !== availabilityState.loadSeq) return;
-        const errorMessage = error.message || '加载失败，请重试';
-        const errorHtml = `<tr><td colspan="8" class="error-cell" style="text-align: center; padding: 40px 0; color: #dc2626;">
-            <div style="margin-bottom: 12px;">⚠️ ${errorMessage}</div>
-            <button data-action="init-teacher-availability" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">重新加载</button>
-        </td></tr>`;
-        tableBody.innerHTML = errorHtml;
-        
-        if (window.apiUtils && window.apiUtils.showToast) {
-            window.apiUtils.showToast('教师空闲时段加载失败: ' + errorMessage, 'error');
-        }
+        // 统一错误态（shared/error-ui.js）：表格错误行 + 重试
+        renderTableErrorRow(tableBody, {
+            colspan: 8,
+            error,
+            title: '教师空闲时段加载失败',
+            detail: null,
+            onRetry: () => { if (typeof window.initTeacherAvailability === 'function') window.initTeacherAvailability(); },
+            retryText: '重新加载'
+        });
     } finally {
         // 隐藏加载状态
         hideTableLoading(tableContainer);

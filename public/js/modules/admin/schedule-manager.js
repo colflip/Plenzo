@@ -698,7 +698,7 @@ export async function loadSchedules(force = false, showLoading = true) {
 
     } catch (err) {
 
-        renderWeeklyError(err.message);
+        renderWeeklyError(err, () => loadSchedules(true, true));
     } finally {
         // 隐藏加载动画
         if (weeklyTableContainer) {
@@ -753,9 +753,16 @@ function renderWeeklyLoading() {
     }
 }
 
-function renderWeeklyError(msg) {
+function renderWeeklyError(error, onRetry) {
     const tbody = document.getElementById('weeklyBody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8">错误: ${msg || '加载失败'}</td></tr>`;
+    if (!tbody) return;
+    // 统一错误态（shared/error-ui.js）：textContent 渲染，不拼接服务端消息到 innerHTML
+    renderTableErrorRow(tbody, {
+        colspan: 8,
+        error,
+        onRetry,
+        detail: null
+    });
 }
 
 function renderWeeklyHeader(weekDates) {
@@ -1005,9 +1012,10 @@ function buildCapturedRow(originalTr) {
             feeWrap.style.borderBottomRightRadius = '11px';
         }
     });
-    // html2canvas 无法正确渲染 <select> 内选中项的垂直对齐 —— 文本始终下移。
-    // 改为用 <span> 替换，保留 .status-select 类以继承原有 pill 视觉
-    // （尺寸 70x20、圆角 20px、font-size 11px、font-weight 600、颜色等）。
+    // html2canvas 无法正确渲染 <select>（文字垂直对齐画错），克隆体里统一替换成只读 <span>。
+    // 类名原样保留 —— 视觉几何完全由全局 CSS 驱动（span.status-select 的 inline-flex 居中 +
+    // .schedule-card-group .status-select 的「行高=内容盒高度」），与页面上的胶囊同一套规则，
+    // 不要再打内联样式补丁：line-height 等内联值会被样式表 !important 压掉，等于死代码。
     // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
     const origSelects = originalTr.querySelectorAll('select.status-select');
     const cloneSelects = rowClone.querySelectorAll('select.status-select');
@@ -1019,11 +1027,6 @@ function buildCapturedRow(originalTr) {
         const span = document.createElement('span');
         span.className = origSel.className; // 保留 status-select + 状态颜色类
         span.textContent = text;
-        // 强制 flex 居中以抵消 .status-select 的 line-height:15px 基线偏移
-        span.style.display = 'inline-flex';
-        span.style.alignItems = 'center';
-        span.style.justifyContent = 'center';
-        span.style.lineHeight = '1';
         cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 

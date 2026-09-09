@@ -1135,8 +1135,8 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
                     typeCounts.visit += 1;
                 } else if (isType('half_visit', 5, '半次入户')) {
                     typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || isOnlineType('评审')) {
-                    typeCounts.review += 1;
+                } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineType('评审')) {
+                    typeCounts.review += 1;    // 大评审 等同 评审 计入折算
                 } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录')) {
                     typeCounts.review += 1;    // 评审记录 = 1次评审
                     typeCounts.visit += 0.5;   // + 0.5次入户
@@ -1674,8 +1674,8 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
                     typeCounts.visit += 1;
                 } else if (isType('half_visit', 5, '半次入户')) {
                     typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || isOnlineType('评审', lower)) {
-                    typeCounts.review += 1;
+                } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineType('评审', lower)) {
+                    typeCounts.review += 1;    // 大评审 等同 评审 计入折算
                 } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录', lower)) {
                     typeCounts.review += 1;    // 评审记录 = 1次评审
                     typeCounts.visit += 0.5;   // + 0.5次入户

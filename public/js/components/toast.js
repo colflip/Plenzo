@@ -81,8 +81,8 @@ class ToastManager {
                 color: var(--color-primary-800, #065f46);
             }
             .toast-error {
-                background: #fef2f2;
-                color: #991b1b;
+                background: var(--color-error-50, #fef2f2);
+                color: var(--color-error-800, #991b1b);
             }
             .toast-warning {
                 background: #fffbeb;
@@ -93,9 +93,37 @@ class ToastManager {
                 color: #1e40af;
             }
             .toast-icon {
-                font-size: 16px;
+                display: flex;
+                align-items: center;
                 flex-shrink: 0;
             }
+            .toast-icon svg {
+                width: 18px;
+                height: 18px;
+            }
+            .toast-message {
+                flex: 1;
+            }
+            .toast-actions {
+                display: flex;
+                gap: 8px;
+                margin-left: 4px;
+            }
+            .toast-action-btn {
+                border: 1px solid currentColor;
+                background: transparent;
+                color: inherit;
+                font-family: inherit;
+                font-size: var(--fs-200, 0.8125rem);
+                font-weight: 600;
+                padding: 3px 12px;
+                border-radius: var(--radius-md, 6px);
+                cursor: pointer;
+                opacity: 0.9;
+                transition: opacity 0.2s;
+                white-space: nowrap;
+            }
+            .toast-action-btn:hover { opacity: 1; }
             .toast-close {
                 margin-left: auto;
                 cursor: pointer;
@@ -125,49 +153,69 @@ class ToastManager {
      * @param {string} [options.priority='normal'] - 优先级: low|normal|high
      * @param {number} [options.duration] - 持续时间(ms)，0=不自动消失，默认按类型/优先级决定
      * @param {boolean} [options.closable=true] - 是否可手动关闭
+     * @param {Array<{label:string, onClick:Function}>} [options.actions] - 动作按钮（如「重试」）；
+     *   提供时默认停留 8s（可通过 duration 覆盖）
      */
     show(message, options = {}) {
         const {
             type = 'info',
             priority = 'normal',
             duration,
-            closable = true
+            closable = true,
+            actions = null
         } = options;
 
         if (!this.container) {
             this.createContainer();
         }
 
-        // 按类型和优先级决定默认持续时间
+        // 按类型和优先级决定默认持续时间；带动作按钮的 Toast 停留更久，保证用户能看到并操作
         const defaultDuration = this._getDefaultDuration(type, priority);
-        const actualDuration = duration !== undefined ? duration : defaultDuration;
-
-        const icons = {
-            success: '✓',
-            error: '✗',
-            warning: '△',
-            info: 'ℹ'
-        };
+        const actualDuration = duration !== undefined
+            ? duration
+            : (actions && actions.length ? Math.max(defaultDuration, 8000) : defaultDuration);
 
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
 
-        // 使用 textContent 防止 XSS
+        // 图标：内联 SVG（stroke=currentColor，颜色随类型），解析自 template 获得 SVG 命名空间
         const iconSpan = document.createElement('span');
         iconSpan.className = 'toast-icon';
-        iconSpan.textContent = icons[type] || icons.info;
+        iconSpan.appendChild(this._createIcon(type));
 
         const msgSpan = document.createElement('span');
         msgSpan.className = 'toast-message';
-        msgSpan.textContent = message;
+        msgSpan.textContent = message; // textContent 防 XSS
 
         toast.appendChild(iconSpan);
         toast.appendChild(msgSpan);
+
+        // 动作按钮（如重试）
+        if (Array.isArray(actions) && actions.length > 0) {
+            const actionsWrap = document.createElement('span');
+            actionsWrap.className = 'toast-actions';
+            actions.forEach(({ label, onClick }) => {
+                if (!label || typeof onClick !== 'function') return;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'toast-action-btn';
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    onClick();
+                    this.hide(toast);
+                });
+                actionsWrap.appendChild(btn);
+            });
+            if (actionsWrap.childElementCount > 0) {
+                toast.appendChild(actionsWrap);
+            }
+        }
 
         if (closable) {
             const closeSpan = document.createElement('span');
             closeSpan.className = 'toast-close';
             closeSpan.textContent = '×';
+            closeSpan.setAttribute('aria-label', '关闭');
             toast.appendChild(closeSpan);
         }
 
@@ -187,6 +235,26 @@ class ToastManager {
         }
 
         return toast;
+    }
+
+    /**
+     * 创建类型图标（lucide 风格 24 viewBox stroke 图形）
+     * @private
+     */
+    _createIcon(type) {
+        const paths = {
+            success: '<polyline points="20 6 9 17 4 12"/>',
+            error: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+            warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+            info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'
+        };
+        const template = document.createElement('template');
+        template.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+            ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+            (paths[type] || paths.info) +
+            '</svg>';
+        return template.content.firstElementChild;
     }
 
     /**

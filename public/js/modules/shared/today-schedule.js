@@ -170,12 +170,28 @@ export function showTodayScheduleLoading(container, text = '正在加载今日�
 }
 
 /**
- * 显示错误占位（与空状态同款样式）
+ * 显示错误占位（统一错误态：与空态明确区分，可带重试入口）
+ * @param {HTMLElement} container
+ * @param {string} [text] - 兼容旧签名的自定义文案；不传时走 error-ui 标准文案
+ * @param {Object} [options]
+ * @param {Error}  [options.error]  - 原始错误（用于推断标准文案）
+ * @param {Function} [options.onRetry] - 重试回调；提供时显示「重试」按钮
  */
-export function showTodayScheduleError(container, text = '今日排课加载失败，请稍后重试') {
+export function showTodayScheduleError(container, text = '', options = {}) {
     if (!container) return;
+    // 未传自定义文案时使用统一错误态卡片（图标 + 标准文案 + 重试）；传了文案则保持旧行为
+    if (!text && typeof window !== 'undefined' && window.ErrorUI?.createErrorState) {
+        container.replaceChildren(window.ErrorUI.createErrorState({
+            error: options.error,
+            title: '今日排课加载失败',
+            detail: '请点击重试；若多次失败请联系管理员',
+            onRetry: options.onRetry,
+            compact: true
+        }));
+        return;
+    }
     clearChildren(container);
-    container.appendChild(createElement('div', 'today-empty-state', { textContent: text }));
+    container.appendChild(createElement('div', 'today-empty-state', { textContent: text || '今日排课加载失败，请稍后重试' }));
 }
 
 /**

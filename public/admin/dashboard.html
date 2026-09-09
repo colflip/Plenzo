@@ -1436,6 +1436,14 @@
                                             <button type="button" class="preset-btn" data-preset="year">本年</button>
                                         </div>
                                     </div>
+                                    <div class="query-teacher-filter" id="queryTeacherFilter" style="display:none;">
+                                        <div class="filter-group">
+                                            <label for="statsTeacherSelect"></label>
+                                            <select id="statsTeacherSelect">
+                                                <option value="">全部教师</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1473,15 +1481,13 @@
                                             <div id="teacherSummaryTitleTooltip" class="teacher-title-tooltip"
                                                 style="display: none;"></div>
                                         </h4>
-                                        <div class="filter-group">
-                                            <label for="statsTeacherSelect"></label>
-                                            <select id="statsTeacherSelect">
-                                                <option value="">全部教师</option>
-                                            </select>
-                                        </div>
                                     </div>
-                                    <div class="chart-container summary-chart">
-                                        <canvas id="teacherDailyTypeStackChart"></canvas>
+                                    <div class="summary-body">
+                                        <div class="chart-container summary-chart">
+                                            <canvas id="teacherDailyTypeStackChart"></canvas>
+                                        </div>
+                                        <aside class="summary-panel" id="teacherDailySummaryPanel"
+                                            aria-label="按日期汇总文字摘要"></aside>
                                     </div>
                                 </div>
                                 <!-- 单人视图表：独立卡片，与汇总卡平级 -->
@@ -1507,8 +1513,12 @@
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="chart-container summary-chart">
-                                        <canvas id="studentDailyTypeStackChart"></canvas>
+                                    <div class="summary-body">
+                                        <div class="chart-container summary-chart">
+                                            <canvas id="studentDailyTypeStackChart"></canvas>
+                                        </div>
+                                        <aside class="summary-panel" id="studentDailySummaryPanel"
+                                            aria-label="按日期汇总文字摘要"></aside>
                                     </div>
                                 </div>
                                 <!-- 单人视图表：独立卡片，与汇总卡平级 -->
@@ -1544,6 +1554,8 @@
         <script src="/js/utils/date-range-utils.js"></script>
         <script src="/js/core/schedule-types-store.js"></script>
         <script src="/js/components/toast.js"></script>
+        <!-- 统一错误提示组件：暴露 window.ErrorUI 供经典脚本使用 -->
+        <script type="module" src="/js/modules/shared/error-ui.js"></script>
         <script src="/js/components/modal.js"></script>
         <script src="/js/core/modal-backdrop.js"></script>
         <script src="/js/utils/i18n-utils.js"></script>

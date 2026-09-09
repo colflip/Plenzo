@@ -1,5 +1,5 @@
 // 时段定义统一由 shared/schedule-helpers.js 提供（原此处有一份逐字相同的副本）
-export { TIME_SLOT_CONFIG } from '../../shared/schedule-helpers.js';
+export { TIME_SLOT_CONFIG } from '../shared/schedule-helpers.js';
 
 export const SCHEDULE_STATUS_LABELS = Object.freeze({
     pending: '待确认',

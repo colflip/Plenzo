@@ -158,6 +158,15 @@
     }));
   }
 
+  // 评审等价别名：业务口径中「大评审」等同于「评审」，参与统计与折算时合并计入。
+  // 集中在此处，避免各统计路径各自硬编码。
+  const REVIEW_ALIASES = ['大评审', '大評審', 'big_review', 'bigreview'];
+  function normalizeReviewLabel(label) {
+    const l = String(label || '').trim();
+    if (REVIEW_ALIASES.includes(l) || REVIEW_ALIASES.includes(l.toLowerCase())) return '评审';
+    return label;
+  }
+
   // 从统计接口（每日 × 类型，session 去重口径）构建堆叠数据集。
   // 教师视图/学生视图的「按日期汇总」用这份权威口径，不再从 grid 的
   // pair 行自行聚合 —— grid 为排课管理做了师生 JOIN 与删除过滤，
@@ -166,7 +175,7 @@
     const byType = new Map();
     (Array.isArray(dailyStats) ? dailyStats : []).forEach(row => {
       if (!row) return;
-      const label = String(row.type || '未分类');
+      const label = normalizeReviewLabel(String(row.type || '未分类'));
       if (!byType.has(label)) {
         const dayMap = {};
         dayLabels.forEach(d => { dayMap[d] = 0; });
@@ -206,9 +215,9 @@
       const isId = !isNaN(num) && /^\d+$/.test(raw);
       if (isId && window.ScheduleTypesStore && typeof window.ScheduleTypesStore.getById === 'function') {
         const found = window.ScheduleTypesStore.getById(num);
-        if (found) return found.description || found.name || String(num);
+        if (found) return normalizeReviewLabel(found.description || found.name || String(num));
       }
-      return raw;
+      return normalizeReviewLabel(raw);
     }
 
     rows.forEach(r => {
@@ -394,16 +403,20 @@
       // 检查Chart.js是否加载
       if (typeof window.Chart === 'undefined') {
 
-        // 显示错误提示
+        // 统一错误态（window.ErrorUI 由 shared/error-ui.js 提供；未就绪时降级为文本）
         const parent = el.parentElement;
         if (parent) {
-          const errorDiv = document.createElement('div');
-          errorDiv.className = 'chart-error';
-          errorDiv.textContent = '图表加载失败，请刷新页面';
-          errorDiv.style.padding = '20px';
-          errorDiv.style.textAlign = 'center';
-          errorDiv.style.color = '#666';
-          parent.appendChild(errorDiv);
+          if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
+            parent.appendChild(window.ErrorUI.createErrorState({
+              title: '图表加载失败',
+              detail: '图表组件未就绪，请刷新页面重试'
+            }));
+          } else {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'chart-error';
+            errorDiv.textContent = '图表加载失败，请刷新页面';
+            parent.appendChild(errorDiv);
+          }
         }
         return;
       }
@@ -573,13 +586,15 @@
       }
 
       // 创建图表配置（堆叠面积图）
-      // Y 轴用强制 max（= P95 建议值与真实峰值的较大者），替代可被可见数据
+      // Y 轴用强制 max（= P95 建议值与真实峰值的较大者 + 1 格余量），替代可被可见数据
       // 撑动的 suggestedMax —— 保证坐标轴与刻度在动画全程与静态展示完全一致。
+      // 末尾 +1 是用户要求的"阈值"：最大值为 2 时轴显示 3，让整张堆叠图（含顶部总计线）
+      // 顶部留出余量，避免最上层被坐标轴截断、视觉上"显示不全"。
       const fullDataMaxY = fullSeries.reduce((m, arr) => {
         arr.forEach(v => { const n = Number(v); if (Number.isFinite(n) && n > m) m = n; });
         return m;
       }, 0);
-      const fixedYMax = Math.max(Number(clampMax) || 0, fullDataMaxY, 1);
+      const fixedYMax = Math.max(Number(clampMax) || 0, fullDataMaxY, 1) + 1;
 
       const chartConfig = {
         type: 'line',

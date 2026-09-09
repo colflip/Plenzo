@@ -4,6 +4,7 @@
  */
 
 import { showTableLoadingRow } from '../shared/loading-ui.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 /**
  * 统排课单行数据标准化
@@ -206,10 +207,17 @@ export function renderWeeklyLoading() {
     });
 }
 
-export function renderWeeklyError(message) {
+export function renderWeeklyError(error, onRetry) {
     const tbody = document.getElementById('weeklyBody');
     if (!tbody) return;
-    const msg = (message && message.toString) ? message.toString() : '加载失败';
-    tbody.innerHTML = `<tr><td class="sticky-col">错误</td><td colspan="7">${msg}</td></tr>`;
+    // 统一错误态（shared/error-ui.js），textContent 渲染服务端消息，避免注入
+    renderTableErrorRow(tbody, {
+        colspan: 8,
+        error,
+        onRetry: onRetry || (() => {
+            if (typeof window.loadSchedules === 'function') window.loadSchedules(true, true);
+        }),
+        detail: null
+    });
 }
 

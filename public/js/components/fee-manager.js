@@ -707,8 +707,19 @@
             if (window.requestAnimationFrame) window.requestAnimationFrame(() => fitSummaryRows(mountEl));
             else fitSummaryRows(mountEl);
         } catch (err) {
-            const errHtml = `<tr><td colspan="${STUDENT_COLS}" style="text-align:center; padding:32px; color:#ef4444;">加载失败，请重试</td></tr>`;
-            tbody.innerHTML = errHtml;
+            // 统一错误态（window.ErrorUI 由 shared/error-ui.js 提供；未就绪时降级为文本行）
+            if (window.ErrorUI && typeof window.ErrorUI.renderTableErrorRow === 'function') {
+                window.ErrorUI.renderTableErrorRow(tbody, {
+                    colspan: STUDENT_COLS,
+                    error: err,
+                    title: '课时记录加载失败',
+                    detail: null,
+                    onRetry: () => loadData(config, mountEl),
+                    retryText: '重试'
+                });
+            } else {
+                tbody.innerHTML = `<tr><td colspan="${STUDENT_COLS}" class="error-cell">课时记录加载失败，请重试</td></tr>`;
+            }
             updateSummary(mountEl, { schedules: [], startDate: st.startDate, endDate: st.endDate });
         } finally {
             // 无论成功或失败，均淡出隐藏加载遮罩

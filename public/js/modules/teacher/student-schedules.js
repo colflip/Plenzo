@@ -5,6 +5,7 @@ import { getScheduleTypeLabel } from './constants.js';
 import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { syncToggleButton } from '../shared/view-utils.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 import {
     appendScheduleWatermark,
     groupSchedulesBySlot,
@@ -150,9 +151,19 @@ async function loadSchedules(baseDate, showLoading = true) {
     } catch (error) {
         if (requestId !== scheduleLoadSeq) return;
 
+        // 统一错误态（shared/error-ui.js）：保留表格结构 + 行内重试
         const body = document.getElementById('ssWeeklyBody');
-        if (body) window.SecurityUtils.safeSetHTML(body, '<div style="padding:20px; text-align:center; color: #ef4444;">加载失败，请重试</div>');
-        showInlineFeedback(feedback, '加载课程安排失败', 'error');
+        if (body) {
+            renderTableErrorRow(body, {
+                colspan: 8,
+                error,
+                title: '课程安排加载失败',
+                detail: null,
+                onRetry: () => loadSchedules(currentWeekStart || new Date()),
+                retryText: '重试'
+            });
+        }
+        showInlineFeedback(feedback, '加载课程安排失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
         if (requestId === scheduleLoadSeq && showLoading && tableContainer) {
@@ -779,9 +790,10 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
             card.style.borderTop = '4px solid #8B5CF6';
         }
     });
-    // html2canvas 无法正确渲染 <select> 内选中项的垂直对齐 —— 文本始终下移。
-    // 改为用 <span> 替换，保留 .status-select 类以继承原有 pill 视觉
-    // （尺寸 70x20、圆角 20px、font-size 11px、font-weight 600、颜色等）。
+    // html2canvas 无法正确渲染 <select>（文字垂直对齐画错），克隆体里统一替换成只读 <span>。
+    // 类名原样保留 —— 视觉几何完全由全局 CSS 驱动（span.status-select 的 inline-flex 居中 +
+    // .schedule-card-group .status-select 的「行高=内容盒高度」），与页面上的胶囊同一套规则，
+    // 不要再打内联样式补丁：line-height 等内联值会被样式表 !important 压掉，等于死代码。
     // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
     const origSelects = originalTr.querySelectorAll('select.status-select');
     const cloneSelects = rowClone.querySelectorAll('select.status-select');
@@ -793,11 +805,6 @@ async function handleTeacherStudentRowCapture(studentName, originalTr) {
         const span = document.createElement('span');
         span.className = origSel.className; // 保留 status-select + 状态颜色类
         span.textContent = text;
-        // 强制 flex 居中以抵消 .status-select 的 line-height:15px 基线偏移
-        span.style.display = 'inline-flex';
-        span.style.alignItems = 'center';
-        span.style.justifyContent = 'center';
-        span.style.lineHeight = '1';
         cloneSel.parentNode.replaceChild(span, cloneSel);
     });
 
