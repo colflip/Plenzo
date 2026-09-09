@@ -161,6 +161,10 @@
   function buildStackedByTypePerDay(rows, dayLabels) {
     const typeSet = new Set();
     const dayTypeCount = dayLabels.map(() => ({}));
+    // 口径：按「课程」计数 —— 同一场课（session）关联多名教师/学生时，
+    // grid 会展开成多条 pair 行，这里每个 session 在同一日期只计 1 次，
+    // 避免"按人头重复"把课程数放大。session_id 缺失时退化为行键兜底。
+    const seenSessions = dayLabels.map(() => new Set());
 
     function mapTypeLabel(t) {
       const raw = String(t || '').trim();
@@ -178,6 +182,11 @@
       const iso = ensureISO(r && r.date);
       const idx = dayLabels.indexOf(iso);
       if (idx === -1) return;
+      const sessionKey = (r && r.session_id != null) ? 's:' + r.session_id
+        : (r && r.id != null) ? 's:' + r.id
+        : 'row:' + iso;
+      if (seenSessions[idx].has(sessionKey)) return;
+      seenSessions[idx].add(sessionKey);
       const typesStr = (r && r.schedule_types) ? String(r.schedule_types) : '';
       const types = typesStr ? typesStr.split(',') : ['未分类'];
       types.forEach(t => {
@@ -316,6 +325,29 @@
     });
   }
 
+  // 「划线」揭示插件：动画期间把绘制裁剪到 chartArea 左缘 → 当前进度处，
+  // 曲线/面积沿时间路径逐步显现（线条像被笔画出来），坐标轴在裁剪范围外不受影响。
+  // 进度由 renderStackedBarChart 的 rAF 循环驱动（options.plugins.revealClip）。
+  const REVEAL_CLIP_PLUGIN = {
+    id: 'revealClip',
+    beforeDatasetsDraw(chart, args, opts) {
+      if (!opts || !opts.enabled || !opts.startTime) return;
+      const area = chart.chartArea;
+      if (!area || area.right <= area.left) return;
+      const p = Math.min(1, (Date.now() - opts.startTime) / opts.duration);
+      const clipX = area.left + (area.right - area.left) * p;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(area.left - 1, 0, Math.max(0, clipX - (area.left - 1)), chart.height);
+      ctx.clip();
+    },
+    afterDatasetsDraw(chart, args, opts) {
+      if (!opts || !opts.enabled || !opts.startTime) return;
+      chart.ctx.restore();
+    }
+  };
+
   function renderStackedBarChart(canvasId, labels, stacks, opts = {}) {
     try {
       // 检查必要元素和依赖
@@ -326,7 +358,7 @@
 
       // 检查Chart.js是否加载
       if (typeof window.Chart === 'undefined') {
-        
+
         // 显示错误提示
         const parent = el.parentElement;
         if (parent) {
@@ -433,15 +465,13 @@
         ? stacks
         : [{ label: '无数据', data: new Array(formattedLabels.length).fill(0) }];
 
-      // 「从时间起点画到终点」的揭示动画：X 轴一次性固定完整范围，
-      // 可见数据窗口从起点开始逐帧向终点推进，曲线/柱像播放一样沿时间轴生长。
+      // 「从时间起点划到终点」动画：数据一次性完整加载（坐标轴/刻度按最终数据
+      // 只渲染一次，全程不动），由 revealClip 插件把裁剪窗口从 chartArea 左缘
+      // 匀速推到右缘 —— 曲线/面积沿时间路径逐步显现，即真实划线效果。
       // revealAnimation:false 可关闭；点数不足 3 个时直接静态渲染。
       const revealEnabled = opts.revealAnimation !== false && formattedLabels.length > 2;
-      const REVEAL_START_POINTS = 2;
-      const revealState = revealEnabled ? { count: REVEAL_START_POINTS } : null;
-      const sliceForReveal = (arr) => (revealState ? arr.slice(0, revealState.count) : arr);
+      const REVEAL_DURATION_MS = 1600;
       const fullSeries = normalizedStacks.map(s => sanitizeArray(s.data));
-      let fullTotalPerDay = null;
 
       // 计算异常值边界
       const clampMax = computeClampMaxFromSeries(normalizedStacks);
@@ -452,7 +482,7 @@
         const color = colorFor(s.label, i);
         return {
           label: s.label,
-          data: sliceForReveal(fullSeries[i]),
+          data: fullSeries[i],
           borderColor: color,
           backgroundColor: addAlpha(color, 0.78),
           borderWidth: 1.5,
@@ -477,7 +507,6 @@
         const totalPerDay = formattedLabels.map((_, dayIdx) => {
           return normalizedStacks.reduce((sum, stack) => sum + (stack.data[dayIdx] || 0), 0);
         });
-        fullTotalPerDay = totalPerDay;
 
         // 美观的渐变蓝色（带透明度）
         const lineColor = 'rgba(59, 130, 246, 0.85)';  // 蓝色，85%透明度
@@ -486,7 +515,7 @@
         datasets.push({
           type: 'line',
           label: '总计',
-          data: sliceForReveal(totalPerDay),
+          data: totalPerDay,
           borderColor: lineColor,
           backgroundColor: 'transparent',
           borderWidth: 3,                  // 稍微加粗
@@ -509,8 +538,17 @@
       }
 
       // 创建图表配置（堆叠面积图）
+      // Y 轴用强制 max（= P95 建议值与真实峰值的较大者），替代可被可见数据
+      // 撑动的 suggestedMax —— 保证坐标轴与刻度在动画全程与静态展示完全一致。
+      const fullDataMaxY = fullSeries.reduce((m, arr) => {
+        arr.forEach(v => { const n = Number(v); if (Number.isFinite(n) && n > m) m = n; });
+        return m;
+      }, 0);
+      const fixedYMax = Math.max(Number(clampMax) || 0, fullDataMaxY, 1);
+
       const chartConfig = {
         type: 'line',
+        plugins: [REVEAL_CLIP_PLUGIN],
         data: {
           labels: formattedLabels,
           datasets
@@ -518,12 +556,15 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          animation: opts.animation === false ? false : { duration: 500 },
+          animation: false,
           interaction: {
             mode: opts.interactionMode || 'index',
             intersect: false
           },
           plugins: {
+            revealClip: revealEnabled
+              ? { enabled: true, startTime: 0, duration: REVEAL_DURATION_MS }
+              : { enabled: false },
             legend: {
               position: 'bottom',
               onHover: (e) => {
@@ -611,11 +652,6 @@
           scales: {
             x: {
               stacked: true,
-              // 揭示动画期间固定完整时间范围，避免轴随可见窗口伸缩跳动
-              ...(revealState ? {
-                min: formattedLabels[0],
-                max: formattedLabels[formattedLabels.length - 1]
-              } : {}),
               grid: {
                 display: false
               },
@@ -648,7 +684,7 @@
             y: {
               stacked: true,
               beginAtZero: true,
-              suggestedMax: clampMax,
+              max: fixedYMax,
               min: 0,
               title: {
                 display: false  // Explicitly hide y-axis title (no labels)
@@ -668,26 +704,25 @@
       // 创建图表实例
       const chart = new Chart(el.getContext('2d'), chartConfig);
 
-      // 逐帧揭示：可见数据窗口从时间起点向终点推进，update('none') 跳过内建动画
-      if (revealState) {
-        if (el._revealTimer) clearInterval(el._revealTimer);
-        const total = formattedLabels.length;
-        const step = Math.max(1, Math.round(total / 36));   // 约 36 帧，总时长 ~1.5s
-        const timer = setInterval(() => {
-          // 图表已被销毁/替换（重复查询、切视图）时自动停止，防止泄漏
-          if (window.Chart.getChart(el) !== chart) { clearInterval(timer); return; }
-          revealState.count = Math.min(total, revealState.count + step);
-          chart.data.labels = formattedLabels.slice(0, revealState.count);
-          chart.data.datasets.forEach((ds, i) => {
-            const full = ds.$isTotalLine
-              ? (fullTotalPerDay || [])
-              : (fullSeries[i] || []);
-            ds.data = full.slice(0, revealState.count);
-          });
-          chart.update('none');
-          if (revealState.count >= total) clearInterval(timer);
-        }, 40);
-        el._revealTimer = timer;
+      // rAF 驱动揭示进度：裁剪窗口匀速推进，动画结束关闭插件并做最终渲染，
+      // 保证结束时呈现的图形与静态展示完全一致。图表被销毁/替换时循环自停。
+      if (revealEnabled) {
+        if (el._revealRaf) cancelAnimationFrame(el._revealRaf);
+        chart.options.plugins.revealClip.startTime = performance.now();
+        const frame = () => {
+          if (window.Chart.getChart(el) !== chart) return;
+          const revealOpts = chart.options.plugins.revealClip;
+          const p = (performance.now() - revealOpts.startTime) / revealOpts.duration;
+          if (p >= 1) {
+            revealOpts.enabled = false;
+            chart.render();
+            el._revealRaf = null;
+            return;
+          }
+          chart.render();
+          el._revealRaf = requestAnimationFrame(frame);
+        };
+        el._revealRaf = requestAnimationFrame(frame);
       }
 
       // 隐藏加载状态
@@ -717,7 +752,7 @@
 
       // 存储清理函数
       el._chartCleanup = () => {
-        if (el._revealTimer) clearInterval(el._revealTimer);
+        if (el._revealRaf) cancelAnimationFrame(el._revealRaf);
         window.removeEventListener('resize', handleResize);
         try { chart.destroy(); } catch (_) { }
       };
