@@ -1,5 +1,6 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 function syncScheduleTypesStore(types, detail = {}) {
     const store = window.ScheduleTypesStore;
@@ -42,9 +43,16 @@ export async function loadScheduleTypes() {
         syncScheduleTypesStore(types, { action: 'refresh' });
         renderScheduleTypesTable(types);
     } catch (error) {
-        
-        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: red;">加载失败，请重试</td></tr>';
-        if (window.apiUtils) window.apiUtils.showToast('加载课程类型失败', 'error');
+
+        // 统一错误态（shared/error-ui.js）
+        renderTableErrorRow(tbody, {
+            colspan: 3,
+            error,
+            title: '课程类型加载失败',
+            detail: null,
+            onRetry: () => loadScheduleTypes(),
+            retryText: '重试'
+        });
     } finally {
         // 隐藏加载动画
         hideTableLoading(tableContainer);

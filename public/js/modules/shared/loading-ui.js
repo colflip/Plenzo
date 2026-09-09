@@ -43,8 +43,11 @@ export function createLoadingContent(text = DEFAULT_TEXT) {
  * @param {HTMLElement} container - 表格的父容器（.table-container / .stats-unified-card 等）
  * @param {string} [text] - 加载显示的文本
  * @param {string|null} [targetSelector] - 需要避开的顶部区域选择器，默认 thead
+ * @param {{ minVisibleMs?: number }} [options] - minVisibleMs：遮罩最短展示时长（ms）。
+ *   接口瞬间返回时遮罩会一闪而过，用户感知不到"正在加载"；传该值可保证动画至少可见一段时间。
+ * @returns {HTMLElement|undefined} overlay 元素
  */
-export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector = 'thead') {
+export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector = 'thead', options = {}) {
     if (!container) return;
 
     // 针对不同模块的容器结构进行适配
@@ -137,6 +140,12 @@ export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector 
 
     overlay.appendChild(createLoadingContent(text));
 
+    const minVisibleMs = Number(options && options.minVisibleMs) || 0;
+    if (minVisibleMs > 0) {
+        overlay.dataset.minVisibleMs = String(minVisibleMs);
+        overlay.dataset.shownAt = String(Date.now());
+    }
+
     // 初始透明度设为 0，然后渐入
     overlay.style.opacity = '0';
     container.appendChild(overlay);
@@ -145,10 +154,12 @@ export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
     });
+    return overlay;
 }
 
 /**
  * 隐藏表格加载遮罩，采用平滑淡出
+ * 若 show 时指定了 minVisibleMs，则不足该时长会延后淡出（避免加载态一闪而过）
  * @param {HTMLElement} container - 表格的父容器
  */
 export function hideTableLoading(container) {
@@ -156,18 +167,29 @@ export function hideTableLoading(container) {
     const overlay = container.querySelector('.stats-loading-overlay');
     if (!overlay) return;
 
-    overlay.style.opacity = '0';
-    // 等待 CSS transition 结束后移除 DOM
-    setTimeout(() => {
-        if (overlay.parentNode === container) {
-            overlay.remove();
-            // 恢复最小高度设置
-            if (container.dataset.hadMinHeight === 'true') {
-                container.style.minHeight = '';
-                delete container.dataset.hadMinHeight;
+    const fadeOut = () => {
+        overlay.style.opacity = '0';
+        // 等待 CSS transition 结束后移除 DOM
+        setTimeout(() => {
+            if (overlay.parentNode === container) {
+                overlay.remove();
+                // 恢复最小高度设置
+                if (container.dataset.hadMinHeight === 'true') {
+                    container.style.minHeight = '';
+                    delete container.dataset.hadMinHeight;
+                }
             }
-        }
-    }, 200);
+        }, 200);
+    };
+
+    const minVisibleMs = Number(overlay.dataset.minVisibleMs) || 0;
+    const shownAt = Number(overlay.dataset.shownAt) || 0;
+    const elapsed = shownAt ? Date.now() - shownAt : minVisibleMs;
+    if (minVisibleMs > 0 && elapsed < minVisibleMs) {
+        setTimeout(fadeOut, minVisibleMs - elapsed);
+        return;
+    }
+    fadeOut();
 }
 
 /**

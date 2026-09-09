@@ -88,10 +88,10 @@ class ApiUtils {
                 const serverMsg = (data && data.message) || '';
                 const defaultMsg = this.friendlyMessageFromStatus(status);
 
-                // 优化 401 消息逻辑：有后端消息优先用后端消息，否则才是令牌过期词
+                // 优化 401 消息逻辑：有后端消息优先用后端消息，否则才是登录过期提示
                 let msg = serverMsg || defaultMsg || '请求失败';
                 if (status === 401 && !serverMsg) {
-                    msg = '认证令牌已过期，请重新登录';
+                    msg = '登录状态已过期，请重新登录';
                 }
 
                 const err = new ApiError(msg, status, data && data.errors, url);
@@ -126,7 +126,7 @@ class ApiUtils {
                 throw error;
             }
             // 网络错误或其他错误
-            const err = new ApiError('网络连接失败，请检查网络设置', 0, null, url);
+            const err = new ApiError('网络连接失败，请检查网络后重试', 0, null, url);
             this.handleError(err, !options.suppressErrorToast);
             throw err;
         }
@@ -208,16 +208,21 @@ class ApiUtils {
 
     /**
      * 从HTTP状态码获取友好的中文错误信息
+     * 文案规范见 docs/error-message-spec.md：失败对象 + 行动建议，不用技术术语
      */
     friendlyMessageFromStatus(status) {
         switch (status) {
-            case 400: return '数据验证失败，请检查填写内容';
-            case 401: return '认证令牌已过期，请重新登录';
-            case 403: return '权限级别不足，无法执行此操作';
-            case 404: return '接口不存在或资源未找到';
-            case 409: return '存在冲突：已存在相同安排或时间段冲突';
-            case 500: return '服务器错误，请稍后重试';
-            case 0: return '网络连接失败，请检查网络设置';
+            case 400:
+            case 422: return '提交的内容有误，请检查后重试';
+            case 401: return '登录状态已过期，请重新登录';
+            case 403: return '没有权限执行此操作';
+            case 404: return '请求的资源不存在';
+            case 409: return '内容冲突，请刷新后重试';
+            case 500:
+            case 502:
+            case 503:
+            case 504: return '服务暂时不可用，请稍后重试';
+            case 0: return '网络连接失败，请检查网络后重试';
             default: return '请求失败，请稍后重试';
         }
     }

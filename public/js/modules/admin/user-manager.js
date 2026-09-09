@@ -5,6 +5,7 @@
 
 import { USER_FIELDS, FIELD_LABELS, TIME_ZONE, getUserStatusClass, getUserStatusLabel } from './constants.js';
 import { adjustSelectMinWidth, showTableLoading, hideTableLoading, showBlockLoading } from './ui-helper.js';
+import { renderErrorState } from '../shared/error-ui.js';
 
 
 // Retry helper
@@ -473,24 +474,14 @@ export async function loadUsers(type, opts = {}) {
         const errorText = `加载${typeLabels[state.type] || ''}用户数据失败`;
         
         if (tbody) {
-            // 使用 innerHTML：safeSetHTML 的 DOMParser 会在 <body> 上下文中解析 <tr>/<td>
-            // 导致 table 结构丢失，行内元素垂直堆叠。
-            tbody.innerHTML = `
-                    <tr>
-                        <td colspan="${(USER_FIELDS[state.type] || []).length + 1}">
-                            <div style="text-align: center; padding: 40px 20px;">
-                                <div style="color: #ef4444; margin-bottom: 12px;">
-                                    <span class="material-icons-round" style="font-size: 48px;">error_outline</span>
-                                </div>
-                                <div style="color: #64748b; margin-bottom: 16px;">${errorText}：${errorMsg}</div>
-                                <button data-action="user-manager-load" data-type="${state.type}"
-                                    style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: var(--fs-300);">
-                                    <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">refresh</span>
-                                    点击重试
-                                </button>
-                            </div>
-                        </td>
-                    </tr>`;
+            // 统一错误态：原实现用 tbody.innerHTML 拼入 err.message，存在 XSS 风险，
+            // 且硬编码 #ef4444。改用 renderTableErrorRow（textContent + 重试回调）。
+            renderTableErrorRow(tbody, {
+                colspan: (USER_FIELDS[state.type] || []).length + 1,
+                error: err,
+                title: errorText,
+                onRetry: () => loadUsers(state.type, { reset: true })
+            });
         }
         
         if (window.apiUtils) {
@@ -995,8 +986,16 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
             if (!window.__usersCache) window.__usersCache = {};
             window.__usersCache.student = students;
         } catch (err) {
-            
-            window.SecurityUtils.safeSetHTML(container, '<div style="color: #ef4444; font-size: var(--fs-300); padding: 10px;">加载失败，请重试</div>');
+
+            // 统一错误态（shared/error-ui.js）+ 重试
+            renderErrorState(container, {
+                error: err,
+                title: '学生列表加载失败',
+                detail: null,
+                compact: true,
+                onRetry: () => populateStudentCheckboxes(selectedIdsStr),
+                retryText: '重试'
+            });
             return;
         }
     }

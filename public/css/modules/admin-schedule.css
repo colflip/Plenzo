@@ -590,7 +590,10 @@
         height: auto !important;
         min-height: 32px !important;
         max-height: none !important;
-        line-height: var(--lh-tight) !important;
+        /* 行高恰好填满内容盒（min-height 32 − 上下 padding 4×2 = 24px）：
+           相对行高会留下空隙，行盒空隙放在上侧还是下侧由各内核的 select
+           渲染路径决定，文字随之偏上/偏下；恰好填满则任何内核都居中。 */
+        line-height: 24px !important;
         min-width: 76px !important;
         padding: 4px 8px !important;
         box-sizing: border-box !important;

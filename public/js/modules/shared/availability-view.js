@@ -26,6 +26,7 @@ import {
     showInlineFeedback
 } from './view-utils.js';
 import { formatWeekRangeText, toISODate } from './date-format.js';
+import { createErrorState } from './error-ui.js';
 
 /** 深拷贝 Map<date, {morning,afternoon,evening}>（值对象只有布尔位，浅拷贝即可） */
 function cloneState(state) {
@@ -172,51 +173,16 @@ export function createAvailabilityView(config) {
         const tbody = elements.body();
         if (tbody) clearChildren(tbody);
 
-        const banner = createElement('div', 'availability-error-banner');
-        banner.setAttribute('role', 'alert');
-        banner.style.cssText = [
-            'display:flex',
-            'flex-direction:column',
-            'align-items:center',
-            'justify-content:center',
-            'gap:12px',
-            'padding:32px 16px',
-            'margin:0',
-            'border:1px dashed #f0a9a9',
-            'border-radius:12px',
-            'background:#fff5f5',
-            'color:#b42318',
-            'text-align:center'
-        ].join(';');
-
-        const icon = createElement('div', 'availability-error-icon');
-        icon.textContent = '⚠️';
-        icon.style.cssText = 'font-size:28px;';
-
-        const text = createElement('div', 'availability-error-text');
-        text.textContent = message;
-
-        const retry = createElement('button', 'btn-retry-availability');
-        retry.type = 'button';
-        retry.id = 'availabilityRetryBtn';
-        retry.textContent = '重试';
-        retry.style.cssText = [
-            'padding:8px 18px',
-            'border:none',
-            'border-radius:8px',
-            'background:#b42318',
-            'color:#fff',
-            'font-weight:600',
-            'cursor:pointer'
-        ].join(';');
-        retry.addEventListener('click', () => {
-            loadAvailability(weekStart, true);
+        // 统一错误态（shared/error-ui.js）：图标 + 标题 + 详情 + 重试按钮。
+        // 保留 availability-error-banner 类，以兼容上方成功路径的移除逻辑。
+        const card = createErrorState({
+            title: '空闲时段加载失败',
+            detail: message || '暂时无法编辑，请点击重试',
+            onRetry: () => loadAvailability(weekStart, true),
+            compact: true
         });
-
-        banner.appendChild(icon);
-        banner.appendChild(text);
-        banner.appendChild(retry);
-        container.appendChild(banner);
+        card.classList.add('availability-error-banner');
+        container.appendChild(card);
     }
 
     // 移动端渲染：使用4列8行布局（日期 | 上午 | 下午 | 晚上）

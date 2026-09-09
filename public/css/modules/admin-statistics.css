@@ -400,6 +400,82 @@
     color: var(--stats-text-heading);
 }
 
+/* 「按日期汇总」：图表与右侧文字摘要并排（flex 行） */
+.summary-body {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    padding: 0 16px 16px;
+}
+
+.teacher-summary-card .summary-body .summary-chart,
+.student-summary-card .summary-body .summary-chart {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* 右侧文字摘要面板 */
+.summary-panel {
+    flex: 0 0 220px;
+    align-self: stretch;
+    background: var(--stats-surface, #fff);
+    border: 1px solid var(--stats-border, #e2e8f0);
+    border-radius: var(--stats-radius-md, 10px);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    font-size: var(--fs-300, 13px);
+    color: var(--stats-text-body, #475569);
+    line-height: 1.5;
+}
+
+.summary-panel .summary-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.summary-panel .summary-total {
+    font-weight: 600;
+    font-size: var(--fs-400, 14px);
+    color: var(--stats-text-main, #1e293b);
+    border-bottom: 1px dashed var(--stats-border, #e2e8f0);
+    padding-bottom: 6px;
+    margin-bottom: 2px;
+}
+
+.summary-panel .summary-conv {
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--stats-border, #e2e8f0);
+    font-weight: 600;
+    color: var(--stats-primary, #2ecc71);
+}
+
+/* 移动端：图表与摘要面板改为上下堆叠 */
+@media (max-width: 768px) {
+    .summary-body {
+        flex-direction: column;
+    }
+
+    .summary-panel {
+        flex: 1 1 auto;
+        width: 100%;
+    }
+}
+
+/* 顶部查询栏内的「全部教师」筛选：与日期/查询按钮同行，按内容自适应宽度 */
+.query-teacher-filter {
+    flex: 0 0 auto;
+}
+
+.query-teacher-filter .filter-group {
+    width: auto;
+    min-width: 120px;
+}
+
 .chart-title-count {
     font-size: smaller;
     color: #94a3b8;

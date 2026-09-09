@@ -579,3 +579,195 @@ label {
     color: var(--color-primary-700);
     font-weight: 500;
 }
+/* ============================================================
+   统一错误提示体系（shared/error-ui.js + components/toast.js）
+   四层：L1 Toast 操作反馈 / L2 内联反馈条 / L3 区域错误态 / L4 页面级错误屏
+   色彩只用 theme.css 的 --color-error-* 令牌，禁止硬编码色值
+   ============================================================ */
+
+/* —— L3/L4 区域错误态卡片 —— */
+.error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 48px 16px;
+    text-align: center;
+    border: 1px dashed var(--color-error-100);
+    border-radius: var(--radius-xl);
+    background: var(--color-error-50);
+}
+
+.error-state--page {
+    padding: 96px 16px;
+    border: none;
+    background: transparent;
+    min-height: 50vh;
+}
+
+.error-state--compact {
+    padding: 20px 12px;
+    gap: 8px;
+}
+
+.error-state--compact .error-state-icon { width: 36px; height: 36px; }
+.error-state--compact .error-state-icon svg { width: 20px; height: 20px; }
+.error-state--compact .error-state-title { font-size: var(--fs-300); }
+
+.error-state-icon {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #fff;
+    border: 1px solid var(--color-error-100);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-error-500);
+}
+
+.error-state-icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+.error-state-title {
+    font-size: var(--fs-500);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--lh-tight);
+    color: var(--color-error-700);
+    margin: 0;
+}
+
+.error-state-detail {
+    font-size: var(--fs-300);
+    line-height: var(--lh-base);
+    color: var(--color-gray-500);
+    max-width: 420px;
+    margin: 0;
+}
+
+.error-state-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-3);
+    margin-top: var(--spacing-1);
+}
+
+/* 主操作：重试（红底白字） */
+.error-state-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 20px;
+    border: none;
+    border-radius: var(--radius-lg);
+    background: var(--color-error-600);
+    color: #fff;
+    font-size: var(--fs-300);
+    font-weight: var(--font-weight-semibold);
+    font-family: inherit;
+    line-height: var(--lh-tight);
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.error-state-btn:hover { background: var(--color-error-700); }
+.error-state-btn:active { transform: scale(0.97); }
+.error-state-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.error-state-btn svg { width: 14px; height: 14px; }
+
+/* 次操作：返回/其他（描边幽灵按钮） */
+.error-state-btn--ghost {
+    background: transparent;
+    color: var(--color-gray-600);
+    border: 1px solid var(--color-gray-300);
+}
+
+.error-state-btn--ghost:hover {
+    background: var(--color-gray-50);
+    color: var(--color-gray-700);
+}
+
+/* —— 表格内错误行（compact 变体：图标缩小、横向排列） —— */
+.table-error-row > td {
+    padding: 24px 16px;
+}
+
+.table-error-row .error-state {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px 12px;
+    border: none;
+    background: transparent;
+}
+
+.table-error-row .error-state-icon {
+    width: 36px;
+    height: 36px;
+}
+
+.table-error-row .error-state-icon svg { width: 20px; height: 20px; }
+
+.table-error-row .error-state-title { font-size: var(--fs-300); }
+.table-error-row .error-state-detail { display: inline; max-width: none; }
+
+.table-error-row .error-state-btn {
+    padding: 6px 14px;
+}
+
+/* —— 空数据提示（空态≠错误态：无图标底色、灰色弱化，仅用于「数据为空」场景） —— */
+.empty-state-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    min-height: 300px;
+    font-size: var(--fs-300);
+    line-height: var(--lh-base);
+    color: var(--color-gray-500);
+    text-align: center;
+}
+
+/* —— L2 内联反馈条（.feedback-container 既有约定的补全 + .error-cell 兜底） —— */
+.error-cell {
+    text-align: center;
+    padding: 24px 16px;
+    font-size: var(--fs-300);
+    line-height: var(--lh-base);
+    color: var(--color-error-700);
+    background: var(--color-error-50);
+}
+
+/* 减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+    .error-state-btn:active { transform: none; }
+}
+
+/* —— 登录页表单级错误（L2 内联告警，复用错误令牌） —— */
+.login-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 1rem;
+    padding: 10px 14px;
+    border-radius: var(--radius-lg, 8px);
+    background: var(--color-error-50, #fef2f2);
+    border: 1px solid var(--color-error-100, #fee2e2);
+    color: var(--color-error-700, #b91c1c);
+    font-size: var(--fs-300);
+    line-height: var(--lh-base);
+    text-align: left;
+}
+
+.login-error-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: var(--color-error-500, #ef4444);
+}

@@ -74,13 +74,30 @@ export async function initOverviewSection() {
         try {
             renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
         } catch (error) {
-            showTodayScheduleError(todayListEl(), '今日课程加载失败，请稍后重试');
+            showTodayListError(error);
         }
     };
     document.getElementById('prevDayBtn')?.addEventListener('click', () => navigate(-1));
     document.getElementById('nextDayBtn')?.addEventListener('click', () => navigate(1));
 
     await loadOverview();
+}
+
+/** 今日课程统一错误态（shared/error-ui.js 卡片 + 重试） */
+function showTodayListError(error) {
+    const list = todayListEl();
+    if (!list) return;
+    showTodayScheduleError(list, '', {
+        error,
+        onRetry: async () => {
+            showTodayScheduleLoading(list, '正在加载今日课程...');
+            try {
+                renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
+            } catch (err) {
+                showTodayListError(err);
+            }
+        }
+    });
 }
 
 /**
@@ -115,7 +132,6 @@ export async function loadOverview() {
     } catch (error) {
 
         showStatsErrorState();
-        renderTodaySchedules([]);
     }
 }
 
@@ -136,7 +152,8 @@ function showStatsLoadingState() {
 }
 
 function showStatsErrorState() {
-    const t = 'Err';
+    // 统计卡加载失败：用占位符而非「Err」字面量
+    const t = '—';
     setText(weeklyLessonsEl(), t);
     setText(monthlyLessonsEl(), t);
     setText(yearlyLessonsEl(), t);
@@ -144,10 +161,8 @@ function showStatsErrorState() {
     setText(totalCompletedEl(), t);
     setText(totalCancelledEl(), t);
 
-    const list = todayListEl();
-    if (list) {
-        showTodayScheduleError(list, '今日课程加载失败，请稍后重试');
-    }
+    // 今日课程区显示统一错误态（带重试）
+    showTodayListError(new Error('总览数据加载失败'));
 }
 
 /**

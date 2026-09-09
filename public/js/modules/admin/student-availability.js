@@ -5,6 +5,7 @@
  */
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 const studentAvailabilityState = {
     currentDate: new Date(),
@@ -97,8 +98,15 @@ async function loadStudentAvailability() {
     } catch (error) {
         if (requestId !== studentAvailabilityState.loadSeq) return;
         // Availability request failure must not be represented as an all-empty schedule.
-        tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">空闲时段加载失败，请重试</td></tr>';
-        window.apiUtils?.showToast(error.message || '学生空闲时段加载失败', 'error');
+        // 统一错误态（shared/error-ui.js）替代无样式的 error-cell；行内重试直接重拉当前周
+        renderTableErrorRow(tableBody, {
+            colspan: 8,
+            error,
+            title: '空闲时段加载失败',
+            detail: null,
+            onRetry: () => loadStudentAvailability(),
+            retryText: '重试'
+        });
     } finally {
         // 隐藏加载动画
         hideTableLoading(tableContainer);

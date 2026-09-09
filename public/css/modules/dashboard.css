@@ -6554,7 +6554,10 @@ svg {
        .status-select 是真 <select>，触屏下由文件末尾的 @media (pointer: coarse) 抬回 16px。 */
     min-height: 26px;
     font-weight: 500;
-    line-height: var(--lh-tight);
+    /* 行高必须恰好填满内容盒（min-height 26 − 上下 padding 2×2 = 22px）。
+       用 1.35 这类相对行高会留下 ~3px 空隙，行盒空隙放到上侧还是下侧由各内核
+       select 渲染路径决定，文字随之偏上/偏下；恰好填满后任何内核都几何居中。 */
+    line-height: 22px;
     white-space: nowrap;
 }
 
@@ -6617,7 +6620,10 @@ svg {
     font-weight: 400 !important;
     /* 比正文（--fs-300 = 14px）小一号；胶囊随之收紧（26px→22px 高） */
     font-size: 13px !important;
-    line-height: var(--lh-tight) !important;
+    /* 行高恰好填满内容盒（min-height 22 − 上下 padding 1×1 = 20px）：
+       select 无法用 flex 居中（display 会被内核强制成 block），只能靠行盒
+       精确填满来保证文字垂直居中；相对行高留出的空隙在不同内核里方向不一致。 */
+    line-height: 20px !important;
     /* 学生端只读 tag 是 content-box 的 span，border-box 让它与 select 同尺寸基准 */
     box-sizing: border-box !important;
     /* 学生端只读 tag 带内联 height:24px，用 !important 压掉，统一按 min-height 走 */
@@ -6625,6 +6631,17 @@ svg {
     min-height: 22px !important;
     padding: 1px 6px !important;
     min-width: 56px !important;
+}
+
+/* 只读状态标签是 <span> 时恢复真 flex 居中：下方 .status-select 全局规则里的
+   display:inline-block !important 会把 base 规则的 inline-flex 压成块级，
+   align-items/justify-content 随之失效，只剩行盒排版的近似居中。
+   flex 容器居中与内核的 select 渲染路径无关，是最稳的一条路；
+   盒子尺寸（min-height/padding）不变，仅切换内部排布方式。 */
+span.status-select {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
 /* Marquee Effect for Long Names/Types */
@@ -7410,7 +7427,8 @@ svg {
        写在这里也能挡住将来有人把 global.css 的字段样式重新放回元素级选择器。 */
     height: auto !important;
     min-height: 26px !important;
-    line-height: var(--lh-tight) !important;
+    /* 行高恰好填满内容盒（26 − 2×2 = 22px），原理同 base 规则处的注释 */
+    line-height: 22px !important;
     border-radius: 20px !important;
     border: 1px solid transparent !important;
     font-weight: 600 !important;
@@ -8112,7 +8130,8 @@ svg {
         height: auto !important;
         min-height: 32px !important;
         max-height: none !important;
-        line-height: var(--lh-tight) !important;
+        /* 行高恰好填满内容盒（32 − 4×2 = 24px），原理同 base 规则处的注释 */
+        line-height: 24px !important;
         padding: 4px 8px !important;
         box-sizing: border-box !important;
 
@@ -8126,8 +8145,9 @@ svg {
            文件末尾的 @media (pointer: coarse)。 */
         border-radius: 4px !important;
 
-        /* 其他布局属性 */
-        display: inline-block !important;
+        /* display 不在此声明：select 由全局 .status-select 规则给 inline-block，
+           span 由 span.status-select 规则给 inline-flex（flex 居中），
+           这里若再写 inline-block 会把 span 的 flex 居中压掉。 */
         vertical-align: middle !important;
         background-position: right 0px center !important;
     }
@@ -9535,6 +9555,9 @@ svg {
     border-radius: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
+    /* padding 被清零后内容盒 = min-height 26（全局 .status-select），行高须同步
+       恰好填满，否则 select 版本在部分内核里文字会偏离垂直中心。 */
+    line-height: 26px !important;
 }
 /* 无底卡后 <select> 失去「可点」的形状暗示：hover 时给一次性淡底（不改 padding，
    避免宽度跳动），配合整站 .status-select 的 cursor:pointer + opacity 提示可编辑。 */
@@ -9694,5 +9717,7 @@ svg {
         font-size: var(--fs-400) !important;
         min-height: 26px !important;
         padding: 2px 8px !important;
+        /* 行高恰好填满内容盒（26 − 2×2 = 22px），原理同 base 规则处的注释 */
+        line-height: 22px !important;
     }
 }

@@ -55,7 +55,10 @@ export async function loadTodaySchedules() {
             nameFirst: true
         });
     } catch (error) {
-        showTodayScheduleError(container, '今日排课加载失败，请稍后重试');
+        showTodayScheduleError(container, '', {
+            error,
+            onRetry: () => loadTodaySchedules()
+        });
     }
 }
 
