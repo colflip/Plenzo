@@ -1178,15 +1178,20 @@
         const studentCount = new Set(
             schedules.map(s => s.student_id != null ? String(s.student_id) : ('__' + (s.student_name || '未分配')))
         ).size;
+        // 课时按去重后的场次数统计：v_session_pairs 是师生交叉积，同场多老师/多学生会展开成多行，
+        // 直接数行数会把同一堂课重复计入（例：2 名学生/15 行 → 实际只有 10 堂课）。
+        const sessionCount = new Set(schedules.map(s => String(s.id))).size;
+        // 老师人次：去重后的（场次, 教师）pair 数——一堂课多位老师即多次，与「费用一趟一笔挂在教师 pair 上」口径一致。
+        const teacherTimes = new Set(schedules.map(s => String(s._pairKey != null ? s._pairKey : `${s.id}|${s.teacher_uid == null ? '' : s.teacher_uid}`))).size;
         const rangeText = (st.startDate && st.endDate)
             ? `${formatChineseDate(st.startDate)} 至 ${formatChineseDate(st.endDate)}`
             : '';
         if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(tfoot, '');
         else tfoot.innerHTML = '';
         const tr = document.createElement('tr');
-        // 汇总行靠右显示，数字加粗（与学生数/课时/金额对应）
+        // 汇总行靠右显示，数字加粗（与学生数/课时/老师人次/金额对应）
         tr.innerHTML = `<td colspan="${STUDENT_COLS}" style="padding:12px 16px; text-align:right; background:#ffffff; font-weight:500; color:#475569; border-top:2px solid #e5e7eb; white-space:nowrap;">
-            共 <strong>${studentCount}</strong> 名学生 / <strong>${schedules.length}</strong> 课时（${rangeText}）｜
+            共 <strong>${studentCount}</strong> 名学生 / <strong>${sessionCount}</strong> 课时 / <strong>${teacherTimes}</strong> 老师人次（${rangeText}）｜
             交通 <strong>¥${money(t)}</strong> / 其他 <strong>¥${money(o)}</strong> / 总计 <strong>¥${money(t + o)}</strong>
         </td>`;
         tfoot.appendChild(tr);
