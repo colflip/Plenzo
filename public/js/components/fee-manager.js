@@ -92,16 +92,42 @@
         let arr;
         if (Array.isArray(data)) arr = data;
         else if (data && Array.isArray(data.schedules)) arr = data.schedules;
-        else if (data && Array.isArray(data.data)) arr = data.data;
         else if (data && Array.isArray(data.rows)) arr = data.rows;
-        else arr = [];
+        else throw new Error('费用记录响应格式无效');
         return arr.map(r => {
             if (!r) return r;
             // 后端实际字段名可能是 date / class_date / arr_date 等
             const raw = r.date != null ? r.date : (r.class_date || r.arr_date || r.schedule_date || r.course_date || '');
             r.date = normalizeDate(raw);
+            // pair 唯一键：费用/费用状态挂在教师 pair 上，而列表的 id 是场次级。
+            // 同一场次多老师（或多学生交叉积）会返回多行同 id 记录，
+            // 前端编辑/状态流转必须用「场次 id + 教师 uid」才能唯一定位一条 pair，
+            // 否则费用会写到错误的老师头上（同天多老师错位问题的根因）。
+            r._pairKey = `${r.id}|${r.teacher_uid == null ? '' : r.teacher_uid}`;
             return r;
         });
+    }
+
+    // 同一 pair 折叠：费用是「一趟一笔」挂在教师 pair 上，而 v_session_pairs 是
+    // 师生交叉积 —— 同场多学生会把同一个 pair（id 与 teacher_uid 全同）展开成多行。
+    // 不折叠就会出现「一个 pair 多组输入框」：保存时多组值互相覆盖（最后一次写入的赢），
+    // 表现正是「保存后再打开值不对 / 像没保存」。折叠后一组输入 = 一个 pair，
+    // 学生名合并展示以免丢信息。
+    function uniquePairs(list) {
+        const map = new Map();
+        (list || []).forEach(s => {
+            const key = String(s._pairKey != null
+                ? s._pairKey
+                : `${s.id}|${s.teacher_uid == null ? '' : s.teacher_uid}`);
+            const hit = map.get(key);
+            if (hit) {
+                const nm = s.student_name || '学生';
+                if (hit.names.indexOf(nm) === -1) hit.names.push(nm);
+                return;
+            }
+            map.set(key, { rec: s, names: [s.student_name || '学生'] });
+        });
+        return [...map.values()];
     }
 
     function statusText(s) {
@@ -355,24 +381,35 @@
         if (range === 'week') {
             payload = { scope: { startDate: st.startDate, endDate: st.endDate, fee_status: scopeStatus || undefined }, fee_status: target, note };
         } else {
-            // 当前筛选结果：取已加载且（若设了筛选）匹配的记录 id
-            const ids = st.schedules
-                .filter(r => !scopeStatus || (r.fee_status || 'draft') === scopeStatus)
-                .map(r => r.id);
-            if (!ids.length) {
+            // 当前筛选结果：取已加载且（若设了筛选）匹配的记录 id。
+            // 费用状态挂在教师 pair 上：同一场次多老师（多学生交叉积）时 id 重复，
+            // 必须传 {session_id, teacher_uid} 对象并按 pairKey 去重，
+            // 否则多老师场次只会命中一个 pair（或漏更新）。
+            const seen = new Set();
+            const targets = [];
+            st.schedules.forEach(r => {
+                if (scopeStatus && (r.fee_status || 'draft') !== scopeStatus) return;
+                const k = r._pairKey || `${r.id}|${r.teacher_uid == null ? '' : r.teacher_uid}`;
+                if (seen.has(k)) return;
+                seen.add(k);
+                targets.push({ session_id: r.id, teacher_uid: r.teacher_uid || null });
+            });
+            if (!targets.length) {
                 bar.querySelector('[data-fm="batchMsg"]').textContent = '没有符合条件的排课';
                 return;
             }
-            payload = { ids, fee_status: target, note };
+            payload = { ids: targets, fee_status: target, note };
         }
         const msg = bar.querySelector('[data-fm="batchMsg"]');
         const applyBtn = bar.querySelector('[data-fm="batchApply"]');
         if (applyBtn) { applyBtn.disabled = true; applyBtn.style.opacity = '0.6'; }
         msg.textContent = '处理中...';
         try {
-            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, payload);
-            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '批量更新成功', 'success');
-            else if (window.showToast) window.showToast(r.message || '批量更新成功', 'success');
+            const result = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, payload);
+            const updated = result && Number.isInteger(result.updated) ? result.updated : null;
+            const successMessage = updated === null ? '批量更新成功' : `已更新 ${updated} 条排课的费用状态`;
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(successMessage, 'success');
+            else if (window.showToast) window.showToast(successMessage, 'success');
             loadData(config, mountEl);
         } catch (err) {
             msg.textContent = '失败：' + (err.message || '未知错误');
@@ -394,14 +431,14 @@
         const btn = mountEl.querySelector('[data-fm="completeReimburse"]');
         if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
         try {
-            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
+            await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
                 scope: { startDate: st.startDate, endDate: st.endDate },
                 fee_status: 'reimbursed',
                 skipStatus: 'reimbursed',
                 note: '完成报销',
             });
-            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '已完成报销', 'success');
-            else if (window.showToast) window.showToast(r.message || '已完成报销', 'success');
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('已完成报销', 'success');
+            else if (window.showToast) window.showToast('已完成报销', 'success');
             loadData(config, mountEl);
         } catch (err) {
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
@@ -424,14 +461,14 @@
         const btn = mountEl.querySelector('[data-fm="returnReimburse"]');
         if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
         try {
-            const r = await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
+            await window.apiUtils.post(`${config.feeStatusBase}/batch-fee-status`, {
                 scope: { startDate: st.startDate, endDate: st.endDate, fee_status: 'reimbursed' },
                 fee_status: 'reimbursement_returned',
                 skipStatus: 'reimbursement_returned',
                 note: '退回报销',
             });
-            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(r.message || '已退回报销', 'success');
-            else if (window.showToast) window.showToast(r.message || '已退回报销', 'success');
+            if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('已退回报销', 'success');
+            else if (window.showToast) window.showToast('已退回报销', 'success');
             loadData(config, mountEl);
         } catch (err) {
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('操作失败：' + (err.message || '未知错误'), 'error');
@@ -892,8 +929,11 @@
             // 下拉与只读 pill 统一用 fs.cls（fm-fee-*）分色：原始状态码（teacher_submitted 等）
             // 与 CSS 类名（fm-fee-submitted 等）不一致，直接拼接会导致可编辑态无颜色
             const fs = feeStatusInfo(r.fee_status);
+            // 下拉用 pairKey 而非场次 id 定位：同天多老师时场次 id 重复，
+            // 只有 pairKey（id + teacher_uid）能唯一标识这条 pair 的状态
+            const fsId = esc(r._pairKey);
             const feeStatusHtml = config.canEditFeeStatus
-                ? `<select class="status-select ${fs.cls}" data-fm-fs-id="${r.id}">`
+                ? `<select class="status-select ${fs.cls}" data-fm-fs-id="${fsId}">`
                     + FEE_STATUSES.map(code => `<option value="${code}"${code === (r.fee_status || 'draft') ? ' selected' : ''}>${FEE_STATUS[code].label}</option>`).join('')
                     + `</select>`
                 : `<span class="status-select ${fs.cls}">${fs.label}</span>`;
@@ -903,8 +943,8 @@
             addCell('summary', totalDisp.text, 'fm-num ' + totalDisp.cls);
             const opTd = document.createElement('td');
             opTd.className = 'fm-detail-td fm-d-op fm-ops';
-            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(opTd, `<button class="fm-edit-one" data-fm="edit-one" data-id="${r.id}">编辑</button>`);
-            else opTd.innerHTML = `<button class="fm-edit-one" data-fm="edit-one" data-id="${r.id}">编辑</button>`;
+            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(opTd, `<button class="fm-edit-one" data-fm="edit-one" data-pair="${fsId}">编辑</button>`);
+            else opTd.innerHTML = `<button class="fm-edit-one" data-fm="edit-one" data-pair="${fsId}">编辑</button>`;
             tr.appendChild(opTd);
 
             frag.appendChild(tr);
@@ -1090,8 +1130,8 @@
         tbody.querySelectorAll('[data-fm="edit-one"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const id = btn.dataset.id;
-                const rec = schedules.find(r => String(r.id) === String(id));
+                // 按 pairKey 定位记录：场次 id 在多老师/多学生时重复，find(id) 会命中错误 pair
+                const rec = schedules.find(r => r._pairKey === btn.dataset.pair);
                 if (rec) openModal(config, 'single', [rec]);
             });
         });
@@ -1100,18 +1140,25 @@
             tbody.querySelectorAll('select.status-select[data-fm-fs-id]').forEach(sel => {
                 sel.addEventListener('change', (e) => {
                     e.stopPropagation();
-                    patchFeeStatus(config, mountEl, sel.dataset.fmFsId, sel.value);
+                    const rec = schedules.find(r => r._pairKey === sel.dataset.fmFsId);
+                    if (rec) patchFeeStatus(config, mountEl, rec, sel.value);
                 });
                 sel.addEventListener('click', (e) => e.stopPropagation());
             });
         }
     }
 
-    // 单条费用状态流转（PATCH /{base}/:id/fee-status）
-    async function patchFeeStatus(config, mountEl, id, target, note) {
+    // 单条费用状态流转（PATCH /{base}/:id/fee-status）。
+    // rec 携带 teacher_uid：费用状态挂在教师 pair 上，多老师场次只给场次 id 时
+    // 后端无法定位 pair（locateTeacherPair 在多 pair 且未指定 uid 时返回 null → 404）。
+    async function patchFeeStatus(config, mountEl, rec, target, note) {
         if (!config.feeStatusBase) return;
         try {
-            await window.apiUtils.patch(`${config.feeStatusBase}/${id}/fee-status`, { fee_status: target, note: note || '' });
+            await window.apiUtils.patch(`${config.feeStatusBase}/${rec.id}/fee-status`, {
+                fee_status: target,
+                note: note || '',
+                teacher_uid: rec.teacher_uid,
+            });
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('费用状态已更新', 'success');
             else if (window.showToast) window.showToast('费用状态已更新', 'success');
             loadData(config, mountEl);
@@ -1147,7 +1194,9 @@
 
     // 一键清除某生范围内全部课时费用（置 null/未填写 后提交，不弹窗）
     async function batchClear(config, mountEl, list) {
-        const updates = list.map(s => ({ id: s.id, teacher_uid: s.teacher_uid, transport_fee: null, other_fee: null }));
+        const updates = uniquePairs(list).map(p => ({
+            id: p.rec.id, teacher_uid: p.rec.teacher_uid, transport_fee: null, other_fee: null
+        }));
         try {
             await persist(config, updates);
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast('费用已清除', 'success');
@@ -1285,12 +1334,12 @@
             else container.innerHTML = '';
 
             // 按日期分组：每天一个区块（日期标题占一行），区块内条目用 flex 自动换行，
-            // 自适应浮窗宽度（窄屏单列、宽屏多列）。
+            // 自适应浮窗宽度（窄屏单列、宽屏多列）。先按 pair 折叠，避免一个 pair 多组输入框。
             const byDate = new Map();
-            schedules.forEach(s => {
-                const d = s.date || '未排日期';
+            uniquePairs(schedules).forEach(pair => {
+                const d = pair.rec.date || '未排日期';
                 if (!byDate.has(d)) byDate.set(d, []);
-                byDate.get(d).push(s);
+                byDate.get(d).push(pair);
             });
             const dates = [...byDate.keys()].sort((a, b) => a.localeCompare(b));
             const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -1310,21 +1359,24 @@
 
                 const items = document.createElement('div');
                 items.className = 'fm-day-items';
-                byDate.get(date).forEach(s => {
+                byDate.get(date).forEach(entry => {
+                    const s = entry.rec;
                     const item = document.createElement('div');
                     item.className = 'fm-day-item';
                     const typeText = s.schedule_type_cn || s.schedule_type || '课程';
                     const timeText = s.start_time ? ' ' + s.start_time.substring(0, 5) : '';
+                    // 同一 pair 覆盖多名学生时合并显示（费用一趟一笔，只有一组输入框）
+                    const studentText = entry.names.join('、');
                     const itemHtml = `
-                        <div class="fm-day-item-title">${esc(s.student_name || '学生')} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}</div>
+                        <div class="fm-day-item-title">${esc(studentText)} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}</div>
                         <div class="fm-day-item-inputs">
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
                                 <label style="font-size: var(--fs-300);">交通费</label>
-                                <input type="number" class="fm-dyn-trans" data-id="${esc(s.id)}" step="0.5" min="0" value="${isUnfilled(s.transport_fee) ? '' : esc(String(s.transport_fee))}" placeholder="0.00">
+                                <input type="number" class="fm-dyn-trans" data-pair="${esc(s._pairKey)}" step="0.5" min="0" value="${isUnfilled(s.transport_fee) ? '' : esc(String(s.transport_fee))}" placeholder="0.00">
                             </div>
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
                                 <label style="font-size: var(--fs-300);">其他</label>
-                                <input type="number" class="fm-dyn-other" data-id="${esc(s.id)}" step="0.5" min="0" value="${isUnfilled(s.other_fee) ? '' : esc(String(s.other_fee))}" placeholder="0.00">
+                                <input type="number" class="fm-dyn-other" data-pair="${esc(s._pairKey)}" step="0.5" min="0" value="${isUnfilled(s.other_fee) ? '' : esc(String(s.other_fee))}" placeholder="0.00">
                             </div>
                         </div>
                     `;
@@ -1386,16 +1438,23 @@
         const mode = activeModal ? activeModal.mode : 'single';
         if (mode === 'multi') {
             const container = modal.querySelector('#fmDynamicFeeInputsContainer');
-            // teacher_uid 随 pair 不同而不同，需从 schedule 记录里查找
-            const scheduleMap = new Map((activeModal.schedules || []).map(s => [String(s.id), s]));
+            // teacher_uid 随 pair 不同而不同，需从 schedule 记录里查找。
+            // 键必须用 pairKey：同天多老师时场次 id 重复，按 id 建 Map 会被覆盖、
+            // querySelector([data-id=...]) 也恒命中第一个条目，导致费用写到错误的 pair。
+            const scheduleMap = new Map((activeModal.schedules || []).map(s => [String(s._pairKey), s]));
             const updates = [];
-            container.querySelectorAll('.fm-dyn-trans').forEach(tInp => {
-                const id = tInp.dataset.id;
-                const oInp = container.querySelector(`.fm-dyn-other[data-id="${id}"]`);
-                const rec = scheduleMap.get(String(id));
+            // 按条目取同一行的两个输入框（item.querySelector），不要用 container.querySelector
+            // 按 data-pair 全局查找：一个 pair 有多组输入时会恒命中第一组，交通与其他错配。
+            container.querySelectorAll('.fm-day-item').forEach(item => {
+                const tInp = item.querySelector('.fm-dyn-trans');
+                const oInp = item.querySelector('.fm-dyn-other');
+                if (!tInp) return;
+                const rec = scheduleMap.get(String(tInp.dataset.pair));
+                // 防御：找不到来源记录宁可漏提交，也不能凭空猜 teacher_uid 写错 pair
+                if (!rec) return;
                 updates.push({
-                    id,
-                    teacher_uid: rec ? rec.teacher_uid : null,
+                    id: rec.id,
+                    teacher_uid: rec.teacher_uid,
                     transport_fee: parseInputFee(tInp.value),
                     other_fee: parseInputFee(oInp ? oInp.value : null),
                 });
@@ -1462,9 +1521,9 @@
             danger: true,
         });
         if (!ok) return;
-        const updates = (mode === 'multi' ? schedules : [schedules[0]]).map(s => ({
-            id: s.id, teacher_uid: s.teacher_uid, transport_fee: null, other_fee: null,
-        }));
+        // 按 pair 折叠后再置空：同一 pair 的多行会重复提交同一条 PATCH（并发写同值，无害但多余）
+        const updates = uniquePairs(mode === 'multi' ? schedules : [schedules[0]])
+            .map(p => ({ id: p.rec.id, teacher_uid: p.rec.teacher_uid, transport_fee: null, other_fee: null }));
         const saveBtn = document.getElementById('fmSaveBtn');
         saveBtn.disabled = true;
         saveBtn.textContent = '清除中...';
@@ -1493,11 +1552,7 @@
                 return startOfWeek(d);
             },
             async fetchSchedules(start, end) {
-                try {
-                    return normalizeList(await config.fetchWeekSchedules(start, end));
-                } catch (_) {
-                    return [];
-                }
+                return normalizeList(await config.fetchWeekSchedules(start, end));
             },
         });
     }
