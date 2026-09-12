@@ -1191,7 +1191,7 @@
         const tr = document.createElement('tr');
         // 汇总行靠右显示，数字加粗（与学生数/课时/老师人次/金额对应）
         tr.innerHTML = `<td colspan="${STUDENT_COLS}" style="padding:12px 16px; text-align:right; background:#ffffff; font-weight:500; color:#475569; border-top:2px solid #e5e7eb; white-space:nowrap;">
-            共 <strong>${studentCount}</strong> 名学生 / <strong>${sessionCount}</strong> 课时 / <strong>${teacherTimes}</strong> 老师人次（${rangeText}）｜
+            共 <strong>${studentCount}</strong> 学生 / <strong>${sessionCount}</strong> 课时 / <strong>${teacherTimes}</strong> 老师人次（${rangeText}）｜
             交通 <strong>¥${money(t)}</strong> / 其他 <strong>¥${money(o)}</strong> / 总计 <strong>¥${money(t + o)}</strong>
         </td>`;
         tfoot.appendChild(tr);
