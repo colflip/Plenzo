@@ -52,6 +52,13 @@ function inIdRange(userType, id) {
     return Number.isInteger(id) && id >= lo && id <= hi;
 }
 
+const DEFAULT_PAGE_SIZE = 50;
+// 上限从 200 放宽到 1000：前端下拉/复选列表需要「一次取全量」
+// （user-manager 的 `/admin/users/student?limit=1000` 就是这种用法），
+// 旧的 200 上限会在条数超过 200 时静默截断，用户看不到任何提示。
+const MAX_PAGE_SIZE = 1000;
+
+
 /**
  * 跨角色 ID 占用检查：目标 ID 不得已被其他角色占用。
  * 三个号段本不重叠，此检查兜住两类历史遗留：号段外存量 ID（如教师旧 1xxx 段）与
@@ -100,13 +107,16 @@ async function fetchAdminTarget(id) {
 }
 
 /** 列出某类型用户（分页 + 动态列 status/nickname 探测 + 按操作者级别裁剪敏感字段） */
-async function listUsers(userType, { page, size } = {}, req) {
+async function listUsers(userType, { page, size, limit } = {}, req) {
     const table = resolveTable(userType);
     if (!table) return { status: 400, body: { message: '无效的用户类型' } };
 
     let selectColumns = BASE_COLUMNS[userType];
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const sizeNum = Math.min(200, Math.max(1, parseInt(size) || 50));
+    // size 是规范名，limit 是历史别名：前端仍有 `?limit=1000` 的调用，
+    // 只认 size 会让它悄悄退回默认 50 条。两者同时接受。
+    const rawSize = (size === undefined || size === '') ? limit : size;
+    const sizeNum = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(rawSize) || DEFAULT_PAGE_SIZE));
     const offset = (pageNum - 1) * sizeNum;
 
     if (await SchemaHelper.hasColumn(table, 'status')) {

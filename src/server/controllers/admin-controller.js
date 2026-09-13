@@ -32,7 +32,7 @@ const adminController = {
      */
     async getUsers(req, res, next) {
         try {
-            const result = await UserService.listUsers(req.params.userType, { page: req.query.page, size: req.query.size }, req);
+            const result = await UserService.listUsers(req.params.userType, { page: req.query.page, size: req.query.size, limit: req.query.limit }, req);
             return res.status(result.status).json(
                 result.status >= 400
                     ? errorResponse({ code: statusToErrorCode(result.status), message: (result.body && (result.body.message || (result.body.error && result.body.error.message))) || '请求失败' })
