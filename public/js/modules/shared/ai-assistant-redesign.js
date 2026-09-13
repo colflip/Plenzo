@@ -2140,20 +2140,29 @@ function getDayOfWeekFromDate(dateStr) {
 }
 
 /**
- * 获取课程基础类型（去掉"记录"后缀）
- * 评审记录 → 评审，咨询记录 → 咨询
+ * 获取课程基础类型显示名。复用 type-conversion 单一真源，消除第 4 份重复折算副本：
+ *   review / review_record              → 评审
+ *   consultation / consultation_record  → 咨询
+ *   其余（入户 / 试教 / 集体活动 / 未归类等）保留原样。
+ * 说明：大评审按系统口径等同于评审，故在此一并并入「评审」展示，
+ *       消除旧副本漏识大评审（原 replace(/记录$/) 把 大评审 当成独立不可合并类型）的漂移。
  */
 function getBaseCourseType(courseTypeCn) {
     if (!courseTypeCn) return '';
-    return courseTypeCn.replace(/记录$/, '').trim();
+    const key = window.TypeConversion.normalizeTypeKey(courseTypeCn);
+    if (key === 'review' || key === 'review_record') return '评审';
+    if (key === 'consultation' || key === 'consultation_record') return '咨询';
+    return String(courseTypeCn).trim();
 }
 
 /**
- * 判断是否为可合并的课程类型（评审类、咨询类）
+ * 是否为「记录」类课程（评审记录 / 咨询记录）。
+ * 复用 type-conversion，避免再写一份 endsWith('记录') 的硬编码判断，
+ * 供 AI 预览把记录老师单独分列（regularTeachers / recordTeachers）。
  */
-function isMergeableType(courseTypeCn) {
-    const base = getBaseCourseType(courseTypeCn);
-    return base === '评审' || base === '咨询';
+function isRecordType(courseTypeCn) {
+    const key = window.TypeConversion.normalizeTypeKey(courseTypeCn);
+    return key === 'review_record' || key === 'consultation_record';
 }
 
 /**
@@ -2171,7 +2180,7 @@ function mergeSchedulesForDisplay(schedules) {
         const baseType = getBaseCourseType(courseTypeCn);
         const timeSlot = `${schedule.start_time || ''}-${schedule.end_time || ''}`;
         const location = (schedule.location || '').trim();
-        const isRecord = courseTypeCn.endsWith('记录');
+        const isRecord = isRecordType(courseTypeCn);
 
         if (MERGE_TYPES.has(baseType)) {
             // 查找已有的同类型同时段同地址分组
