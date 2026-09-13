@@ -204,10 +204,82 @@ const asyncHandler = (fn) => {
     };
 };
 
+/**
+ * 将任意错误规整为 errorResponse 可消费的形状
+ * { code, message, statusCode, details, retryable, retryAfterSeconds }。
+ * 判定逻辑与 errorHandler 保持一致，但只返回对象、不写响应，
+ * 供 SSE / 非 Express 标准链路（如 writeSSEError）复用结构化错误。
+ */
+function normalizeError(err) {
+    if (!err) {
+        return { code: 'INTERNAL_ERROR', message: '服务器内部错误', statusCode: 500, details: null, retryable: true, retryAfterSeconds: null };
+    }
+
+    let statusCode;
+    let code;
+    let message;
+    let details = null;
+    let retryable = false;
+    let retryAfterSeconds = null;
+
+    if (err instanceof AppError || err.isOperational) {
+        statusCode = err.statusCode || 500;
+        code = err.code || statusToErrorCode(statusCode);
+        message = err.message || '请求失败';
+        details = err.details || null;
+        retryable = typeof err.retryable === 'boolean' ? err.retryable : (statusCode >= 500);
+        retryAfterSeconds = err.retryAfterSeconds != null ? err.retryAfterSeconds : null;
+    } else if (err.code === 'DB_UNAVAILABLE' || (typeof err.code === 'string' && /^08/.test(err.code))) {
+        statusCode = 503;
+        code = 'DB_UNAVAILABLE';
+        message = '数据库暂时不可用，请稍后重试';
+        retryable = true;
+    } else if (err.code && typeof err.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code)) {
+        const db = handleDatabaseError(err);
+        statusCode = db.status;
+        code = db.code;
+        message = db.message;
+    } else if (err.name && (err.name.includes('Token') || err.name.includes('Jwt'))) {
+        const jwtErr = handleJwtError(err);
+        statusCode = jwtErr.statusCode;
+        code = jwtErr.code;
+        message = jwtErr.message;
+    } else if (err.type === 'entity.parse.failed') {
+        statusCode = 400;
+        code = 'BAD_REQUEST';
+        message = '请求内容不是有效的 JSON';
+    } else if (err.type === 'entity.too.large') {
+        statusCode = 413;
+        code = 'PAYLOAD_TOO_LARGE';
+        message = '请求体过大，请减少提交内容后重试';
+    } else if (err.isJoi) {
+        statusCode = 422;
+        code = 'VALIDATION_FAILED';
+        message = '参数验证失败';
+        details = (err.details || []).map((d) => ({ path: d.path.join('.'), message: d.message }));
+    } else {
+        statusCode = err.statusCode || 500;
+        code = statusToErrorCode(statusCode);
+        message = '服务器内部错误';
+    }
+
+    // 5xx 不向客户端泄露内部信息：统一为安全文案。
+    if (statusCode >= 500) {
+        message = (code === 'DB_UNAVAILABLE') ? message : '服务器内部错误，请稍后重试';
+    }
+
+    if (process.env.NODE_ENV !== 'production' && shouldLogDetail(err)) {
+        logger.error('[Error]', { message: err.message, stack: err.stack, code });
+    }
+
+    return { code, message, statusCode, details, retryable, retryAfterSeconds };
+}
+
 module.exports = {
     AppError,
     errorHandler,
     notFoundHandler,
     asyncHandler,
+    normalizeError,
     errorResponse
 };
