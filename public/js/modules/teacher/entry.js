@@ -8,6 +8,7 @@
 // 供 components/ 下的经典脚本（如 fee-manager.js）复用同一套 spinner。
 import '../shared/loading-ui.js';
 
+import { createErrorState } from '../shared/error-ui.js';
 import { initOverviewSection, loadOverview } from './overview.js';
 import { initProfileSection, loadProfile } from './profile.js';
 import { initAvailabilitySection, refreshAvailability } from './availability.js?v=20260806-toggle';
@@ -31,7 +32,7 @@ let controller = null;
 window.initDashboard = initDashboard;
 
 document.addEventListener('DOMContentLoaded', () => {
-    initDashboard().catch(() => {});
+    initDashboard().catch(error => renderDashboardInitError(error));
 });
 
 document.addEventListener('readystatechange', () => {
@@ -41,6 +42,23 @@ document.addEventListener('readystatechange', () => {
 });
 
 export { initDashboard };
+
+function renderDashboardInitError(error, sectionId, { initial = true } = {}) {
+    console.error(initial ? '教师仪表盘初始化失败:' : '教师仪表盘区块刷新失败:', error);
+    const container = initial
+        ? document.querySelector('.content-area')
+        : document.getElementById(sectionId);
+    if (!container) return;
+    container.replaceChildren(createErrorState({
+        error,
+        title: initial ? '教师仪表盘加载失败' : '当前内容刷新失败',
+        page: initial,
+        onRetry: initial
+            ? () => window.location.reload()
+            : () => controller?.activate(sectionId),
+        retryText: initial ? '重新加载' : '重试'
+    }));
+}
 
 async function initDashboard() {
     if (!ensureAuth('teacher')) return;
@@ -52,7 +70,10 @@ async function initDashboard() {
     // 和 /teacher/overview 串成了一条链（实测第一个请求 2736ms 才发出，overview 要到
     // 3826ms 才落地）。字典只影响标签文案，getLabel 本身有回退，晚到不会出错。
     const typesReady = window.ScheduleTypesStore
-        ? window.ScheduleTypesStore.init().catch(() => {})
+        ? window.ScheduleTypesStore.init().catch(error => {
+            console.error('课程类型加载失败:', error);
+            window.Toast?.warning('课程类型加载失败，部分标签可能不是最新');
+        })
         : Promise.resolve();
 
     applyChartFontFromCSSVars();
@@ -85,6 +106,7 @@ async function initDashboard() {
             'sd-fees': mountTeacherHeadFees,
         },
         routeBase: '/teacher/dashboard',
+        onError: renderDashboardInitError,
         onSectionShown: () => ensureStudentDataGroupOpen(),
     });
     await Promise.all([typesReady, controller.init()]);

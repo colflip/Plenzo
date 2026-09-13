@@ -124,27 +124,18 @@ async function loadSchedules(baseDate, showLoading = true) {
         const startDate = toISODate(weekDates[0]);
         const endDate = toISODate(weekDates[weekDates.length - 1]);
 
-        const response = await fetch(
-            `/api/teacher/student-schedules?startDate=${startDate}&endDate=${endDate}${window.teacherStudentShowPlan ? '&show_plan=true' : ''}`,
-            {
-                credentials: 'include',
-                headers: {}
-            }
+        if (!window.apiUtils) throw new Error('API 客户端尚未加载');
+        const data = await window.apiUtils.get(
+            `/teacher/student-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}${window.teacherStudentShowPlan ? '&show_plan=true' : ''}`,
+            {},
+            { timeoutMs: 20000, suppressErrorToast: true }
         );
-
-        if (!response.ok) {
-            throw new Error('获取学生课程安排失败');
+        if (!data || typeof data !== 'object' || !Array.isArray(data.students) || !Array.isArray(data.schedules)) {
+            throw new Error('学生课程安排响应格式无效');
         }
 
-        const data = await response.json();
-        // 兼容新格式 { students, schedules } 和旧格式（纯数组）
-        if (data && data.schedules) {
-            cachedStudents = data.students || [];
-            cachedSchedules = Array.isArray(data.schedules) ? data.schedules : [];
-        } else {
-            cachedStudents = [];
-            cachedSchedules = Array.isArray(data) ? data : [];
-        }
+        cachedStudents = data.students;
+        cachedSchedules = data.schedules;
         if (requestId !== scheduleLoadSeq) return;
         renderSchedulesGrid(weekDates, cachedSchedules, cachedStudents);
         showInlineFeedback(feedback, '', '');
@@ -889,14 +880,16 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
             return currentWeekStart || startOfWeek(new Date());
         },
         async fetchSchedules(startDate, endDate) {
-            const response = await fetch(
-                `/api/teacher/student-schedules?startDate=${startDate}&endDate=${endDate}&show_plan=true`,
-                { credentials: 'include' }
+            if (!window.apiUtils) throw new Error('API 客户端尚未加载');
+            const data = await window.apiUtils.get(
+                `/teacher/student-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&show_plan=true`,
+                {},
+                { timeoutMs: 20000, suppressErrorToast: true }
             );
-            if (!response.ok) throw new Error('获取学生课程安排失败');
-            const data = await response.json();
-            if (data && data.schedules) return Array.isArray(data.schedules) ? data.schedules : [];
-            return Array.isArray(data) ? data : [];
+            if (!data || typeof data !== 'object' || !Array.isArray(data.schedules)) {
+                throw new Error('学生课程安排响应格式无效');
+            }
+            return data.schedules;
         }
     });
 }
