@@ -10,6 +10,9 @@ const { handleExportError } = require('../middleware/export-error-handler');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
 const { pipeline, scheduleQueries } = require('../services/export');
+const { successResponse, errorResponse } = require('../utils/response');
+const { statusToErrorCode } = require('../utils/http-status');
+const { AppError } = require('../middleware/error');
 
 
 const studentController = {
@@ -17,7 +20,7 @@ const studentController = {
      * 获取个人信息
      * @description 返回当前登录学生的基本信息
      */
-    async getProfile(req, res) {
+    async getProfile(req, res, next) {
         try {
             // 动态选择是否返回 status 和 nickname 字段
             let selectCols = 'id, username, name, profession, contact, visit_location, home_address, last_login';
@@ -36,13 +39,13 @@ const studentController = {
             );
 
             if (result.rows.length === 0) {
-                return res.status(404).json({ message: '未找到学生信息' });
+                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' }));
             }
 
-            res.json(result.rows[0]);
+            res.json(successResponse(result.rows[0]));
         } catch (error) {
             logger.error('获取学生信息错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            return next(error);
         }
     },
 
@@ -50,7 +53,7 @@ const studentController = {
      * 更新个人信息
      * @description 更新学生的姓名、专业、联系方式等基本信息
      */
-    async updateProfile(req, res) {
+    async updateProfile(req, res, next) {
         try {
             const { name, profession, contact, visit_location, home_address, status, nickname } = req.body;
 
@@ -64,7 +67,7 @@ const studentController = {
             if (typeof status !== 'undefined') {
                 const s = Number(status);
                 if (![-1, 0, 1].includes(s)) {
-                    return res.status(400).json({ message: '非法状态值' });
+                    return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '非法状态值' }));
                 }
                 sets.push(`status = $${vi++}`);
                 values.push(s);
@@ -81,10 +84,10 @@ const studentController = {
 
             try { const { recordAudit } = require('../middleware/audit'); await recordAudit(req, { op: 'update_status', entityType: 'student', entityId: req.user.id, details: { status } }); } catch (_) { }
 
-            res.json(result.rows[0]);
+            res.json(successResponse(result.rows[0]));
         } catch (error) {
             logger.error('更新学生信息错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            return next(error);
         }
     },
 
@@ -94,7 +97,7 @@ const studentController = {
      * @param {string} req.query.startDate - 开始日期
      * @param {string} req.query.endDate - 结束日期
      */
-    async getAvailability(req, res) {
+    async getAvailability(req, res, next) {
         try {
             const { startDate, endDate } = req.query;
             // 返回新的时段字段
@@ -107,10 +110,10 @@ const studentController = {
                 [req.user.id, startDate, endDate]
             );
 
-            res.json(result.rows.map(mapRowToStudentAvailability));
+            res.json(successResponse(result.rows.map(mapRowToStudentAvailability)));
         } catch (error) {
             logger.error('获取时间安排错误:', error);
-            res.status(503).json({ message: '数据库暂时不可用，请稍后重试' });
+            return next(error);
         }
     },
 
@@ -137,7 +140,11 @@ const studentController = {
                 res.setHeader('Content-Length', out.buffer.length);
                 return res.end(out.buffer);
             }
-            return res.status(out.status).json(out.body);
+            return res.status(out.status).json(
+                out.status >= 400
+                    ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+                    : successResponse(out.body)
+            );
         } catch (error) {
             return handleExportError(error, req, res);
         }
@@ -149,13 +156,13 @@ const studentController = {
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      */
-    async setAvailability(req, res) {
+    async setAvailability(req, res, next) {
         try {
             const { availabilityList } = req.body;
             const studentId = req.user.id;
 
             if (!Array.isArray(availabilityList)) {
-                return res.status(400).json({ message: '无效的数据格式' });
+                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '无效的数据格式' }));
             }
 
             let updateCount = 0;
@@ -219,10 +226,10 @@ const studentController = {
                 );
             });
 
-            res.json({ message: '时间安排更新成功', updateCount, insertCount });
+            res.json(successResponse({ message: '时间安排更新成功', updateCount, insertCount }));
         } catch (error) {
             logger.error('[setAvailability] 错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            return next(error);
         }
     },
 
@@ -233,7 +240,7 @@ const studentController = {
      * @param {Object} req.body.endDate - 结束日期
      * @param {Array} req.body.timeSlots - 时段列表
      */
-    async deleteAvailability(req, res) {
+    async deleteAvailability(req, res, next) {
         try {
             const { startDate, endDate, timeSlots, ranges } = req.body;
 
@@ -262,10 +269,10 @@ const studentController = {
                 );
             }
 
-            res.json({ message: '时间安排删除成功' });
+            res.json(successResponse({ message: '时间安排删除成功' }));
         } catch (error) {
             logger.error('删除时间安排错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            return next(error);
         }
     },
 
@@ -278,7 +285,11 @@ const studentController = {
      */
     async getSchedules(req, res) {
         const out = await scheduleService.studentListSchedules(req);
-        return res.status(out.status).json(out.body);
+        return res.status(out.status).json(
+            out.status >= 400
+                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+                : successResponse(out.body)
+        );
     },
 
     /**
@@ -289,7 +300,11 @@ const studentController = {
      */
     async getStatistics(req, res) {
         const out = await scheduleService.studentStatistics(req);
-        return res.status(out.status).json(out.body);
+        return res.status(out.status).json(
+            out.status >= 400
+                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+                : successResponse(out.body)
+        );
     },
 
     /**
@@ -298,7 +313,11 @@ const studentController = {
      */
     async getOverview(req, res) {
         const out = await scheduleService.studentOverview(req);
-        return res.status(out.status).json(out.body);
+        return res.status(out.status).json(
+            out.status >= 400
+                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+                : successResponse(out.body)
+        );
     },
 
     /**
@@ -313,18 +332,18 @@ const studentController = {
      * @param {string} req.body.currentPassword - 当前密码
      * @param {string} req.body.newPassword - 新密码
      */
-    async changePassword(req, res) {
+    async changePassword(req, res, next) {
         try {
             const bcrypt = require('bcrypt');
             const { currentPassword, newPassword } = req.body;
 
             // 验证输入
             if (!currentPassword || !newPassword) {
-                return res.status(400).json({ message: '请提供当前密码和新密码' });
+                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供当前密码和新密码' }));
             }
 
             if (newPassword.length < 6) {
-                return res.status(400).json({ message: '新密码长度不能少于6位' });
+                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '新密码长度不能少于6位' }));
             }
 
             // 获取当前密码哈希
@@ -334,7 +353,7 @@ const studentController = {
             );
 
             if (result.rows.length === 0) {
-                return res.status(404).json({ message: '未找到学生信息' });
+                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' }));
             }
 
             const currentPasswordHash = result.rows[0].password_hash;
@@ -345,11 +364,11 @@ const studentController = {
                 isValidPassword = await bcrypt.compare(currentPassword, currentPasswordHash);
             } catch (error) {
                 logger.error('密码比较错误:', error);
-                return res.status(500).json({ message: '密码验证失败' });
+                return next(new AppError({ code: statusToErrorCode(500), statusCode: 500, message: '密码验证失败' }));
             }
 
             if (!isValidPassword) {
-                return res.status(401).json({ message: '当前密码不正确' });
+                return next(new AppError({ code: statusToErrorCode(401), statusCode: 401, message: '当前密码不正确' }));
             }
 
             // 生成新密码哈希
@@ -375,10 +394,10 @@ const studentController = {
                 // 忽略审计错误
             }
 
-            res.json({ message: '密码修改成功' });
+            res.json(successResponse({ message: '密码修改成功' }));
         } catch (error) {
             logger.error('修改密码错误:', error);
-            res.status(500).json({ message: '服务器错误' });
+            return next(error);
         }
     },
 

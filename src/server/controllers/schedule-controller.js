@@ -6,6 +6,7 @@
 
 const scheduleService = require('../services/schedule-service');
 const { asyncHandler } = require('../middleware/error');
+const { successResponse } = require('../utils/response');
 
 const scheduleController = {
     /**
@@ -15,7 +16,7 @@ const scheduleController = {
     getAvailableTeachers: asyncHandler(async (req, res) => {
         const { date, timeSlot, startTime, endTime } = req.query;
         const teachers = await scheduleService.getAvailableTeachers(date, timeSlot, startTime, endTime);
-        res.json(teachers);
+        res.json(successResponse(teachers));
     }),
 
     /**
@@ -25,7 +26,7 @@ const scheduleController = {
     getAvailableStudents: asyncHandler(async (req, res) => {
         const { date, timeSlot, startTime, endTime } = req.query;
         const students = await scheduleService.getAvailableStudents(date, timeSlot, startTime, endTime);
-        res.json(students);
+        res.json(successResponse(students));
     }),
 
     /**
@@ -39,7 +40,7 @@ const scheduleController = {
         const result = await scheduleService.checkConflicts(
             teacherId, studentId, date, timeSlot, startTime, endTime
         );
-        res.json(result);
+        res.json(successResponse(result));
     }),
 
     /**
@@ -49,7 +50,7 @@ const scheduleController = {
     createSchedule: asyncHandler(async (req, res) => {
         // req.body 已通过 Joi 验证
         const result = await scheduleService.createSchedule(req.body, req.user.id);
-        res.status(201).json(result);
+        res.status(201).json(successResponse(result));
     }),
 
     /**
@@ -58,7 +59,7 @@ const scheduleController = {
      */
     getScheduleTypes: asyncHandler(async (req, res) => {
         const types = await scheduleService.getScheduleTypes();
-        res.json(types);
+        res.json(successResponse(types));
     }),
 
     /**
@@ -68,7 +69,7 @@ const scheduleController = {
     confirmTeacher: asyncHandler(async (req, res) => {
         const { id } = req.params;
         await scheduleService.confirmSchedule(id, req.user.id, false);
-        res.json({ success: true, message: '课程已确认' });
+        res.json(successResponse({ message: '课程已确认' }));
     }),
 
     /**
@@ -78,7 +79,7 @@ const scheduleController = {
     confirmAdmin: asyncHandler(async (req, res) => {
         const { id } = req.params;
         await scheduleService.confirmSchedule(id, req.user.id, true);
-        res.json({ success: true, message: '课程已确认' });
+        res.json(successResponse({ message: '课程已确认' }));
     })
 };
 

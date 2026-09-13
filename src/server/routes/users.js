@@ -4,6 +4,8 @@ const router = express.Router();
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const db = require('../db/db');
 const SchemaHelper = require('../utils/schema-helper');
+const { successResponse } = require('../utils/response');
+const { AppError } = require('../middleware/error');
 
 // 获取所有用户或根据类型过滤用户（仅管理员）
 router.get('/', authMiddleware, adminOnly, async (req, res) => {
@@ -31,39 +33,24 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
             ]);
             
             const allUsers = [...teachersResult.rows, ...studentsResult.rows, ...adminsResult.rows];
-            
-            res.json({
-                success: true,
-                users: allUsers
-            });
+
+            res.json(successResponse({ users: allUsers }));
         } else if (type === 'teacher') {
             // 只获取教师用户
             const result = await db.query('SELECT id, name, username, email, phone, subject FROM teachers');
-            
-            res.json({
-                success: true,
-                users: result.rows
-            });
+
+            res.json(successResponse({ users: result.rows }));
         } else if (type === 'student') {
             // 只获取学生用户
             const result = await db.query('SELECT id, name, username, email, phone, grade FROM students');
-            
-            res.json({
-                success: true,
-                users: result.rows
-            });
+
+            res.json(successResponse({ users: result.rows }));
         } else {
-            return res.status(400).json({
-                success: false,
-                message: '无效的用户类型'
-            });
+            return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' }));
         }
     } catch (error) {
         logger.error('获取用户列表错误:', error);
-        res.status(500).json({
-            success: false,
-            message: '服务器错误'
-        });
+        return next(error);
     }
 });
 

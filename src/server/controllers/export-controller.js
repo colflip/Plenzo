@@ -1,4 +1,7 @@
 const logger = require('../utils/logger.js');
+const { successResponse, errorResponse } = require('../utils/response');
+const { statusToErrorCode } = require('../utils/http-status');
+const { AppError } = require('../middleware/error');
 /**
  * 统一导出控制器
  * @description 四端（管理员、教师、班主任、学生）共用的导出逻辑
@@ -29,7 +32,7 @@ const exportController = {
      *     可用 studentId 指定单个绑定学生、teacherId 按授课教师二次筛选
      * - student: 自动限定 studentId = req.user.id
      */
-    async exportSchedule(req, res) {
+    async exportSchedule(req, res, next) {
         const startTime = Date.now();
         let logId = null;
         const logService = new ExportLogService(db);
@@ -42,10 +45,10 @@ const exportController = {
 
             // ===== 2. 统一日期验证 =====
             if (!startDate || !endDate) {
-                return res.status(400).json(standardResponse(false, null, '缺少起止日期参数'));
+                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '缺少起止日期参数' }));
             }
             if (!validateDateFormat(startDate) || !validateDateFormat(endDate)) {
-                return res.status(400).json(standardResponse(false, null, '日期格式无效，请使用 YYYY-MM-DD 格式'));
+                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '日期格式无效，请使用 YYYY-MM-DD 格式' }));
             }
 
             // ===== 3. 角色权限收敛 =====
@@ -69,16 +72,16 @@ const exportController = {
                         // 不能收敛为 teacherId = 本人，否则只会导出自己名下的排课。
                         const { found, studentIds: boundStudentIds } = await headTeacherService.getBoundStudentIds(userId);
                         if (!found) {
-                            return res.status(404).json(standardResponse(false, null, '未找到教师信息'));
+                            return next(new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '未找到教师信息' }));
                         }
                         if (boundStudentIds.length === 0) {
-                            return res.status(400).json(standardResponse(false, null, '您未绑定任何学生，无法导出数据'));
+                            return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '您未绑定任何学生，无法导出数据' }));
                         }
 
                         if (reqStudentId) {
                             const sId = parseInt(reqStudentId);
                             if (!boundStudentIds.includes(sId)) {
-                                return res.status(403).json(standardResponse(false, null, '您无权导出该学生的数据'));
+                                return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '您无权导出该学生的数据' }));
                             }
                             studentId = sId;
                         } else {
@@ -104,7 +107,7 @@ const exportController = {
                     break;
 
                 default:
-                    return res.status(403).json(standardResponse(false, null, '无导出权限'));
+                    return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无导出权限' }));
             }
 
             // ===== 4-6. 用户名 / 导出开始日志 / 原始数据 =====
@@ -136,7 +139,7 @@ const exportController = {
             ]);
 
             if (!rawData || rawData.length === 0) {
-                return res.status(404).json(standardResponse(false, null, '该时间段内无数据'));
+                return next(new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '该时间段内无数据' }));
             }
 
             // ===== 7-8. 生成多 Sheet Excel（统一流水线） =====
@@ -196,7 +199,7 @@ const exportController = {
      *
      * Body: { type: 'teacher_info' | 'student_info', format?: 'excel' | 'csv' }
      */
-    async exportInfo(req, res) {
+    async exportInfo(req, res, next) {
         const startTime = Date.now();
         let logId = null;
         const logService = new ExportLogService(db);
@@ -206,7 +209,7 @@ const exportController = {
             const adminId = req.user.id;
 
             if (!type || !['teacher_info', 'student_info'].includes(type)) {
-                return res.status(400).json(standardResponse(false, null, '缺少必要参数: type (teacher_info 或 student_info)'));
+                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '缺少必要参数: type (teacher_info 或 student_info)' }));
             }
 
             const adminName = await resolveUserName(db, 'admin', adminId);
@@ -244,13 +247,13 @@ const exportController = {
                 }
             }
 
-            return res.json({
+            return res.json(successResponse({
                 success: true,
                 data: exportData,
                 filename,
                 format,
                 recordCount: exportData.length
-            });
+            }));
 
         } catch (error) {
             if (logId) {
