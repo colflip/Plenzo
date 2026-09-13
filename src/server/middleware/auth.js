@@ -6,6 +6,7 @@ const logger = require('../utils/logger.js');
  */
 
 const jwt = require('jsonwebtoken');
+const { AppError } = require('./error');
 
 /**
  * 获取JWT密钥
@@ -81,7 +82,7 @@ const authMiddleware = async (req, res, next) => {
         }
 
         if (!token) {
-            return res.status(401).json({ message: '未提供认证令牌' });
+            return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '未提供认证令牌' }));
         }
 
         const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
@@ -89,10 +90,11 @@ const authMiddleware = async (req, res, next) => {
         // 纪元不匹配 = 该 token 签发于上一次「用户 ID 变更」之前，身份已不可信。
         // 带固定 code 供前端识别；message 会被 api-client 直接展示。
         if (decoded.tv !== getTokenEpoch()) {
-            return res.status(401).json({
+            return next(new AppError({
                 code: 'SESSION_EPOCH_MISMATCH',
+                statusCode: 401,
                 message: '账号信息已变更，请重新登录'
-            });
+            }));
         }
 
         req.user = {
@@ -103,8 +105,9 @@ const authMiddleware = async (req, res, next) => {
 
         next();
     } catch (error) {
-        const msg = (error && error.name === 'TokenExpiredError') ? '认证令牌已过期' : '无效的认证令牌';
-        return res.status(401).json({ message: msg });
+        const code = (error && error.name === 'TokenExpiredError') ? 'AUTH_EXPIRED' : 'AUTH_INVALID';
+        const message = (error && error.name === 'TokenExpiredError') ? '认证令牌已过期' : '无效的认证令牌';
+        return next(new AppError({ code, statusCode: 401, message }));
     }
 };
 
@@ -116,10 +119,10 @@ const authMiddleware = async (req, res, next) => {
 const checkPermissionLevel = (level) => {
     return (req, res, next) => {
         if (req.user.userType !== 'admin') {
-            return res.status(403).json({ message: '需要管理员权限' });
+            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '需要管理员权限' }));
         }
         if (req.user.permissionLevel > level) {
-            return res.status(403).json({ message: '权限不足' });
+            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '权限不足' }));
         }
         next();
     };

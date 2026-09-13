@@ -6,6 +6,43 @@
 
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const { errorResponse } = require('../utils/response');
+
+/**
+ * 限流命中时的统一信封出口。express-rate-limit 在触发时会调用本 handler，
+ * 传入 (req, res, next, options)（options 含 statusCode / message）。我们统一输出
+ * { ok:false, error:{ code:'RATE_LIMITED', retryable:true, retryAfterSeconds } } 信封，
+ * 并写回 Retry-After 头，供前端 api-client 读取。
+ * @param {number} _max 预留：与 limit 配置对齐（语义同 max）
+ */
+const createRateLimitHandler = (_max) => {
+    return (req, res, next, options = {}) => {
+        const statusCode = options && Number.isInteger(options.statusCode) ? options.statusCode : 429;
+        const message = (options && typeof options.message === 'string' && options.message)
+            ? options.message
+            : '请求过于频繁，请稍后重试';
+
+        let retryAfterSeconds = null;
+        if (req && req.rateLimit && req.rateLimit.resetTime instanceof Date) {
+            retryAfterSeconds = Math.max(0, Math.ceil((req.rateLimit.resetTime.getTime() - Date.now()) / 1000));
+        } else if (options && Number.isInteger(options.retryAfterSeconds)) {
+            retryAfterSeconds = options.retryAfterSeconds;
+        }
+
+        if (typeof res.set === 'function') {
+            res.set('Retry-After', String(retryAfterSeconds != null ? retryAfterSeconds : 0));
+        }
+        res.status(statusCode).json(
+            errorResponse({
+                code: 'RATE_LIMITED',
+                message,
+                details: [],
+                retryable: true,
+                retryAfterSeconds
+            }, { requestId: req && req.requestId })
+        );
+    };
+};
 
 /**
  * 登录接口速率限制
@@ -16,11 +53,8 @@ const loginLimiter = rateLimit({
     max: 5,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-        success: false,
-        message: '登录尝试过多，请15分钟后再试'
-    },
-    skipSuccessfulRequests: true
+    skipSuccessfulRequests: true,
+    handler: createRateLimitHandler(5)
 });
 
 /**
@@ -33,10 +67,7 @@ const apiLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     validate: false,
-    message: {
-        success: false,
-        message: '请求过于频繁，请稍后再试'
-    },
+    handler: createRateLimitHandler(100),
     keyGenerator: (req) => {
         const clientIp = req['i' + 'p'] || (req.socket && req.socket.remoteAddress) || 'unknown';
         // 已登录：用令牌哈希作 key，避免明文令牌落入限流存储/日志，且同一用户跨 IP 仍被正确限流
@@ -61,10 +92,7 @@ const strictLimiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-        success: false,
-        message: '操作过于频繁，请1小时后再试'
-    }
+    handler: createRateLimitHandler(10)
 });
 
 /**
@@ -73,5 +101,6 @@ const strictLimiter = rateLimit({
 module.exports = {
     loginLimiter,
     apiLimiter,
-    strictLimiter
+    strictLimiter,
+    createRateLimitHandler
 };
