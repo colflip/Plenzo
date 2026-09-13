@@ -95,10 +95,20 @@ export function isValidSection(sectionId) {
     return Array.from(document.querySelectorAll('.nav-item')).some(item => item.dataset.section === sectionId);
 }
 
-/** 仅当目标区块正被用户看着时才刷新，后台区块等切回去时自然重载 */
+/** 仅当目标区块正被用户看着时才刷新，后台区块等切回去时自然重载。 */
 export function refreshVisibleSection(sectionId, refresher) {
     const section = document.getElementById(sectionId);
-    if (section?.classList.contains('active')) {
-        Promise.resolve(refresher()).catch(() => {});
-    }
+    if (!section?.classList.contains('active')) return Promise.resolve(false);
+
+    return Promise.resolve()
+        .then(() => refresher())
+        .then(() => true)
+        .catch(error => {
+            if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
+                window.apiUtils.showToast('当前页面刷新失败，请重试', 'error');
+            } else {
+                console.error(`[Dashboard] 刷新区块 ${sectionId} 失败:`, error);
+            }
+            return false;
+        });
 }

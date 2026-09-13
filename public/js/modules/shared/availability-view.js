@@ -128,9 +128,11 @@ export function createAvailabilityView(config) {
     }
 
     function buildStateFromResponse(weekDates, rows) {
+        if (!Array.isArray(rows)) {
+            throw new Error('空闲时段响应格式无效');
+        }
         const map = new Map();
-        const normalizedRows = Array.isArray(rows) ? rows : [];
-        const rowsByDate = new Map(normalizedRows.map(row => [normalizeKey(row.date), row]));
+        const rowsByDate = new Map(rows.map(row => [normalizeKey(row.date), row]));
 
         weekDates.forEach(date => {
             const key = normalizeKey(date);

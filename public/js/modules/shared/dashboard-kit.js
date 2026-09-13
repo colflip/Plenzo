@@ -153,13 +153,32 @@ export function setupLogout(opts = {}) {
     const { buttonId = 'logout', useAuthUtils = false } = opts;
     const logoutBtn = document.getElementById(buttonId);
     if (!logoutBtn) return;
-    logoutBtn.addEventListener('click', (e) => {
+    logoutBtn.addEventListener('click', async (e) => {
         e.preventDefault();
+        if (logoutBtn.disabled) return;
+        logoutBtn.disabled = true;
         if (useAuthUtils && window.authUtils && window.authUtils.logout) {
-            window.authUtils.logout();
+            try {
+                await window.authUtils.logout();
+            } finally {
+                logoutBtn.disabled = false;
+            }
+            return;
+        }
+        if (!window.apiUtils) {
+            logoutBtn.disabled = false;
+            return;
+        }
+        try {
+            await window.apiUtils.post('/auth/logout', {}, { suppressErrorToast: true });
+        } catch (error) {
+            window.apiUtils.showToast(error.message || '登出失败，请重试', 'error');
+            logoutBtn.disabled = false;
             return;
         }
         localStorage.removeItem('token');
+        localStorage.removeItem('authed');
+        sessionStorage.removeItem('authed');
         localStorage.removeItem('userType');
         localStorage.removeItem('userData');
         redirectToLogin();
@@ -303,7 +322,9 @@ export function createDashboardController(cfg) {
             }
             if (typeof onSectionShown === 'function') onSectionShown(sectionId);
         } catch (err) {
-            if (typeof onError === 'function') onError(err, sectionId);
+            if (typeof onError === 'function') {
+                onError(err, sectionId, { initial: !initialized.has(sectionId) });
+            }
         }
     }
 

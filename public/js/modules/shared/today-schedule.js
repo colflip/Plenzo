@@ -200,7 +200,10 @@ export function showTodayScheduleError(container, text = '', options = {}) {
  * @returns {Array<Object>}
  */
 function getVisibleTodaySchedules(schedules) {
-    return (Array.isArray(schedules) ? schedules : [])
+    if (!Array.isArray(schedules)) {
+        throw new TypeError('今日排课数据必须是数组');
+    }
+    return schedules
         .filter(schedule => {
             const status = String(schedule.status || 'pending').toLowerCase();
             return !HIDDEN_TODAY_STATUSES.has(status);
@@ -525,9 +528,12 @@ export function renderGroupedTodayScheduleList(container, schedules, options = {
     };
 
     // 拆分：评审/咨询类进入合并池；其余保持原可见规则（已取消/已调整不显示）
+    if (!Array.isArray(schedules)) {
+        throw new TypeError('今日排课数据必须是数组');
+    }
     const mergePool = [];
     const plainItems = [];
-    (Array.isArray(schedules) ? schedules : []).forEach(item => {
+    schedules.forEach(item => {
         const status = String(item.status || 'pending').toLowerCase();
         if (status === 'modified_away') return;
         if (getMergeCategory(getScheduleTypeLabel(item))) {
