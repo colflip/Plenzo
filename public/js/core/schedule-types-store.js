@@ -29,10 +29,7 @@
             this.loadFromCache();
 
             // 2. 无论缓存是否存在，都尝试从服务器获取最新数据
-            try {
-                await this.fetchFromServer();
-            } catch (e) {
-            }
+            await this.fetchFromServer();
         },
 
         /**
@@ -43,16 +40,14 @@
                 return;
             }
 
-            try {
-                const result = await window.apiUtils.getSilent('/admin/schedule-types');
-                const types = Array.isArray(result) ? result : (result.data || []);
-
-                // Empty is also a valid authoritative result (for example after deleting the last type).
-                this.updateData(types);
-                this.saveToCache();
-            } catch (error) {
-                throw error;
+            const result = await window.apiUtils.getSilent('/admin/schedule-types');
+            if (!Array.isArray(result)) {
+                throw new Error('课程类型响应格式无效');
             }
+
+            // Empty is also a valid authoritative result (for example after deleting the last type).
+            this.updateData(result);
+            this.saveToCache();
         },
 
         /**
