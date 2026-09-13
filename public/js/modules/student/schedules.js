@@ -1,5 +1,6 @@
 import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
 import { isMobileView, getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import {
     appendScheduleWatermark,
@@ -207,15 +208,23 @@ export async function loadSchedules(baseDate, showLoading = true) {
             endDate,
             ...(window.studentShowPlan ? { show_plan: 'true' } : {})
         });
-        cachedSchedules = Array.isArray(schedules) ? schedules : [];
+        if (!Array.isArray(schedules)) {
+            throw new Error('课程列表响应格式无效');
+        }
+        cachedSchedules = schedules;
         if (requestId !== scheduleLoadSeq) return;
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
         if (requestId !== scheduleLoadSeq) return;
 
-        renderEmptyState(EMPTY_STATES.schedules);
-        showInlineFeedback(elements.feedback(), '加载课程安排失败，请稍后重试', 'error');
+        renderTableErrorRow(elements.body(), {
+            colspan: 7,
+            error,
+            title: '课程安排加载失败',
+            onRetry: () => loadSchedules(currentWeekStart, true)
+        });
+        showInlineFeedback(elements.feedback(), '加载课程安排失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
         if (requestId === scheduleLoadSeq && showLoading && tableContainer) {

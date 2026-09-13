@@ -2,6 +2,7 @@
  * Student Overview Module
  */
 
+import { renderErrorState } from '../shared/error-ui.js';
 import { API_ENDPOINTS } from './constants.js';
 import { setText } from './utils.js';
 import { showReward } from '../shared/reward-view.js';
@@ -37,16 +38,14 @@ function getViewDate() {
 
 // 按日期查询课程（学生端列表接口，返回数组）
 async function fetchSchedulesForDate(dateStr) {
-    const url = `${API_ENDPOINTS.SCHEDULES}?startDate=${encodeURIComponent(dateStr)}&endDate=${encodeURIComponent(dateStr)}`;
-    const response = await fetch(url, {
-        credentials: 'include',
-        headers: {}
-    });
-    if (!response.ok) {
-        throw new Error('获取课程数据失败');
-    }
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    if (!window.apiUtils) throw new Error('API 客户端尚未加载');
+    const data = await window.apiUtils.get(
+        `${API_ENDPOINTS.SCHEDULES}?startDate=${encodeURIComponent(dateStr)}&endDate=${encodeURIComponent(dateStr)}`,
+        {},
+        { timeoutMs: 15000, suppressErrorToast: true }
+    );
+    if (!Array.isArray(data)) throw new Error('课程列表响应格式无效');
+    return data;
 }
 
 /**
@@ -106,18 +105,17 @@ function showTodayListError(error) {
 export async function loadOverview() {
     try {
         showStatsLoadingState();
+        if (!window.apiUtils) throw new Error('API 客户端尚未加载');
 
-        const response = await fetch(API_ENDPOINTS.OVERVIEW, {
-            credentials: 'include',
-            headers: {}
+        const data = await window.apiUtils.get(API_ENDPOINTS.OVERVIEW, {}, {
+            timeoutMs: 15000,
+            suppressErrorToast: true
         });
-
-        if (!response.ok) {
-            throw new Error('获取总览数据失败');
+        if (!isValidOverviewPayload(data)) {
+            throw new Error('总览数据响应格式无效');
         }
-
-        const data = await response.json();
         overviewData = data;
+        clearStatsErrorState();
 
         updateOverviewDisplay(data);
 
@@ -125,14 +123,32 @@ export async function loadOverview() {
 
         // 当前查看的是今天时直接用总览接口附带的数据，否则按查看日期查询
         if (getViewDate() === getTodayStr()) {
-            renderTodaySchedules(data.todaySchedules || []);
+            renderTodaySchedules(data.todaySchedules);
         } else {
             renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
         }
     } catch (error) {
-
-        showStatsErrorState();
+        showStatsErrorState(error);
     }
+}
+
+function isValidOverviewPayload(data) {
+    const countFields = [
+        'weeklyCount',
+        'monthlyCount',
+        'yearlyCount',
+        'totalPending',
+        'totalCompleted',
+        'totalCancelled'
+    ];
+    return data && typeof data === 'object' &&
+        countFields.every(field =>
+            Object.prototype.hasOwnProperty.call(data, field) &&
+            data[field] !== null &&
+            data[field] !== '' &&
+            Number.isFinite(Number(data[field]))
+        ) &&
+        Array.isArray(data.todaySchedules);
 }
 
 function showStatsLoadingState() {
@@ -151,18 +167,34 @@ function showStatsLoadingState() {
     }
 }
 
-function showStatsErrorState() {
-    // 统计卡加载失败：用占位符而非「Err」字面量
-    const t = '—';
-    setText(weeklyLessonsEl(), t);
-    setText(monthlyLessonsEl(), t);
-    setText(yearlyLessonsEl(), t);
-    setText(totalPendingEl(), t);
-    setText(totalCompletedEl(), t);
-    setText(totalCancelledEl(), t);
+function clearStatsErrorState() {
+    document.getElementById('studentOverviewStatsError')?.remove();
+    const grid = document.querySelector('#overview .overview-stats-grid');
+    if (grid) grid.hidden = false;
+}
 
-    // 今日课程区显示统一错误态（带重试）
-    showTodayListError(new Error('总览数据加载失败'));
+function showStatsErrorState(error) {
+    const grid = document.querySelector('#overview .overview-stats-grid');
+    if (grid) grid.hidden = true;
+
+    let errorContainer = document.getElementById('studentOverviewStatsError');
+    if (!errorContainer && grid) {
+        errorContainer = document.createElement('div');
+        errorContainer.id = 'studentOverviewStatsError';
+        grid.insertAdjacentElement('beforebegin', errorContainer);
+    }
+    if (errorContainer) {
+        renderErrorState(errorContainer, {
+            error,
+            title: '总览数据加载失败',
+            detail: null,
+            onRetry: () => loadOverview(),
+            retryText: '重试',
+            compact: true
+        });
+    }
+
+    showTodayListError(error);
 }
 
 /**
@@ -173,12 +205,12 @@ function showStatsErrorState() {
 function updateOverviewDisplay(data) {
     // 卡片数据列表（HTML 已包含渐变卡片结构，仅更新数值）
     const cardDataList = [
-        { id: 'weeklyLessons', label: '本周课程', value: data.weeklyCount || 0, type: 'weekly' },
-        { id: 'monthlyLessons', label: '本月课程', value: data.monthlyCount || 0, type: 'monthly' },
-        { id: 'yearlyLessons', label: '本年课程', value: data.yearlyCount || 0, type: 'yearly' },
-        { id: 'totalPending', label: '待排课确认', value: data.totalPending || 0, type: 'pending' },
-        { id: 'totalCompleted', label: '已学课程', value: data.totalCompleted || 0, type: 'completed' },
-        { id: 'totalCancelled', label: '课程取消', value: data.totalCancelled || 0, type: 'cancelled' }
+        { id: 'weeklyLessons', label: '本周课程', value: Number(data.weeklyCount), type: 'weekly' },
+        { id: 'monthlyLessons', label: '本月课程', value: Number(data.monthlyCount), type: 'monthly' },
+        { id: 'yearlyLessons', label: '本年课程', value: Number(data.yearlyCount), type: 'yearly' },
+        { id: 'totalPending', label: '待排课确认', value: Number(data.totalPending), type: 'pending' },
+        { id: 'totalCompleted', label: '已学课程', value: Number(data.totalCompleted), type: 'completed' },
+        { id: 'totalCancelled', label: '课程取消', value: Number(data.totalCancelled), type: 'cancelled' }
     ];
 
     cardDataList.forEach((item) => {

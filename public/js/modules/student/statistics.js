@@ -5,15 +5,46 @@
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { setButtonLoading, showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { setupDateRangePickers, formatDate, getLegendColor } from '../shared/stats-view-utils.js';
+import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 
 import { API_ENDPOINTS, STATUS_LABELS, getScheduleTypeLabel } from './constants.js';
-import { formatDateDisplay, handleApiError } from './utils.js';
+import { formatDateDisplay } from './utils.js';
 
 // 声明Chart为全局变量（由CDN加载）
 const Chart = window.Chart;
 
 let currentLearningData = null;
 let dailyChartInstance = null;
+
+function clearChartError() {
+    const chartCard = document.getElementById('dailyTeachingChartCard');
+    const canvas = document.getElementById('dailyTeachingChart');
+    document.getElementById('dailyTeachingChartError')?.remove();
+    if (canvas?.parentElement) canvas.parentElement.hidden = false;
+    if (chartCard) chartCard.removeAttribute('aria-busy');
+}
+
+function renderChartError(error) {
+    const chartCard = document.getElementById('dailyTeachingChartCard');
+    const canvas = document.getElementById('dailyTeachingChart');
+    if (!chartCard || !canvas?.parentElement) return;
+
+    canvas.parentElement.hidden = true;
+    let errorContainer = document.getElementById('dailyTeachingChartError');
+    if (!errorContainer) {
+        errorContainer = document.createElement('div');
+        errorContainer.id = 'dailyTeachingChartError';
+        chartCard.appendChild(errorContainer);
+    }
+    renderErrorState(errorContainer, {
+        error,
+        title: '学习趋势加载失败',
+        detail: null,
+        onRetry: () => loadLearningStats(),
+        retryText: '重试',
+        compact: true
+    });
+}
 
 /**
  * Initialize the statistics section
@@ -23,13 +54,7 @@ export async function initStatisticsSection() {
     setupEventListeners();
 
     // Auto-load data when section is initialized
-
-    try {
-        await loadLearningStats();
-    } catch (error) {
-
-        updateDisplay({ schedules: [], typeStats: {} });
-    }
+    await loadLearningStats();
 }
 
 // setupDateRangePickers / formatDate / getLegendColor 由 shared/stats-view-utils.js 提供
@@ -125,39 +150,35 @@ export async function loadLearningStats() {
     if (detailsCard) showTableLoading(detailsCard, '正在读取明细数据...', 'thead');
 
     try {
-        // 使用 AbortController 设置超时
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const response = await fetch(
-            `${API_ENDPOINTS.STATISTICS}?startDate=${startDate}&endDate=${endDate}`,
-            {
-                credentials: 'include',
-                headers: {},
-                signal: controller.signal
-            }
+        const data = await window.apiUtils.get(
+            `${API_ENDPOINTS.STATISTICS}?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+            {},
+            { timeoutMs: 15000, suppressErrorToast: true }
         );
-        clearTimeout(timeoutId);
 
-        if (!response.ok) {
-            throw new Error('获取学习统计失败');
+        if (!data || typeof data !== 'object' || Array.isArray(data) ||
+            !Array.isArray(data.typeStats) ||
+            !Array.isArray(data.schedules) ||
+            !Array.isArray(data.monthlyStats) ||
+            data.typeStats.some(item => !item || typeof item !== 'object' ||
+                typeof item.type !== 'string' || !item.type.trim() ||
+                !Number.isFinite(Number(item.count)) || Number(item.count) < 0)) {
+            throw new Error('学习统计响应格式无效');
         }
-
-        const data = await response.json();
 
         // 转换 typeStats 数组为对象
         const statsObj = {};
-        if (Array.isArray(data.typeStats)) {
-            data.typeStats.forEach(item => {
-                statsObj[item.type] = item.count;
-            });
-        }
+        data.typeStats.forEach(item => {
+            statsObj[item.type] = Number(item.count);
+        });
 
         currentLearningData = {
-            schedules: data.schedules || [],
+            schedules: data.schedules,
             typeStats: statsObj,
-            monthlyStats: data.monthlyStats || []
+            monthlyStats: data.monthlyStats
         };
+
+        clearChartError();
 
         // 第一阶段：立即渲染卡片和图表（轻量级）
         updateDisplay(currentLearningData);
@@ -167,13 +188,38 @@ export async function loadLearningStats() {
             renderDetailsTable(currentLearningData.schedules);
         });
     } catch (error) {
-        if (error.name === 'AbortError') {
-            console.warn('加载统计超时');
-        } else {
-            console.error('加载统计失败:', error);
+        currentLearningData = null;
+        if (dailyChartInstance) {
+            dailyChartInstance.destroy();
+            dailyChartInstance = null;
         }
-        handleApiError(error, '加载学习统计失败');
-        updateDisplay({ schedules: [], typeStats: {} });
+        if (typeStatsCard) {
+            const statsGrid = document.getElementById('teachingTypeStats');
+            if (statsGrid) {
+                renderErrorState(statsGrid, {
+                    error,
+                    title: '学习统计加载失败',
+                    detail: null,
+                    onRetry: () => loadLearningStats(),
+                    retryText: '重试',
+                    compact: true
+                });
+            }
+        }
+        if (chartCard) {
+            renderChartError(error);
+        }
+        const tbody = document.getElementById('teachingDetailsBody');
+        if (tbody) {
+            renderTableErrorRow(tbody, {
+                colspan: 6,
+                error,
+                title: '学习明细加载失败',
+                detail: null,
+                onRetry: () => loadLearningStats(),
+                retryText: '重试'
+            });
+        }
     } finally {
         if (typeStatsCard) hideTableLoading(typeStatsCard);
         if (chartCard) hideTableLoading(chartCard);

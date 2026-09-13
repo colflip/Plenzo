@@ -1,6 +1,7 @@
 import { API_ENDPOINTS } from './constants.js';
 import { showToast, handleApiError, setText, formatDateTimeDisplay } from './utils.js';
 import { updateSessionUserData } from '../shared/dashboard-kit.js';
+import { renderErrorState } from '../shared/error-ui.js';
 
 function apiPath(endpoint) {
     return String(endpoint || '').replace(/^\/api/, '');
@@ -178,11 +179,33 @@ async function handlePasswordChange(event) {
 export async function loadProfile() {
     try {
         const data = await window.apiUtils.get(apiPath(API_ENDPOINTS.PROFILE));
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            throw new Error('个人信息响应格式无效');
+        }
         profileData = data;
-
+        document.getElementById('studentProfileLoadError')?.remove();
+        const layout = document.querySelector('#profile .profile-layout');
+        if (layout) layout.hidden = false;
         updateProfileDisplay(data);
     } catch (error) {
-        handleApiError(error, '加载个人信息失败');
+        const layout = document.querySelector('#profile .profile-layout');
+        if (layout) layout.hidden = true;
+        const section = document.getElementById('profile');
+        if (!section) return;
+        let errorContainer = document.getElementById('studentProfileLoadError');
+        if (!errorContainer) {
+            errorContainer = document.createElement('div');
+            errorContainer.id = 'studentProfileLoadError';
+            section.prepend(errorContainer);
+        }
+        renderErrorState(errorContainer, {
+            error,
+            title: '个人信息加载失败',
+            detail: null,
+            onRetry: () => loadProfile(),
+            retryText: '重试',
+            compact: true
+        });
     }
 }
 
@@ -220,7 +243,12 @@ function updateProfileDisplay(data) {
     const status = document.getElementById('statusDisplay');
 
     if (lastLogin) setText(lastLogin, formatDateTimeDisplay(data.last_login));
-    if (status) setText(status, data.status === 1 ? '正常' : '异常');
+    if (status) {
+        const statusText = data.status === 1
+            ? '正常'
+            : (data.status === 0 ? '暂停' : (data.status === -1 ? '删除' : '--'));
+        setText(status, statusText);
+    }
 }
 
 function toggleFormFields(disabled) {
@@ -296,6 +324,9 @@ async function handleProfileSubmit(event) {
 
     try {
         const updatedData = await window.apiUtils.put(apiPath(API_ENDPOINTS.PROFILE), payload);
+        if (!updatedData || typeof updatedData !== 'object' || Array.isArray(updatedData)) {
+            throw new Error('个人信息保存响应格式无效');
+        }
         profileData = { ...profileData, ...payload, ...updatedData };
 
         updateSessionUserData(profileData);
