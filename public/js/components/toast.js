@@ -43,10 +43,10 @@ class ToastManager {
             gap: 10px;
             pointer-events: none;
         `;
-        document.body.appendChild(this.container);
 
         // 注入样式
         this.injectStyles();
+        document.body.appendChild(this.container);
     }
 
     /**
@@ -169,6 +169,16 @@ class ToastManager {
             this.createContainer();
         }
 
+        const normalizedMessage = String(message || '');
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            const duplicate = this.toasts.find(item =>
+                !item.classList.contains('hiding') &&
+                item.dataset.type === type &&
+                item.dataset.message === normalizedMessage
+            );
+            if (duplicate) return duplicate;
+        }
+
         // 按类型和优先级决定默认持续时间；带动作按钮的 Toast 停留更久，保证用户能看到并操作
         const defaultDuration = this._getDefaultDuration(type, priority);
         const actualDuration = duration !== undefined
@@ -177,6 +187,11 @@ class ToastManager {
 
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
+        toast.dataset.type = type;
+        toast.dataset.message = normalizedMessage;
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+        toast.setAttribute('aria-atomic', 'true');
 
         // 图标：内联 SVG（stroke=currentColor，颜色随类型），解析自 template 获得 SVG 命名空间
         const iconSpan = document.createElement('span');
@@ -185,7 +200,7 @@ class ToastManager {
 
         const msgSpan = document.createElement('span');
         msgSpan.className = 'toast-message';
-        msgSpan.textContent = message; // textContent 防 XSS
+        msgSpan.textContent = normalizedMessage; // textContent 防 XSS
 
         toast.appendChild(iconSpan);
         toast.appendChild(msgSpan);
@@ -212,18 +227,13 @@ class ToastManager {
         }
 
         if (closable) {
-            const closeSpan = document.createElement('span');
-            closeSpan.className = 'toast-close';
-            closeSpan.textContent = '×';
-            closeSpan.setAttribute('aria-label', '关闭');
-            toast.appendChild(closeSpan);
-        }
-
-        // 关闭按钮事件
-        if (closable) {
-            toast.querySelector('.toast-close').addEventListener('click', () => {
-                this.hide(toast);
-            });
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.className = 'toast-close';
+            closeButton.textContent = '×';
+            closeButton.setAttribute('aria-label', '关闭通知');
+            closeButton.addEventListener('click', () => this.hide(toast));
+            toast.appendChild(closeButton);
         }
 
         this.container.appendChild(toast);

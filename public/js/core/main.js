@@ -142,6 +142,11 @@ function initLogin() {
         const userType = userTypeSelect.value; // teacher, student, admin
         const rememberMe = rememberMeCheckbox ? rememberMeCheckbox.checked : false;
 
+        if (!window.apiUtils) {
+            showError('登录服务尚未加载，请刷新页面重试');
+            return;
+        }
+
         // Simple validation
         if (!username || !password) {
             showError('请输入用户名和密码');
@@ -155,34 +160,12 @@ function initLogin() {
         hideError();
 
         try {
-            // Use apiUtils if available, otherwise fallback to fetch
-            let data;
-
-            if (window.apiUtils) {
-                try {
-                    data = await window.apiUtils.post('/auth/login', {
-                        username,
-                        password,
-                        userType,
-                        rememberMe
-                    });
-                } catch (err) {
-                    throw err; // Re-throw to be caught by outer catch
-                }
-            } else {
-                // Fallback implementation
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, userType, rememberMe })
-                });
-
-                data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.message || '登录失败');
-                }
-            }
+            const data = await window.apiUtils.post('/auth/login', {
+                username,
+                password,
+                userType,
+                rememberMe
+            });
 
             // Success
             if (data.token || data.user) {

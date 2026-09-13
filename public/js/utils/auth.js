@@ -41,8 +41,20 @@ window.authUtils = {
         sessionStorage.removeItem('authed');
     },
 
-    logout: function () {
-        // 清除前端缓存
+    logout: async function () {
+        // 先让后端清除 httpOnly Cookie。失败时不伪装成已登出，保留当前页面供用户重试。
+        if (!window.apiUtils) {
+            if (window.showToast) window.showToast('登出失败，请刷新页面后重试', 'error');
+            return;
+        }
+        try {
+            await window.apiUtils.post('/auth/logout', {}, { suppressErrorToast: true });
+        } catch (error) {
+            window.apiUtils.showToast(error.message || '登出失败，请重试', 'error');
+            return;
+        }
+
+        // 后端已清除 Cookie 后再移除前端缓存，避免客户端与服务端登录态分叉。
         Object.keys(localStorage).forEach(key => {
             if (key.startsWith('plenzo_admin_')) {
                 localStorage.removeItem(key);
@@ -52,16 +64,6 @@ window.authUtils = {
         this.clearAuthToken();
         localStorage.removeItem('userType');
         localStorage.removeItem('userData');
-
-        // 通知后端清除 httpOnly Cookie（同源请求自动携带 Cookie）
-        try {
-            fetch('/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' }
-            }).catch(() => {});
-        } catch (_) { /* ignore */ }
-
         window.location.href = '/index.html';
     }
 };
