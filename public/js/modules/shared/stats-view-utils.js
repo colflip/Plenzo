@@ -28,6 +28,32 @@ export function setupDateRangePickers() {
 }
 
 /**
+ * 确保 Chart.js 已就绪后返回可 await 的 promise（图表库由 /js/utils/load-chart.js 按需加载）。
+ *
+ * 背景：6a7c232 把阻塞首屏的 Chart.js <script> 换成按需加载器后，教师/学生统计模块
+ * 没有任何调用点触发 loader，`Chart` 一直是 undefined，渲染图表时同步抛错并被
+ * 「授课统计/每日授课统计加载失败」错误态吞掉。此处统一预热 + 渲染前 await，
+ * 图表库与接口请求并行下载，不增加可感知延迟。
+ *
+ * 与 admin/legacy-adapter.js 的同名实现共用 window.__chartReadyPromise，避免重复下载。
+ */
+export function ensureChartReady() {
+    if (typeof window.Chart !== 'undefined') return Promise.resolve();
+    if (typeof window.loadChart !== 'function') {
+        return Promise.reject(new Error('图表组件加载失败'));
+    }
+    if (!window.__chartReadyPromise) {
+        window.__chartReadyPromise = window.loadChart().catch(error => {
+            window.__chartReadyPromise = null;
+            throw error;
+        });
+    }
+    return window.__chartReadyPromise.then(() => {
+        if (typeof window.Chart === 'undefined') throw new Error('图表组件加载失败');
+    });
+}
+
+/**
  * 课程类型图例配色：优先 window.ColorUtils（三端 dashboard.html 都加载），
  * 未加载时用固定调色板兜底，保证图例颜色稳定可读。
  */
