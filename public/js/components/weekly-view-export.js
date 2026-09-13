@@ -97,6 +97,9 @@
         cancelledText: '#595959',
         modifiedAwayText: '#8C6239',
         reviewText: '#FF0000',
+        reviewTextLight: '#FF8080',   // 评审/咨询 取消/调整：浅红
+        groupText: '#2F5496',         // 集体活动：蓝（与 Excel 导出 RICH_TEXT_COLORS.BLUE 一致）
+        groupTextLight: '#8DB4E2',    // 集体活动 取消/调整：浅蓝
         defaultText: '#000000'
     };
 
@@ -625,8 +628,9 @@
             let italic = false;
             if (p.isCancelled) { color = S.cancelledText; italic = true; }
             else if (p.isModifiedAway) { color = S.modifiedAwayText; italic = true; }
-            else if (p.isPlanDimmed) { italic = true; color = p.isRed ? '#FF8080' : S.cancelledText; }
-            else if (p.isRed) { color = S.reviewText; }
+            else if (p.isPlanDimmed) { italic = true; color = p.colorKind === 'blue' ? S.groupTextLight : (p.isRed ? S.reviewTextLight : S.cancelledText); }
+            else if (p.colorKind === 'red' || p.isRed) { color = S.reviewText; }
+            else if (p.colorKind === 'blue') { color = S.groupText; }
             appendTextWithMarkerSuperscripts(td, p.text, color, italic);
         });
     }
@@ -729,12 +733,17 @@
 
         if (column === '计划安排' || column === '实际安排') {
             const isPlan = column === '计划安排';
-            const isRed = row && (isPlan ? row._planIsRed : row._actualIsRed);
+            const colorKind = row && (isPlan
+                ? (row._planColorKind || (row._planIsRed ? 'red' : 'black'))
+                : (row._actualColorKind || (row._actualIsRed ? 'red' : 'black')));
+            const isRed = colorKind === 'red';
             const isCancelGrey = row && (isPlan ? row._planIsCancelledGrey : row._actualIsCancelledGrey);
             const isModifiedGrey = row && (isPlan ? row._planIsModifiedAwayGrey : row._actualIsModifiedAwayGrey);
 
             if (isRed) {
                 parts.push('color: ' + S.reviewText);
+            } else if (colorKind === 'blue') {
+                parts.push('color: ' + S.groupText);
             } else if (isCancelGrey) {
                 parts.push('color: ' + S.cancelledText);
                 italic = true;

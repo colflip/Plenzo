@@ -40,7 +40,8 @@ function aggregate(m) {
         reviewAgg: totals.review,
         consultAgg: totals.consultation,
         trial: totals.trial,
-        group: totals.group_activity,
+        // 集体活动已 1:1 折算进评审（见 type-conversion.js FOLDED_TO_REVIEW），不再是独立计费项
+        group: 0,
         uncategorized: totals.uncategorized
     };
 }
@@ -53,17 +54,16 @@ function computeFee(a, c) {
     const vs = round2(a.visitAgg * 200 * c);
     const rs = round2(a.reviewAgg * 100);
     const ts = round2(a.trial * 100);
-    const gs = round2(a.group * 100);
     const cs = round2(a.consultAgg * 100);
     return {
+        // 集体活动已并入评审（同为 ¥100/次），不单列计费项，故总分文不变
         breakdown: [
             { item: 'visit', count: a.visitAgg, unit_price: 200, coefficient: c, subtotal: vs },
             { item: 'review', count: a.reviewAgg, unit_price: 100, coefficient: 1.0, subtotal: rs },
             { item: 'trial', count: a.trial, unit_price: 100, coefficient: 1.0, subtotal: ts },
-            { item: 'group_activity', count: a.group, unit_price: 100, coefficient: 1.0, subtotal: gs },
             { item: 'consultation', count: a.consultAgg, unit_price: 100, coefficient: 1.0, subtotal: cs }
         ],
-        total: round2(vs + rs + ts + gs + cs)
+        total: round2(vs + rs + ts + cs)
     };
 }
 
@@ -77,6 +77,7 @@ function buildPayload(name, start, end, coeff, agg, fee) {
             visit: round2(agg.visitAgg),
             review: round2(agg.reviewAgg),
             trial: round2(agg.trial),
+            // 集体活动已并入 review，此处恒为 0（保留键位以免下游形状变化）
             group_activity: round2(agg.group),
             consultation: round2(agg.consultAgg),
             // 兜底口径：无法归类的课程数（不计酬劳，但必须可见）

@@ -18,6 +18,67 @@ function normalizeTypeKey(typeKey) {
     return raw.toLowerCase();
 }
 
+/**
+ * 取全系统唯一实现 public/js/utils/type-conversion.js。
+ * 未加载即报错 —— 宁可炸也不悄悄退回旧口径（历史上两份公式并存就是这么漂移的）。
+ * @returns {Object} window.TypeConversion
+ */
+function requireTypeConversion() {
+    const tc = typeof window !== 'undefined' ? window.TypeConversion : null;
+    if (!tc) {
+        throw new Error('TypeConversion 未加载：dashboard.html 必须在 export-manager.js 之前引入 /js/utils/type-conversion.js');
+    }
+    return tc;
+}
+
+/**
+ * 把本模块内部的英文原始计数交给唯一实现折算。
+ * 折算规则（含 大评审 = 1 评审、集体活动 = 1 评审）见 public/js/utils/type-conversion.js，
+ * 本文件不再自维护公式 —— 曾因两份公式并存而与 Excel 导出、浏览页统计口径不一致。
+ * @param {Object} stat - trial/home_visit/half_visit/review/review_record/consultation/consultation_record/group_activity
+ * @returns {{trial:number, visit:number, review:number, consultation:number, uncategorized:number}}
+ */
+function convertStatBuckets(stat) {
+    const tc = requireTypeConversion();
+    if (typeof tc.accumulateConvertedColumns !== 'function') {
+        throw new Error('TypeConversion 缺少 accumulateConvertedColumns：请检查 /js/utils/type-conversion.js 是否完整');
+    }
+    return tc.accumulateConvertedColumns(tc.createConvertedTotals(), {
+        '试教': stat.trial,
+        '入户': stat.home_visit,
+        '半次入户': stat.half_visit,
+        '评审': stat.review,
+        '评审记录': stat.review_record,
+        '集体活动': stat.group_activity,
+        '咨询': stat.consultation,
+        '咨询记录': stat.consultation_record
+    });
+}
+
+/**
+ * 单元格（或某一状态分组）的文字颜色类别。
+ * 规则唯一实现见 public/js/utils/type-conversion.js::getColorKind：
+ *   红 = 评审族（评审 / 大评审 / 评审记录）+ 咨询族；蓝 = 集体活动；其余黑。
+ * 同一格内有多种类型时的优先级：红 > 蓝 > 黑（评审/咨询的信息量最大）。
+ * 此前这里只有红/黑两档（`typeName.includes('评审') || includes('咨询')`），
+ * 集体活动被当成"其余"染成黑色，与 Excel 导出的蓝字不一致。
+ * @param {Array} items - 已带 _typeName 的课程行
+ * @returns {'red'|'blue'|'black'}
+ */
+function cellColorKind(items) {
+    const tc = requireTypeConversion();
+    if (typeof tc.getColorKind !== 'function') {
+        throw new Error('TypeConversion 缺少 getColorKind：请检查 /js/utils/type-conversion.js 是否完整');
+    }
+    let kind = 'black';
+    (items || []).forEach(r => {
+        const k = tc.getColorKind(r._typeName);
+        if (k === 'red') kind = 'red';
+        else if (k === 'blue' && kind !== 'red') kind = 'blue';
+    });
+    return kind;
+}
+
 function isCountableSchedule(row) {
     const status = String(row?.status ?? row?.['状态'] ?? '').toLowerCase();
     return !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);
@@ -202,7 +263,6 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 _parsedTimeRange: timeRange,
                 _typeName: typeName,
                 _groupType: groupType,
-                _isReviewOrConsultation: (typeName.includes('评审') || typeName.includes('咨询')),
                 _sTime: sTime // 用于排序
             });
         });
@@ -606,26 +666,28 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             if (normalItems.length > 0) {
                 const normalTypeTexts = buildTypeParts(normalItems);
                 const prefix = pfxClean;
-                const isRed = normalItems.some(r => r._isReviewOrConsultation);
+                const colorKind = cellColorKind(normalItems);
                 textParts.push({
                     text: `${prefix}${normalTypeTexts.join('；')}`,
                     isCancelled: false,
                     isModifiedAway: false,
-                    isRed: isRed
+                    colorKind: colorKind,
+                    isRed: colorKind === 'red'
                 });
             }
 
             // 已取消课程
             if (cancelledItems.length > 0) {
                 const cancelledTypeTexts = buildTypeParts(cancelledItems);
-                const isRed = cancelledItems.some(r => r._isReviewOrConsultation);
+                const colorKind = cellColorKind(cancelledItems);
                 if (isPlanList) {
                     // 计划列：不显示"已取消"包裹，正常文本但斜体+降色
                     textParts.push({
                         text: `${pfxClean}${cancelledTypeTexts.join('；')}`,
                         isCancelled: false,
                         isModifiedAway: false,
-                        isRed: isRed,
+                        colorKind: colorKind,
+                        isRed: colorKind === 'red',
                         isPlanDimmed: true
                     });
                 } else {
@@ -635,7 +697,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                         text: `${pfxCancel}${cancelledTypeTexts.join('；')}]`,
                         isCancelled: true,
                         isModifiedAway: false,
-                        isRed: isRed
+                        colorKind: colorKind,
+                        isRed: colorKind === 'red'
                     });
                 }
             }
@@ -643,14 +706,15 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             // 调走/已调整课程
             if (modifiedAwayItems.length > 0) {
                 const modifiedAwayTypeTexts = buildTypeParts(modifiedAwayItems);
-                const isRed = modifiedAwayItems.some(r => r._isReviewOrConsultation);
+                const colorKind = cellColorKind(modifiedAwayItems);
                 if (isPlanList) {
                     // 计划列：显示已调整课程，不带"调走"包裹，斜体+降色
                     textParts.push({
                         text: `${pfxClean}${modifiedAwayTypeTexts.join('；')}`,
                         isCancelled: false,
                         isModifiedAway: false,
-                        isRed: isRed,
+                        colorKind: colorKind,
+                        isRed: colorKind === 'red',
                         isPlanDimmed: true
                     });
                 } else {
@@ -660,7 +724,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                         text: `${pfxModified}${modifiedAwayTypeTexts.join('；')}]`,
                         isCancelled: false,
                         isModifiedAway: true,
-                        isRed: isRed
+                        colorKind: colorKind,
+                        isRed: colorKind === 'red'
                     });
                 }
             }
@@ -672,7 +737,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 text: fullText,
                 textParts: textParts,  // 保留分段信息用于 rich text
                 displayName: displayName,
-                isRed: cell.items.some(r => r._isReviewOrConsultation),
+                colorKind: cellColorKind(cell.items),
+                isRed: cellColorKind(cell.items) === 'red',
                 sTime: cell.sTime,
                 isModified: cancelledItems.length > 0 || modifiedAwayItems.length > 0,
                 isCancelled: cancelledItems.length > 0,
@@ -715,7 +781,11 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
             let planText = pObj ? pObj.text : '/';
             let actualText = aObj ? aObj.text : '/';
 
-            const rowIsRed = (pObj && pObj.isRed) || (aObj && aObj.isRed) || false;
+            const rowColorKind = (() => {
+                const k = (pObj && pObj.colorKind) || (aObj && aObj.colorKind) || 'black';
+                return k;
+            })();
+            const rowIsRed = rowColorKind === 'red';
 
             resultRows.push({
                 '日期': date,
@@ -725,6 +795,9 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 '费用': resultRows.filter(r => r['日期'] === date).length === 0 ? feeStr : '',
                 '周汇总': resultRows.filter(r => r['日期'] === date).length === 0 ? weekSumStr : '',
                 '_isRedRow': rowIsRed,
+                '_rowColorKind': rowColorKind,
+                '_planColorKind': pObj ? pObj.colorKind : 'black',
+                '_actualColorKind': aObj ? aObj.colorKind : 'black',
                 '_planIsRed': pObj ? pObj.isRed : false,
                 '_actualIsRed': aObj ? aObj.isRed : false,
                 '_planTextParts': pObj ? pObj.textParts : null,
@@ -1281,19 +1354,16 @@ function aggregateStudentStats(rawData, state = {}) {
             }
         }
 
-        // ============ 核心计算逻辑修正 (合并公式) ============
-        // 1. 入户 = 线下入户 + 线上入户 + 0.5 * 半次入户 + 0.5 * 评审记录 + 0.5 * 咨询记录
-        const finalVisit = stat.home_visit + (stat.half_visit * 0.5) + (stat.review_record * 0.5) + (stat.consultation_record * 0.5);
-
-        // 2. 评审 = 线下评审 + 线上评审 + 1.0 * 评审记录
-        const finalReview = stat.review + stat.review_record;
-
-        // 3. 咨询 = 线下咨询 + 线上咨询 + 1.0 * 咨询记录
-        const finalConsult = stat.consultation + stat.consultation_record;
-
-        // 4. 试教 / 集体活动
-        const finalTrial = stat.trial;
-        const finalGroup = stat.group_activity;
+        // ============ 折算（唯一实现 public/js/utils/type-conversion.js）============
+        // 入户 = 入户 + 半次入户×0.5 + 评审记录×0.5 + 咨询记录×0.5
+        // 评审 = 评审 + 评审记录 + 大评审 + 集体活动（1:1）  试教 取原值
+        const totals = convertStatBuckets(stat);
+        const finalTrial = totals.trial;
+        const finalVisit = totals.visit;
+        const finalReview = totals.review;
+        const finalConsult = totals.consultation;
+        // 集体活动已 1:1 折算进评审，恒为 0；保留该键让 filterEmptyColumns 能把整列删掉
+        const finalGroup = 0;
 
         let cleanDateRange = dateRangeStr.trim().replace('至', ' 至 ');
 
@@ -1301,7 +1371,6 @@ function aggregateStudentStats(rawData, state = {}) {
         if (finalTrial > 0) details.push(`${finalTrial}次试教`);
         if (finalVisit > 0) details.push(`${finalVisit}次入户`);
         if (finalReview > 0) details.push(`${finalReview}次评审`);
-        if (finalGroup > 0) details.push(`${finalGroup}次集体活动`);
         if (finalConsult > 0) details.push(`${finalConsult}次咨询`);
 
         const detailsStr = details.length > 0 ? details.join('、') : '无';
@@ -1422,19 +1491,16 @@ function aggregateTeacherStats(rawData, studentName = '全部学生', state = {}
             }
         }
 
-        // ============ 核心计算逻辑修正 (合并公式) ============
-        // 1. 入户 = 线下入户 + 线上入户 + 0.5 * 半次入户 + 0.5 * 评审记录 + 0.5 * 咨询记录
-        const finalVisit = stat.home_visit + (stat.half_visit * 0.5) + (stat.review_record * 0.5) + (stat.consultation_record * 0.5);
-
-        // 2. 评审 = 线下评审 + 线上评审 + 1.0 * 评审记录
-        const finalReview = stat.review + stat.review_record;
-
-        // 3. 咨询 = 线下咨询 + 线上咨询 + 1.0 * 咨询记录
-        const finalConsult = stat.consultation + stat.consultation_record;
-
-        // 4. 试教 / 集体活动
-        const finalTrial = stat.trial;
-        const finalGroup = stat.group_activity;
+        // ============ 折算（唯一实现 public/js/utils/type-conversion.js）============
+        // 入户 = 入户 + 半次入户×0.5 + 评审记录×0.5 + 咨询记录×0.5
+        // 评审 = 评审 + 评审记录 + 大评审 + 集体活动（1:1）  试教 取原值
+        const totals = convertStatBuckets(stat);
+        const finalTrial = totals.trial;
+        const finalVisit = totals.visit;
+        const finalReview = totals.review;
+        const finalConsult = totals.consultation;
+        // 集体活动已 1:1 折算进评审，恒为 0；保留该键让 filterEmptyColumns 能把整列删掉
+        const finalGroup = 0;
 
         let cleanDateRange = dateRangeStr.trim().replace('至', ' 至 ');
 
@@ -1442,7 +1508,6 @@ function aggregateTeacherStats(rawData, studentName = '全部学生', state = {}
         if (finalTrial > 0) details.push(`${finalTrial}次试教`);
         if (finalVisit > 0) details.push(`${finalVisit}次入户`);
         if (finalReview > 0) details.push(`${finalReview}次评审`);
-        if (finalGroup > 0) details.push(`${finalGroup}次集体活动`);
         if (finalConsult > 0) details.push(`${finalConsult}次咨询`);
 
         const detailsStr = details.length > 0 ? details.join('、') : '无';

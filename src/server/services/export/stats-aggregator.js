@@ -153,8 +153,8 @@ class StatsAggregator {
     static applyConversionFormula(stat, startDate, endDate) {
         // 折算口径唯一实现：public/js/utils/type-conversion.js
         //   入户 = 入户 + 半次入户×0.5 + 评审记录×0.5 + 咨询记录×0.5
-        //   评审 = 评审 + 评审记录（大评审 已归入 评审） 咨询 = 咨询 + 咨询记录
-        //   试教 / 集体活动 取原值
+        //   评审 = 评审 + 评审记录 + 大评审 + 集体活动（1:1，不产生入户）  咨询 = 咨询 + 咨询记录
+        //   试教 取原值
         // 该实现对「已折算过的对象」是幂等的（半次入户/评审记录/咨询记录 中间列已不存在），
         // sheet-builder 的「先 aggregate 再 applyConversionFormula」链路依赖这一性质。
         // 内部一律走 Number.isFinite 守卫，避免 undefined/null 产生 NaN 写坏 Excel 数字单元格。
@@ -165,7 +165,6 @@ class StatsAggregator {
         const finalTrial = totals.trial;
         const finalVisit = totals.visit;
         const finalReview = totals.review;
-        const finalGroup = totals.group_activity;
         const finalConsult = totals.consultation;
         // 兜底口径：无法归类的类型不会被丢弃，显式出现在「汇总」与「备注」里
         const finalUncategorized = Number(totals.uncategorized) || 0;
@@ -174,7 +173,6 @@ class StatsAggregator {
         if (finalTrial > 0) parts.push(`${finalTrial}次试教`);
         if (finalVisit > 0) parts.push(`${finalVisit}次入户`);
         if (finalReview > 0) parts.push(`${finalReview}次评审`);
-        if (finalGroup > 0) parts.push(`${finalGroup}次集体活动`);
         if (finalConsult > 0) parts.push(`${finalConsult}次咨询`);
         if (finalUncategorized > 0) parts.push(`${finalUncategorized}次未归类`);
 
@@ -185,7 +183,8 @@ class StatsAggregator {
             '试教': finalTrial,
             '入户': finalVisit,
             '评审': finalReview,
-            '集体活动': finalGroup,
+            // 集体活动已 1:1 折算进评审，恒为 0；保留该键让 filterEmptyColumns 能把整列删掉
+            '集体活动': 0,
             '咨询': finalConsult,
             '未归类': finalUncategorized,
             '汇总': parts.join('、'),

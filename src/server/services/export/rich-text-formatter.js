@@ -9,6 +9,7 @@
 
 const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS, ROW_SEGMENT_SEPARATOR } = require('./export-constants');
 const ScheduleMarkerPolicy = require('../../../../public/js/utils/schedule-marker-policy');
+const TypeConversion = require('../../../../public/js/utils/type-conversion');
 
 class RichTextFormatter {
     /**
@@ -97,14 +98,18 @@ class RichTextFormatter {
 
     /**
      * 获取课程的颜色类型
+     *
+     * 规则唯一实现在 public/js/utils/type-conversion.js::getColorKind：
+     *   红 = 评审族（评审 / **大评审** / 评审记录 及线上变体）+ 咨询族
+     *   蓝 = 集体活动（含线上）
+     *   黑 = 其余（入户 / 半次入户 / 试教 / 未归类 …）
+     * 原先此处用 `base === '评审'` 精确比对，「大评审」不匹配 → 掉成黑字；
+     * 改为委托唯一实现后，任何走语义词根归类的类型都自动跟随着色。
      * @param {string} displayType - 显示类型名
      * @returns {'red'|'blue'|'black'} 颜色类型
      */
     static getColorType(displayType) {
-        const base = displayType.replace(/[（(]线上[）)]/, '');
-        if (base === '评审' || base === '咨询') return 'red';
-        if (base === '集体活动') return 'blue';
-        return 'black';
+        return TypeConversion.getColorKind(displayType);
     }
 
     /**
