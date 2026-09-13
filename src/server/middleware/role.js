@@ -4,6 +4,8 @@
  * @module middleware/role
  */
 
+const { AppError } = require('./error');
+
 // 角色定义
 const ROLES = {
     ADMIN: 'admin',
@@ -27,20 +29,14 @@ const requireRole = (...allowedRoles) => {
     return (req, res, next) => {
         // 确保用户已认证
         if (!req.user) {
-            return res.status(401).json({
-                success: false,
-                message: '请先登录'
-            });
+            return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '请先登录' }));
         }
 
         const userRole = req.user.userType || req.user.role;
 
         // 检查用户角色是否在允许列表中
         if (!allowedRoles.includes(userRole)) {
-            return res.status(403).json({
-                success: false,
-                message: '没有权限执行此操作'
-            });
+            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '没有权限执行此操作' }));
         }
 
         next();
@@ -55,28 +51,19 @@ const requireRole = (...allowedRoles) => {
 const requirePermissionLevel = (maxLevel) => {
     return (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({
-                success: false,
-                message: '请先登录'
-            });
+            return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '请先登录' }));
         }
 
         // 非管理员直接拒绝
         const userRole = req.user.userType || req.user.role;
         if (userRole !== ROLES.ADMIN) {
-            return res.status(403).json({
-                success: false,
-                message: '需要管理员权限'
-            });
+            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '需要管理员权限' }));
         }
 
         // 检查权限级别（数字越小权限越高）
         const userLevel = req.user.permissionLevel || 3;
         if (userLevel > maxLevel) {
-            return res.status(403).json({
-                success: false,
-                message: '权限级别不足'
-            });
+            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '权限级别不足' }));
         }
 
         next();
@@ -91,10 +78,7 @@ const requirePermissionLevel = (maxLevel) => {
 const requireOwnerOrAdmin = (getResourceOwnerId) => {
     return async (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({
-                success: false,
-                message: '请先登录'
-            });
+            return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '请先登录' }));
         }
 
         const userRole = req.user.userType || req.user.role;
@@ -104,20 +88,17 @@ const requireOwnerOrAdmin = (getResourceOwnerId) => {
             return next();
         }
 
-        // 获取资源所有者ID
+        // 获取资源所有者ID；任何异常都继续传播给全局错误出口，而不是伪装成权限不足
         try {
             const ownerId = await getResourceOwnerId(req);
             if (req.user.id === ownerId) {
                 return next();
             }
         } catch (error) {
-            // 获取所有者ID失败，继续拒绝访问
+            return next(error);
         }
 
-        return res.status(403).json({
-            success: false,
-            message: '只能访问自己的资源'
-        });
+        return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '只能访问自己的资源' }));
     };
 };
 

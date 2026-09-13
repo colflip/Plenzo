@@ -1,58 +1,84 @@
 const logger = require('../utils/logger.js');
 /**
  * 全局错误处理中间件
- * @description 统一处理Express应用中的所有错误
+ * @description 统一处理 Express 应用中的所有错误，输出 { ok, data, error, meta } 信封。
  * @module middleware/error
  */
 
-/**
- * 标准化错误响应格式（单一来源见 utils/response.js）
- */
 const { errorResponse } = require('../utils/response');
+const { statusToErrorCode, errorCodeToStatus, codeDefaults } = require('../utils/http-status');
 
 /**
- * 自定义应用错误类
+ * 应用错误类
+ * 兼容两种构造方式：
+ *   - new AppError({ code, message, details, retryable, retryAfterSeconds, statusCode })
+ *   - new AppError(message, statusCode, errors)  // 旧位置参数
+ * code 缺失时按 statusCode 推导；statusCode 缺失时按 code 的 CODE_DEFAULTS 推导。
  */
 class AppError extends Error {
-    constructor(message, statusCode = 500, errors = null) {
-        super(message);
-        this.statusCode = statusCode;
-        this.errors = errors;
+    constructor(messageOrOptions, statusCode, errors) {
+        let opts;
+        if (messageOrOptions && typeof messageOrOptions === 'object') {
+            opts = { ...messageOrOptions };
+        } else {
+            opts = { message: messageOrOptions, statusCode, errors };
+        }
+
+        super(opts.message || '服务器内部错误');
+        this.name = 'AppError';
+
+        this.code = opts.code || statusToErrorCode(opts.statusCode || 500);
+
+        const def = codeDefaults(this.code);
+        this.statusCode = opts.statusCode ||
+            (def && def.status) ||
+            errorCodeToStatus(this.code) ||
+            500;
+
+        if (typeof opts.retryable === 'boolean') {
+            this.retryable = opts.retryable;
+        } else if (def) {
+            this.retryable = def.retryable;
+        } else {
+            this.retryable = this.statusCode >= 500;
+        }
+
+        this.details = opts.details || null;
+        this.retryAfterSeconds = (opts.retryAfterSeconds === null || Number.isInteger(opts.retryAfterSeconds))
+            ? opts.retryAfterSeconds
+            : null;
         this.isOperational = true;
         Error.captureStackTrace(this, this.constructor);
     }
 }
 
 /**
- * 数据库错误处理
- * @param {Error} err - 数据库错误
- * @returns {Object} { statusCode, message }
+ * 数据库错误处理（SQLSTATE -> 状态/文案/机器码）
  */
-const handleDatabaseError = (err) => {
-    const errorMap = {
-        '23505': { statusCode: 409, message: '数据已存在，请检查唯一性约束' },
-        '23503': { statusCode: 400, message: '关联数据不存在' },
-        '23502': { statusCode: 400, message: '必填字段不能为空' },
-        '22P02': { statusCode: 400, message: '无效的数据格式' },
-        '42P01': { statusCode: 500, message: '数据表不存在' }
-    };
+const DB_ERROR_MAP = {
+    '23505': { status: 409, code: 'CONFLICT', message: '数据已存在，请检查唯一性约束' },
+    '23503': { status: 400, code: 'BAD_REQUEST', message: '关联数据不存在' },
+    '23502': { status: 400, code: 'BAD_REQUEST', message: '必填字段不能为空' },
+    '22P02': { status: 400, code: 'BAD_REQUEST', message: '无效的数据格式' },
+    '42P01': { status: 500, code: 'INTERNAL_ERROR', message: '数据表不存在' }
+};
 
-    return errorMap[err.code] || { statusCode: 500, message: '数据库操作失败' };
+const handleDatabaseError = (err) => {
+    const mapped = DB_ERROR_MAP[err.code];
+    return mapped || { status: 500, code: 'INTERNAL_ERROR', message: '数据库操作失败' };
 };
 
 /**
- * JWT错误处理
- * @param {Error} err - JWT错误
- * @returns {Object} { statusCode, message }
+ * JWT 错误处理
  */
 const handleJwtError = (err) => {
     if (err.name === 'TokenExpiredError') {
-        return { statusCode: 401, message: '认证令牌已过期' };
+        return { statusCode: 401, code: 'AUTH_EXPIRED', message: '认证令牌已过期' };
     }
     if (err.name === 'JsonWebTokenError') {
-        return { statusCode: 401, message: '无效的认证令牌' };
+        return { statusCode: 401, code: 'AUTH_INVALID', message: '无效的认证令牌' };
     }
-    return { statusCode: 401, message: '认证失败' };
+    return { statusCode: 401, code: 'AUTH_INVALID', message: '认证失败' };
 };
 
 /**
@@ -67,7 +93,6 @@ const shouldLogDetail = (err) => {
     const last = recentErrorKeys.get(key);
     if (last && now - last < ERROR_LOG_WINDOW) return false;
     recentErrorKeys.set(key, now);
-    // 防止 Map 无界增长：过期项顺手清掉
     if (recentErrorKeys.size > 200) {
         for (const [k, t] of recentErrorKeys) {
             if (now - t > ERROR_LOG_WINDOW) recentErrorKeys.delete(k);
@@ -80,48 +105,67 @@ const shouldLogDetail = (err) => {
  * 全局错误处理中间件
  */
 const errorHandler = (err, req, res, next) => {
-    // 默认错误状态和消息
-    let statusCode = err.statusCode || 500;
-    let message = err.message || '服务器内部错误';
-    let errors = err.errors || null;
+    const requestId = req && req.requestId;
 
-    // 处理已知的操作性错误
-    if (err.isOperational) {
-        return res.status(statusCode).json(errorResponse(false, message, errors));
-    }
+    let statusCode;
+    let code;
+    let message;
+    let details = null;
+    let retryable = false;
+    let retryAfterSeconds = null;
 
-    // 数据库熔断 / 不可达：快速失败时返回 503，让前端能区分「服务故障」与「业务错误」，
-    // 而不是当成 500 内部错误或静默空数据。详细信息只在服务端日志里保留。
-    if (err.code === 'DB_UNAVAILABLE') {
-        return res.status(503).json(errorResponse(false, '数据库暂时不可用，请稍后重试'));
-    }
-
-    // 处理数据库错误
-    if (err.code && typeof err.code === 'string' && err.code.match(/^[0-9A-Z]{5}$/)) {
-        const dbError = handleDatabaseError(err);
-        statusCode = dbError.statusCode;
-        message = dbError.message;
-    }
-
-    // 处理JWT错误
-    if (err.name && (err.name.includes('Token') || err.name.includes('Jwt'))) {
-        const jwtError = handleJwtError(err);
-        statusCode = jwtError.statusCode;
-        message = jwtError.message;
-    }
-
-    // 处理Joi验证错误
-    if (err.isJoi) {
+    if (err instanceof AppError || err.isOperational) {
+        statusCode = err.statusCode || 500;
+        code = err.code || statusToErrorCode(statusCode);
+        message = err.message || '请求失败';
+        details = err.details || null;
+        retryable = typeof err.retryable === 'boolean' ? err.retryable : (statusCode >= 500);
+        retryAfterSeconds = err.retryAfterSeconds != null ? err.retryAfterSeconds : null;
+    } else if (err.code === 'DB_UNAVAILABLE' || (typeof err.code === 'string' && /^08/.test(err.code))) {
+        statusCode = 503;
+        code = 'DB_UNAVAILABLE';
+        message = '数据库暂时不可用，请稍后重试';
+        retryable = true;
+    } else if (err.code && typeof err.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code)) {
+        const db = handleDatabaseError(err);
+        statusCode = db.status;
+        code = db.code;
+        message = db.message;
+    } else if (err.name && (err.name.includes('Token') || err.name.includes('Jwt'))) {
+        const jwtErr = handleJwtError(err);
+        statusCode = jwtErr.statusCode;
+        code = jwtErr.code;
+        message = jwtErr.message;
+    } else if (err.type === 'entity.parse.failed') {
         statusCode = 400;
+        code = 'BAD_REQUEST';
+        message = '请求内容不是有效的 JSON';
+    } else if (err.type === 'entity.too.large') {
+        statusCode = 413;
+        code = 'PAYLOAD_TOO_LARGE';
+        message = '请求体过大，请减少提交内容后重试';
+    } else if (err.isJoi) {
+        statusCode = 422;
+        code = 'VALIDATION_FAILED';
         message = '参数验证失败';
-        errors = err.details?.map(d => ({
-            field: d.path.join('.'),
+        details = (err.details || []).map((d) => ({
+            path: d.path.join('.'),
             message: d.message
         }));
+    } else {
+        statusCode = err.statusCode || 500;
+        code = statusToErrorCode(statusCode);
+        message = '服务器内部错误';
     }
 
-    // 非生产环境记录详细错误。
-    // 节流：DB 不可达时每个请求都会走到这里，逐条打印堆栈会把首个真实原因淹掉。
+    // 5xx 不向客户端泄露内部信息：统一为安全文案。
+    if (statusCode >= 500) {
+        message = (code === 'DB_UNAVAILABLE') ? message : '服务器内部错误，请稍后重试';
+    }
+    if (retryAfterSeconds == null && retryable) {
+        retryAfterSeconds = null;
+    }
+
     if (process.env.NODE_ENV !== 'production' && shouldLogDetail(err)) {
         logger.error('[Error]', {
             message: err.message,
@@ -130,27 +174,29 @@ const errorHandler = (err, req, res, next) => {
         });
     }
 
-    res.status(statusCode).json(errorResponse(false, message, errors));
+    res.status(statusCode).json(
+        errorResponse({ code, message, details: details || [], retryable, retryAfterSeconds }, { requestId })
+    );
 };
 
 /**
- * 404 Not Found处理中间件
- * 浏览器请求返回 HTML 页面，API 请求返回 JSON
+ * 404 Not Found 处理中间件
  */
 const notFoundHandler = (req, res, next) => {
-    // API 请求返回 JSON
-    if (req.path.startsWith('/api/')) {
-        return res.status(404).json(errorResponse(false, '请求的资源不存在'));
+    if (req.path && req.path.startsWith('/api/')) {
+        return res.status(404).json(
+            errorResponse(
+                { code: 'ROUTE_NOT_FOUND', message: '请求的资源不存在', details: [], retryable: false, retryAfterSeconds: null },
+                { requestId: req && req.requestId }
+            )
+        );
     }
-    // 浏览器请求返回 404 页面
     const path = require('path');
     res.status(404).sendFile(path.join(__dirname, '../../../public/404.html'));
 };
 
 /**
  * 异步错误包装器
- * @param {Function} fn - 异步路由处理函数
- * @returns {Function} 包装后的中间件
  */
 const asyncHandler = (fn) => {
     return (req, res, next) => {

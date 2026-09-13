@@ -3,6 +3,7 @@ const { FEE_STATUSES } = require('../utils/fee-status');
 
 // 标准化响应格式（单一来源见 utils/response.js）
 const { standardResponse } = require('../utils/response');
+const { AppError } = require('./error');
 
 // 通用验证中间件
 const validate = (schema, property = 'body') => {
@@ -14,15 +15,18 @@ const validate = (schema, property = 'body') => {
         });
 
         if (error) {
-            const errors = error.details.map(detail => ({
-                field: detail.path.join('.'),
+            const details = error.details.map(detail => ({
+                path: `${property}.${detail.path.join('.')}`,
                 message: detail.message
                 // 不回显 value，防止泄露密码等敏感输入
             }));
 
-            return res.status(400).json(
-                standardResponse(false, null, '数据验证失败', errors)
-            );
+            return next(new AppError({
+                code: 'VALIDATION_FAILED',
+                statusCode: 422,
+                message: '参数验证失败',
+                details
+            }));
         }
 
         req[property] = value;
