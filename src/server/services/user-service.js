@@ -58,6 +58,18 @@ const DEFAULT_PAGE_SIZE = 50;
 // 旧的 200 上限会在条数超过 200 时静默截断，用户看不到任何提示。
 const MAX_PAGE_SIZE = 1000;
 
+/**
+ * 主键守卫：三个角色的主键列都是整型，非数字 ID（如 `t1`）会让 PG 抛 22P02
+ * invalid_text_representation，被控制器 catch 后报成 500「获取用户详情失败」。
+ * 参数问题不该表现为服务端故障，这里提前拦成 400。
+ */
+function invalidIdResult(id) {
+    const raw = (id === undefined || id === null) ? '' : String(id);
+    if (!/^\d+$/.test(raw)) {
+        return { status: 400, body: standardResponse(false, null, '无效的用户 ID') };
+    }
+    return null;
+}
 
 /**
  * 跨角色 ID 占用检查：目标 ID 不得已被其他角色占用。
@@ -142,6 +154,8 @@ async function listUsers(userType, { page, size, limit } = {}, req) {
 async function getUserById(userType, id, req) {
     const table = resolveTable(userType);
     if (!table) return { status: 400, body: standardResponse(false, null, '无效的用户类型') };
+    const badId = invalidIdResult(id);
+    if (badId) return badId;
 
     let selectColumns = BASE_COLUMNS[userType];
     try {
@@ -316,6 +330,8 @@ async function updateUser(userType, id, payload, req) {
     const { username, name, email, new_id, password, ...additionalInfo } = payload || {};
     const table = resolveTable(userType);
     if (!table) return { status: 400, body: { message: '无效的用户类型' } };
+    const badId = invalidIdResult(id);
+    if (badId) return badId;
 
     const actorLevel = getActorLevel(req && req.user);
     const actorId = req.user ? req.user.id : null;
@@ -553,6 +569,8 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
 
     const table = resolveTable(userType);
     if (!table) return { status: 400, body: { message: '无效的用户类型' } };
+    const badId = invalidIdResult(id);
+    if (badId) return badId;
 
     if (userType === 'admin') {
         const target = await fetchAdminTarget(id);
