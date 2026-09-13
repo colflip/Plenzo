@@ -152,6 +152,9 @@
         let fullSchedules;
         try {
             fullSchedules = await ctx.fetchSchedules(startISO, endISO);
+            if (!Array.isArray(fullSchedules)) {
+                throw new Error('排课导出响应格式无效');
+            }
         } catch (err) {
             if (prepToastId && window.apiUtils) window.apiUtils.hideToast(prepToastId);
             if (window.apiUtils) window.apiUtils.showToast('获取导出数据失败: ' + err.message, 'error');
@@ -186,7 +189,10 @@
     // 收集导出目标：优先按学生维度；若无 student_id（如普通教师自己的课）则回退教师维度；
     // 若两者皆无，则视为单一「本人」视图。返回 { dim, targets }
     function collectDimensionTargets(schedules) {
-        const list = Array.isArray(schedules) ? schedules : [];
+        if (!Array.isArray(schedules)) {
+            throw new TypeError('排课导出数据必须是数组');
+        }
+        const list = schedules;
         const hasStudent = list.some(s => s.student_id != null);
         const seen = new Map();
 
@@ -347,8 +353,10 @@
         const endDateObj = weekDates[weekDates.length - 1];
 
         // 1. 过滤出本周 + 该目标（学生/教师/本人）的排课
-        const baseSchedules = Array.isArray(sourceSchedules) ? sourceSchedules : [];
-        const adaptedRows = baseSchedules
+        if (!Array.isArray(sourceSchedules)) {
+            throw new TypeError('排课导出数据必须是数组');
+        }
+        const adaptedRows = sourceSchedules
             .filter(s => {
                 if (dim === 'teacher') return String(s.teacher_id) === String(targetStudent.id);
                 if (dim === 'self') return true;
