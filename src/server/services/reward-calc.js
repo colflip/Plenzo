@@ -5,51 +5,39 @@
  */
 
 const db = require('../db/db');
+const logger = require('../utils/logger');
+// 类型别名与折算的唯一实现（与浏览页统计、Excel 导出共用同一份规则）
+const TypeConversion = require('../../../public/js/utils/type-conversion');
 
-// 类型中文 → 英文键（含线上/半次/记录变体）
-const TYPE_EN = {
-    '试教': 'trial', '入户': 'visit', '半次入户': 'half_visit',
-    '（线上）入户': 'online_visit', '(线上)入户': 'online_visit', '线上入户': 'online_visit',
-    '评审': 'review', '评审记录': 'review_record',
-    '（线上）评审': 'online_review', '(线上)评审': 'online_review', '线上评审': 'online_review',
-    '集体活动': 'group_activity',
-    '咨询': 'consultation', '咨询记录': 'consultation_record',
-    '（线上）咨询': 'online_consultation', '(线上)咨询': 'online_consultation', '线上咨询': 'online_consultation',
-    '（线上）评审记录': 'online_review_record', '(线上)评审记录': 'online_review_record', '线上评审记录': 'online_review_record',
-    '（线上）咨询记录': 'online_consultation_record', '(线上)咨询记录': 'online_consultation_record', '线上咨询记录': 'online_consultation_record'
-};
-const ONLINE_CAPABLE = new Set(['visit', 'review', 'consultation', 'review_record', 'consultation_record']);
-
-function toEnKey(cn) {
-    const isOnline = cn.includes('（线上）') || cn.includes('(线上)') || cn.startsWith('线上');
-    const base = cn.replace(/[（(]线上[)）]/g, '').replace(/^线上/, '');
-    let en = TYPE_EN[cn] || TYPE_EN[base] || base;
-    if (isOnline && ONLINE_CAPABLE.has(en)) en = 'online_' + en;
-    return en;
-}
+// 未识别类型告警去重
+const reportedUnknownTypes = new Set();
 
 function aggregate(m) {
+    const totals = TypeConversion.createConvertedTotals();
     const enMap = {};
     for (const [cn, c] of Object.entries(m || {})) {
         const v = Number(c) || 0;
         if (v <= 0) continue;
-        const en = toEnKey(cn);
-        enMap[en] = (enMap[en] || 0) + v;
+        const key = TypeConversion.normalizeTypeKey(cn);
+        if (!key) {
+            // 未登记的类型必须可见 —— 否则会静默不计酬劳（「大评审」曾因此整类丢失）
+            const name = String(cn).trim();
+            if (name && !reportedUnknownTypes.has(name)) {
+                reportedUnknownTypes.add(name);
+                logger.warn(`[reward] 未登记的课程类型「${name}」未计入酬劳，请在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
+            }
+            continue;
+        }
+        enMap[key] = (enMap[key] || 0) + v;
+        TypeConversion.accumulateConvertedType(totals, cn, v);
     }
-    const g = (k) => Number(enMap[k] || 0);
-    const visit = g('visit') + g('online_visit');
-    const half = g('half_visit');
-    const review = g('review') + g('online_review');
-    const reviewRec = g('review_record') + g('online_review_record');
-    const consult = g('consultation') + g('online_consultation');
-    const consultRec = g('consultation_record') + g('online_consultation_record');
     return {
         enMap,
-        visitAgg: visit + half * 0.5 + reviewRec * 0.5 + consultRec * 0.5,
-        reviewAgg: review + reviewRec,
-        consultAgg: consult + consultRec,
-        trial: g('trial'),
-        group: g('group_activity')
+        visitAgg: totals.visit,
+        reviewAgg: totals.review,
+        consultAgg: totals.consultation,
+        trial: totals.trial,
+        group: totals.group_activity
     };
 }
 

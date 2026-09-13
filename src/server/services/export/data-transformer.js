@@ -3,25 +3,22 @@
  * 负责数据标准化、类型归一化、格式转换等辅助功能
  */
 
-const { TYPE_NORMALIZATION, NON_COUNTABLE_STATUSES } = require('./export-constants');
+const { NON_COUNTABLE_STATUSES } = require('./export-constants');
+// 类型别名与折算的唯一实现（与浏览页统计、教师酬劳、图片导出共用）
+const TypeConversion = require('../../../../public/js/utils/type-conversion');
 
 class DataTransformer {
     /**
-     * 标准化类型键：线上类型 → 基础类型
+     * 标准化类型键：任意写法（中文 description / 英文 slug / 线上变体）→ 规范类型键
+     * 委托给唯一实现，避免本文件再维护一份别名表。
      * @param {string} typeKey - 原始类型键
-     * @returns {string} 标准化后的类型键
+     * @returns {string|null} trial | visit | half_visit | review | review_record | group | consult | consult_record；未识别返回 null
      */
     static normalizeTypeKey(typeKey) {
-        const lower = String(typeKey || '').toLowerCase().trim();
-        // 大评审 归一为评审：业务口径中「大评审」等同于「评审」参与统计与折算
-        if (lower === '大评审' || lower === '大評審' || lower === 'big_review' || lower === 'bigreview') return 'review';
-        if (lower === 'review_online' || lower === 'online_review') return 'review';
-        if (lower === 'visit_online' || lower === 'online_visit') return 'visit';
-        if (lower === 'consultation_online' || lower === 'online_consultation' ||
-            lower === 'advisory_online' || lower === 'online_advisory') return 'consultation';
-        if (lower === 'review_record_online' || lower === 'online_review_record') return 'review_record';
-        if (lower === 'consultation_record_online' || lower === 'online_consultation_record') return 'consultation_record';
-        return lower;
+        const key = TypeConversion.normalizeTypeKey(typeKey);
+        if (key) return key;
+        // 兼容旧调用方：未识别时回退为原来的「小写原值」形态（不返回 null）
+        return String(typeKey || '').toLowerCase().trim();
     }
 
     /**

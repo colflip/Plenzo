@@ -6,23 +6,16 @@
 // ==========================================
 
 /**
- * 标准化类型键：将线上类型映射到基础类型
- * @param {string} typeKey - 类型英文标识
- * @returns {string} 标准化后的类型英文标识
+ * 标准化类型键：任意写法（中文 description / 英文 slug / 线上变体）→ 规范类型键
+ * 委托给全系统唯一实现 public/js/utils/type-conversion.js，本文件不再维护别名表。
+ * @param {string} typeKey - 原始类型标识
+ * @returns {string} trial | visit | half_visit | review | review_record | group_activity | consultation | consultation_record
  */
 function normalizeTypeKey(typeKey) {
-    const lower = String(typeKey || '').toLowerCase().trim();
-    // 线上评审 → 评审
-    if (lower === 'review_online' || lower === 'online_review') return 'review';
-    // 线上入户 → 入户
-    if (lower === 'visit_online' || lower === 'online_visit') return 'visit';
-    // 线上咨询 → 咨询
-    if (lower === 'consultation_online' || lower === 'online_consultation' || lower === 'advisory_online' || lower === 'online_advisory') return 'consultation';
-    // 线上评审记录 → 评审记录
-    if (lower === 'review_record_online' || lower === 'online_review_record') return 'review_record';
-    // 线上咨询记录 → 咨询记录
-    if (lower === 'consultation_record_online' || lower === 'online_consultation_record') return 'consultation_record';
-    return lower;
+    const raw = String(typeKey == null ? '' : typeKey).trim();
+    const tc = typeof window !== 'undefined' ? window.TypeConversion : null;
+    if (tc) return tc.normalizeTypeKey(raw) || raw.toLowerCase();
+    return raw.toLowerCase();
 }
 
 function isCountableSchedule(row) {

@@ -158,12 +158,13 @@
     }));
   }
 
-  // 评审等价别名：业务口径中「大评审」等同于「评审」，参与统计与折算时合并计入。
-  // 集中在此处，避免各统计路径各自硬编码。
-  const REVIEW_ALIASES = ['大评审', '大評審', 'big_review', 'bigreview'];
+  // 评审等价别名（「大评审」「(线上)大评审」等）统一判定在唯一实现
+  // public/js/utils/type-conversion.js —— 此处只负责把图例标签合并成「评审」。
   function normalizeReviewLabel(label) {
-    const l = String(label || '').trim();
-    if (REVIEW_ALIASES.includes(l) || REVIEW_ALIASES.includes(l.toLowerCase())) return '评审';
+    const raw = String(label == null ? '' : label).trim();
+    if (!raw) return label;
+    const tc = typeof window !== 'undefined' ? window.TypeConversion : null;
+    if (tc && typeof tc.isReviewType === 'function' && tc.isReviewType(raw)) return '评审';
     return label;
   }
 

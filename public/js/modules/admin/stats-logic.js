@@ -845,73 +845,41 @@ export function aggregateCountsByDate(rows, dayLabels, dateField = 'date') {
 
 
 
-// --- 折算口径（唯一实现）---
-// 三处消费：教师单人卡、学生单人卡、「按日期汇总」右侧文字摘要。此前各自复制一份
-// 规则，规则一改就要同步三处；摘要面板甚至只折算评审、漏掉入户/集体活动/咨询。
-// 规则：线上类型等同线下；半次入户 = 0.5 次入户；评审记录 = 1 次评审 + 0.5 次入户；
-// 大评审 等同 评审；咨询记录 / 线上辅导 / 心理咨询 计入咨询。
-export function createConvertedTotals() {
-    return { visit: 0, review: 0, group: 0, consult: 0 };
+// --- 折算口径：委托给唯一实现 public/js/utils/type-conversion.js ---
+// 同一份实现被三处消费：Excel 导出第 2/3 工作表（服务端 require）、教师酬劳计算（服务端 require）、
+// 本页教师统计 / 学生统计。此前三方各写一套别名与分支，新加「大评审」时导出的那套漏了映射，
+// 导致同一个数字在三处不一致。现在只保留「把 grid 行的 schedule_types 喂进去」这一件事。
+// 规则：线上类型等同线下；半次入户 = 0.5 次入户；评审记录 = 1 评审 + 0.5 入户；
+//      咨询记录 = 1 咨询 + 0.5 入户；大评审（含线上）= 1 评审；试教 / 集体活动 取原值。
+function getTypeConversion() {
+    const tc = typeof window !== 'undefined' ? window.TypeConversion : null;
+    if (!tc) {
+        // 宁可显式报错也不静默少算
+        throw new Error('TypeConversion 未加载：/js/utils/type-conversion.js 必须早于统计模块加载');
+    }
+    return tc;
 }
 
-function isOnlineVariant(lower, baseName) {
-    return lower.includes(`线上${baseName}`)
-        || lower.includes(`（线上）${baseName}`)
-        || lower.includes(`(线上)${baseName}`);
+export function createConvertedTotals() {
+    return getTypeConversion().createConvertedTotals();
 }
 
 /** 把单个课程类型按折算规则累加进 totals；count 支持小数（摘要面板按类型总数累加） */
 export function accumulateConvertedType(totals, rawType, count = 1) {
-    const trimmed = String(rawType ?? '').trim();
-    if (!trimmed) return totals;
-    const lower = trimmed.toLowerCase();
-    const n = Number(count) || 0;
-    const isType = (code, id, name) => lower === code || trimmed === String(id) || lower === String(name).toLowerCase();
-
-    if (isType('visit', 1, '入户') || isOnlineVariant(lower, '入户')) {
-        totals.visit += n;
-    } else if (isType('half_visit', 5, '半次入户')) {
-        totals.visit += n * 0.5;              // 半次入户 = 0.5 次入户
-    } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineVariant(lower, '评审')) {
-        totals.review += n;                   // 大评审 等同 评审 计入折算
-    } else if (isType('review_record', 4, '评审记录') || isOnlineVariant(lower, '评审记录')) {
-        totals.review += n;                   // 评审记录 = 1 次评审
-        totals.visit += n * 0.5;              // + 0.5 次入户
-    } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
-        totals.group += n;
-    } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult'
-        || isOnlineVariant(lower, '咨询') || lower.includes('线上辅导') || lower.includes('心理咨询')) {
-        totals.consult += n;
-    } else if (lower.includes('咨询记录') || isOnlineVariant(lower, '咨询记录')) {
-        totals.consult += n;                  // 咨询记录 = 1 次咨询
-    }
-    return totals;
+    return getTypeConversion().accumulateConvertedType(totals, rawType, count);
 }
 
 /** 按行（schedule_types 逗号分隔）统计折算结果 */
 export function computeConvertedFromRows(rows) {
-    const totals = createConvertedTotals();
-    (rows || []).forEach(r => {
-        const typesStr = String(r?.schedule_types || '').trim();
-        (typesStr ? typesStr.split(',') : []).forEach(t => accumulateConvertedType(totals, t, 1));
-    });
+    const tc = getTypeConversion();
+    const totals = tc.createConvertedTotals();
+    (rows || []).forEach(r => tc.accumulateTypeList(totals, r && r.schedule_types, 1));
     return totals;
 }
 
-function fmtCount(v) {
-    const n = Number(v) || 0;
-    return Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : String(Number(n.toFixed(1)));
-}
-
-/** 折算文本：入户 X · 评审 Y · 集体活动 Z · 咨询 W（仅显示非 0 项） */
+/** 折算文本：试教 X · 入户 Y · 评审 Z · 集体活动 W · 咨询 V（仅显示非 0 项） */
 export function formatConvertedText(totals) {
-    const t = totals || createConvertedTotals();
-    const parts = [];
-    if (t.visit > 0) parts.push(`入户 ${fmtCount(t.visit)}`);
-    if (t.review > 0) parts.push(`评审 ${fmtCount(t.review)}`);
-    if (t.group > 0) parts.push(`集体活动 ${fmtCount(t.group)}`);
-    if (t.consult > 0) parts.push(`咨询 ${fmtCount(t.consult)}`);
-    return parts.join(' · ');
+    return getTypeConversion().formatConvertedText(totals);
 }
 
 /**
