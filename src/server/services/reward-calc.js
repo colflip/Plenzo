@@ -20,12 +20,15 @@ function aggregate(m) {
         if (v <= 0) continue;
         const key = TypeConversion.normalizeTypeKey(cn);
         if (!key) {
-            // 未登记的类型必须可见 —— 否则会静默不计酬劳（「大评审」曾因此整类丢失）
+            // 无法归类：不静默丢掉 —— 计入「未归类」桶（酬劳按 0 计）并告警，
+            // 「大评审」曾因静默丢弃而整类漏算 ¥2400。
             const name = String(cn).trim();
             if (name && !reportedUnknownTypes.has(name)) {
                 reportedUnknownTypes.add(name);
-                logger.warn(`[reward] 未登记的课程类型「${name}」未计入酬劳，请在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
+                logger.warn(`[reward] 无法归类的课程类型「${name}」已计入「未归类」（不计酬劳），请按命名约定（review/visit/trial/group/advisory…）调整 schedule_types.name，或在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
             }
+            enMap[TypeConversion.UNCATEGORIZED_KEY] = (enMap[TypeConversion.UNCATEGORIZED_KEY] || 0) + v;
+            TypeConversion.accumulateConvertedType(totals, TypeConversion.UNCATEGORIZED_KEY, v);
             continue;
         }
         enMap[key] = (enMap[key] || 0) + v;
@@ -37,7 +40,8 @@ function aggregate(m) {
         reviewAgg: totals.review,
         consultAgg: totals.consultation,
         trial: totals.trial,
-        group: totals.group_activity
+        group: totals.group_activity,
+        uncategorized: totals.uncategorized
     };
 }
 
@@ -66,6 +70,7 @@ function computeFee(a, c) {
 function buildPayload(name, start, end, coeff, agg, fee) {
     const typeStats = {};
     for (const [k, v] of Object.entries(agg.enMap)) if (v > 0) typeStats[k] = v;
+    const uncategorized = round2(agg.uncategorized);
     return {
         basic_info: { name, date_range: { start, end }, coefficient: round2(coeff) },
         aggregated: {
@@ -73,7 +78,9 @@ function buildPayload(name, start, end, coeff, agg, fee) {
             review: round2(agg.reviewAgg),
             trial: round2(agg.trial),
             group_activity: round2(agg.group),
-            consultation: round2(agg.consultAgg)
+            consultation: round2(agg.consultAgg),
+            // 兜底口径：无法归类的课程数（不计酬劳，但必须可见）
+            uncategorized: uncategorized
         },
         type_stats: typeStats,
         breakdown: fee.breakdown,

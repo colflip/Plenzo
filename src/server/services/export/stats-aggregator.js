@@ -34,7 +34,7 @@ function reportUnknownType(rawType) {
     const name = String(rawType == null ? '' : rawType).trim();
     if (!name || reportedUnknownTypes.has(name)) return;
     reportedUnknownTypes.add(name);
-    logger.warn(`[export] 未登记的课程类型「${name}」未计入折算，请在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
+    logger.warn(`[export] 无法归类的课程类型「${name}」已计入「未归类」列，请按命名约定（review/visit/trial/group/advisory…）调整 schedule_types.name，或在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
 }
 
 class StatsAggregator {
@@ -63,7 +63,9 @@ class StatsAggregator {
                     '评审记录': 0,
                     '集体活动': 0,
                     '咨询': 0,
-                    '咨询记录': 0
+                    '咨询记录': 0,
+                    // 兜底列：无法归类的类型也计数，保证任何课程都不会从汇总里消失
+                    '未归类': 0
                 });
             }
 
@@ -74,6 +76,7 @@ class StatsAggregator {
             if (label) {
                 stat[label]++;
             } else {
+                stat['未归类'] = (stat['未归类'] || 0) + 1;
                 reportUnknownType(rawType);
             }
         });
@@ -113,7 +116,8 @@ class StatsAggregator {
                     '评审记录': 0,
                     '集体活动': 0,
                     '咨询': 0,
-                    '咨询记录': 0
+                    '咨询记录': 0,
+                    '未归类': 0
                 });
             }
 
@@ -124,6 +128,7 @@ class StatsAggregator {
             if (label) {
                 stat[label]++;
             } else {
+                stat['未归类'] = (stat['未归类'] || 0) + 1;
                 reportUnknownType(rawType);
             }
         });
@@ -162,6 +167,8 @@ class StatsAggregator {
         const finalReview = totals.review;
         const finalGroup = totals.group_activity;
         const finalConsult = totals.consultation;
+        // 兜底口径：无法归类的类型不会被丢弃，显式出现在「汇总」与「备注」里
+        const finalUncategorized = Number(totals.uncategorized) || 0;
 
         const parts = [];
         if (finalTrial > 0) parts.push(`${finalTrial}次试教`);
@@ -169,6 +176,7 @@ class StatsAggregator {
         if (finalReview > 0) parts.push(`${finalReview}次评审`);
         if (finalGroup > 0) parts.push(`${finalGroup}次集体活动`);
         if (finalConsult > 0) parts.push(`${finalConsult}次咨询`);
+        if (finalUncategorized > 0) parts.push(`${finalUncategorized}次未归类`);
 
         const details = parts.length > 0 ? `，${parts.join('，')}。` : '。';
 
@@ -179,6 +187,7 @@ class StatsAggregator {
             '评审': finalReview,
             '集体活动': finalGroup,
             '咨询': finalConsult,
+            '未归类': finalUncategorized,
             '汇总': parts.join('、'),
             '备注': `在${stat['姓名']}，${startDate}-${endDate}${details}`
         };

@@ -32,6 +32,7 @@ const runDatabaseMigrations = require('./db/migrations');
 const { warmup: dbWarmup } = require('./db/db');
 const db = require('./db/db');
 const { successResponse } = require('./utils/response');
+const { auditScheduleTypes } = require('./utils/schedule-type-audit');
 const { AppError } = require('./middleware/error');
 
 const app = express();
@@ -360,6 +361,13 @@ async function bootstrapDatabase() {
     } catch (err) {
         logger.error('❌ 数据库迁移失败:', db.describeError(err));
     }
+
+    // 课程类型折算归属自检：任何三层规则都无法归类的类型都会在启动日志里被点名，
+    // 避免新增类型后静默失去折算归属（「大评审」曾整类漏算）。失败不影响启动。
+    auditScheduleTypes().catch(err => {
+        logger.warn('课程类型归属自检未完成:', db.describeError(err));
+    });
+
     return true;
 }
 
