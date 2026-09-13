@@ -1477,17 +1477,17 @@
                                 <div class="chart-card teacher-summary-card">
                                     <div class="summary-card-header">
                                         <h4 id="teacherSummaryChartTitle" class="summary-chart-title">
-                                            按日期汇总
+                                            汇总
                                             <div id="teacherSummaryTitleTooltip" class="teacher-title-tooltip"
                                                 style="display: none;"></div>
                                         </h4>
+                                        <aside class="summary-panel" id="teacherDailySummaryPanel"
+                                            aria-label="汇总文字摘要"></aside>
                                     </div>
                                     <div class="summary-body">
                                         <div class="chart-container summary-chart">
                                             <canvas id="teacherDailyTypeStackChart"></canvas>
                                         </div>
-                                        <aside class="summary-panel" id="teacherDailySummaryPanel"
-                                            aria-label="按日期汇总文字摘要"></aside>
                                     </div>
                                 </div>
                                 <!-- 单人视图表：独立卡片，与汇总卡平级 -->
@@ -1502,10 +1502,12 @@
                                 <div class="chart-card student-summary-card">
                                     <div class="summary-card-header">
                                         <h4 id="studentSummaryChartTitle" class="summary-chart-title">
-                                            按日期汇总
+                                            汇总
                                             <div id="studentSummaryTitleTooltip" class="student-title-tooltip"
                                                 style="display: none;"></div>
                                         </h4>
+                                        <aside class="summary-panel" id="studentDailySummaryPanel"
+                                            aria-label="汇总文字摘要"></aside>
                                         <div class="filter-group">
                                             <label for="statsStudentSelect"></label>
                                             <select id="statsStudentSelect">
@@ -1517,8 +1519,6 @@
                                         <div class="chart-container summary-chart">
                                             <canvas id="studentDailyTypeStackChart"></canvas>
                                         </div>
-                                        <aside class="summary-panel" id="studentDailySummaryPanel"
-                                            aria-label="按日期汇总文字摘要"></aside>
                                     </div>
                                 </div>
                                 <!-- 单人视图表：独立卡片，与汇总卡平级 -->

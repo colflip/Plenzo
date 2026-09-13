@@ -333,13 +333,31 @@
     position: relative;
 }
 
-/* 汇总卡片 header 行：左标题 + 右筛选下拉（教师/学生视图） */
+/* 汇总卡片 header 行：标题与文字摘要同一行（与单人卡 .person-card-header 同款
+   行内布局），学生视图的下拉靠右。允许换行，窄屏自动折行而不互相挤压。 */
 .summary-card-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px 16px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 16px;
     padding: 14px 16px 0;
+}
+
+/* 汇总文字摘要：承载「共 N 节」徽标 + 色点类型图例 + 折算，三者与单人卡共用
+   .person-* 样式；此处只负责把它们排成与单人卡一致的一行。 */
+.summary-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 16px;
+    min-width: 0;
+    margin: 0;
+}
+
+/* 学生视图的「全部学生」下拉固定在最右；教师视图无筛选，故不占位 */
+.summary-card-header .filter-group {
+    margin-left: auto;
+    align-self: center;
 }
 
 .summary-card-header .filter-group select {
@@ -398,12 +416,13 @@
     color: var(--stats-text-heading);
 }
 
-/* 「按日期汇总」：图表与右侧文字摘要并排（flex 行） */
+/* 汇总图表：文字摘要已并入标题行，此处只剩图表、占满整宽；
+   padding-top 提供标题行下方的留白（标题与图表之间的间距）。 */
 .summary-body {
     display: flex;
     align-items: stretch;
     gap: 16px;
-    padding: 0 16px 16px;
+    padding: 14px 16px 16px;
 }
 
 .teacher-summary-card .summary-body .summary-chart,
@@ -412,7 +431,7 @@
     min-width: 0;
 }
 
-/* 移动端：图表标签改为上下堆叠 */
+/* 移动端：标题行与摘要自动换行，图表保持整宽 */
 @media (max-width: 768px) {
     .summary-body {
         flex-direction: column;
