@@ -15,7 +15,7 @@ const logger = require('../utils/logger.js');
  *   - 未配置密钥：降级为「明文存储 + 仅一次告警」，保证存量部署不崩、可平滑升级。
  *   - 存储格式：enc:v1:<ivB64>:<tagB64>:<ctB64>，便于识别与向后兼容。
  *   - 读取兼容：无 enc:v1: 前缀的值按存量明文原样返回。
- *   - 解密失败（密钥轮换/损坏）：告警并返回空串，绝不返回乱码密钥。
+ *   - 解密失败（密钥轮换/损坏）：抛出可识别错误，绝不返回乱码密钥或伪装成空配置。
  */
 
 const crypto = require('crypto');
@@ -76,10 +76,17 @@ function encrypt(plain) {
     return `${PREFIX}${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
 }
 
+function createDecryptError(message, cause) {
+    const error = new Error(message, cause ? { cause } : undefined);
+    error.code = 'AI_CONFIG_DECRYPT_FAILED';
+    return error;
+}
+
 /**
  * 解密存储串。
  * @param {string} stored - 数据库中的值（可能是 enc:v1: 密文，也可能是存量明文）
- * @returns {string} 明文；解密失败或无前缀时按规则回退。
+ * @returns {string} 明文；存量明文原样返回。
+ * @throws {Error} 密文无法安全解密时抛 AI_CONFIG_DECRYPT_FAILED
  */
 function decrypt(stored) {
     if (!stored) return '';
@@ -89,26 +96,28 @@ function decrypt(stored) {
 
     const key = resolveKey();
     if (!key) {
-        // 有密文但当前实例未配置密钥：无法解密，告警并返回空串
+        const error = createDecryptError('缺少 AI 配置解密密钥');
         logger.error('[AIConfigCrypto] 数据库中存在加密的 API Key，但本实例未配置 AI_CONFIG_ENCRYPTION_KEY，无法解密。');
-        return '';
+        throw error;
     }
 
     try {
         const rest = stored.slice(PREFIX.length);
-        const [ivB64, tagB64, ctB64] = rest.split(':');
-        if (!ivB64 || !tagB64 || !ctB64) {
-            logger.error('[AIConfigCrypto] 密文格式非法，无法解密。');
-            return '';
+        const parts = rest.split(':');
+        if (parts.length !== 3 || parts.some(part => !part)) {
+            throw createDecryptError('AI 配置密文格式非法');
         }
+        const [ivB64, tagB64, ctB64] = parts;
         const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivB64, 'base64'));
         decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
         const plain = Buffer.concat([decipher.update(Buffer.from(ctB64, 'base64')), decipher.final()]);
         return plain.toString('utf8');
     } catch (err) {
-        // 密钥轮换 / 数据损坏：绝不返回乱码
+        const error = err.code === 'AI_CONFIG_DECRYPT_FAILED'
+            ? err
+            : createDecryptError('AI 配置解密失败', err);
         logger.error('[AIConfigCrypto] 解密 API Key 失败（密钥不匹配或数据损坏）:', err && err.message ? err.message : err);
-        return '';
+        throw error;
     }
 }
 

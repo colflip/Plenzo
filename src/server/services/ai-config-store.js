@@ -21,6 +21,7 @@ const logger = require('../utils/logger.js');
 
 const db = require('../db/db');
 const crypto = require('./ai-config-crypto');
+const { AppError } = require('../middleware/error');
 
 // 各 provider 的默认配置（与 ai-service.PROVIDER_DEFAULTS 保持一致）
 const PROVIDER_DEFAULTS = {
@@ -35,12 +36,15 @@ const PROVIDER_DEFAULTS = {
 };
 
 const TABLE = 'ai_config';
+const LOAD_RETRY_INTERVAL_MS = 5000;
 
 class AIConfigStore {
     constructor() {
-        this.cache = null;     // 已加载的数据库配置（null 表示使用环境变量默认值）
-        this.loaded = false;   // 是否已尝试加载（成功或失败都置 true，避免反复打库）
+        this.cache = null;     // 已成功加载的数据库配置（null 表示已确认无持久化记录）
+        this.loaded = false;   // 最近一次数据库加载是否成功
+        this.loadError = null;
         this.loadingPromise = null;
+        this.nextLoadRetryAt = 0;
         this.tableReady = false; // 是否已确认 ai_config 表存在
 
         // 后台异步预热（测试环境不触发数据库访问）
@@ -101,7 +105,7 @@ class AIConfigStore {
         if (this.loaded) return this.cache;
         if (this.loadingPromise) return this.loadingPromise;
 
-        this.loadingPromise = (async () => {
+        const loadPromise = (async () => {
             try {
                 await this.ensureTable();
                 const res = await db.query(
@@ -114,33 +118,57 @@ class AIConfigStore {
                         enabled: r.enabled,
                         provider: (r.provider || '').toLowerCase(),
                         protocol: (r.protocol || 'openai').toLowerCase(),
-                        // 数据库中的 api_key 已加密，读取时解密为明文供运行时使用
-                        apiKey: crypto.decrypt(r.api_key) || '',
+                        apiKey: crypto.decrypt(r.api_key),
                         baseUrl: r.base_url || '',
                         model: r.model || '',
                         timeout: parseInt(r.timeout, 10) || 30000,
                         maxTokens: parseInt(r.max_tokens, 10) || 8000
                     };
                 } else {
-                    this.cache = null; // 无持久化记录，回退到环境变量
+                    this.cache = null; // 只有确认无持久化记录时才使用环境变量
                 }
                 this.loaded = true;
+                this.loadError = null;
+                this.nextLoadRetryAt = 0;
+                return this.cache;
             } catch (err) {
-                // 数据库暂不可用（如无 DB 的本地场景）：回退到环境变量，不阻断启动
-                logger.warn('[AIConfigStore] 读取配置失败，回退到环境变量:', err && err.message ? err.message : err);
-                this.cache = null;
-                this.loaded = true; // 标记已加载，避免每次调用都打库；后续写入会重新尝试
+                this.loaded = false;
+                this.loadError = err;
+                this.nextLoadRetryAt = Date.now() + LOAD_RETRY_INTERVAL_MS;
+                logger.error('[AIConfigStore] 读取配置失败:', err && err.message ? err.message : err);
+                throw err;
             }
-            return this.cache;
         })();
+        this.loadingPromise = loadPromise;
 
-        return this.loadingPromise;
+        try {
+            return await loadPromise;
+        } finally {
+            if (this.loadingPromise === loadPromise) this.loadingPromise = null;
+        }
     }
 
     /**
-     * 同步获取生效配置：环境变量默认值 + 数据库覆盖项
+     * 同步获取生效配置：环境变量默认值 + 数据库覆盖项。
+     * 初始加载失败后按间隔触发后台重试；当前请求仍返回稳定错误或 last-known-good。
      */
     getEffectiveConfig() {
+        if (!this.loaded && this.loadError && !this.loadingPromise && Date.now() >= this.nextLoadRetryAt) {
+            this.ensureLoaded().catch(() => {});
+        }
+
+        if (!this.loaded && this.loadError && !this.cache) {
+            throw new AppError({
+                code: this.loadError.code === 'AI_CONFIG_DECRYPT_FAILED'
+                    ? 'AI_NOT_CONFIGURED'
+                    : 'DB_UNAVAILABLE',
+                message: this.loadError.code === 'AI_CONFIG_DECRYPT_FAILED'
+                    ? 'AI 配置无法解密，请检查服务配置'
+                    : undefined,
+                cause: this.loadError
+            });
+        }
+
         const env = this._envDefaults();
         if (!this.cache) return env;
 
@@ -148,7 +176,7 @@ class AIConfigStore {
             enabled: (this.cache.enabled === null || this.cache.enabled === undefined) ? env.enabled : this.cache.enabled,
             provider: this.cache.provider || env.provider,
             protocol: this.cache.protocol || env.protocol,
-            apiKey: this.cache.apiKey || env.apiKey,
+            apiKey: this.cache.apiKey,
             baseUrl: this.cache.baseUrl || env.baseUrl,
             model: this.cache.model || env.model,
             timeout: this.cache.timeout || env.timeout,
@@ -162,7 +190,8 @@ class AIConfigStore {
      * @returns {Object} 合并后的完整配置
      */
     async saveConfig(updates = {}) {
-        const current = this.getEffectiveConfig();
+        // 显式保存可用于修复损坏的持久化密文，因此不能被此前的读取/解密错误阻断。
+        const current = this.cache ? this.getEffectiveConfig() : this._envDefaults();
         const merged = {
             provider: (updates.provider || current.provider || 'deepseek').toLowerCase(),
             protocol: (updates.protocol || current.protocol || 'openai').toLowerCase(),
@@ -199,6 +228,8 @@ class AIConfigStore {
         // 更新内存缓存，使本次进程立即生效
         this.cache = merged;
         this.loaded = true;
+        this.loadError = null;
+        this.nextLoadRetryAt = 0;
 
         // 兜底：同步写入 process.env（GET /ai/config 与 ai-service 以缓存为准，此处仅作双保险）
         process.env.AI_PROVIDER = merged.provider;
