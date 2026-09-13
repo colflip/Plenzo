@@ -446,7 +446,10 @@ export const WeeklyDataStore = {
             }
 
             const rows = await window.apiUtils.get('/admin/schedules/grid', params);
-            return normalizeScheduleRows(Array.isArray(rows) ? rows : []);
+            if (!Array.isArray(rows)) {
+                throw new Error('排课列表响应格式无效');
+            }
+            return normalizeScheduleRows(rows);
         } catch (err) {
 
             throw err;
@@ -483,7 +486,10 @@ export const WeeklyDataStore = {
         }
 
         const resp = await window.apiUtils.get('/admin/users/student');
-        const list = Array.isArray(resp) ? resp : (resp && resp.data ? resp.data : []);
+        if (!Array.isArray(resp)) {
+            throw new Error('学生列表响应格式无效');
+        }
+        const list = resp;
         this.students.list = list;
         this.students.loadedAt = Date.now();
         this._saveToLocal('students', list);
@@ -503,10 +509,12 @@ export const WeeklyDataStore = {
         }
 
         const resp = await window.apiUtils.get('/admin/users/teacher');
-        let list = [];
-        if (Array.isArray(resp)) list = resp;
-        else if (resp && resp.data) list = resp.data;
-        else if (resp && resp.teachers) list = resp.teachers;
+        const list = Array.isArray(resp)
+            ? resp
+            : (Array.isArray(resp?.teachers) ? resp.teachers : null);
+        if (!list) {
+            throw new Error('教师列表响应格式无效');
+        }
         this.teachers.list = list;
         this.teachers.loadedAt = Date.now();
         this._saveToLocal('teachers', list);
@@ -1494,7 +1502,10 @@ async function removeSessionPair(sessionId, kind, uid, form) {
     try {
         const version = form && form.dataset.version ? Number(form.dataset.version) : undefined;
         const path = `/admin/sessions/${sessionId}/${kind === 'teacher' ? 'teachers' : 'students'}/${uid}`;
-        await window.apiUtils.delete(path, version !== undefined ? { version } : undefined);
+        await window.apiUtils.request(path, {
+            method: 'DELETE',
+            body: version !== undefined ? { version } : undefined
+        });
         WeeklyDataStore.invalidateSchedules();
         if (isLast) {
             const formContainer = document.getElementById('scheduleFormContainer');
@@ -1585,6 +1596,11 @@ function openCellEditor(student, dateISO) {
         if (overlay) overlay.style.display = 'block';
         container.style.display = 'block';
         refitPairSelects();   // 上面直接改过 value/selectedIndex，不触发 change，宽度要重量
+    }).catch(error => {
+        console.error('[ScheduleForm] 加载表单选项失败:', error);
+        const overlay = document.getElementById('modalOverlay');
+        if (overlay) overlay.style.display = 'block';
+        container.style.display = 'block';
     });
 }
 
@@ -1598,7 +1614,7 @@ export async function editSchedule(id) {
             loadScheduleFormOptions(),
             window.apiUtils.get(`/admin/schedules/${id}`)
         ]);
-        const data = resp.data || resp;
+        const data = resp;
 
         form.dataset.mode = 'edit';
         form.dataset.id = id;
@@ -1673,70 +1689,40 @@ export async function editSchedule(id) {
     }
 }
 
-async function loadScheduleFormOptions() {
-    const typeSel = document.getElementById('scheduleTypeSelect');
-    if (typeSel && window.ScheduleTypesStore) {
-        const types = window.ScheduleTypesStore.getAll();
-        window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
-        types.forEach(t => {
-            const o = document.createElement('option');
-            o.value = t.id; o.textContent = t.description || t.name;
-            typeSel.appendChild(o);
-        });
-    }
-
-    const teacherSel = document.getElementById('scheduleTeacher');
-    const studentSel = document.getElementById('scheduleStudent');
-    const [teachers, students] = await Promise.all([WeeklyDataStore.getTeachers(), WeeklyDataStore.getStudents()]);
-
-    if (teacherSel) {
-        window.SecurityUtils.safeSetHTML(teacherSel, '<option value="">选择教师</option>');
-        const restricted = [];
-        const normal = [];
-
-        teachers.forEach(t => {
-            if (String(t.status) == '-1') return;
-            const o = document.createElement('option');
-            o.value = t.id; o.dataset.baseName = t.name;
-            o.textContent = t.name + (String(t.status) == '0' ? '(暂停)' : '');
-            if (parseInt(t.restriction) === 1) restricted.push(o);
-            else normal.push(o);
-        });
-
-        restricted.forEach(o => teacherSel.appendChild(o));
-        if (restricted.length > 0 && normal.length > 0) {
-            const sep = document.createElement('option');
-            sep.disabled = true;
-            sep.value = '';
-            sep.textContent = '──────────';
-            sep.style.color = '#ccc';
-            sep.style.textAlign = 'center';
-            teacherSel.appendChild(sep);
-        }
-        normal.forEach(o => teacherSel.appendChild(o));
-    }
-
-    if (studentSel) {
-        window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>');
-        students.forEach(s => {
-            if (String(s.status) == '-1') return;
-            const o = document.createElement('option');
-            o.value = s.id; o.textContent = s.name + (String(s.status) == '0' ? '(暂停)' : '');
-            studentSel.appendChild(o);
-        });
-    }
-
-    // 表单变动监听：日期、开始/结束时间变化时更新老师状态提示
+function setScheduleFormOptionsState(ready, error = null) {
     const form = document.getElementById('scheduleForm');
-    if (form) {
-        const fields = ['#scheduleDate', '#scheduleStartTime', '#scheduleEndTime'].map(id => form.querySelector(id));
-        fields.forEach(f => {
-            if (f && !f.dataset.listenerAttached) {
-                f.addEventListener('change', () => updateTeacherStatusHints());
-                f.dataset.listenerAttached = 'true';
-            }
-        });
+    const submit = document.getElementById('scheduleFormSubmit');
+    if (!form) return;
+
+    form.dataset.optionsReady = String(ready);
+    if (submit) submit.disabled = !ready;
+
+    const existing = document.getElementById('scheduleFormOptionsError');
+    if (existing) existing.remove();
+    if (!error) return;
+
+    const errorContainer = document.createElement('div');
+    errorContainer.id = 'scheduleFormOptionsError';
+    if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
+        errorContainer.appendChild(window.ErrorUI.createErrorState({
+            title: '表单选项加载失败',
+            error,
+            compact: true,
+            onRetry: () => loadScheduleFormOptions()
+        }));
+    } else {
+        errorContainer.setAttribute('role', 'alert');
+        errorContainer.textContent = '表单选项加载失败，请重试。';
     }
+    form.prepend(errorContainer);
+}
+
+async function loadScheduleFormOptions() {
+    const loader = window.loadScheduleFormOptions;
+    if (typeof loader !== 'function') {
+        throw new Error('排课表单选项加载器未初始化');
+    }
+    return loader();
 }
 
 /**
@@ -1797,7 +1783,20 @@ async function updateTeacherStatusHints() {
 
         // 根据当前选中教师显示/隐藏风险横幅
         updateConflictWarningBanner(conflicts);
-    } catch (e) { }
+    } catch (error) {
+        teacherSelects.forEach(sel => {
+            Array.from(sel.options).forEach(opt => {
+                if (!opt.value) return;
+                const baseName = opt.dataset.baseName || opt.textContent.split('(')[0].trim().replace(/^[⚠◌]\s*/, '');
+                opt.dataset.baseName = baseName;
+                opt.textContent = baseName;
+                opt.style.color = '';
+            });
+        });
+        updateConflictWarningBanner({});
+        window.apiUtils?.showToast('教师冲突状态检测失败，请手动确认时间', 'warning');
+        console.error('[ScheduleForm] 检测教师冲突失败:', error);
+    }
 }
 
 /**
@@ -1872,6 +1871,10 @@ export async function setupScheduleEventListeners() {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('scheduleFormSubmit');
+            if (form.dataset.optionsReady !== 'true') {
+                window.apiUtils?.showToast('表单选项尚未加载完成，请重试', 'error');
+                return;
+            }
             const mode = form.dataset.mode;
             const id = form.dataset.id;
             let snapshot = {};
@@ -2174,6 +2177,8 @@ window.ScheduleManager = {
     loadSchedules: (force = true, showLoading = true) => loadSchedules(force, showLoading), // 允许透传加载状态
     refreshCell: refreshCell, // 导出局部刷新
     WeeklyDataStore: WeeklyDataStore,
+    resetSchedulePairRows: resetPairRows,
+    reloadScheduleFormOptions: loadScheduleFormOptions,
     renderCache: () => {
         // 渲染当前内存中的数据，不发网络请求，且不显示过渡动画
         loadSchedules(false, false);
@@ -2199,7 +2204,10 @@ if (typeof window.registerWeeklyViewExportContext === 'function') {
                 end_date: endDate,
                 show_plan: 'true'
             });
-            return Array.isArray(rows) ? rows : [];
+            if (!Array.isArray(rows)) {
+                throw new Error('排课导出响应格式无效');
+            }
+            return rows;
         }
     });
 }

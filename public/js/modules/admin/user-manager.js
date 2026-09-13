@@ -7,6 +7,26 @@ import { USER_FIELDS, FIELD_LABELS, TIME_ZONE, getUserStatusClass, getUserStatus
 import { adjustSelectMinWidth, showTableLoading, hideTableLoading, showBlockLoading } from './ui-helper.js';
 import { renderErrorState } from '../shared/error-ui.js';
 
+const USER_FORM_FIELD_MAP = Object.freeze({
+    userType: 'userType',
+    id: 'userId',
+    new_id: 'userId',
+    username: 'userUsername',
+    password: 'userPassword',
+    name: 'userName',
+    nickname: 'userNickname',
+    permission_level: 'userPermissionLevel',
+    email: 'userEmail',
+    contact: 'userContact',
+    profession: 'userProfession',
+    work_location: 'userWorkLocation',
+    home_address: 'userHomeAddress',
+    visit_location: 'userVisitLocation',
+    status: 'userStatus',
+    restriction: 'userRestriction',
+    student_ids: 'userStudentIds'
+});
+
 
 // Retry helper
 /*
@@ -173,25 +193,22 @@ async function handleUserFormSubmit(e) {
         // Conflict detection for edit
         if (mode === 'edit') {
             const snapJson = userForm.dataset.snapshot || '{}';
-            let snapshot = JSON.parse(snapJson);
-            let latest;
-            try {
-                latest = await window.apiUtils.get(`/admin/users/${type}/${id}`);
-                latest = latest && latest.data ? latest.data : latest;
-            } catch (err) { latest = null; }
+            const snapshot = JSON.parse(snapJson);
+            const latest = await window.apiUtils.getSilent(`/admin/users/${type}/${id}`);
 
-            if (latest) {
-                const conflictKeys = ['username', 'name', 'nickname', 'email', 'permission_level', 'profession', 'contact', 'work_location', 'home_address', 'visit_location'];
-                const changed = conflictKeys.some(k => String(latest[k] ?? '') !== String(snapshot[k] ?? ''));
-                if (changed) {
-                    const proceed = await Modal.confirm('检测到该用户已被其他人修改，是否仍继续保存您的更改？', { title: '数据冲突', confirmText: '继续保存' });
-                    if (!proceed) throw new Error('USER_CANCELLED');
-                }
+            const conflictKeys = ['username', 'name', 'nickname', 'email', 'permission_level', 'profession', 'contact', 'work_location', 'home_address', 'visit_location'];
+            const changed = conflictKeys.some(k => String(latest[k] ?? '') !== String(snapshot[k] ?? ''));
+            if (changed) {
+                const proceed = await Modal.confirm('检测到该用户已被其他人修改，是否仍继续保存您的更改？', { title: '数据冲突', confirmText: '继续保存' });
+                if (!proceed) throw new Error('USER_CANCELLED');
             }
+        } else if (canEditUserId() && userForm.dataset.nextIdState !== 'ready') {
+            const error = new Error('无法确认可用的用户 ID，请重新打开表单后重试');
+            error.details = [{ path: 'body.id', message: error.message }];
+            throw error;
         }
 
         // Submit
-        console.log('[UserManager] PUT body:', JSON.stringify(body, null, 2));
 
         // Defensive pre-send checks to give clearer error messages
         if (body.name !== undefined && !String(body.name).trim()) {
@@ -202,8 +219,7 @@ async function handleUserFormSubmit(e) {
         }
 
         if (mode === 'add') {
-            const resp = await withRetry((attempt, isFinal) => window.apiUtils.post('/admin/users', body, { suppressErrorToast: !isFinal }));
-            const newUser = resp && resp.data ? resp.data : resp;
+            const newUser = await withRetry((attempt, isFinal) => window.apiUtils.post('/admin/users', body, { suppressErrorToast: !isFinal }));
             closeUserFormModal();
             appendUserRow(type, newUser);
             refreshLocalCache(type, newUser);
@@ -253,7 +269,11 @@ async function handleUserFormSubmit(e) {
         }
     } finally {
         userForm.dataset.submitting = 'false';
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '保存'; }
+        if (submitBtn) {
+            const nextIdBlocked = userForm.dataset.mode === 'add' && canEditUserId() && userForm.dataset.nextIdState !== 'ready';
+            submitBtn.disabled = nextIdBlocked;
+            submitBtn.textContent = '保存';
+        }
     }
 }
 
@@ -347,17 +367,12 @@ export async function loadUsers(type, opts = {}) {
                     }
                     // Fetch fresh list from server in background if small enough
                     const res = await window.apiUtils.get(`/admin/users/student?limit=1000`);
-                    const list = res?.data || res || [];
-                    if (Array.isArray(list)) {
-                        window.__usersCache = window.__usersCache || {};
-                        window.__usersCache.student = list;
-                        localStorage.setItem('cached_students_full', JSON.stringify(list));
-
-                        // If we already finished rendering teachers, they might show [ID]. 
-                        // A quick re-render from cache would fix it if needed.
-                        // However, appendUserRow is usually fast enough that if this resolves before 
-                        // the teacher request finishes, it will be fine.
+                    if (!Array.isArray(res)) {
+                        throw new Error('学生列表响应格式无效');
                     }
+                    window.__usersCache = window.__usersCache || {};
+                    window.__usersCache.student = res;
+                    localStorage.setItem('cached_students_full', JSON.stringify(res));
                 } catch (e) {  }
             })();
         }
@@ -413,7 +428,11 @@ export async function loadUsers(type, opts = {}) {
         if (requestGuard && !requestGuard.isCurrent()) return;
         if (state.type !== requestType || (opts.append && state.page !== requestPage)) return;
 
-        const users = Array.isArray(data) ? data : (data.users || data.data || data.results || []);
+        let users;
+        if (Array.isArray(data)) users = data;
+        else if (data && Array.isArray(data.users)) users = data.users;
+        else if (data && Array.isArray(data.results)) users = data.results;
+        else throw new Error('用户列表响应格式无效');
 
         // 加载完成，如果是第一页或不追加模式，则清空容器（移除显示残余内容）
         if (!opts.append) {
@@ -753,27 +772,36 @@ async function generateNextUserId() {
     const form = document.getElementById('userForm');
     const userType = document.getElementById('userType').value;
     const userIdInput = document.getElementById('userId');
+    const submitBtn = document.getElementById('userFormSubmit');
     if (!userIdInput) return;
 
-    const users = (window.__usersCache && window.__usersCache[userType]) || [];
-    const [lo, hi] = USER_ID_RANGES[userType] || [1, 999999];
-    // 号段内取 max 作本地占位，避免预填出号段外的值
-    const cachedMax = users.reduce((max, u) => {
-        const n = Number(u.id);
-        return (Number.isInteger(n) && n >= lo && n <= hi) ? Math.max(max, n) : max;
-    }, lo - 1);
-    userIdInput.value = cachedMax + 1;
+    if (form) form.dataset.nextIdState = 'loading';
+    userIdInput.value = '';
+    userIdInput.placeholder = '正在获取可用 ID…';
+    if (submitBtn && canEditUserId()) submitBtn.disabled = true;
 
     try {
         const resp = await window.apiUtils.getSilent(`/admin/users/${userType}/next-id`);
-        const payload = resp && resp.data ? resp.data : resp;
-        const nextId = Number(payload && payload.nextId);
-        if (!Number.isInteger(nextId) || nextId < 1) return;
+        const nextId = Number(resp?.nextId);
+        const [lo, hi] = USER_ID_RANGES[userType] || [1, 999999];
+        if (!Number.isInteger(nextId) || nextId < lo || nextId > hi) {
+            throw new Error('服务端返回了无效的用户 ID');
+        }
         // 往返期间操作者可能已切换类型或离开新增模式，此时不能再覆盖输入框
-        if (form && form.dataset.mode !== 'add') return;
+        if (!form || form.dataset.mode !== 'add') return;
         if (document.getElementById('userType').value !== userType) return;
         userIdInput.value = nextId;
-    } catch (_) { /* 后端不可用时保留上面的本地估算值 */ }
+        userIdInput.placeholder = '';
+        form.dataset.nextIdState = 'ready';
+        if (submitBtn) submitBtn.disabled = false;
+    } catch (error) {
+        if (!form || form.dataset.mode !== 'add') return;
+        if (document.getElementById('userType').value !== userType) return;
+        form.dataset.nextIdState = 'error';
+        userIdInput.value = '';
+        userIdInput.placeholder = '获取失败，请重新打开表单';
+        if (submitBtn && canEditUserId()) submitBtn.disabled = true;
+    }
 }
 
 export function showAddUserModal() {
@@ -783,6 +811,7 @@ export function showAddUserModal() {
     form.reset();
     form.dataset.mode = 'add';
     form.dataset.id = '';
+    form.dataset.nextIdState = 'loading';
     // 权限落地（Phase 3）：新增模式清除自我保护置灰状态
     form.dataset.selfEdit = '';
     ['userUsername', 'userPassword', 'userId', 'userPermissionLevel'].forEach(fid => {
@@ -818,6 +847,7 @@ export function showEditUserModal(id, userType) {
     document.getElementById('userFormTitle').textContent = '编辑用户';
     form.dataset.mode = 'edit';
     form.dataset.id = id;
+    form.dataset.nextIdState = '';
 
     // 权限落地（Phase 3）：判断是否在编辑自己的账号（后端防提权③兜底）
     let isSelfEdit = false;
@@ -982,7 +1012,10 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
     if (students.length === 0) {
         try {
             const res = await window.apiUtils.get(`/admin/users/student?limit=1000`);
-            students = res?.data || res || [];
+            if (!Array.isArray(res)) {
+                throw new Error('学生列表响应格式无效');
+            }
+            students = res;
             if (!window.__usersCache) window.__usersCache = {};
             window.__usersCache.student = students;
         } catch (err) {
@@ -1001,6 +1034,7 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
     }
 
     if (students.length === 0) {
+        container.removeAttribute('aria-busy');
         window.SecurityUtils.safeSetHTML(container, '<div style="color: #64748b; font-size: var(--fs-300); padding: 10px;">暂无可用学生</div>');
         return;
     }
@@ -1021,6 +1055,7 @@ async function populateStudentCheckboxes(selectedIdsStr = '') {
         `;
     });
 
+    container.removeAttribute('aria-busy');
     window.SecurityUtils.safeSetHTML(container, html);
 
     const checkboxes = container.querySelectorAll('.student-checkbox');
@@ -1109,14 +1144,16 @@ export async function refreshFullUserCache(type) {
     try {
         // 背景预取第一页数据（50条），足以覆盖 90% 的初始展示场景
         const response = await window.apiUtils.get(`/admin/users/${type}`, { page: 1, size: 50 });
-        const list = Array.isArray(response) ? response : (response.data || []);
-        
+        if (!Array.isArray(response)) {
+            throw new Error('用户缓存响应格式无效');
+        }
+
         // 同步至内存缓存，供 loadUsers 瞬间调用
         window.__usersCache = window.__usersCache || {};
-        window.__usersCache[type] = list;
-        
+        window.__usersCache[type] = response;
+
         // 持久化备份
-        localStorage.setItem(storageKey, JSON.stringify(list));
+        localStorage.setItem(storageKey, JSON.stringify(response));
     } catch (e) { }
 }
 

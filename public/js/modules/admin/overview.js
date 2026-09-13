@@ -3,6 +3,8 @@
  * 处理首页总览统计面板的逻辑
  */
 
+import { renderErrorState } from '../shared/error-ui.js';
+
 // 加载总览统计数据
 export async function loadOverviewStats() {
     // 确保 WeeklyDataStore 已完全加载 (等待 schedule-manager.js)
@@ -38,33 +40,28 @@ export async function loadOverviewStats() {
             return;
         }
 
-        // 使用新的API工具类
-        let data = null;
-        try {
-            data = await window.apiUtils.get('/admin/statistics/overview');
-        } catch (apiError) {
-
-            // 使用默认数据
-            data = {
-                teacher_count: 0,
-                student_count: 0,
-                monthly_schedules: 0,
-                pending_count: 0,
-                total_schedules: 0
-            };
+        const data = await window.apiUtils.get('/admin/statistics/overview');
+        const metricKeys = [
+            'teacher_count', 'student_count', 'monthly_schedules', 'pending_count',
+            'weekly_schedules', 'yearly_schedules', 'completed_schedules', 'cancelled_schedules'
+        ];
+        if (!data || typeof data !== 'object' ||
+            metricKeys.some(key => !Number.isFinite(Number(data[key])))) {
+            throw new Error('总览统计响应格式无效');
         }
+        document.getElementById('overviewStatsError')?.remove();
 
         // 8 个指标全部来自 /admin/statistics/overview 这一条接口（服务端同一条 SQL 的
         // subselect 算好）。原先本周/本年/已完成/已取消是另拉 /admin/schedules 全量
         // （实测 164KB、2.6s）再在浏览器里 forEach 数出来的 —— 4 个整数不值这个代价。
-        const teacherCount = data.teacher_count || 0;
-        const studentCount = data.student_count || 0;
-        const monthlySchedules = data.monthly_schedules || 0;
-        const pendingCount = data.pending_count || 0;
-        const weeklySchedules = data.weekly_schedules || 0;
-        const yearlySchedules = data.yearly_schedules || 0;
-        const completedSchedules = data.completed_schedules || 0;
-        const cancelledSchedules = data.cancelled_schedules || 0;
+        const teacherCount = Number(data.teacher_count);
+        const studentCount = Number(data.student_count);
+        const monthlySchedules = Number(data.monthly_schedules);
+        const pendingCount = Number(data.pending_count);
+        const weeklySchedules = Number(data.weekly_schedules);
+        const yearlySchedules = Number(data.yearly_schedules);
+        const completedSchedules = Number(data.completed_schedules);
+        const cancelledSchedules = Number(data.cancelled_schedules);
 
         // 直接更新卡片数值（HTML 已包含渐变卡片结构）
         const valueUpdates = {
@@ -132,25 +129,24 @@ export async function loadOverviewStats() {
         }
 
     } catch (error) {
-
-        // 显示错误状态
-        const teacherCountEl = document.getElementById('teacherCount');
-        const studentCountEl = document.getElementById('studentCount');
-        const weeklyEl = document.getElementById('weeklySchedules');
-        const monthlySchedulesEl = document.getElementById('monthlySchedules');
-        const yearlyEl = document.getElementById('yearlySchedules');
-        const pendingConfirmationsEl = document.getElementById('pendingConfirmations');
-        const completedEl = document.getElementById('completedSchedules');
-        const cancelledEl = document.getElementById('cancelledSchedules');
-
-        if (teacherCountEl) teacherCountEl.textContent = '0';
-        if (studentCountEl) studentCountEl.textContent = '0';
-        if (weeklyEl) weeklyEl.textContent = '0';
-        if (monthlySchedulesEl) monthlySchedulesEl.textContent = '0';
-        if (yearlyEl) yearlyEl.textContent = '0';
-        if (pendingConfirmationsEl) pendingConfirmationsEl.textContent = '0';
-        if (completedEl) completedEl.textContent = '0';
-        if (cancelledEl) cancelledEl.textContent = '0';
+        const section = document.getElementById('overview');
+        if (!section) return;
+        let errorContainer = document.getElementById('overviewStatsError');
+        if (!errorContainer) {
+            errorContainer = document.createElement('div');
+            errorContainer.id = 'overviewStatsError';
+            const statsGrid = section.querySelector('.stats-grid');
+            if (statsGrid) statsGrid.insertAdjacentElement('beforebegin', errorContainer);
+            else section.prepend(errorContainer);
+        }
+        renderErrorState(errorContainer, {
+            error,
+            title: '总览数据加载失败',
+            detail: null,
+            onRetry: () => loadOverviewStats(),
+            retryText: '重试',
+            compact: true
+        });
     }
 }
 

@@ -269,7 +269,7 @@ export function renderStudentTypeStackedChart(stackData, slotTarget) {
 export function buildTeacherTypeStack(schedules) {
     // 处理空数据情况
     if (!schedules || schedules.length === 0) {
-        return getDefaultTeacherStack();
+        return { labels: [], datasets: [] };
     }
 
     const teacherOrder = [];
@@ -335,7 +335,7 @@ export function buildTeacherTypeStack(schedules) {
 export function buildStudentTypeStack(schedules, students = []) {
     // 处理空数据情况
     if (!schedules || schedules.length === 0) {
-        return getDefaultStudentStack();
+        return { labels: [], datasets: [] };
     }
 
     // 构建学生ID到姓名的映射
@@ -845,6 +845,95 @@ export function aggregateCountsByDate(rows, dayLabels, dateField = 'date') {
 
 
 
+// --- 折算口径（唯一实现）---
+// 三处消费：教师单人卡、学生单人卡、「按日期汇总」右侧文字摘要。此前各自复制一份
+// 规则，规则一改就要同步三处；摘要面板甚至只折算评审、漏掉入户/集体活动/咨询。
+// 规则：线上类型等同线下；半次入户 = 0.5 次入户；评审记录 = 1 次评审 + 0.5 次入户；
+// 大评审 等同 评审；咨询记录 / 线上辅导 / 心理咨询 计入咨询。
+export function createConvertedTotals() {
+    return { visit: 0, review: 0, group: 0, consult: 0 };
+}
+
+function isOnlineVariant(lower, baseName) {
+    return lower.includes(`线上${baseName}`)
+        || lower.includes(`（线上）${baseName}`)
+        || lower.includes(`(线上)${baseName}`);
+}
+
+/** 把单个课程类型按折算规则累加进 totals；count 支持小数（摘要面板按类型总数累加） */
+export function accumulateConvertedType(totals, rawType, count = 1) {
+    const trimmed = String(rawType ?? '').trim();
+    if (!trimmed) return totals;
+    const lower = trimmed.toLowerCase();
+    const n = Number(count) || 0;
+    const isType = (code, id, name) => lower === code || trimmed === String(id) || lower === String(name).toLowerCase();
+
+    if (isType('visit', 1, '入户') || isOnlineVariant(lower, '入户')) {
+        totals.visit += n;
+    } else if (isType('half_visit', 5, '半次入户')) {
+        totals.visit += n * 0.5;              // 半次入户 = 0.5 次入户
+    } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineVariant(lower, '评审')) {
+        totals.review += n;                   // 大评审 等同 评审 计入折算
+    } else if (isType('review_record', 4, '评审记录') || isOnlineVariant(lower, '评审记录')) {
+        totals.review += n;                   // 评审记录 = 1 次评审
+        totals.visit += n * 0.5;              // + 0.5 次入户
+    } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
+        totals.group += n;
+    } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult'
+        || isOnlineVariant(lower, '咨询') || lower.includes('线上辅导') || lower.includes('心理咨询')) {
+        totals.consult += n;
+    } else if (lower.includes('咨询记录') || isOnlineVariant(lower, '咨询记录')) {
+        totals.consult += n;                  // 咨询记录 = 1 次咨询
+    }
+    return totals;
+}
+
+/** 按行（schedule_types 逗号分隔）统计折算结果 */
+export function computeConvertedFromRows(rows) {
+    const totals = createConvertedTotals();
+    (rows || []).forEach(r => {
+        const typesStr = String(r?.schedule_types || '').trim();
+        (typesStr ? typesStr.split(',') : []).forEach(t => accumulateConvertedType(totals, t, 1));
+    });
+    return totals;
+}
+
+function fmtCount(v) {
+    const n = Number(v) || 0;
+    return Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : String(Number(n.toFixed(1)));
+}
+
+/** 折算文本：入户 X · 评审 Y · 集体活动 Z · 咨询 W（仅显示非 0 项） */
+export function formatConvertedText(totals) {
+    const t = totals || createConvertedTotals();
+    const parts = [];
+    if (t.visit > 0) parts.push(`入户 ${fmtCount(t.visit)}`);
+    if (t.review > 0) parts.push(`评审 ${fmtCount(t.review)}`);
+    if (t.group > 0) parts.push(`集体活动 ${fmtCount(t.group)}`);
+    if (t.consult > 0) parts.push(`咨询 ${fmtCount(t.consult)}`);
+    return parts.join(' · ');
+}
+
+/**
+ * 同一场课去重：v_session_pairs 是「教师 × 学生」粒度，一场课配 N 个老师/学生就是
+ * N 行。学生统计要的是「这名学生参与了几节课」，不是「他有多少位老师」，故按
+ * session_id 折叠；无 session_id 的历史行退化为 日期+时间+类型 去重。
+ */
+export function dedupeRowsBySession(rows) {
+    const seen = new Set();
+    const out = [];
+    (rows || []).forEach(r => {
+        const sid = r?.session_id ?? r?.id;
+        const key = (sid !== undefined && sid !== null && sid !== '')
+            ? `s:${sid}`
+            : `d:${r?.date || ''}|${r?.start_time || ''}|${r?.student_id || ''}|${r?.teacher_id || ''}|${r?.schedule_types || ''}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(r);
+    });
+    return out;
+}
+
 // --- 详情信息卡（教师/学生 tab 内每人一张卡，整行显示） ---
 // 卡片含：姓名+总数、类型占比条、文本图例、折算汇总，以及一张
 // 按类型堆叠的每日明细图（X=日期 / Y=数量），完整展示该人所有数据。
@@ -888,7 +977,9 @@ function renderPersonInfoCard(container, opts) {
 
     const badge = document.createElement('span');
     badge.className = 'person-total-badge';
-    badge.textContent = `共 ${total} 节`;
+    badge.appendChild(document.createTextNode('共 '));
+    badge.appendChild(makeCountSpan(total));
+    badge.appendChild(document.createTextNode(' 节'));
     header.appendChild(badge);
 
     // 分类课程数（色点 + 类型 + 数量）
@@ -901,7 +992,8 @@ function renderPersonInfoCard(container, opts) {
         dot.className = 'person-legend-dot';
         dot.style.backgroundColor = getLegendColor(t);
         item.appendChild(dot);
-        item.appendChild(document.createTextNode(`${t} ${typeCountMap.get(t)}`));
+        item.appendChild(document.createTextNode(`${t} `));
+        item.appendChild(makeCountSpan(typeCountMap.get(t)));
         legend.appendChild(item);
     });
     header.appendChild(legend);
@@ -910,11 +1002,21 @@ function renderPersonInfoCard(container, opts) {
     if (convertedText) {
         const conv = document.createElement('span');
         conv.className = 'person-converted';
-        conv.textContent = `折算：${convertedText}`;
+        conv.appendChild(document.createTextNode('折算：'));
+        // convertedText 形如 "入户 79 · 评审 25 · 集体活动 2"，按分隔拆出「类型 数值」并滚动数字
+        convertedText.split(' · ').forEach((part, i) => {
+            if (i > 0) conv.appendChild(document.createTextNode(' · '));
+            const sp = part.split(' ');
+            const label = sp.slice(0, -1).join(' ');
+            const val = sp[sp.length - 1];
+            conv.appendChild(document.createTextNode(label + ' '));
+            conv.appendChild(makeCountSpan(Number(val)));
+        });
         header.appendChild(conv);
     }
 
     card.appendChild(header);
+    animateCountUp(header);
 
     // 每日明细图：整行显示，按类型堆叠，X=日期 / Y=数量（节）
     const chartWrap = document.createElement('div');
@@ -967,13 +1069,15 @@ function renderPersonInfoCard(container, opts) {
             });
         })();
 
+        const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         new window.Chart(canvas.getContext('2d'), {
             type: 'bar',
             data: { labels: fmtDate, datasets },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: reduceMotion ? { duration: 0 } : { duration: 700, easing: 'easeOutCubic' },
+            interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { display: false },
                     title: { display: false },
@@ -1103,59 +1207,8 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
         const st = getStatus(teacherId);
         const displayName = String(nameMap.get(teacherId) || teacherRows.find(r => r.teacher_name)?.teacher_name || '未分配');
 
-        // 计算课程类型统计（带折算）
-        const typeCounts = {
-            visit: 0,      // 入户
-            review: 0,     // 评审
-            group: 0,      // 集体活动
-            consult: 0     // 咨询
-        };
-
-        teacherRows.forEach(r => {
-            const typesStr = String(r.schedule_types || '').trim();
-            const types = typesStr ? typesStr.split(',') : [];
-
-            types.forEach(t => {
-                const trimmed = String(t).trim();
-                const lower = trimmed.toLowerCase();
-
-                // 辅助匹配函数（同时匹配 Code / ID / 中文名）
-                // ID对照: 1=visit, 5=half_visit, 3=review, 4=review_record, 6=group_activity, 7=advisory/consultation
-                const isType = (code, id, name) => {
-                    return lower === code || trimmed == id || lower === name;
-                };
-
-                // 辅助函数：检查是否为线上类型
-                const isOnlineType = (baseName) => {
-                    return lower.includes(`线上${baseName}`) || lower.includes(`（线上）${baseName}`) || lower.includes(`(线上)${baseName}`);
-                };
-
-                // 折算规则（线上类型等效为线下类型）
-                if (isType('visit', 1, '入户') || isOnlineType('入户')) {
-                    typeCounts.visit += 1;
-                } else if (isType('half_visit', 5, '半次入户')) {
-                    typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineType('评审')) {
-                    typeCounts.review += 1;    // 大评审 等同 评审 计入折算
-                } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录')) {
-                    typeCounts.review += 1;    // 评审记录 = 1次评审
-                    typeCounts.visit += 0.5;   // + 0.5次入户
-                } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
-                    typeCounts.group += 1;
-                } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult' || isOnlineType('咨询') || lower.includes('线上辅导') || lower.includes('心理咨询')) {
-                    typeCounts.consult += 1;
-                } else if (lower.includes('咨询记录') || isOnlineType('咨询记录')) {
-                    typeCounts.consult += 1;    // 咨询记录 = 1次咨询
-                }
-            });
-        });
-
-        // 生成折算汇总文本（仅显示非0的类型）
-        const summary = [];
-        if (typeCounts.visit > 0) summary.push(`入户 ${typeCounts.visit}`);
-        if (typeCounts.review > 0) summary.push(`评审 ${typeCounts.review}`);
-        if (typeCounts.group > 0) summary.push(`集体活动 ${typeCounts.group}`);
-        if (typeCounts.consult > 0) summary.push(`咨询 ${typeCounts.consult}`);
+        // 折算统计（口径见 createConvertedTotals 上方注释，与按日期汇总摘要同源）
+        const convertedText = formatConvertedText(computeConvertedFromRows(teacherRows));
 
         renderPersonInfoCard(container, {
             cardClass: 'teacher-chart',
@@ -1166,7 +1219,7 @@ export function renderTeacherTypePerTeacherCharts(rows, dayLabels, selectedTeach
             dayLabels,
             typeOrder: globalTypeOrder,
             mapTypeLabel,
-            convertedText: summary.join(' · ')
+            convertedText
         });
     });
 }
@@ -1206,6 +1259,42 @@ export function renderTeacherScheduleChart(data) {
     });
 }
 
+// --- 数字滚动动画（摘要文字：共 N 节 / 折算数）---
+// 把目标数字包成 .count-num（初始显示 0），由 animateCountUp 用 rAF 在 duration 内
+// easeOutCubic 滚到目标；开启「减弱动画」时瞬显。汇总面板与单人卡共用，视觉一致。
+export function makeCountSpan(to) {
+    const s = document.createElement('span');
+    s.className = 'count-num';
+    s.dataset.to = String(to);
+    s.textContent = '0';
+    return s;
+}
+
+export function animateCountUp(root, opts = {}) {
+    const reduce = opts.reduceMotion
+        || !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const nums = root ? root.querySelectorAll('.count-num') : [];
+    if (!nums.length) return;
+    if (reduce) {
+        nums.forEach(n => { n.textContent = n.dataset.to; });
+        return;
+    }
+    const DURATION = opts.duration || 600;
+    const ease = t => 1 - Math.pow(1 - t, 3);
+    const t0 = performance.now();
+    const tick = (now) => {
+        const p = Math.min(1, (now - t0) / DURATION);
+        const e = ease(p);
+        nums.forEach(n => {
+            const to = Number(n.dataset.to) || 0;
+            n.textContent = String(Math.round(to * e));
+        });
+        if (p < 1) requestAnimationFrame(tick);
+        else nums.forEach(n => { n.textContent = n.dataset.to; });
+    };
+    requestAnimationFrame(tick);
+}
+
 // Global exposure for backward compatibility
 window.StatsLogic = {
     convertUserStatsToStackData,
@@ -1225,7 +1314,15 @@ window.StatsLogic = {
     setupTeacherChartsFilter,
     setupStudentChartsFilter,
     getSelectedTeacherForCharts,
-    getSelectedStudentForCharts
+    getSelectedStudentForCharts,
+    // 折算口径：教师卡 / 学生卡 / 按日期汇总摘要共用同一实现
+    createConvertedTotals,
+    accumulateConvertedType,
+    computeConvertedFromRows,
+    formatConvertedText,
+    dedupeRowsBySession,
+    makeCountSpan,
+    animateCountUp
 };
 
 // --- Extracted from legacy-adapter.js ---
@@ -1255,17 +1352,11 @@ export function setupTeacherChartsFilter(rows, dayLabels) {
 
             // Fallback to API if cache empty
             if (!teachers || teachers.length === 0) {
-                try {
-                    const tResp = await window.apiUtils.get('/admin/users/teacher');
-                    teachers = Array.isArray(tResp) ? tResp : (tResp && Array.isArray(tResp.data) ? tResp.data : []);
-                } catch (err) {
-                    // 返回默认教师列表
-                    teachers = [
-                        { id: 1, name: '教师A', status: 1 },
-                        { id: 2, name: '教师B', status: 1 },
-                        { id: 3, name: '教师C', status: 0 }
-                    ];
+                const tResp = await window.apiUtils.get('/admin/users/teacher');
+                if (!Array.isArray(tResp)) {
+                    throw new Error('教师列表响应格式无效');
                 }
+                teachers = tResp;
             } // End of if (!teachers || teachers.length === 0)
 
             // Process teachers list (from cache or API)
@@ -1288,16 +1379,20 @@ export function setupTeacherChartsFilter(rows, dayLabels) {
                 o.textContent = (t.name || '') + (Number(t.status) === 0 ? '（暂停）' : '');
                 sel.appendChild(o);
             });
+            sel.disabled = false;
             window.__teacherStatusMap = statusMap;
             window.__teacherNameMap = nameMap;
 
         } catch (err) {
-            const teacherSet = new Set(rows.map(r => String(r.teacher_id || '').trim()));
-            const teachersFallback = Array.from(teacherSet).sort();
-            teachersFallback.forEach(id => {
-                const label = rows.find(rr => String(rr.teacher_id || '') === String(id))?.teacher_name || id || '未分配';
-                const o = document.createElement('option'); o.value = String(id); o.textContent = label; sel.appendChild(o);
-            });
+            sel.disabled = true;
+            window.SecurityUtils.safeSetHTML(sel, '');
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '教师列表加载失败';
+            sel.appendChild(option);
+            if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
+                window.apiUtils.showToast('教师筛选列表加载失败，请重试', 'error');
+            }
         }
     })();
     if (!sel.__bound) {
@@ -1323,14 +1418,17 @@ export function setupTeacherChartsFilter(rows, dayLabels) {
 
                 // 更新"按日期汇总"图表
                 if (window.StatsPlugins) {
-                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(newRows, newDayLabels);
+                    // 与 /admin/statistics/daily-schedules 同源口径：按 session 去重（一场课一节）
+                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(dedupeRowsBySession(newRows), newDayLabels);
                     window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', newDayLabels, typeStacks, {
                         theme: 'accessible',
                         animation: false,
                         interactionMode: 'index'
                     });
-                    // 设置汇总图表标题的悬停提示
-                    setupStatsTooltip(newRows, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
+                    // 右侧文字摘要同步刷新（此前点查询只更新图表，摘要停在旧区间）
+                    if (typeof window.renderDailySummaryPanel === 'function') {
+                        window.renderDailySummaryPanel('teacher', typeStacks);
+                    }
                 }
 
                 // 更新教师筛选器和每位教师的图表
@@ -1342,71 +1440,6 @@ export function setupTeacherChartsFilter(rows, dayLabels) {
             }
         });
         tBtn.__bound = true;
-    }
-}
-
-// 设置汇总图表标题的悬停提示
-// 设置汇总图表标题的悬停提示 (通用)
-export function setupStatsTooltip(scheduleRows, titleId, tooltipId) {
-    const titleEl = document.getElementById(titleId);
-    const tooltipEl = document.getElementById(tooltipId);
-
-    if (!titleEl || !tooltipEl) return;
-
-    // 辅助函数：映射课程类型标签
-
-    // 计算整个日期范围的课程类型汇总统计
-    const typeCountMap = new Map();
-    let totalCount = 0;
-
-    scheduleRows.forEach(r => {
-        if (!isCountableSchedule(r)) return;
-        const typesStr = String(r.schedule_types || '').trim();
-        const types = typesStr ? typesStr.split(',') : ['未分类'];
-        types.forEach(t => {
-            const label = mapTypeLabel(t);
-            typeCountMap.set(label, (typeCountMap.get(label) || 0) + 1);
-            totalCount++;
-        });
-    });
-
-    // 构建工具提示内容
-    let tooltipHTML = '<div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 6px;">授课类型统计</div>';
-
-    if (typeCountMap.size > 0) {
-        const sortedTypes = Array.from(typeCountMap.entries()).sort((a, b) => b[1] - a[1]);
-        sortedTypes.forEach(([type, count]) => {
-            tooltipHTML += `<div style="margin: 4px 0;">${type}: ${count}节</div>`;
-        });
-        tooltipHTML += `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.3); font-weight: bold;">总计: ${totalCount}节</div>`;
-    } else {
-        tooltipHTML += '<div style="margin: 4px 0;">暂无数据</div>';
-    }
-
-    window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML);
-
-    // 添加鼠标悬停事件 (如果未绑定)
-    if (!titleEl.__tooltipBound) {
-        titleEl.addEventListener('mouseenter', () => {
-            // 简单的淡入
-            tooltipEl.style.display = 'block';
-            // 强制重绘以触发 transition
-            tooltipEl.offsetHeight;
-            tooltipEl.style.opacity = '1';
-            tooltipEl.style.visibility = 'visible';
-        });
-
-        titleEl.addEventListener('mouseleave', () => {
-            tooltipEl.style.opacity = '0';
-            tooltipEl.style.visibility = 'hidden';
-            // 等待动画结束后隐藏
-            setTimeout(() => {
-                if (tooltipEl.style.opacity === '0') {
-                    tooltipEl.style.display = 'none';
-                }
-            }, 300);
-        });
-        titleEl.__tooltipBound = true;
     }
 }
 
@@ -1434,23 +1467,15 @@ export function setupStudentChartsFilter(rows, dayLabels) {
             }
 
             if (!students || students.length === 0) {
-                try {
-                    const sResp = await window.apiUtils.get('/admin/users/student');
-                    if (Array.isArray(sResp)) {
-                        students = sResp;
-                    } else if (sResp && Array.isArray(sResp.data)) {
-                        students = sResp.data;
-                    } else if (sResp && Array.isArray(sResp.students)) {
-                        students = sResp.students;
-                    } else if (sResp && Array.isArray(sResp.items)) {
-                        students = sResp.items;
-                    } else if (sResp && sResp.data && Array.isArray(sResp.data.students)) {
-                        students = sResp.data.students;
-                    } else {
-                        students = [];
-                    }
-                } catch (err) {
-                    students = [{ id: 1, name: '学生A', status: 1 }];
+                const sResp = await window.apiUtils.get('/admin/users/student');
+                if (Array.isArray(sResp)) {
+                    students = sResp;
+                } else if (sResp && Array.isArray(sResp.students)) {
+                    students = sResp.students;
+                } else if (sResp && Array.isArray(sResp.items)) {
+                    students = sResp.items;
+                } else {
+                    throw new Error('学生列表响应格式无效');
                 }
             }
             const statusMap = new Map();
@@ -1472,15 +1497,19 @@ export function setupStudentChartsFilter(rows, dayLabels) {
                 o.textContent = (s.name || '') + (Number(s.status) === 0 ? '（暂停）' : '');
                 sel.appendChild(o);
             });
+            sel.disabled = false;
             window.__studentStatusMap = statusMap;
             window.__studentNameMap = nameMap;
         } catch (err) {
-            const studentIdSet = new Set(rows.map(r => String(r.student_id || '').trim()));
-            const studentsFallback = Array.from(studentIdSet).sort();
-            studentsFallback.forEach(id => {
-                const label = rows.find(rr => String(rr.student_id || '') === String(id))?.student_name || id || '未分配';
-                const o = document.createElement('option'); o.value = String(id); o.textContent = label; sel.appendChild(o);
-            });
+            sel.disabled = true;
+            window.SecurityUtils.safeSetHTML(sel, '');
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '学生列表加载失败';
+            sel.appendChild(option);
+            if (window.apiUtils && typeof window.apiUtils.showToast === 'function') {
+                window.apiUtils.showToast('学生筛选列表加载失败，请重试', 'error');
+            }
         }
     })();
     if (!sel.__bound) {
@@ -1506,14 +1535,17 @@ export function setupStudentChartsFilter(rows, dayLabels) {
 
                 // 更新"按日期汇总"图表 (镜像教师逻辑)
                 if (window.StatsPlugins) {
-                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(newRows, newDayLabels);
+                    // 与 /admin/statistics/daily-schedules 同源口径：按 session 去重（一场课一节）
+                    const typeStacks = window.StatsPlugins.buildStackedByTypePerDay(dedupeRowsBySession(newRows), newDayLabels);
                     window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', newDayLabels, typeStacks, {
                         theme: 'accessible',
                         animation: false,
                         interactionMode: 'index'
                     });
-                    // 设置汇总图表标题的悬停提示
-                    setupStatsTooltip(newRows, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');
+                    // 右侧文字摘要同步刷新（此前点查询只更新图表，摘要停在旧区间）
+                    if (typeof window.renderDailySummaryPanel === 'function') {
+                        window.renderDailySummaryPanel('student', typeStacks);
+                    }
                 }
 
                 const selected = getSelectedStudentForCharts();
@@ -1524,55 +1556,6 @@ export function setupStudentChartsFilter(rows, dayLabels) {
         });
         sBtn.__bound = true;
     }
-}
-
-// 设置学生汇总图表标题的悬停提示 (镜像教师逻辑)
-export function setupStudentSummaryChartTitleTooltip(scheduleRows) {
-    const titleEl = document.getElementById('studentSummaryChartTitle');
-    const tooltipEl = document.getElementById('studentSummaryTitleTooltip');
-
-    if (!titleEl || !tooltipEl) return;
-
-    // 辅助函数：映射课程类型标签
-
-    // 计算整个日期范围的课程类型汇总统计
-    const typeCountMap = new Map();
-    let totalCount = 0;
-
-    scheduleRows.forEach(r => {
-        if (!isCountableSchedule(r)) return;
-        const typesStr = String(r.schedule_types || '').trim();
-        const types = typesStr ? typesStr.split(',') : ['未分类'];
-        types.forEach(t => {
-            const label = mapTypeLabel(t);
-            typeCountMap.set(label, (typeCountMap.get(label) || 0) + 1);
-            totalCount++;
-        });
-    });
-
-    // 构建工具提示内容
-    let tooltipHTML = '<div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 6px;">授课类型统计</div>';
-
-    if (typeCountMap.size > 0) {
-        const sortedTypes = Array.from(typeCountMap.entries()).sort((a, b) => b[1] - a[1]);
-        sortedTypes.forEach(([type, count]) => {
-            tooltipHTML += `<div style="margin: 4px 0;">${type}: ${count}节</div>`;
-        });
-        tooltipHTML += `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.3); font-weight: bold;">总计: ${totalCount}节</div>`;
-    } else {
-        tooltipHTML += '<div style="margin: 4px 0;">暂无数据</div>';
-    }
-
-    window.SecurityUtils.safeSetHTML(tooltipEl, tooltipHTML);
-
-    // 添加鼠标悬停事件
-    titleEl.addEventListener('mouseenter', () => {
-        tooltipEl.style.display = 'block';
-    });
-
-    titleEl.addEventListener('mouseleave', () => {
-        tooltipEl.style.display = 'none';
-    });
 }
 
 // 新增：按学生生成多类型光滑曲线图（每位学生一个图）
@@ -1586,7 +1569,9 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         return;
     }
 
-    rows = (rows || []).filter(isCountableSchedule);
+    // 学生口径：同一场课只算一节（v_session_pairs 是师生配对粒度，一节课配多位老师
+    // 会拆成多行，不去重的话统计出来的是「带过他的老师人次」而非「他上了几节课」）
+    rows = dedupeRowsBySession((rows || []).filter(isCountableSchedule));
 
     // 检查数据格式
     if (rows.length === 0) {
@@ -1645,56 +1630,8 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
         const st = getStatus(studentId);
         const displayName = String(nameMap.get(studentId) || stuRows.find(r => r.student_name)?.student_name || '未分配');
 
-        // 计算课程类型统计（带折算）
-        const typeCounts = {
-            visit: 0,      // 入户
-            review: 0,     // 评审
-            group: 0,      // 集体活动
-            consult: 0     // 咨询
-        };
-
-        // 辅助函数：检查是否为线上类型
-        const isOnlineType = (baseName, lower) => {
-            return lower.includes(`线上${baseName}`) || lower.includes(`（线上）${baseName}`) || lower.includes(`(线上)${baseName}`);
-        };
-
-        stuRows.forEach(r => {
-            const typesStr = String(r.schedule_types || '').trim();
-            const types = typesStr ? typesStr.split(',') : [];
-
-            types.forEach(t => {
-                const trimmed = String(t).trim();
-                const lower = trimmed.toLowerCase();
-                const isType = (code, id, name) => {
-                    return lower === code || trimmed == id || lower === name;
-                };
-
-                // 折算规则（线上类型等效为线下类型）
-                if (isType('visit', 1, '入户') || isOnlineType('入户', lower)) {
-                    typeCounts.visit += 1;
-                } else if (isType('half_visit', 5, '半次入户')) {
-                    typeCounts.visit += 0.5;  // 半次入户 = 0.5次入户
-                } else if (isType('review', 3, '评审') || lower === '大评审' || isOnlineType('评审', lower)) {
-                    typeCounts.review += 1;    // 大评审 等同 评审 计入折算
-                } else if (isType('review_record', 4, '评审记录') || isOnlineType('评审记录', lower)) {
-                    typeCounts.review += 1;    // 评审记录 = 1次评审
-                    typeCounts.visit += 0.5;   // + 0.5次入户
-                } else if (isType('group_activity', 6, '集体活动') || lower === 'group') {
-                    typeCounts.group += 1;
-                } else if (isType('advisory', 7, '咨询') || isType('consultation', 7, '咨询') || lower === 'consult' || isOnlineType('咨询', lower) || lower.includes('线上辅导') || lower.includes('心理咨询')) {
-                    typeCounts.consult += 1;
-                } else if (lower.includes('咨询记录') || isOnlineType('咨询记录', lower)) {
-                    typeCounts.consult += 1;    // 咨询记录 = 1次咨询
-                }
-            });
-        });
-
-        // 生成折算汇总文本（仅显示非0的类型）
-        const summary = [];
-        if (typeCounts.visit > 0) summary.push(`入户 ${typeCounts.visit}`);
-        if (typeCounts.review > 0) summary.push(`评审 ${typeCounts.review}`);
-        if (typeCounts.group > 0) summary.push(`集体活动 ${typeCounts.group}`);
-        if (typeCounts.consult > 0) summary.push(`咨询 ${typeCounts.consult}`);
+        // 折算统计（口径与教师卡、按日期汇总摘要同源）
+        const convertedText = formatConvertedText(computeConvertedFromRows(stuRows));
 
         renderPersonInfoCard(container, {
             cardClass: 'student-chart',
@@ -1705,7 +1642,7 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
             dayLabels,
             typeOrder: globalTypeOrder,
             mapTypeLabel,
-            convertedText: summary.join(' · ')
+            convertedText
         });
     });
 }
@@ -1718,9 +1655,7 @@ export function renderStudentTypePerStudentCharts(rows, dayLabels, selectedStude
 
 // Global exposure
 window.setupTeacherChartsFilter = setupTeacherChartsFilter;
-window.setupStatsTooltip = setupStatsTooltip;
 window.setupStudentChartsFilter = setupStudentChartsFilter;
-window.setupStudentSummaryChartTitleTooltip = setupStudentSummaryChartTitleTooltip;
 window.renderStudentTypePerStudentCharts = renderStudentTypePerStudentCharts;
 window.getSelectedTeacherForCharts = getSelectedTeacherForCharts;
 window.getSelectedStudentForCharts = getSelectedStudentForCharts;

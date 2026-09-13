@@ -39,7 +39,10 @@ export async function loadScheduleTypes() {
 
     try {
         const result = await window.apiUtils.get('/admin/schedule-types');
-        const types = Array.isArray(result) ? result : (result.data || []);
+        if (!Array.isArray(result)) {
+            throw new Error('课程类型响应格式无效');
+        }
+        const types = result;
         syncScheduleTypesStore(types, { action: 'refresh' });
         renderScheduleTypesTable(types);
     } catch (error) {
@@ -205,7 +208,7 @@ export function setupScheduleTypeListeners() {
                 
                 if (window.apiUtils) {
                     // 处理后端返回的错误信息(如名称重复)
-                    const msg = error.message || (error.data && error.data.message) || '保存失败';
+                    const msg = error.message || '保存失败';
                     window.apiUtils.showToast(msg, 'error');
                 } else {
                     window.Toast.error('保存失败');

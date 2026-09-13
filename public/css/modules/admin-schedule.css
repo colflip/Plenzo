@@ -511,7 +511,12 @@
 }
 
 .icon-slot {
-    font-size: var(--fs-600);
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    display: inline-block;
+    vertical-align: middle;
     color: #e2e8f0;
     /* Default grey */
     transition: all 0.2s;

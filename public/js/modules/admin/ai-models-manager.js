@@ -14,29 +14,77 @@ const statusCache = new Map();      // key -> { ts, available, error }
 const inFlightChecks = new Map();   // key -> Promise（并发去重）
 let detectTimer = null;
 
-const apiUtils = new ApiUtils();
+const apiUtils = window.apiUtils;
 
-function escapeHtml(str) {
-    if (str == null) return '';
-    if (typeof str !== 'string') str = String(str);
-    const map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
-    return str.replace(/[&<>"']/g, c => map[c]);
+const REMOTE_LOAD_KEYS = ['current', 'presets', 'capabilities'];
+const loadState = {
+    custom: 'loading',
+    current: 'loading',
+    presets: 'loading',
+    capabilities: 'loading'
+};
+const loadErrors = {
+    custom: null,
+    current: null,
+    presets: null,
+    capabilities: null
+};
+
+function renderLoadState() {
+    const tbody = document.getElementById('aiModelsTableBody');
+    if (!tbody) return;
+
+    const failed = Object.entries(loadState).filter(([, state]) => state === 'error');
+    if (failed.length > 0) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 6;
+        const firstError = loadErrors[failed[0][0]];
+        if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
+            cell.appendChild(window.ErrorUI.createErrorState({
+                title: 'AI 模型配置加载失败',
+                error: firstError,
+                compact: true,
+                onRetry: loadRemoteModelData
+            }));
+        } else {
+            cell.setAttribute('role', 'alert');
+            cell.textContent = 'AI 模型配置加载失败，请重试。';
+        }
+        row.appendChild(cell);
+        tbody.replaceChildren(row);
+        return;
+    }
+
+    if (Object.values(loadState).some(state => state === 'loading')) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 6;
+        cell.className = 'ai-models-loading';
+        cell.setAttribute('role', 'status');
+        cell.textContent = '正在加载 AI 模型配置…';
+        row.appendChild(cell);
+        tbody.replaceChildren(row);
+        return;
+    }
+
+    renderModelsTable();
+    renderCurrentBar();
 }
 
-/** fetch wrapper — 自动处理 401 未授权（token 过期）跳转登录页 */
-async function fetchWithAuth(url, options = {}) {
-    const headers = { ...apiUtils.getHeaders(), ...(options.headers || {}) };
-    const resp = await fetch(url, { ...options, headers });
-    if (resp.status === 401) {
-        const path = window.location.pathname || '';
-        const onDashboard = /\/(admin|teacher|student)(\/|$)/.test(path);
-        const onLogin = path.endsWith('/index.html') || path === '/' || path === '';
-        if (onDashboard && !onLogin) {
-            window.location.href = '/index.html';
-            return null;
-        }
-    }
-    return resp;
+async function loadRemoteModelData() {
+    REMOTE_LOAD_KEYS.forEach(key => {
+        loadState[key] = 'loading';
+        loadErrors[key] = null;
+    });
+    loadCustomModels();
+    renderLoadState();
+    await Promise.allSettled([
+        loadCurrentConfig(),
+        loadPresetModels(),
+        loadModelsCapabilities()
+    ]);
+    renderLoadState();
 }
 
 /**
@@ -78,10 +126,7 @@ function showConfirm(message, detail = '') {
  * 初始化
  */
 function initAIModelsManager() {
-    loadCurrentConfig();
-    loadPresetModels();
-    loadCustomModels();
-    loadModelsCapabilities();
+    loadRemoteModelData();
     bindEvents();
 
     // 监听 AI 区块可见性：区块切到前台（showSection 加 active）时才触发状态检测，
@@ -101,15 +146,18 @@ function initAIModelsManager() {
  */
 async function loadCurrentConfig() {
     try {
-        const response = await fetchWithAuth('/api/ai/config');
-        if (response.ok) {
-            const data = await response.json();
-            currentConfig = data.data;
-            renderCurrentBar();
-            renderModelsTable();
-        }
+        const data = await apiUtils.getSilent('/ai/config');
+        if (!data || typeof data !== 'object') throw new Error('AI 配置响应格式无效');
+        currentConfig = data;
+        loadState.current = 'success';
+        loadErrors.current = null;
+        renderLoadState();
     } catch (error) {
+        loadState.current = 'error';
+        loadErrors.current = error;
+        renderLoadState();
         console.error('加载当前 AI 配置失败:', error);
+        throw error;
     }
 }
 
@@ -118,15 +166,20 @@ async function loadCurrentConfig() {
  */
 async function loadPresetModels() {
     try {
-        const response = await fetchWithAuth('/api/ai/presets');
-        if (response.ok) {
-            const data = await response.json();
-            presetModels = data.data.presets || [];
-            renderModelsTable();
-            renderCurrentBar(); // 预设加载后重新渲染摘要栏，确保显示预设名称
+        const data = await apiUtils.getSilent('/ai/presets');
+        if (!data || typeof data !== 'object' || !Array.isArray(data.presets)) {
+            throw new Error('预设模型响应格式无效');
         }
+        presetModels = data.presets;
+        loadState.presets = 'success';
+        loadErrors.presets = null;
+        renderLoadState();
     } catch (error) {
+        loadState.presets = 'error';
+        loadErrors.presets = error;
+        renderLoadState();
         console.error('加载预设模型失败:', error);
+        throw error;
     }
 }
 
@@ -135,7 +188,25 @@ async function loadPresetModels() {
  */
 function loadCustomModels() {
     const stored = localStorage.getItem('customAIModels');
-    if (stored) customModels = JSON.parse(stored);
+    if (!stored) {
+        customModels = [];
+        loadState.custom = 'success';
+        loadErrors.custom = null;
+        return;
+    }
+
+    try {
+        const parsed = JSON.parse(stored);
+        if (!Array.isArray(parsed)) throw new Error('自定义模型缓存格式无效');
+        customModels = parsed;
+        loadState.custom = 'success';
+        loadErrors.custom = null;
+    } catch (error) {
+        customModels = [];
+        loadState.custom = 'error';
+        loadErrors.custom = error;
+        console.error('加载自定义 AI 模型失败:', error);
+    }
 }
 
 /**
@@ -150,14 +221,20 @@ function saveCustomModels() {
  */
 async function loadModelsCapabilities() {
     try {
-        const response = await fetchWithAuth('/api/ai/models');
-        if (response.ok) {
-            const data = await response.json();
-            modelsCapabilities = data.data.models || {};
-            renderModelsTable();
+        const data = await apiUtils.getSilent('/ai/models');
+        if (!data || typeof data !== 'object' || !data.models || typeof data.models !== 'object') {
+            throw new Error('模型能力响应格式无效');
         }
+        modelsCapabilities = data.models;
+        loadState.capabilities = 'success';
+        loadErrors.capabilities = null;
+        renderLoadState();
     } catch (error) {
+        loadState.capabilities = 'error';
+        loadErrors.capabilities = error;
+        renderLoadState();
         console.error('加载模型能力数据失败:', error);
+        throw error;
     }
 }
 
@@ -216,6 +293,10 @@ function renderCurrentBar() {
 function renderModelsTable() {
     const tbody = document.getElementById('aiModelsTableBody');
     if (!tbody) return;
+    if (Object.values(loadState).some(state => state !== 'success')) {
+        renderLoadState();
+        return;
+    }
 
     // 合并预设和自定义模型为一个列表
     const allModels = [
@@ -302,16 +383,14 @@ function applyStatus(ref, status) {
 async function checkPresetStatus(preset) {
     const ref = { _type: 'preset', id: preset.id };
     try {
-        const response = await fetchWithAuth('/api/ai/check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                presetId: preset.id, provider: preset.provider,
-                protocol: preset.protocol, baseUrl: preset.baseUrl, model: preset.model
-            })
-        });
-        const result = await response.json();
-        const status = { available: !!(result.data && result.data.available), error: result.data ? result.data.error : '无法连接' };
+        const result = await apiUtils.post('/ai/check', {
+            presetId: preset.id,
+            provider: preset.provider,
+            protocol: preset.protocol,
+            baseUrl: preset.baseUrl,
+            model: preset.model
+        }, { suppressErrorToast: true });
+        const status = { available: !!result.available, error: result.error || '无法连接' };
         applyStatus(ref, status);
         return status;
     } catch (error) {
@@ -327,16 +406,14 @@ async function checkPresetStatus(preset) {
 async function checkCustomStatus(custom, index) {
     const ref = { _type: 'custom', _index: index };
     try {
-        const response = await fetchWithAuth('/api/ai/check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                provider: custom.provider, protocol: custom.protocol,
-                apiKey: custom.apiKey, baseUrl: custom.baseUrl, model: custom.model
-            })
-        });
-        const result = await response.json();
-        const status = { available: !!(result.data && result.data.available), error: result.data ? result.data.error : '无法连接' };
+        const result = await apiUtils.post('/ai/check', {
+            provider: custom.provider,
+            protocol: custom.protocol,
+            apiKey: custom.apiKey,
+            baseUrl: custom.baseUrl,
+            model: custom.model
+        }, { suppressErrorToast: true });
+        const status = { available: !!result.available, error: result.error || '无法连接' };
         applyStatus(ref, status);
         return status;
     } catch (error) {
@@ -493,24 +570,18 @@ async function switchToPreset(presetId) {
     if (!preset) return;
     if (!await showConfirm(`确定要切换到"${preset.name}"吗？`, '切换后立即生效')) return;
     try {
-        const response = await fetchWithAuth('/api/ai/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                presetId: preset.id, provider: preset.provider, protocol: preset.protocol,
-                baseUrl: preset.baseUrl, model: preset.model,
-                timeout: preset.timeout || 30000, maxTokens: preset.maxTokens || 3000
-            })
-        });
-        if (response.ok) {
-            const result = await response.json();
-            apiUtils.showToast(result.message || '配置已更新并立即生效！', 'success');
-            loadCurrentConfig();
-            renderModelsTable();
-        } else {
-            const result = await response.json();
-            apiUtils.showToast('切换失败：' + (result.message || '请稍后重试'), 'error');
-        }
+        await apiUtils.put('/ai/config', {
+            presetId: preset.id,
+            provider: preset.provider,
+            protocol: preset.protocol,
+            baseUrl: preset.baseUrl,
+            model: preset.model,
+            timeout: preset.timeout || 30000,
+            maxTokens: preset.maxTokens || 3000
+        }, { suppressErrorToast: true });
+        apiUtils.showToast('配置已更新并立即生效！', 'success');
+        await loadCurrentConfig();
+        renderModelsTable();
     } catch (error) {
         apiUtils.showToast('切换失败：' + error.message, 'error');
     }
@@ -524,24 +595,18 @@ async function switchToCustom(index) {
     if (!custom) return;
     if (!await showConfirm(`确定要切换到"${custom.name}"吗？`, '切换后立即生效')) return;
     try {
-        const response = await fetchWithAuth('/api/ai/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                provider: custom.provider, protocol: custom.protocol, apiKey: custom.apiKey,
-                baseUrl: custom.baseUrl, model: custom.model,
-                timeout: custom.timeout || 30000, maxTokens: custom.maxTokens || 3000
-            })
-        });
-        if (response.ok) {
-            const result = await response.json();
-            apiUtils.showToast(result.message || '配置已更新并立即生效！', 'success');
-            loadCurrentConfig();
-            renderModelsTable();
-        } else {
-            const result = await response.json();
-            apiUtils.showToast('切换失败：' + (result.message || '请稍后重试'), 'error');
-        }
+        await apiUtils.put('/ai/config', {
+            provider: custom.provider,
+            protocol: custom.protocol,
+            apiKey: custom.apiKey,
+            baseUrl: custom.baseUrl,
+            model: custom.model,
+            timeout: custom.timeout || 30000,
+            maxTokens: custom.maxTokens || 3000
+        }, { suppressErrorToast: true });
+        apiUtils.showToast('配置已更新并立即生效！', 'success');
+        await loadCurrentConfig();
+        renderModelsTable();
     } catch (error) {
         apiUtils.showToast('切换失败：' + error.message, 'error');
     }
@@ -557,21 +622,19 @@ async function testPreset(presetId, btn) {
     btn.disabled = true;
     btn.textContent = '测试中...';
     try {
-        const response = await fetchWithAuth('/api/ai/test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                presetId: preset.id, provider: preset.provider, protocol: preset.protocol,
-                baseUrl: preset.baseUrl, model: preset.model,
-                timeout: preset.timeout || 30000, maxTokens: preset.maxTokens || 1000
-            })
-        });
-        const result = await response.json();
-        if (result.data && result.data.success) {
-            apiUtils.showToast(`测试成功！响应时间：${result.data.latency}ms`, 'success');
-        } else {
-            apiUtils.showToast(`测试失败：${result.data ? result.data.error : '未知错误'}`, 'error');
+        const result = await apiUtils.post('/ai/test', {
+            presetId: preset.id,
+            provider: preset.provider,
+            protocol: preset.protocol,
+            baseUrl: preset.baseUrl,
+            model: preset.model,
+            timeout: preset.timeout || 30000,
+            maxTokens: preset.maxTokens || 1000
+        }, { suppressErrorToast: true });
+        if (!result || !Number.isFinite(Number(result.latency))) {
+            throw new Error('模型测试响应格式无效');
         }
+        apiUtils.showToast(`测试成功！响应时间：${result.latency}ms`, 'success');
     } catch (error) {
         apiUtils.showToast('测试失败：' + error.message, 'error');
     } finally {
@@ -589,17 +652,13 @@ async function testCustom(index, btn) {
     btn.disabled = true;
     btn.textContent = '测试中...';
     try {
-        const response = await fetchWithAuth('/api/ai/test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(custom)
+        const result = await apiUtils.post('/ai/test', custom, {
+            suppressErrorToast: true
         });
-        const result = await response.json();
-        if (result.data && result.data.success) {
-            apiUtils.showToast(`测试成功！响应时间：${result.data.latency}ms`, 'success');
-        } else {
-            apiUtils.showToast(`测试失败：${result.data ? result.data.error : '未知错误'}`, 'error');
+        if (!result || !Number.isFinite(Number(result.latency))) {
+            throw new Error('模型测试响应格式无效');
         }
+        apiUtils.showToast(`测试成功！响应时间：${result.latency}ms`, 'success');
     } catch (error) {
         apiUtils.showToast('测试失败：' + error.message, 'error');
     } finally {

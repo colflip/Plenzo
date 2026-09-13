@@ -325,14 +325,12 @@
 /* 与单人卡片（.person-card-header）一致的行内标题风格：左对齐、小字号，
    位于汇总卡片 header 行左侧，右侧放教师/学生筛选下拉 */
 .summary-chart-title {
-    font-size: var(--fs-300);
+    font-size: var(--fs-400);
     font-weight: 600;
     color: var(--stats-text-main);
     margin: 0;
     text-align: left;
     position: relative;
-    cursor: help;
-    /* Indicate interactability */
 }
 
 /* 汇总卡片 header 行：左标题 + 右筛选下拉（教师/学生视图） */
@@ -340,7 +338,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    flex-wrap: wrap;
     gap: 8px 16px;
     padding: 14px 16px 0;
 }
@@ -387,6 +384,7 @@
     transform: translateX(-50%) translateY(0);
 }
 
+
 .chart-card {
     width: 100%;
 }
@@ -414,55 +412,10 @@
     min-width: 0;
 }
 
-/* 右侧文字摘要面板 */
-.summary-panel {
-    flex: 0 0 220px;
-    align-self: stretch;
-    background: var(--stats-surface, #fff);
-    border: 1px solid var(--stats-border, #e2e8f0);
-    border-radius: var(--stats-radius-md, 10px);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 6px;
-    font-size: var(--fs-300, 13px);
-    color: var(--stats-text-body, #475569);
-    line-height: 1.5;
-}
-
-.summary-panel .summary-line {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.summary-panel .summary-total {
-    font-weight: 600;
-    font-size: var(--fs-400, 14px);
-    color: var(--stats-text-main, #1e293b);
-    border-bottom: 1px dashed var(--stats-border, #e2e8f0);
-    padding-bottom: 6px;
-    margin-bottom: 2px;
-}
-
-.summary-panel .summary-conv {
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px dashed var(--stats-border, #e2e8f0);
-    font-weight: 600;
-    color: var(--stats-primary, #2ecc71);
-}
-
-/* 移动端：图表与摘要面板改为上下堆叠 */
+/* 移动端：图表标签改为上下堆叠 */
 @media (max-width: 768px) {
     .summary-body {
         flex-direction: column;
-    }
-
-    .summary-panel {
-        flex: 1 1 auto;
-        width: 100%;
     }
 }
 
@@ -639,6 +592,11 @@
 .person-converted {
     font-size: var(--fs-300);
     color: var(--stats-text-muted);
+}
+
+/* 数字滚动：等宽数字防止计数过程中宽度抖动 */
+.count-num {
+    font-variant-numeric: tabular-nums;
 }
 
 /* 每人每日明细图：整行、带坐标轴 */

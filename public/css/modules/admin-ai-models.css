@@ -93,6 +93,12 @@
 }
 
 /* AI 模型表格：基础样式由 dashboard.css 全局 th/td 提供，此处仅定义特有样式 */
+.ai-models-loading {
+    padding: 40px 20px;
+    color: var(--text-secondary, #64748b);
+    text-align: center;
+}
+
 .ai-models-table {
     width: 100%;
     border-collapse: separate;

@@ -409,7 +409,9 @@
           if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
             parent.appendChild(window.ErrorUI.createErrorState({
               title: '图表加载失败',
-              detail: '图表组件未就绪，请刷新页面重试'
+              detail: '图表组件未就绪，请刷新页面重试',
+              retryText: '刷新页面',
+              onRetry: () => window.location.reload()
             }));
           } else {
             const errorDiv = document.createElement('div');
@@ -421,8 +423,7 @@
         return;
       }
 
-      // 销毁旧图表
-      destroyChartById(canvasId);
+      const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
       // 显示加载中状态（如果有加载容器）
       const loadingContainer = document.getElementById(`${canvasId}-loading`);
@@ -517,12 +518,12 @@
       // 只渲染一次，全程不动），由 revealClip 插件把裁剪窗口从 chartArea 左缘
       // 匀速推到右缘 —— 曲线/面积沿时间路径逐步显现，即真实划线效果。
       // revealAnimation:false 可关闭；点数不足 3 个时直接静态渲染。
-      const revealEnabled = opts.revealAnimation !== false && formattedLabels.length > 2;
+      const revealEnabled = opts.revealAnimation !== false && formattedLabels.length > 2 && !reduceMotion;
       const REVEAL_DURATION_MS = 1600;
       const fullSeries = normalizedStacks.map(s => sanitizeArray(s.data));
 
-      // 计算异常值边界
-      const clampMax = computeClampMaxFromSeries(normalizedStacks);
+      // 注：此处不再用 P95 clamp 定 Y 轴上限 —— 堆叠图要按真实合计定轴，
+      // clamp 会把高峰日压到轴外（详见下方 fixedYMax 注释）。
 
       // 堆叠面积图数据集：平滑曲线 + 半透明填充，悬停才显示数据点
       // stack: 'types' 与总计线的 stack 分组隔离，避免总计被叠加计算
@@ -586,15 +587,52 @@
       }
 
       // 创建图表配置（堆叠面积图）
-      // Y 轴用强制 max（= P95 建议值与真实峰值的较大者 + 1 格余量），替代可被可见数据
-      // 撑动的 suggestedMax —— 保证坐标轴与刻度在动画全程与静态展示完全一致。
-      // 末尾 +1 是用户要求的"阈值"：最大值为 2 时轴显示 3，让整张堆叠图（含顶部总计线）
-      // 顶部留出余量，避免最上层被坐标轴截断、视觉上"显示不全"。
+      // Y 轴 max 由数据决定（不再写死）：取「每日堆叠合计峰值」与「单类型峰值」的较大者，
+      // 再按 12% 留白（至少 1 格）抬到轴顶 —— 堆叠图的可视高度是各层之和，过去只按单
+      // 类型峰值 +1 定轴，合计线与最上层柱会被轴顶截断（"数据显示不完整"）。
+      // 显式 max 而非 suggestedMax：坐标轴与刻度在动画全程保持一致，不会随揭示动画抖动。
       const fullDataMaxY = fullSeries.reduce((m, arr) => {
         arr.forEach(v => { const n = Number(v); if (Number.isFinite(n) && n > m) m = n; });
         return m;
       }, 0);
-      const fixedYMax = Math.max(Number(clampMax) || 0, fullDataMaxY, 1) + 1;
+      const stackedMaxY = (() => {
+        let m = 0;
+        for (let i = 0; i < formattedLabels.length; i++) {
+          let sum = 0;
+          for (let s = 0; s < normalizedStacks.length; s++) {
+            const n = Number(normalizedStacks[s]?.data?.[i]);
+            if (Number.isFinite(n)) sum += n;
+          }
+          if (sum > m) m = sum;
+        }
+        return m;
+      })();
+      const peakY = Math.max(Number(opts.yMax) || 0, stackedMaxY, fullDataMaxY, 1);
+      const headroom = Math.max(1, Math.ceil(peakY * 0.12));
+      const fixedYMax = Math.ceil(peakY) + headroom;
+
+      // 刷新形变：已存在实例且未开启「减弱动画」时，原地更新数据并让 Chart.js 做数值
+      // 过渡（700ms easeOutCubic），不再整段重绘 / 重放揭示动画（解决每次改范围/筛选
+      // 都重放 1.6s 揭示的重复感）。标签集变化（月→年）由 Chart.js 自行动画过渡。
+      const existingChart = window.Chart.getChart(canvasId);
+      if (existingChart && !reduceMotion) {
+        existingChart.$safeLabels = safeLabels;
+        existingChart.data.labels = formattedLabels;
+        existingChart.data.datasets = datasets;
+        existingChart.options.scales.y.max = fixedYMax;
+        const manyDates = safeLabels.length > 45;
+        existingChart.options.scales.x.ticks.autoSkip = manyDates;
+        existingChart.options.scales.x.ticks.maxRotation = manyDates ? 0 : 45;
+        existingChart.options.scales.x.ticks.minRotation = manyDates ? 0 : 45;
+        existingChart.options.plugins.revealClip.enabled = false;
+        existingChart.options.animation = { duration: 700, easing: 'easeOutCubic' };
+        existingChart.update();
+        if (loadingContainer) loadingContainer.style.display = 'none';
+        return existingChart;
+      }
+
+      // 首次渲染（或减弱动画）：销毁旧实例后新建（含 reveal-clip 揭示）
+      destroyChartById(canvasId);
 
       const chartConfig = {
         type: 'line',
@@ -658,7 +696,7 @@
                 boxWidth: 9,
                 boxHeight: 9,
                 padding: 12,
-                font: { size: 12 }
+                font: { size: 13 }
               }
             },
             title: {
@@ -680,8 +718,8 @@
                 title: function (tooltipItems) {
                   // 将日期格式化为 YYYY年MM月DD日
                   if (tooltipItems && tooltipItems.length > 0) {
-                    const dataIndex = tooltipItems[0].dataIndex;
-                    const originalLabel = safeLabels[dataIndex];
+                  const dataIndex = tooltipItems[0].dataIndex;
+                  const originalLabel = (tooltipItems[0].chart && tooltipItems[0].chart.$safeLabels) ? tooltipItems[0].chart.$safeLabels[dataIndex] : null;
 
                     // 检查是否是完整的 YYYY-MM-DD 格式
                     if (originalLabel && /^\d{4}-\d{2}-\d{2}$/.test(originalLabel)) {
@@ -698,7 +736,8 @@
                 label: function (context) {
                   const label = context.dataset.label || '';
                   const value = context.parsed.y || 0;
-                  return `${label}: ${value}`;
+                  // 只显示有数据的类型，0 值的类型不占 tooltip 行（与单人卡一致）
+                  return value > 0 ? `${label}: ${value} 节` : null;
                 }
               }
             }
@@ -710,15 +749,17 @@
                 display: false
               },
               ticks: {
-                // 逐日展示：不跳过任何日期标签；空间不足由 45° 旋转 + 压缩字号消化
-                autoSkip: false,
-                maxRotation: 45,
-                minRotation: 45,
-                font: { size: 11 },
+                // 日期多（季度/年度等 >45 天）时让 Chart.js 自动抽稀标签、水平显示，
+                // 仿照下方单教师卡片（autoSkip:true + maxRotation:0）；周/月等短范围仍
+                // 逐日展示、45° 旋转，保证每个日期都可见。字号整体上调 1 号。
+                autoSkip: safeLabels.length > 45,
+                maxRotation: safeLabels.length > 45 ? 0 : 45,
+                minRotation: safeLabels.length > 45 ? 0 : 45,
+                font: { size: 13 },
                 color: function (context) {
                   // 根据日期判断是否为周末,设置不同颜色
                   const index = context.index;
-                  const originalLabel = safeLabels[index];
+                  const originalLabel = (context.chart && context.chart.$safeLabels) ? context.chart.$safeLabels[index] : null;
 
                   // 检查是否是完整的 YYYY-MM-DD 格式
                   if (originalLabel && /^\d{4}-\d{2}-\d{2}$/.test(originalLabel)) {
@@ -750,7 +791,8 @@
               },
               border: { display: false },
               ticks: {
-                precision: 0 // 确保Y轴显示整数
+                precision: 0, // 确保Y轴显示整数
+                font: { size: 13 } // 字号整体上调 1 号，与 X 轴一致
               }
             }
           }
@@ -759,6 +801,7 @@
 
       // 创建图表实例
       const chart = new Chart(el.getContext('2d'), chartConfig);
+      chart.$safeLabels = safeLabels;
 
       // rAF 驱动揭示进度：裁剪窗口匀速推进，动画结束关闭插件并做最终渲染，
       // 保证结束时呈现的图形与静态展示完全一致。图表被销毁/替换时循环自停。

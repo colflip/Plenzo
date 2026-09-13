@@ -42,7 +42,10 @@ export async function loadTodaySchedules() {
             end_date: dateStr
         });
 
-        const normalized = normalizeScheduleRows(Array.isArray(schedules) ? schedules : []);
+        if (!Array.isArray(schedules)) {
+            throw new Error('今日排课响应格式无效');
+        }
+        const normalized = normalizeScheduleRows(schedules);
         // 查看非今天日期时，行内时段前显示日期
         const dateText = getViewDate() === getTodayStr() ? '' : formatDateCn(getViewDate());
         renderGroupedTodayScheduleList(container, normalized, {

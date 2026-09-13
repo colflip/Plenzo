@@ -1,6 +1,49 @@
 // Extracted Schedule Management UI Logic
 import { loadSchedules } from './schedule-manager.js';
 
+function setScheduleFormOptionsState(ready, error = null) {
+    const form = document.getElementById('scheduleForm');
+    const container = document.getElementById('scheduleFormContainer');
+    const submit = document.getElementById('scheduleFormSubmit');
+    if (!form) return;
+
+    form.dataset.optionsReady = String(ready);
+    if (submit) submit.disabled = !ready;
+
+    const existing = document.getElementById('scheduleFormOptionsError');
+    if (existing) existing.remove();
+    if (!error) return;
+
+    const errorContainer = document.createElement('div');
+    errorContainer.id = 'scheduleFormOptionsError';
+    if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
+        errorContainer.appendChild(window.ErrorUI.createErrorState({
+            title: '表单选项加载失败',
+            error,
+            compact: true,
+            onRetry: async () => {
+                try {
+                    if (window.ScheduleManager?.reloadScheduleFormOptions) {
+                        await window.ScheduleManager.reloadScheduleFormOptions();
+                    } else {
+                        await loadScheduleFormOptions();
+                    }
+                    if (window.ScheduleManager?.resetSchedulePairRows) {
+                        window.ScheduleManager.resetSchedulePairRows();
+                    }
+                } catch (_) {
+                    // loadScheduleFormOptions 会保留错误态，避免重复提示。
+                }
+            }
+        }));
+    } else {
+        errorContainer.setAttribute('role', 'alert');
+        errorContainer.textContent = '表单选项加载失败，请重试。';
+    }
+    form.prepend(errorContainer);
+    if (container) container.style.display = 'block';
+}
+
 // 排课管理相关函数
 export async function showAddScheduleModal() {
     
@@ -57,11 +100,12 @@ export async function showAddScheduleModal() {
     // Clear availability cache to force fresh calculation on open
     window.__availabilityCache = null;
 
-    // 异步加载选项，加载完后会自动填充和check
+    // 异步加载选项，失败时保留弹窗和输入，但阻止提交伪正常表单。
     try {
         await loadScheduleFormOptions();
-    } catch (e) {
-        
+    } catch (error) {
+        console.error('[ScheduleForm] 加载表单选项失败:', error);
+        return;
     }
 
     // pair 行：清空后各留一行，并给第一行填上默认老师 / 学生 / 类型（沿用旧的省点击行为）
@@ -359,6 +403,7 @@ export async function confirmSchedule(scheduleId) {
 
 // 加载排课表单的教师/学生选项
 export async function loadScheduleFormOptions() {
+    setScheduleFormOptionsState(false);
     try {
         // User Request: Always recalculate on modal open to avoid stale state.
         // Cache is cleared in show/edit functions, or we can clear here?
@@ -373,7 +418,10 @@ export async function loadScheduleFormOptions() {
         const teacherFilterSel = document.getElementById('teacherFilter');
 
         // Populate Type Select from Store
-        if (typeSel && window.ScheduleTypesStore) {
+        if (typeSel && !window.ScheduleTypesStore) {
+            throw new Error('课程类型服务尚未初始化');
+        }
+        if (typeSel) {
             const currentTypeVal = typeSel.value;
             const types = window.ScheduleTypesStore.getAll();
             window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
@@ -394,9 +442,12 @@ export async function loadScheduleFormOptions() {
             WeeklyDataStore.getTeachers(),
             WeeklyDataStore.getStudents()
         ]);
+        if (!Array.isArray(teachers) || !Array.isArray(students)) {
+            throw new Error('教师或学生列表响应格式无效');
+        }
 
         // 缓存完整列表用于前端动态筛选
-        window.__allTeachersCache = teachers || [];
+        window.__allTeachersCache = teachers;
 
         // 定义渲染函数：根据忙碌状态和限制渲染教师选项
         // preservedVal: 可选，用于在异步操作后恢复之前的选中值
@@ -621,7 +672,7 @@ export async function loadScheduleFormOptions() {
 
         if (studentSel) {
             window.SecurityUtils.safeSetHTML(studentSel, '<option value="">选择学生</option>');
-            const sortedStudents = (students || []).filter(s => Number(s.status ?? 1) === 1).sort((a, b) => {
+            const sortedStudents = students.filter(s => Number(s.status ?? 1) === 1).sort((a, b) => {
                 const an = String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
                 return an;
             });
@@ -661,13 +712,17 @@ export async function loadScheduleFormOptions() {
 
             // If empty or missing Advisory (and we suspect it should exist), try fresh fetch
             if (types.length === 0 || !hasAdvisory) {
-                try {
-                    const fetched = await window.apiUtils.get('/schedule/types');
-                    if (Array.isArray(fetched) && fetched.length > 0) {
-                        ScheduleTypesStore.load(fetched);
-                        types = ScheduleTypesStore.getAll();
-                    }
-                } catch (error) { console.warn('[ScheduleForm] 加载课程类型失败:', error.message); }
+                const fetched = await window.apiUtils.get('/schedule/types');
+                if (!Array.isArray(fetched)) {
+                    throw new Error('课程类型响应格式无效');
+                }
+                if (fetched.length > 0) {
+                    ScheduleTypesStore.load(fetched);
+                    types = ScheduleTypesStore.getAll();
+                }
+            }
+            if (!Array.isArray(types) || types.length === 0) {
+                throw new Error('没有可用的课程类型');
             }
 
             window.SecurityUtils.safeSetHTML(typeSel, '<option value="">选择类型</option>');
@@ -709,8 +764,11 @@ export async function loadScheduleFormOptions() {
                 teacherFilterSel.appendChild(opt);
             });
         }
+        setScheduleFormOptionsState(true);
+        return { teachers, students };
     } catch (error) {
-        
+        setScheduleFormOptionsState(false, error);
+        throw error;
     }
 }
 

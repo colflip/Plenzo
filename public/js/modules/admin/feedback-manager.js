@@ -4,6 +4,7 @@
  */
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 let feedbackData = [];
 
@@ -50,14 +51,23 @@ export async function loadFeedbacks() {
 
     try {
         const result = await window.apiUtils.get('/admin/feedbacks');
-        feedbackData = Array.isArray(result) ? result : (result.data || []);
+        if (!Array.isArray(result)) {
+            throw new Error('反馈响应格式无效');
+        }
+        feedbackData = result;
         // 按状态排序：解决中 → 未解决 → 已解决；同状态保持原时间倒序
         feedbackData.sort((a, b) => (STATUS_RANK[a.status] ?? 1) - (STATUS_RANK[b.status] ?? 1));
         renderFeedbacksTable(feedbackData);
     } catch (err) {
-        console.warn('Feedback API unavailable:', err.message);
         feedbackData = [];
-        renderFeedbacksTable(feedbackData);
+        renderTableErrorRow(tbody, {
+            colspan: 8,
+            error: err,
+            title: '反馈数据加载失败',
+            detail: null,
+            onRetry: () => loadFeedbacks(),
+            retryText: '重试'
+        });
     } finally {
         hideTableLoading(tableContainer);
     }
