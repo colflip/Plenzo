@@ -109,8 +109,10 @@ export async function loadAvailability() {
 
         // 检查响应数据格式
         if (requestId !== availabilityState.loadSeq) return;
-        const teachers = Array.isArray(data) ? data : (data?.data || []);
-        renderAvailabilityBody(teachers, dates);
+        if (!Array.isArray(data)) {
+            throw new Error('教师空闲时段响应格式无效');
+        }
+        renderAvailabilityBody(data, dates);
     } catch (error) {
         if (requestId !== availabilityState.loadSeq) return;
         // 统一错误态（shared/error-ui.js）：表格错误行 + 重试

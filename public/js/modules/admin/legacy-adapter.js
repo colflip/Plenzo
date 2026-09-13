@@ -20,13 +20,18 @@ function toISODate(date) {
 
 
 
-// 检查 Chart.js 是否可用，若未加载则触发异步加载并返回 false（当前调用跳过，
-// 等用户再次切换 tab 时 Chart 已就绪）
+function chartLoadError() {
+    return new Error('图表组件加载失败');
+}
+
+// 检查 Chart.js 是否可用。异步入口统一由 ensureChartReady() 等待加载结果，
+// 同步渲染入口在组件缺失时明确失败，交给外层区域错误态处理。
 function isChartAvailable() {
     if (typeof window.Chart !== 'undefined') return true;
-    // 触发异步加载，下次调用时 Chart 就绪
     if (typeof window.loadChart === 'function') {
-        window.loadChart().catch(function() {});
+        window.loadChart().catch(function (error) {
+            console.error('[statistics] Chart.js 加载失败:', error);
+        });
     }
     return false;
 }
@@ -38,11 +43,16 @@ function isChartAvailable() {
 // 此处统一预热 + 渲染前 await：Chart 与 API 请求并行加载，不增加可感知延迟。
 function ensureChartReady() {
     if (typeof window.Chart !== 'undefined') return Promise.resolve();
-    if (typeof window.loadChart !== 'function') return Promise.resolve();
+    if (typeof window.loadChart !== 'function') return Promise.reject(chartLoadError());
     if (!window.__chartReadyPromise) {
-        window.__chartReadyPromise = window.loadChart().catch(function () {});
+        window.__chartReadyPromise = window.loadChart().catch(function (error) {
+            window.__chartReadyPromise = null;
+            throw error;
+        });
     }
-    return window.__chartReadyPromise;
+    return window.__chartReadyPromise.then(function () {
+        if (typeof window.Chart === 'undefined') throw chartLoadError();
+    });
 }
 
 // 安全解析 Response JSON（兼容空响应或非 JSON 内容）
@@ -108,25 +118,12 @@ function renderUnifiedError(container, { title, detail, error, onRetry } = {}) {
 // 前端排课类型数据存储与管理（内存 + 本地缓存）
 // 已迁移至 public/js/schedule-types-store.js，避免此处覆盖全局对象
 
-// 周视图数据缓存（学生与排课，含TTL）
-// 委托给 schedule-manager.js 中的实现
-// 仅在 WeeklyDataStore 尚不存在时才定义存根（兼容性回退）
-// 如果 schedule-manager.js 已经正确加载，则使用其真正的实现
-if (!window.WeeklyDataStore) {
-    window.WeeklyDataStore = {
-        students: { list: [] },
-        teachers: { list: [] },
-        schedules: new Map(),
-        getStudents: () => Promise.resolve([]),
-        getTeachers: () => Promise.resolve([]),
-        getSchedules: () => Promise.resolve([]),
-        invalidateSchedules: () => { }
-    };
+// 周视图数据由 schedule-manager.js 注册；缺失时显式报错，不能伪装成真实空数据。
+function requireWeeklyDataStore() {
+    const store = window.WeeklyDataStore;
+    if (!store) throw new Error('排课数据模块未加载');
+    return store;
 }
-
-// ⚠️ 重要：不要使用局部常量，因为它会捕获初始值（存根）
-// 即使后来 window.WeeklyDataStore 被 schedule-manager.js 替换，局部常量仍指向旧的存根
-// 解决方案：总是通过 window.WeeklyDataStore 访问，确保使用最新的实现
 
 // 检查登录状态和时间格式化的函数已经迁移至 public/js/utils/auth.js 和 public/js/utils/format.js
 // 根据选项内容动态设置下拉框最小宽度，确保完整显示
@@ -646,9 +643,11 @@ function ensureStatisticsInitialized() {
     if (statisticsInitialized) return;
     statisticsInitialized = true;
 
-    // 预热 Chart.js 懒加载：与下方日期初始化、首次 API 请求并行进行，
-    // 保证 loadStatistics 渲染阶段 Chart 已就绪（否则首屏图表静默跳过）
-    ensureChartReady();
+    // 预热 Chart.js 懒加载：与下方日期初始化、首次 API 请求并行进行。
+    // 预热失败只记录；首次 loadStatistics 会 await 同一加载流程并渲染可重试的区域错误态。
+    ensureChartReady().catch(function (error) {
+        console.error('[statistics] Chart.js 预热失败:', error);
+    });
 
     // 初始化日期控件为当月
     initializeStatisticsControls();
@@ -854,16 +853,8 @@ async function loadStatistics() {
                 let studentStack = null;
 
                 try {
-                    // 1. Define promises - 并行加载数据
-                    // Optimization: Check if we can compute schedule stats from local cache
-                    let p1;
-                    const cache = window.WeeklyDataStore;
-                    // Removed broken cache logic that assumed WeeklyDataStore had all historical data
-                    p1 = window.apiUtils.get('/admin/statistics/schedules', { startDate, endDate })
-                        .catch(err => { return null; });
-
-                    const p2 = window.apiUtils.get('/admin/statistics/users', { startDate, endDate })
-                        .catch(err => { return null; });
+                    const p1 = window.apiUtils.get('/admin/statistics/schedules', { startDate, endDate });
+                    const p2 = window.apiUtils.get('/admin/statistics/users', { startDate, endDate });
 
                     // 2. Await all
                     const [statsData, userStatsData] = await Promise.all([p1, p2]);
@@ -906,38 +897,47 @@ async function loadStatistics() {
                         return;
                     }
 
-                    const tStack = (userStatsData && userStatsData.teacherStats?.length)
+                    const tStack = (userStatsData && Array.isArray(userStatsData.teacherStats))
                         ? convertUserStatsToStackData(userStatsData.teacherStats, Infinity)
-                        : getDefaultTeacherStack();
-                    const sStack = (userStatsData && userStatsData.studentStats?.length)
+                        : { labels: [], datasets: [] };
+                    const sStack = (userStatsData && Array.isArray(userStatsData.studentStats))
                         ? convertUserStatsToStackData(userStatsData.studentStats, Infinity)
-                        : getDefaultStudentStack();
+                        : { labels: [], datasets: [] };
 
                     // 4. Render - 延迟一小段时间确保 DOM 稳定（特别是 Canvas 尺寸）
                     setTimeout(async () => {
-                        // Chart.js 懒加载就绪后再渲染，避免首屏 isChartAvailable() 守卫静默跳过
-                        await ensureChartReady();
-                        renderScheduleTypeChart(scheduleDist);
-                        // 两个汇总图按较多人数对齐：人数少的一方补空沉底
-                        const summarySlots = (window.StatsLogic && window.StatsLogic.computeSummarySlotTarget)
-                            ? window.StatsLogic.computeSummarySlotTarget(tStack, sStack)
-                            : Math.max((tStack.labels || []).length, (sStack.labels || []).length);
-                        renderTeacherTypeStackedChart(tStack, summarySlots);
-                        renderStudentTypeStackedChart(sStack, summarySlots);
+                        try {
+                            // Chart.js 懒加载就绪后再渲染，避免首屏守卫静默跳过
+                            await ensureChartReady();
+                            renderScheduleTypeChart(scheduleDist);
+                            // 两个汇总图按较多人数对齐：人数少的一方补空沉底
+                            const summarySlots = (window.StatsLogic && window.StatsLogic.computeSummarySlotTarget)
+                                ? window.StatsLogic.computeSummarySlotTarget(tStack, sStack)
+                                : Math.max((tStack.labels || []).length, (sStack.labels || []).length);
+                            renderTeacherTypeStackedChart(tStack, summarySlots);
+                            renderStudentTypeStackedChart(sStack, summarySlots);
 
-                        // 5. Trigger animations - 嵌套 rAF 确保浏览器完成绘制
-                        requestAnimationFrame(() => {
+                            // 嵌套 rAF 确保浏览器完成绘制
                             requestAnimationFrame(() => {
-                                const activeContainers = document.querySelectorAll('#statsOverview .charts-section .chart-container');
-                                activeContainers.forEach(el => {
-                                    el.classList.remove('chart-anim-enter');
-                                    el.classList.add('chart-anim-active');
+                                requestAnimationFrame(() => {
+                                    const activeContainers = document.querySelectorAll('#statsOverview .charts-section .chart-container');
+                                    activeContainers.forEach(el => {
+                                        el.classList.remove('chart-anim-enter');
+                                        el.classList.add('chart-anim-active');
+                                    });
                                 });
                             });
-                        });
-
-                        // 6. 图表真正画完后再撤加载态，避免"遮罩已消失但图还没出来"的空窗
-                        hideStatsLoading();
+                            hideStatsLoading();
+                        } catch (chartError) {
+                            hideStatsLoading();
+                            const chartsSection = activeWrapper?.querySelector('.charts-section');
+                            renderUnifiedError(chartsSection, {
+                                error: chartError,
+                                title: '统计图表加载失败',
+                                detail: '请点击重试重新加载统计图表',
+                                onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+                            });
+                        }
                     }, 50);
 
                 } catch (generalError) {
@@ -1003,9 +1003,11 @@ async function loadStatistics() {
         try {
 
             const resp = await window.apiUtils.get('/admin/schedules/grid', { start_date: startDate, end_date: endDate });
-            const dataArr = Array.isArray(resp) ? resp : (resp && resp.data ? resp.data : []);
+            if (!Array.isArray(resp)) {
+                throw new Error('排课统计响应格式无效');
+            }
 
-            rawSchedules = dataArr.map(r => {
+            rawSchedules = resp.map(r => {
                 const rawDate = r.date ?? r.class_date ?? r['class-date'] ?? r.arr_date;
                 let dateISO = '';
                 if (rawDate) {
@@ -1031,9 +1033,20 @@ async function loadStatistics() {
                 };
             });
         } catch (apiError) {
-
-            // 使用默认数据
-            rawSchedules = getDefaultSchedules();
+            const target = activeView === 'teacher'
+                ? document.querySelector('.teacher-charts-container')
+                : document.querySelector('.student-charts-container');
+            if (target && window.UIHelper) {
+                window.UIHelper.hideTableLoading(target);
+            }
+            if (activeWrapper) activeWrapper.classList.remove('stats-loading');
+            renderUnifiedError(target, {
+                error: apiError,
+                title: '统计数据加载失败',
+                detail: '请点击重试重新加载排课统计',
+                onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+            });
+            return;
         }
 
         const dayLabels = (window.StatsPlugins && typeof window.StatsPlugins.buildDayLabels === 'function')
@@ -1058,12 +1071,11 @@ async function loadStatistics() {
         if (activeView === 'teacher') {
             try {
                 if (window.StatsPlugins) {
-                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    // 兜底聚合也要按 session 去重，才与 /admin/statistics/daily-schedules 口径一致
+                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(dedupeSessions(rawSchedules), dayLabels);
                     window.StatsPlugins.renderStackedBarChart('teacherDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
-                    // 右侧文字摘要：共 N 节 / 各类型计数 / 折算：评审
+                    // 文字摘要（与下方单人卡片同构）：共 N 节 / 色点类型 / 折算
                     renderDailySummaryPanel('teacher', typeStacks);
-                    // 设置汇总图表标题的悬停提示
-                    setupStatsTooltip(rawSchedules, 'teacherSummaryChartTitle', 'teacherSummaryTitleTooltip');
                 }
                 // 新增：教师下拉筛选 + 每位教师类型曲线图
                 try {
@@ -1109,12 +1121,11 @@ async function loadStatistics() {
         if (activeView === 'student') {
             try {
                 if (window.StatsPlugins) {
-                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(rawSchedules, dayLabels);
+                    // 兜底聚合同样按 session 去重：学生统计口径是「参与了几节课」
+                    const typeStacks = dailyTypeStacks || window.StatsPlugins.buildStackedByTypePerDay(dedupeSessions(rawSchedules), dayLabels);
                     window.StatsPlugins.renderStackedBarChart('studentDailyTypeStackChart', dayLabels, typeStacks, { theme: 'accessible', interactionMode: 'index', showTotalLine: true });
-                    // 右侧文字摘要：共 N 节 / 各类型计数 / 折算：评审
+                    // 文字摘要（与下方单人卡片同构）：共 N 节 / 色点类型 / 折算
                     renderDailySummaryPanel('student', typeStacks);
-                    // 设置汇总图表标题的悬停 tooltip
-                    setupStatsTooltip(rawSchedules, 'studentSummaryChartTitle', 'studentSummaryTitleTooltip');
                 }
                 // 新增：学生下拉筛选 + 每位学生类型曲线图
                 try {
@@ -1182,101 +1193,130 @@ async function loadStatistics() {
 
         // 显示错误反馈
         if (statsFeedback) {
-            // 检查是否是认证错误
-            if (error && error.message && error.message.includes('认证令牌已过期')) {
-                statsFeedback.textContent = '认证已过期，请重新登录';
-            } else {
-                statsFeedback.textContent = '统计数据加载失败，请稍后重试';
-            }
+            statsFeedback.textContent = error?.code === 'AUTH_EXPIRED'
+                ? '认证已过期，请重新登录'
+                : '统计数据加载失败，请稍后重试';
             statsFeedback.className = 'feedback error';
             statsFeedback.style.display = 'block';
         }
+
+        const errorContainer = statsLoadingContainer(activeView, activeWrapper);
+        renderUnifiedError(errorContainer, {
+            error,
+            title: '统计图表加载失败',
+            detail: '请点击重试重新加载统计图表',
+            onRetry: () => { if (typeof window.loadStatistics === 'function') window.loadStatistics(); }
+        });
     }
 }
 
-// 默认数据函数，用于开发时显示
-function getDefaultScheduleStats() {
-    return {
-        scheduleTypeDistribution: [
-            { type: '入户', count: 45 },
-            { type: '试教', count: 32 },
-            { type: '评审', count: 18 },
-            { type: '咨询', count: 12 },
-
-            { type: '线上辅导', count: 28 }
-        ]
-    };
+// 把 v_session_pairs 行折叠成「一场课一行」。实现在 StatsLogic（module）；此处
+// classic script 取不到时原样返回，不会让统计页挂掉。
+function dedupeSessions(rows) {
+    const fn = window.StatsLogic && window.StatsLogic.dedupeRowsBySession;
+    return typeof fn === 'function' ? fn(rows) : rows;
 }
 
-function getDefaultTeacherStack() {
-    return {
-        labels: ['张老师', '李老师', '王老师', '赵老师', '陈老师'],
-        datasets: [
-            {
-                label: '入户',
-                data: [12, 8, 15, 6, 10],
-                backgroundColor: getLegendColor('入户')
-            },
-            {
-                label: '试教',
-                data: [8, 12, 5, 10, 7],
-                backgroundColor: getLegendColor('试教')
-            },
-            {
-                label: '评审',
-                data: [3, 5, 2, 4, 6],
-                backgroundColor: getLegendColor('评审')
-            }
-        ]
-    };
-}
-
-function getDefaultStudentStack() {
-    return {
-        labels: ['学生A', '学生B', '学生C', '学生D', '学生E'],
-        datasets: [
-            {
-                label: '入户',
-                data: [5, 8, 3, 6, 2],
-                backgroundColor: getLegendColor('入户')
-            },
-            {
-                label: '试教',
-                data: [3, 4, 2, 5, 1],
-                backgroundColor: getLegendColor('试教')
-            }
-        ]
-    };
-}
-
-// 「按日期汇总」右侧文字摘要面板：共 N 节 / 各类型计数 / 折算：评审 M
+// 「按日期汇总」文字摘要：样式与位置完全对齐下方单人卡片（stats-logic.js
+// renderPersonInfoCard 的 .person-card-header）—— 一行内「共 N 节」徽标 +
+// 色点类型图例（按数量降序）+ 「折算：…」。不再右侧竖排（与单人卡视觉脱节）。
 // stacks：buildStacksFromDailyStats / buildStackedByTypePerDay 的输出（type → 每日计数数组）。
-// 注意：大评审 此前已在 stats-plugins 内归一为 评审，故其计数已含在 typeTotals['评审'] 中。
+// 折算口径与单人卡同源（StatsLogic.accumulateConvertedType：线上等同线下、半次入户 0.5、
+// 评审记录 = 1 评审 + 0.5 入户、大评审 等同 评审；大评审已在 stats-plugins 归一为 评审）。
 function renderDailySummaryPanel(view, stacks) {
     const panel = document.getElementById(`${view}DailySummaryPanel`);
     if (!panel) return;
+
     const stackArr = Array.isArray(stacks) ? stacks : [];
+    const typeTotals = new Map();
     let total = 0;
-    const typeTotals = {};
     stackArr.forEach(s => {
         const label = (s && s.label) || '未分类';
         const sum = (s.data || []).reduce((a, v) => a + (Number(v) || 0), 0);
-        typeTotals[label] = (typeTotals[label] || 0) + sum;
+        if (sum <= 0) return;
+        typeTotals.set(label, (typeTotals.get(label) || 0) + sum);
         total += sum;
     });
-    // 折算：评审家族合计（评审 + (线上)评审 + 评审记录；大评审已归一进评审）
-    const REVIEW_KEYS = ['评审', '（线上）评审', '(线上)评审', '线上评审', '评审记录'];
-    let reviewConverted = 0;
-    REVIEW_KEYS.forEach(k => { reviewConverted += (typeTotals[k] || 0); });
 
-    const lines = [{ cls: 'summary-total', text: `共 ${total} 节` }];
-    Object.keys(typeTotals).forEach(label => {
-        lines.push({ cls: 'summary-type', text: `${label} ${typeTotals[label]}` });
-    });
-    lines.push({ cls: 'summary-conv', text: `折算：评审 ${reviewConverted}` });
+    const SL = (window.StatsLogic && typeof window.StatsLogic.accumulateConvertedType === 'function')
+        ? window.StatsLogic
+        : null;
 
-    panel.innerHTML = lines.map(l => `<div class="summary-line ${l.cls}">${l.text}</div>`).join('');
+    let convertedText = '';
+    if (SL) {
+        const totals = SL.createConvertedTotals();
+        typeTotals.forEach((count, label) => SL.accumulateConvertedType(totals, label, count));
+        convertedText = SL.formatConvertedText(totals);
+    } else {
+        const REVIEW_KEYS = ['评审', '（线上）评审', '(线上)评审', '线上评审', '评审记录'];
+        let reviewConverted = 0;
+        REVIEW_KEYS.forEach(k => { reviewConverted += (typeTotals.get(k) || 0); });
+        convertedText = reviewConverted > 0 ? `评审 ${reviewConverted}` : '';
+    }
+
+    // DOM 构建（textContent）而非 innerHTML：类型名来自业务数据，避免注入面
+    panel.textContent = '';
+
+    const getColor = (label) => {
+        try {
+            if (typeof window.getLegendColor === 'function') return window.getLegendColor(label);
+        } catch (_) { }
+        return '#94A3B8';
+    };
+
+    // 数字滚动：优先用共享的 makeCountSpan（包成 .count-num 供 animateCountUp 滚动），
+    // 降级时退回普通文本节点（不带动画）。
+    const makeCount = (to) => (SL && typeof SL.makeCountSpan === 'function')
+        ? SL.makeCountSpan(to)
+        : (() => { const s = document.createElement('span'); s.textContent = String(to); return s; })();
+
+    // 1) 共 N 节（与单人卡 .person-total-badge 同款，数字滚动）
+    const badge = document.createElement('span');
+    badge.className = 'person-total-badge';
+    badge.appendChild(document.createTextNode('共 '));
+    badge.appendChild(makeCount(total));
+    badge.appendChild(document.createTextNode(' 节'));
+    panel.appendChild(badge);
+
+    // 2) 色点类型图例（与单人卡 .person-type-legend，计数滚动）
+    const legend = document.createElement('span');
+    legend.className = 'person-type-legend';
+    Array.from(typeTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([label, count]) => {
+            const item = document.createElement('span');
+            item.className = 'person-legend-item';
+            const dot = document.createElement('i');
+            dot.className = 'person-legend-dot';
+            dot.style.backgroundColor = getColor(label);
+            item.appendChild(dot);
+            item.appendChild(document.createTextNode(`${label} `));
+            item.appendChild(makeCount(count));
+            legend.appendChild(item);
+        });
+    panel.appendChild(legend);
+
+    // 3) 折算（与单人卡 .person-converted，数值滚动）
+    if (convertedText) {
+        const conv = document.createElement('span');
+        conv.className = 'person-converted';
+        conv.appendChild(document.createTextNode('折算：'));
+        // convertedText 形如 "入户 79 · 评审 25 · 集体活动 2"，按分隔拆出「类型 数值」
+        convertedText.split(' · ').forEach((part, i) => {
+            if (i > 0) conv.appendChild(document.createTextNode(' · '));
+            const sp = part.split(' ');
+            const label = sp.slice(0, -1).join(' ');
+            const val = sp[sp.length - 1];
+            conv.appendChild(document.createTextNode(label + ' '));
+            conv.appendChild(makeCount(Number(val)));
+        });
+        panel.appendChild(conv);
+    }
+
+    // 4) 触发数字滚动（与单人卡一致）；减弱动画时 animateCountUp 内部瞬显
+    if (SL && typeof SL.animateCountUp === 'function') SL.animateCountUp(panel);
 }
+window.renderDailySummaryPanel = renderDailySummaryPanel;
 
 // --- Chart Rendering Implementations ---
 
@@ -1534,14 +1574,16 @@ function updateWeeklyRangeText(start, end) {
 
 async function fetchStudentsForWeekly(opts = {}) {
     const force = !!opts.force;
-    return WeeklyDataStore.getStudents(force);
+    const store = requireWeeklyDataStore();
+    if (typeof store.getStudents !== 'function') throw new Error('学生数据加载器不可用');
+    return store.getStudents(force);
 }
 
 async function fetchSchedulesRange(startDate, endDate, status, type, teacherId = '', opts = {}) {
     const force = !!opts.force;
-    // ✅ 使用 window.WeeklyDataStore 确保调用最新的实现（来自 schedule-manager.js）
-    // 而不是局部常量 WeeklyDataStore（可能是旧的存根）
-    return window.WeeklyDataStore.getSchedules(startDate, endDate, status, type, teacherId, force);
+    const store = requireWeeklyDataStore();
+    if (typeof store.getSchedules !== 'function') throw new Error('排课数据加载器不可用');
+    return store.getSchedules(startDate, endDate, status, type, teacherId, force);
 }
 
 // normalizeScheduleRows, sanitizeTimeString, hhmmToMinutes, minutesToHHMM, computeSlotByStartMin, clusterByOverlap, buildMergedRowText have been moved to schedule-utils.js

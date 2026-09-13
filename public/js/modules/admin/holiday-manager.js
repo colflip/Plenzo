@@ -4,6 +4,7 @@
  */
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
+import { renderTableErrorRow } from '../shared/error-ui.js';
 
 let holidayData = [];
 
@@ -21,15 +22,22 @@ export async function loadHolidays() {
     showTableLoading(tableContainer, '正在加载节假日数据...');
 
     try {
-        // 优先从 API 加载，失败则使用本地缓存数据
         const result = await window.apiUtils.get('/admin/holidays');
-        holidayData = Array.isArray(result) ? result : (result.data || []);
+        if (!Array.isArray(result)) {
+            throw new Error('节假日响应格式无效');
+        }
+        holidayData = result;
         renderHolidaysTable(holidayData);
     } catch (err) {
-        // API 不可用时使用本地预填充数据
-        console.warn('Holiday API unavailable, using fallback data:', err.message);
-        holidayData = getFallbackHolidays();
-        renderHolidaysTable(holidayData);
+        holidayData = [];
+        renderTableErrorRow(tbody, {
+            colspan: 6,
+            error: err,
+            title: '节假日数据加载失败',
+            detail: null,
+            onRetry: () => loadHolidays(),
+            retryText: '重试'
+        });
     } finally {
         hideTableLoading(tableContainer);
     }
@@ -142,11 +150,11 @@ async function saveHoliday(data) {
     try {
         if (data.id) {
             // 编辑
-            const result = await window.apiUtils.put(`/admin/holidays/${data.id}`, data);
+            await window.apiUtils.put(`/admin/holidays/${data.id}`, data);
             window.showToast('节假日已更新', 'success');
         } else {
             // 新增
-            const result = await window.apiUtils.post('/admin/holidays', data);
+            await window.apiUtils.post('/admin/holidays', data);
             window.showToast('节假日已添加', 'success');
         }
         closeHolidayForm();
@@ -195,7 +203,10 @@ async function syncHolidaysFromAPI() {
 
     try {
         const result = await window.apiUtils.post('/admin/holidays/sync', { years: [2025, 2026, 2027] });
-        const rows = Array.isArray(result) ? result : (result.data || []);
+        if (!Array.isArray(result)) {
+            throw new Error('节假日同步响应格式无效');
+        }
+        const rows = result;
         const count = rows.length;
         if (count > 0) {
             holidayData = rows;
@@ -213,49 +224,6 @@ async function syncHolidaysFromAPI() {
             btn.innerHTML = '<span class="material-icons-round">sync</span> 从 API 同步';
         }
     }
-}
-
-// ========================
-// 本地预填充 fallback 数据
-// ========================
-function getFallbackHolidays() {
-    return [
-        // 2025 节假日
-        { id: 'fb-2025-1', year: 2025, type: 'holiday', label: '元旦假期', start_date: '2025-01-01', end_date: '2025-01-01' },
-        { id: 'fb-2025-2', year: 2025, type: 'holiday', label: '春节假期', start_date: '2025-01-28', end_date: '2025-02-04' },
-        { id: 'fb-2025-3', year: 2025, type: 'holiday', label: '清明节假期', start_date: '2025-04-04', end_date: '2025-04-06' },
-        { id: 'fb-2025-4', year: 2025, type: 'holiday', label: '劳动节假期', start_date: '2025-05-01', end_date: '2025-05-05' },
-        { id: 'fb-2025-5', year: 2025, type: 'holiday', label: '端午节假期', start_date: '2025-05-31', end_date: '2025-06-02' },
-        { id: 'fb-2025-6', year: 2025, type: 'holiday', label: '国庆节假期', start_date: '2025-10-01', end_date: '2025-10-08' },
-        { id: 'fb-2025-7', year: 2025, type: 'holiday', label: '中秋节假期', start_date: '2025-10-01', end_date: '2025-10-08' },
-        { id: 'fb-2025-m1', year: 2025, type: 'makeup', label: '春节前补班', start_date: '2025-01-26', end_date: '2025-01-26' },
-        { id: 'fb-2025-m2', year: 2025, type: 'makeup', label: '春节后补班', start_date: '2025-02-08', end_date: '2025-02-08' },
-        { id: 'fb-2025-m3', year: 2025, type: 'makeup', label: '劳动节前补班', start_date: '2025-04-27', end_date: '2025-04-27' },
-        { id: 'fb-2025-m4', year: 2025, type: 'makeup', label: '国庆节前补班', start_date: '2025-09-28', end_date: '2025-09-28' },
-        { id: 'fb-2025-m5', year: 2025, type: 'makeup', label: '国庆节后补班', start_date: '2025-10-11', end_date: '2025-10-11' },
-        // 2026 节假日
-        { id: 'fb-2026-1', year: 2026, type: 'holiday', label: '元旦假期', start_date: '2026-01-01', end_date: '2026-01-03' },
-        { id: 'fb-2026-2', year: 2026, type: 'holiday', label: '春节假期', start_date: '2026-02-15', end_date: '2026-02-23' },
-        { id: 'fb-2026-3', year: 2026, type: 'holiday', label: '清明节假期', start_date: '2026-04-04', end_date: '2026-04-06' },
-        { id: 'fb-2026-4', year: 2026, type: 'holiday', label: '劳动节假期', start_date: '2026-05-01', end_date: '2026-05-05' },
-        { id: 'fb-2026-5', year: 2026, type: 'holiday', label: '端午节假期', start_date: '2026-06-19', end_date: '2026-06-21' },
-        { id: 'fb-2026-6', year: 2026, type: 'holiday', label: '中秋节假期', start_date: '2026-09-25', end_date: '2026-09-27' },
-        { id: 'fb-2026-7', year: 2026, type: 'holiday', label: '国庆节假期', start_date: '2026-10-01', end_date: '2026-10-07' },
-        { id: 'fb-2026-m1', year: 2026, type: 'makeup', label: '元旦后补班', start_date: '2026-01-04', end_date: '2026-01-04' },
-        { id: 'fb-2026-m2', year: 2026, type: 'makeup', label: '春节前补班', start_date: '2026-02-14', end_date: '2026-02-14' },
-        { id: 'fb-2026-m3', year: 2026, type: 'makeup', label: '春节后补班', start_date: '2026-02-28', end_date: '2026-02-28' },
-        { id: 'fb-2026-m4', year: 2026, type: 'makeup', label: '劳动节后补班', start_date: '2026-05-09', end_date: '2026-05-09' },
-        { id: 'fb-2026-m5', year: 2026, type: 'makeup', label: '中秋节前补班', start_date: '2026-09-20', end_date: '2026-09-20' },
-        { id: 'fb-2026-m6', year: 2026, type: 'makeup', label: '国庆节后补班', start_date: '2026-10-10', end_date: '2026-10-10' },
-        // 2027 预填（国务院尚未正式发布，以下为预测数据）
-        { id: 'fb-2027-1', year: 2027, type: 'holiday', label: '元旦假期', start_date: '2027-01-01', end_date: '2027-01-03' },
-        { id: 'fb-2027-2', year: 2027, type: 'holiday', label: '春节假期', start_date: '2027-02-17', end_date: '2027-02-23' },
-        { id: 'fb-2027-3', year: 2027, type: 'holiday', label: '清明节假期', start_date: '2027-04-03', end_date: '2027-04-05' },
-        { id: 'fb-2027-4', year: 2027, type: 'holiday', label: '劳动节假期', start_date: '2027-05-01', end_date: '2027-05-05' },
-        { id: 'fb-2027-5', year: 2027, type: 'holiday', label: '端午节假期', start_date: '2027-06-12', end_date: '2027-06-14' },
-        { id: 'fb-2027-6', year: 2027, type: 'holiday', label: '中秋节假期', start_date: '2027-09-17', end_date: '2027-09-19' },
-        { id: 'fb-2027-7', year: 2027, type: 'holiday', label: '国庆节假期', start_date: '2027-10-01', end_date: '2027-10-07' }
-    ];
 }
 
 // ========================

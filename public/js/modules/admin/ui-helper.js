@@ -3,7 +3,9 @@
  * @description 处理管理控制台的通用UI逻辑
  */
 
-import { setupSidebarToggle as sharedSetupSidebarToggle } from '../shared/dashboard-kit.js';
+import {
+    setupSidebarToggle as sharedSetupSidebarToggle
+} from '../shared/dashboard-kit.js';
 
 /**
  * 调整下拉框最小宽度以适应内容
