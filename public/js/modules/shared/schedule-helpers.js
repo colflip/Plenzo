@@ -141,25 +141,6 @@ export function groupSchedulesByDate(schedules) {
     return map;
 }
 
-/**
- * 图例颜色映射
- * @param {string} type
- * @returns {string}
- */
-export function getLegendColor(type) {
-    const colors = {
-        '入户': '#FF6B6B',
-        '试教': '#4ECDC4',
-        '评审': '#45B7D1',
-        '集体活动': '#96CEB4',
-        '咨询': '#FFEAA7',
-        '线上入户': '#FF8A80',
-        '线上评审': '#80DEEA',
-        '线上咨询': '#FFF59D',
-    };
-    const normalized = String(type || '').replace(/（线上）/g, '线上').trim();
-    return colors[normalized] || '#95A5A6';
-}
 
 /**
  * 读取排课记录的「调整类型」
