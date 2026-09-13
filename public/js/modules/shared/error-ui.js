@@ -24,6 +24,16 @@ export const ERROR_COPY = Object.freeze({
         title: '服务暂时不可用',
         detail: '服务器暂时无法处理请求，请稍后重试。'
     },
+    RATE_LIMIT: {
+        icon: 'alert',
+        title: '请求过于频繁',
+        detail: '请稍后再试。'
+    },
+    AUTH: {
+        icon: 'lock',
+        title: '登录状态已失效',
+        detail: '请重新登录后继续。'
+    },
     LOAD: {
         icon: 'alert',
         title: '数据加载失败',
@@ -95,9 +105,20 @@ export function createErrorIcon(name, cssClass) {
  */
 export function describeError(error, fallbackDetail = '') {
     const status = error && typeof error === 'object' ? error.status : undefined;
+    const code = error && typeof error === 'object' ? String(error.code || '') : '';
     let key = 'UNKNOWN';
-    if (typeof error === 'string' && /网络|offline/i.test(error)) key = 'NETWORK';
+    if (code === 'NETWORK_ERROR' || code === 'REQUEST_TIMEOUT') key = 'NETWORK';
+    else if (code === 'RATE_LIMITED' || code === 'AI_UPSTREAM_RATE_LIMITED') key = 'RATE_LIMIT';
+    else if (code.startsWith('AUTH_') || code === 'SESSION_EPOCH_MISMATCH') key = 'AUTH';
+    else if (code === 'FORBIDDEN') key = 'PERMISSION';
+    else if (code === 'RESOURCE_NOT_FOUND' || code === 'ROUTE_NOT_FOUND') key = 'NOT_FOUND';
+    else if (code === 'CONFLICT' || code === 'SCHEDULE_VERSION_CONFLICT') key = 'CONFLICT';
+    else if (code === 'BAD_REQUEST' || code === 'VALIDATION_FAILED') key = 'VALIDATION';
+    else if (code === 'DB_UNAVAILABLE' || code.startsWith('AI_UPSTREAM_') || code === 'AI_NOT_CONFIGURED') key = 'SERVER';
+    else if (typeof error === 'string' && /网络|offline/i.test(error)) key = 'NETWORK';
     else if (status === 0 || (typeof navigator !== 'undefined' && navigator.onLine === false)) key = 'NETWORK';
+    else if (status === 429) key = 'RATE_LIMIT';
+    else if (status === 401) key = 'AUTH';
     else if (status === 503 || status === 500 || status === 502 || status === 504) key = 'SERVER';
     else if (status === 404) key = 'NOT_FOUND';
     else if (status === 403) key = 'PERMISSION';
@@ -203,6 +224,7 @@ export function createErrorState(options = {}) {
  */
 export function renderErrorState(container, options = {}) {
     if (!container) return null;
+    container.removeAttribute('aria-busy');
     const card = createErrorState(options);
     container.replaceChildren(card);
     return card;
@@ -239,6 +261,7 @@ export function createTableErrorRow(options = {}) {
     const card = createErrorState({
         title: title || described.title,
         detail,
+        error,
         onRetry,
         retryText
     });
@@ -257,6 +280,7 @@ export function createTableErrorRow(options = {}) {
  */
 export function renderTableErrorRow(tbody, options = {}) {
     if (!tbody) return null;
+    tbody.removeAttribute('aria-busy');
     const row = createTableErrorRow(options);
     tbody.replaceChildren(row);
     return row;

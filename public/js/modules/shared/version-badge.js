@@ -78,13 +78,12 @@
         const badge = ensureBadge();
         watchOverviewVisibility();
         try {
-            const response = await fetch('/api/meta/version', {
-                headers: { 'Accept': 'application/json' },
-                credentials: 'same-origin'
+            if (!window.apiUtils) throw new Error('API 客户端尚未加载');
+            const meta = await window.apiUtils.get('/meta/version', {}, {
+                timeoutMs: 10000,
+                suppressErrorToast: true
             });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const meta = await response.json();
+            if (!meta || typeof meta !== 'object') throw new Error('版本信息响应格式无效');
             const dateText = formatUpdatedAt(meta.updatedAt);
             const sha = meta.shortSha || '';
             // 显示格式：shortSha,YYYYMMDD（缺失项自动省略）

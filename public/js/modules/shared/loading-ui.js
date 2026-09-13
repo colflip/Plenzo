@@ -25,6 +25,8 @@ const buttonRestoreMap = new WeakMap();
 export function createLoadingContent(text = DEFAULT_TEXT) {
     const content = document.createElement('div');
     content.className = 'stats-loading-content';
+    content.setAttribute('role', 'status');
+    content.setAttribute('aria-live', 'polite');
 
     const circle = document.createElement('div');
     circle.className = 'stats-spinner-circle';
@@ -63,6 +65,7 @@ export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector 
 
     // 查找已有的遮罩，避免重复
     if (container.querySelector('.stats-loading-overlay')) return;
+    container.setAttribute('aria-busy', 'true');
 
     // 计算 top 偏移量（精确避开表头或查询区）
     const containerRect = container.getBoundingClientRect();
@@ -165,9 +168,13 @@ export function showTableLoading(container, text = DEFAULT_TEXT, targetSelector 
 export function hideTableLoading(container) {
     if (!container) return;
     const overlay = container.querySelector('.stats-loading-overlay');
-    if (!overlay) return;
+    if (!overlay) {
+        container.removeAttribute('aria-busy');
+        return;
+    }
 
     const fadeOut = () => {
+        container.removeAttribute('aria-busy');
         overlay.style.opacity = '0';
         // 等待 CSS transition 结束后移除 DOM
         setTimeout(() => {
@@ -213,6 +220,7 @@ export function createInlineLoading(text = DEFAULT_TEXT, { compact = false } = {
  */
 export function showBlockLoading(container, text = DEFAULT_TEXT, options = {}) {
     if (!container) return;
+    container.setAttribute('aria-busy', 'true');
     container.replaceChildren(createInlineLoading(text, options));
 }
 
@@ -257,6 +265,7 @@ export function createTableLoadingRow({
  */
 export function showTableLoadingRow(tbody, options = {}) {
     if (!tbody) return;
+    tbody.setAttribute('aria-busy', 'true');
     tbody.replaceChildren(createTableLoadingRow(options));
 }
 
@@ -274,9 +283,13 @@ export function setButtonLoading(button, isLoading, text = '加载中...') {
         if (!buttonRestoreMap.has(button)) {
             const backup = document.createDocumentFragment();
             backup.append(...button.childNodes);
-            buttonRestoreMap.set(button, backup);
+            buttonRestoreMap.set(button, {
+                content: backup,
+                wasDisabled: button.disabled
+            });
         }
 
+        button.setAttribute('aria-busy', 'true');
         const spinner = document.createElement('span');
         spinner.className = 'btn-spinner';
         const label = document.createElement('span');
@@ -289,13 +302,14 @@ export function setButtonLoading(button, isLoading, text = '加载中...') {
         return;
     }
 
-    const backup = buttonRestoreMap.get(button);
-    if (backup) {
-        button.replaceChildren(backup);
+    const restore = buttonRestoreMap.get(button);
+    if (restore) {
+        button.replaceChildren(restore.content);
         buttonRestoreMap.delete(button);
     }
+    button.removeAttribute('aria-busy');
     button.classList.remove('is-loading');
-    button.disabled = false;
+    button.disabled = restore ? restore.wasDisabled : false;
 }
 
 // 暴露到 window，供非模块化脚本（components/*.js、legacy-adapter.js）复用同一实现

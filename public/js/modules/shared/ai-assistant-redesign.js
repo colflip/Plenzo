@@ -2566,8 +2566,23 @@ async function onSend(action) {
         });
 
         if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ message: '未知错误' }));
-            throw new Error(err.message || `HTTP ${resp.status}`);
+            const body = await resp.text();
+            let parsed = null;
+            try {
+                parsed = body ? JSON.parse(body) : null;
+            } catch (_) { /* 由下方统一转换为协议错误 */ }
+
+            if (window.apiUtils?.isEnvelope(parsed) && parsed.ok === false) {
+                throw window.apiUtils.errorFromEnvelope(parsed, resp, '/api/ai/query');
+            }
+            throw new window.ApiError({
+                code: 'INVALID_RESPONSE',
+                message: 'AI 服务返回了无法识别的数据，请稍后重试',
+                status: resp.status,
+                retryable: resp.status >= 500,
+                requestId: resp.headers.get('X-Request-Id'),
+                endpoint: '/api/ai/query'
+            });
         }
 
         // SSE 流式读取
@@ -2575,23 +2590,45 @@ async function onSend(action) {
         const decoder = new TextDecoder();
         let buffer = '';
         let data = null;
+        let currentEvent = null;
 
         function processSSELine(line) {
-            if (!line.startsWith('data: ')) return;
-            let event;
-            try {
-                event = JSON.parse(line.slice(6));
-            } catch (parseErr) {
-                console.warn('[AI] SSE 解析跳过:', line.slice(0, 100), parseErr.message);
+            if (line.startsWith('event:')) {
+                currentEvent = line.slice(6).trim();
                 return;
             }
+            if (!line.startsWith('data:')) return;
+            let event;
+            try {
+                event = JSON.parse(line.slice(5).trim());
+            } catch (parseErr) {
+                console.warn('[AI] SSE 解析跳过:', line.slice(0, 100), parseErr.message);
+                currentEvent = null;
+                return;
+            }
+            if (currentEvent === 'error' || event.type === 'error') {
+                const envelopeError = event.error && typeof event.error === 'object'
+                    ? event.error
+                    : {};
+                const meta = event.meta && typeof event.meta === 'object' ? event.meta : {};
+                currentEvent = null;
+                throw new window.ApiError({
+                    code: envelopeError.code || 'AI_UPSTREAM_UNAVAILABLE',
+                    message: envelopeError.message || event.message || 'AI 查询失败，请稍后重试',
+                    status: 0,
+                    details: envelopeError.details,
+                    retryable: envelopeError.retryable === true,
+                    retryAfterSeconds: envelopeError.retryAfterSeconds,
+                    requestId: meta.requestId || null,
+                    endpoint: '/api/ai/query'
+                });
+            }
+            currentEvent = null;
             if (event.type === 'progress') {
                 updateTyping(event.message);
                 updateTitle(event.message);
             } else if (event.type === 'result') {
                 data = event.data;
-            } else if (event.type === 'error') {
-                throw new Error(event.message);
             }
         }
 
@@ -2739,7 +2776,7 @@ async function refreshStatus() {
 
     try {
         const resp = await window.apiUtils.get('/ai/status');
-        const data = resp.data || resp;
+        const data = resp;
 
         if (data.enabled) {
             if (badge) {
@@ -2772,7 +2809,7 @@ async function refreshStatus() {
 async function fetchModelCapabilities() {
     try {
         const resp = await window.apiUtils.get('/ai/capabilities');
-        const data = resp.data || resp;
+        const data = resp;
 
         if (data.capabilities) {
             state.modelCapabilities = data.capabilities;
