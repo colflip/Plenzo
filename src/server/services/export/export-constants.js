@@ -117,10 +117,11 @@ const TYPE_DISPLAY_MAP = {
 };
 
 // Rich Text 颜色配置（8位 ARGB 格式：FF + 6位RGB）
-// 按色系组织：评审/咨询=红色，集体活动=蓝色，其他=黑色
-// 取消/调整课程使用对应色系的浅色 + 斜体
+// 着色规则（哪一类用什么色）唯一实现在 public/js/utils/type-conversion.js::getColorKind：
+//   评审族（含大评审）+ 咨询族 = 红色，集体活动 = 蓝色，其余 = 黑色
+// 本表只负责「规则 → 具体色值」，取消/调整课程使用对应色系的浅色 + 斜体
 const RICH_TEXT_COLORS = {
-    RED: 'FFFF0000',          // 评审/咨询：红色
+    RED: 'FFFF0000',          // 评审/咨询（含大评审）：红色
     RED_LIGHT: 'FFDD8888',    // 评审/咨询 取消/调整：浅红色
     BLUE: 'FF2F5496',         // 集体活动：蓝色
     BLUE_LIGHT: 'FF8DB4E2',   // 集体活动 取消/调整：浅蓝色

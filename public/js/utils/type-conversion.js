@@ -7,9 +7,19 @@
  *   3. 教师酬劳      src/server/services/reward-calc.js（教师端酬劳计算）
  *   4. 图片截图导出  public/js/components/export-manager.js
  *
- * 折算规则（业务口径）：
+ * 折算规则（业务口径，2026-09-13 起）：
  *   线上类型等同线下；半次入户 = 0.5 次入户；评审记录 = 1 评审 + 0.5 入户；
- *   咨询记录 = 1 咨询 + 0.5 入户；大评审（含线上）= 1 评审；试教 / 集体活动 取原值。
+ *   咨询记录 = 1 咨询 + 0.5 入户；大评审（含线上）= 1 评审；
+ *   **集体活动 = 1 评审（1:1，不产生入户）**；试教取原值。
+ *
+ * 折算后只对外呈现三类：**试教 / 评审 / 入户**（咨询族保留为独立第四类，
+ * 当前线上 0 节、无值时自动不显示；「未归类」仅在有漏类时才出现）。
+ * 注意：集体活动**原始列仍保留**（RAW_LABELS + 导出各人明细的「集体活动」列），
+ * 只是折算后并入评审桶；原始类型明细可查导出工作簿第 4/5 张统计表。
+ *
+ * 另外，课程文字的**颜色规则**（红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑）
+ * 也在本模块（`getColorKind`），服务端 Excel 导出与前端图片导出共用，
+ * 见下方「课程文字（字体）颜色规则」一节。
  *
  * 为什么两个空间都要覆盖：
  *   浏览页与酬劳拿到的是 schedule_types.description（中文），导出拿到的是 schedule_types.name（英文 slug）；
@@ -37,16 +47,18 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    // 折算后的 5 个业务口径桶 + 1 个兜底桶（顺序即导出/摘要的展示顺序）
+    // 折算后对外的口径桶（顺序即导出/摘要的展示顺序）：只保留 试教 / 入户 / 评审 / 咨询。
+    // 集体活动已 1:1 折算进评审，不再是独立桶；咨询族当前无课，有值时才会显示。
     const UNCATEGORIZED_KEY = 'uncategorized';
-    const CONVERTED_KEYS = ['trial', 'visit', 'review', 'group_activity', 'consultation'];
+    const CONVERTED_KEYS = ['trial', 'visit', 'review', 'consultation'];
     const CONVERTED_LABELS = {
         trial: '试教',
         visit: '入户',
         review: '评审',
-        group_activity: '集体活动',
         consultation: '咨询'
     };
+    // 折算进「评审」桶的类型（1:1 计入评审，不产生入户）
+    const FOLDED_TO_REVIEW = ['group_activity'];
     // 兜底桶单独维护：不进 CONVERTED_KEYS 的正序展示，但计入 totals 并在有值时渲染
     const DISPLAY_KEYS = CONVERTED_KEYS.concat([UNCATEGORIZED_KEY]);
     const DISPLAY_LABELS = Object.assign({}, CONVERTED_LABELS, { uncategorized: '未归类' });
@@ -155,6 +167,34 @@
             .replace(/[_\-\s]?online$/i, '')
             .replace(/^online[_\-\s]?/i, '')
             .trim();
+    }
+
+    // ── 课程文字（字体）颜色规则 —— 唯一实现 ────────────────────────────────
+    // 只有三类着色，其余一律黑色（业务口径 2026-09-13）：
+    //   红 = 评审族（评审 / 大评审 / 评审记录 及其线上变体）+ 咨询族（咨询 / 咨询记录）
+    //   蓝 = 集体活动（含线上）
+    //   黑 = 入户 / 半次入户 / 试教 / 未归类 / 其他任何类型
+    // 注意：集体活动**折算**进「评审」桶，但**着色**仍是蓝色 —— 计数口径与视觉口径是两件事。
+    // 消费方：服务端 Excel 导出（rich-text-formatter.getColorType）、
+    //         前端图片截图导出（export-manager.cellColorKind → weekly-view-export）。
+    // 走 resolveType() 归类而不是写死字符串：新增类型只要语义词根规范就自动跟随着色，
+    // 不会再像以前那样因为没登记而悄悄变成黑色（大评审就是这么丢的红字）。
+    const COLOR_KINDS = { RED: 'red', BLUE: 'blue', BLACK: 'black' };
+    const COLOR_BY_CATEGORY = {
+        review: COLOR_KINDS.RED,
+        review_record: COLOR_KINDS.RED,
+        consultation: COLOR_KINDS.RED,
+        consultation_record: COLOR_KINDS.RED,
+        group_activity: COLOR_KINDS.BLUE
+    };
+
+    /**
+     * 课程类型 → 文字颜色类别。
+     * @param {string} rawType 任意写法（中文 description / 英文 slug / 线上变体）
+     * @returns {'red'|'blue'|'black'}
+     */
+    function getColorKind(rawType) {
+        return COLOR_BY_CATEGORY[normalizeTypeKey(rawType)] || COLOR_KINDS.BLACK;
     }
 
     /** 折成便于匹配的 token：小写 + 统一分隔符（- _ 空格 → -） */
@@ -267,7 +307,7 @@
     }
 
     function createConvertedTotals() {
-        return { trial: 0, visit: 0, review: 0, group_activity: 0, consultation: 0, uncategorized: 0 };
+        return { trial: 0, visit: 0, review: 0, consultation: 0, uncategorized: 0 };
     }
 
     /**
@@ -287,7 +327,8 @@
             case 'half_visit': t.visit += n * 0.5; break;
             case 'review': t.review += n; break;
             case 'review_record': t.review += n; t.visit += n * 0.5; break;
-            case 'group_activity': t.group_activity += n; break;
+            // 集体活动 1:1 折算为评审（不产生入户）——见 FOLDED_TO_REVIEW
+            case 'group_activity': t.review += n; break;
             case 'consultation': t.consultation += n; break;
             case 'consultation_record': t.consultation += n; t.visit += n * 0.5; break;
             // 兜底桶：无法归类也要计数，绝不让课程凭空消失
@@ -327,7 +368,7 @@
     }
 
     /**
-     * 折算文本：试教 X · 入户 Y · 评审 Z · 集体活动 W · 咨询 V（仅显示非 0 项）
+     * 折算文本：试教 X · 入户 Y · 评审 Z · 咨询 V（仅显示非 0 项）
      * 有无法归类的类型时，末尾追加「未归类 N」—— 让数据缺口感立刻可见。
      * @param {Object} totals
      * @param {{keys?: string[], labels?: Object}} [options] keys 用于裁剪展示口径
@@ -360,6 +401,7 @@
     return {
         CONVERTED_KEYS: CONVERTED_KEYS,
         CONVERTED_LABELS: CONVERTED_LABELS,
+        FOLDED_TO_REVIEW: FOLDED_TO_REVIEW,
         UNCATEGORIZED_KEY: UNCATEGORIZED_KEY,
         PATTERN_RULES: PATTERN_RULES,
         RAW_LABELS: RAW_LABELS,
@@ -371,6 +413,8 @@
         toBucketKey: toBucketKey,
         isKnownType: isKnownType,
         isReviewType: isReviewType,
+        getColorKind: getColorKind,
+        COLOR_KINDS: COLOR_KINDS,
         getUnresolvedTypes: getUnresolvedTypes,
         auditTypes: auditTypes,
         createConvertedTotals: createConvertedTotals,
