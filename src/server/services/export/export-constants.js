@@ -7,6 +7,7 @@
 const TYPE_PRIORITY = {
     '咨询': 1,
     '评审': 2,
+    '大评审': 2,
     '集体活动': 3,
     '入户': 4,
     '试教': 5
@@ -42,21 +43,10 @@ const FAMILY_MAP = {
     14: '学生+多人'
 };
 
-// 类型归一化映射（线上类型 → 标准类型，用于统计聚合）
-const TYPE_NORMALIZATION = {
-    '大评审': '评审',
-    '大評審': '评审',
-    '线上入户': '入户',
-    '线上评审': '评审',
-    '线上咨询': '咨询',
-    '线上试教': '试教',
-    '线上集体活动': '集体活动',
-    '半次入户': '半次入户',
-    '评审记录': '评审记录',
-    '咨询记录': '咨询记录',
-    '（线上）评审记录': '评审记录',
-    '（线上）咨询记录': '咨询记录'
-};
+// 类型归一化（线上类型 → 标准类型）已迁至唯一实现：
+//   public/js/utils/type-conversion.js
+// 原先此处的 TYPE_NORMALIZATION 常量没有任何消费者（死代码），
+// 却让「大评审」看起来"已被处理"，是线上大评审丢失归属的隐藏原因之一，故删除。
 
 // 类型名称映射：数据库 name → 中文显示名（不能机器翻译，必须与数据库定义一致）
 // 前端参考：public/js/core/schedule-types-store.js LEGACY_MAP
@@ -74,6 +64,9 @@ const TYPE_DISPLAY_MAP = {
     'consultation': '咨询',
     'consultation_record': '咨询记录',
     'advisory_record': '咨询记录',
+    // 大评审（DB slug 用连字符，历史别名 big_review 已不落地）
+    'major-review': '大评审',
+    'major-review_online': '(线上)大评审',
     // 英文线上标识 → 中文（线上）格式
     'visit_online': '（线上）入户',
     'review_online': '（线上）评审',
@@ -176,7 +169,6 @@ module.exports = {
     WEEKDAYS,
     STATUS_MAP,
     FAMILY_MAP,
-    TYPE_NORMALIZATION,
     TYPE_DISPLAY_MAP,
     RICH_TEXT_COLORS,
     EXPORT_FONTS,

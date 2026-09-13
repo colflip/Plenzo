@@ -5,6 +5,37 @@
 
 const DataTransformer = require('./data-transformer');
 const PermissionFilter = require('./permission-filter');
+const logger = require('../../utils/logger');
+// 折算唯一实现（与浏览页统计、教师酬劳共用同一份规则）
+const TypeConversion = require('../../../../public/js/utils/type-conversion');
+
+// 规范类型键 → 本模块统计对象的列名
+const TOKEN_TO_STAT_LABEL = {
+    trial: '试教',
+    visit: '入户',
+    half_visit: '半次入户',
+    review: '评审',
+    review_record: '评审记录',
+    group_activity: '集体活动',
+    consultation: '咨询',
+    consultation_record: '咨询记录'
+};
+
+// 未识别类型只告警一次，避免刷日志；同时让"新增课程类型忘了登记"立刻可见
+const reportedUnknownTypes = new Set();
+
+function resolveStatLabel(rawType) {
+    const key = TypeConversion.normalizeTypeKey(rawType);
+    if (!key) return null;
+    return TOKEN_TO_STAT_LABEL[key] || null;
+}
+
+function reportUnknownType(rawType) {
+    const name = String(rawType == null ? '' : rawType).trim();
+    if (!name || reportedUnknownTypes.has(name)) return;
+    reportedUnknownTypes.add(name);
+    logger.warn(`[export] 未登记的课程类型「${name}」未计入折算，请在 public/js/utils/type-conversion.js 的 TYPE_ALIASES 中补别名`);
+}
 
 class StatsAggregator {
     /**
@@ -37,27 +68,13 @@ class StatsAggregator {
             }
 
             const stat = stats.get(teacherName);
-            const normalizedType = DataTransformer.normalizeTypeKey(
-                row.type || row.type_name || row.schedule_type
-            );
-
-            // 累加统计
-            if (normalizedType === 'trial' || normalizedType === '试教') {
-                stat['试教']++;
-            } else if (normalizedType === 'visit' || normalizedType === '入户' || normalizedType === '入户课') {
-                stat['入户']++;
-            } else if (normalizedType === 'half_visit' || normalizedType === '半次入户') {
-                stat['半次入户']++;
-            } else if (normalizedType === 'review' || normalizedType === '评审') {
-                stat['评审']++;
-            } else if (normalizedType === 'review_record' || normalizedType === '评审记录') {
-                stat['评审记录']++;
-            } else if (normalizedType === 'group_activity' || normalizedType === '集体活动') {
-                stat['集体活动']++;
-            } else if (normalizedType === 'consultation' || normalizedType === '咨询') {
-                stat['咨询']++;
-            } else if (normalizedType === 'consultation_record' || normalizedType === '咨询记录') {
-                stat['咨询记录']++;
+            // 归一化 + 折算口径见 public/js/utils/type-conversion.js（唯一实现）
+            const rawType = row.type || row.type_name || row.schedule_type;
+            const label = resolveStatLabel(rawType);
+            if (label) {
+                stat[label]++;
+            } else {
+                reportUnknownType(rawType);
             }
         });
 
@@ -101,27 +118,13 @@ class StatsAggregator {
             }
 
             const stat = stats.get(studentName);
-            const normalizedType = DataTransformer.normalizeTypeKey(
-                row.type || row.type_name || row.schedule_type
-            );
-
-            // 累加统计
-            if (normalizedType === 'trial' || normalizedType === '试教') {
-                stat['试教']++;
-            } else if (normalizedType === 'visit' || normalizedType === '入户' || normalizedType === '入户课') {
-                stat['入户']++;
-            } else if (normalizedType === 'half_visit' || normalizedType === '半次入户') {
-                stat['半次入户']++;
-            } else if (normalizedType === 'review' || normalizedType === '评审') {
-                stat['评审']++;
-            } else if (normalizedType === 'review_record' || normalizedType === '评审记录') {
-                stat['评审记录']++;
-            } else if (normalizedType === 'group_activity' || normalizedType === '集体活动') {
-                stat['集体活动']++;
-            } else if (normalizedType === 'consultation' || normalizedType === '咨询') {
-                stat['咨询']++;
-            } else if (normalizedType === 'consultation_record' || normalizedType === '咨询记录') {
-                stat['咨询记录']++;
+            // 归一化 + 折算口径见 public/js/utils/type-conversion.js（唯一实现）
+            const rawType = row.type || row.type_name || row.schedule_type;
+            const label = resolveStatLabel(rawType);
+            if (label) {
+                stat[label]++;
+            } else {
+                reportUnknownType(rawType);
             }
         });
 
@@ -143,20 +146,22 @@ class StatsAggregator {
      * @returns {Object} 转换后的统计数据
      */
     static applyConversionFormula(stat, startDate, endDate) {
-        // 强制转换为数字，防止 undefined/null 导致 NaN（NaN 写入数字单元格会损坏 Excel 文件）
-        const num = (v) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : 0;
-        };
-
-        const finalVisit = num(stat['入户']) +
-                          (num(stat['半次入户']) * 0.5) +
-                          (num(stat['评审记录']) * 0.5) +
-                          (num(stat['咨询记录']) * 0.5);
-        const finalReview = num(stat['评审']) + num(stat['评审记录']);
-        const finalConsult = num(stat['咨询']) + num(stat['咨询记录']);
-        const finalTrial = num(stat['试教']);
-        const finalGroup = num(stat['集体活动']);
+        // 折算口径唯一实现：public/js/utils/type-conversion.js
+        //   入户 = 入户 + 半次入户×0.5 + 评审记录×0.5 + 咨询记录×0.5
+        //   评审 = 评审 + 评审记录（大评审 已归入 评审） 咨询 = 咨询 + 咨询记录
+        //   试教 / 集体活动 取原值
+        // 该实现对「已折算过的对象」是幂等的（半次入户/评审记录/咨询记录 中间列已不存在），
+        // sheet-builder 的「先 aggregate 再 applyConversionFormula」链路依赖这一性质。
+        // 内部一律走 Number.isFinite 守卫，避免 undefined/null 产生 NaN 写坏 Excel 数字单元格。
+        const totals = TypeConversion.accumulateConvertedColumns(
+            TypeConversion.createConvertedTotals(),
+            stat
+        );
+        const finalTrial = totals.trial;
+        const finalVisit = totals.visit;
+        const finalReview = totals.review;
+        const finalGroup = totals.group_activity;
+        const finalConsult = totals.consultation;
 
         const parts = [];
         if (finalTrial > 0) parts.push(`${finalTrial}次试教`);

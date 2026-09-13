@@ -1242,16 +1242,15 @@ function renderDailySummaryPanel(view, stacks) {
         ? window.StatsLogic
         : null;
 
+    // 折算一律走唯一实现：优先复用已加载的 StatsLogic，退化时直接用 TypeConversion。
+    // 不再在此处自维护别名表（曾因只折算评审、漏掉入户/集体活动/咨询而出错）。
+    const converter = SL || (typeof window !== 'undefined' ? window.TypeConversion : null);
+
     let convertedText = '';
-    if (SL) {
-        const totals = SL.createConvertedTotals();
-        typeTotals.forEach((count, label) => SL.accumulateConvertedType(totals, label, count));
-        convertedText = SL.formatConvertedText(totals);
-    } else {
-        const REVIEW_KEYS = ['评审', '（线上）评审', '(线上)评审', '线上评审', '评审记录'];
-        let reviewConverted = 0;
-        REVIEW_KEYS.forEach(k => { reviewConverted += (typeTotals.get(k) || 0); });
-        convertedText = reviewConverted > 0 ? `评审 ${reviewConverted}` : '';
+    if (converter) {
+        const totals = converter.createConvertedTotals();
+        typeTotals.forEach((count, label) => converter.accumulateConvertedType(totals, label, count));
+        convertedText = converter.formatConvertedText(totals);
     }
 
     // DOM 构建（textContent）而非 innerHTML：类型名来自业务数据，避免注入面
