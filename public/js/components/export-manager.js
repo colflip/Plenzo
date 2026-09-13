@@ -596,7 +596,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                     typeGroups[mType].push(r);
                 });
 
-                const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
+                const TYPE_PRIORITY = { '咨询': 1, '评审': 2, '大评审': 2, '(线上)大评审': 2, '集体活动': 3, '入户': 4, '试教': 5 };
 
                 const markerOf = item => {
                     // 类别位取代旧的两列魔数：temp→1、adjusted→2、其余 0
