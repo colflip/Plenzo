@@ -9721,3 +9721,82 @@ span.status-select {
         line-height: 22px !important;
     }
 }
+
+/* ============================================================
+   个人资料页（教师 / 学生）：字段同行密排
+   两端 #profile 结构一致（左侧身份卡 + 右侧 #profileForm），故规则集中放这里，
+   不再往 teacher/student 两份 dashboard.html 的内联 <style> 里各写一遍。
+   选择器一律带 #profile 前缀（ID 特异性）：dashboard.html 的内联块在文档中位于本
+   文件之后，同权重会把 .profile-layout 的 300px 两栏盖回去。
+   密度只来自「列数 + 间距」，不动字号与控件高度：
+   · theme.css 约定 --fs-100/--fs-200 仅限 ≤768px，故标签仍用 --fs-300；
+   · 表单控件字号下限 --fs-400(16px)、高度 40px 与全站 .form-group 保持一致
+     （缩小会在 iOS 聚焦时放大整页）。
+   效果：6 个字段由 6 行压到 3 行（2 列）/ 2 行（3 列），整段高度约 −70%。
+   ============================================================ */
+
+@media (min-width: 769px) {
+    #profileForm {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 18px;
+        row-gap: 12px;
+        align-items: start;
+    }
+
+    /* 纵向间距统一交给 grid 的 row-gap，元素自身不再留底边距，
+       否则最后一行会在卡片底部多出一截空白（隐藏字段不是 grid item，
+       所以 :last-child 选不到真正可见的最后一项）。 */
+    #profileForm .form-group {
+        margin-bottom: 0;
+    }
+
+    #profileForm .form-group label {
+        margin-bottom: 6px;
+    }
+
+    /* 卡片自身也收紧一档；≤768px 保持原样（移动端那侧由
+       dashboard-mobile-fix.css 的 ≤480px 规则负责）。 */
+    #profile .stats-unified-card {
+        padding: 18px;
+        gap: 14px;
+    }
+}
+
+/* 卡片够宽时再上一档：6 个字段正好两行，不留孤项。
+   1440 下每列约 290px（1440 时表单区实测 874px），再窄就会挤到 240px 以下，
+   所以此处用显式断点而不是 auto-fill —— 后者在 1000px 附近会排出 4 列，
+   6 个字段变成 4+2 的孤项行。 */
+@media (min-width: 1440px) {
+    #profileForm {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* 左栏身份卡收窄，把宽度让给表单；断点与 dashboard.html 内联的 900px 单栏规则对齐，
+   落在 769~900px 时不干预（那里整体已经是一栏）。 */
+@media (min-width: 901px) {
+    #profile .profile-layout {
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 18px;
+    }
+}
+
+#profile .profile-avatar {
+    width: 68px;
+    height: 68px;
+    font-size: 28px;
+}
+
+#profile .profile-meta {
+    margin-top: 14px;
+    padding-top: 14px;
+}
+
+#profile .meta-item {
+    margin-bottom: 8px;
+}
+
+#profile .meta-item:last-child {
+    margin-bottom: 0;
+}
