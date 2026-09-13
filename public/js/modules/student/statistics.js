@@ -4,14 +4,14 @@
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { setButtonLoading, showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
-import { setupDateRangePickers, formatDate, getLegendColor } from '../shared/stats-view-utils.js';
+import { setupDateRangePickers, formatDate, getLegendColor, ensureChartReady } from '../shared/stats-view-utils.js';
 import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 
 import { API_ENDPOINTS, STATUS_LABELS, getScheduleTypeLabel } from './constants.js';
 import { formatDateDisplay } from './utils.js';
 
-// 声明Chart为全局变量（由CDN加载）
-const Chart = window.Chart;
+// Chart.js 由 /js/utils/load-chart.js 按需注入到 window，模块求值时还不能解构到局部变量，
+// 否则会永久持有 undefined。渲染前统一 await ensureChartReady()，用 window.Chart 调用。
 
 let currentLearningData = null;
 let dailyChartInstance = null;
@@ -181,7 +181,7 @@ export async function loadLearningStats() {
         clearChartError();
 
         // 第一阶段：立即渲染卡片和图表（轻量级）
-        updateDisplay(currentLearningData);
+        await updateDisplay(currentLearningData);
 
         // 第二阶段：延迟渲染详情表格（避免阻塞 UI）
         requestAnimationFrame(() => {
@@ -230,7 +230,7 @@ export async function loadLearningStats() {
 /**
  * Update the display with learning stats and detailed table
  */
-function updateDisplay(data) {
+async function updateDisplay(data) {
     // 使用与教师端一致的淡色渐变卡片样式
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
@@ -298,8 +298,8 @@ function updateDisplay(data) {
         }
     }
 
-    // Render daily chart
-    renderDailyLearningChart(data.schedules);
+    // Render daily chart（图表库按需下载，失败由调用方 catch 落到区域错误态）
+    await renderDailyLearningChart(data.schedules);
 }
 
 /**
@@ -342,7 +342,7 @@ function renderDetailsTable(schedules) {
 /**
  * Render daily learning chart
  */
-function renderDailyLearningChart(schedules) {
+async function renderDailyLearningChart(schedules) {
     const canvas = document.getElementById('dailyTeachingChart');
     if (!canvas) return;
 
@@ -352,6 +352,9 @@ function renderDailyLearningChart(schedules) {
     }
 
     if (!schedules || schedules.length === 0) return;
+
+    // 无数据可画时不白下 204KB；有数据则先确保 Chart.js 就绪（首次会触发按需加载）
+    await ensureChartReady();
 
     const startDate = document.getElementById('teachingStartDate')?.value;
     const endDate = document.getElementById('teachingEndDate')?.value;
@@ -423,7 +426,7 @@ function renderDailyLearningChart(schedules) {
     };
 
     const ctx = canvas.getContext('2d');
-    dailyChartInstance = new Chart(ctx, {
+    dailyChartInstance = new window.Chart(ctx, {
         type: 'bar',
         data: {
             labels: allDates.map((date, index) => formatDateLabel(date, index, allDates)),

@@ -4,7 +4,7 @@
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading, setButtonLoading } from '../shared/loading-ui.js';
-import { setupDateRangePickers, formatDate, getLegendColor } from '../shared/stats-view-utils.js';
+import { setupDateRangePickers, formatDate, getLegendColor, ensureChartReady } from '../shared/stats-view-utils.js';
 import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 import { initRewardEasterEgg } from './reward-easter-egg.js';
 
@@ -309,7 +309,7 @@ export async function loadTeachingSummary(showLoading = true) {
         clearTeachingSummaryErrors();
 
         // Update UI using aggregated data
-        updateDisplayFromAggregates(currentTeachingData, startDate, endDate);
+        await updateDisplayFromAggregates(currentTeachingData, startDate, endDate);
     } catch (error) {
         if (dailyChartInstance) {
             dailyChartInstance.destroy();
@@ -331,7 +331,7 @@ export async function loadTeachingSummary(showLoading = true) {
 /**
  * Update display using aggregated data (avoids iterating full schedule list)
  */
-function updateDisplayFromAggregates(data, startDate, endDate) {
+async function updateDisplayFromAggregates(data, startDate, endDate) {
     // 使用淡色渐变卡片渲染课程类型统计
     const statsGrid = document.getElementById('teachingTypeStats');
     if (statsGrid) {
@@ -391,7 +391,8 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
 
     // dailyStats 是当前查询周期的权威结果；为空时清空图表，不能回退到可能属于上一周期的明细缓存。
     if (data.dailyStats && data.dailyStats.length > 0) {
-        renderDailyTeachingChart(null, data.dailyStats);
+        // 图表库按需下载，下载失败由调用方 catch 落到区域错误态
+        await renderDailyTeachingChart(null, data.dailyStats);
     } else {
         const canvas = document.getElementById('dailyTeachingChart');
         if (canvas && dailyChartInstance) {
@@ -514,7 +515,7 @@ let dailyChartInstance = null;
 /**
  * Render daily teaching chart
  */
-function renderDailyTeachingChart(schedules, dailyStats = null) {
+async function renderDailyTeachingChart(schedules, dailyStats = null) {
     const canvas = document.getElementById('dailyTeachingChart');
     if (!canvas) return;
 
@@ -527,6 +528,9 @@ function renderDailyTeachingChart(schedules, dailyStats = null) {
     if ((!schedules || schedules.length === 0) && (!dailyStats || dailyStats.length === 0)) {
         return;
     }
+
+    // 无数据可画时不要白下 204KB；有数据则先确保 Chart.js 就绪（首次会触发按需加载）
+    await ensureChartReady();
 
     // Get date range from inputs
     const startDateInput = document.getElementById('teachingStartDate');
