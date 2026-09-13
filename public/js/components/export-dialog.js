@@ -523,7 +523,10 @@ window.ExportDialog = (function () {
 
                 const response = await window.apiUtils.get(apiPath);
                 if (seq !== studentListRequestSeq) return; // 已有更新的请求发出，丢弃本次结果
-                const students = Array.isArray(response) ? response : (response.data || []);
+                if (!Array.isArray(response)) {
+                    throw new Error('学生列表响应格式无效');
+                }
+                const students = response;
 
                 // 仅管理员的全体学生结果可入缓存；教师端名单是按角色/范围收敛的，不能污染共享缓存
                 if (userType === 'admin') {
@@ -587,8 +590,10 @@ window.ExportDialog = (function () {
                 const userType = currentUser.userType || 'admin';
                 const apiPath = userType === 'teacher' ? '/teacher/all-teachers' : '/admin/users/teacher';
 
-                const response = await window.apiUtils.get(apiPath);
-                const teachers = Array.isArray(response) ? response : (response.data || []);
+                const teachers = await window.apiUtils.get(apiPath);
+                if (!Array.isArray(teachers)) {
+                    throw new Error('教师列表响应格式无效');
+                }
 
                 // 更新缓存
                 localStorage.setItem('cached_teachers_full', JSON.stringify(teachers));
@@ -709,40 +714,29 @@ window.ExportDialog = (function () {
             const userType = currentUser.userType || 'admin';
             const isInfoType = (state.selectedType === 'teacher_info' || state.selectedType === 'student_info');
 
-            let fetchResponse;
-            updateProgress(40, '正在请求数据...');
+            const endpoint = isInfoType ? '/export/info' : '/export/schedule';
+            let requestBody;
 
             if (isInfoType) {
-                // 信息类导出 → POST /api/export/info
-                fetchResponse = await fetch('/api/export/info', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        type: state.selectedType,
-                        format: format
-                    })
-                });
+                requestBody = {
+                    type: state.selectedType,
+                    format
+                };
             } else {
-                // 排课类导出 → POST /api/export/schedule
-                const scheduleBody = {
+                requestBody = {
                     startDate: undefined,
                     endDate: undefined,
                     exportType: state.selectedType === 'schedule_data' ? 'teacher_schedule' : state.selectedType
                 };
 
-                // 添加学生筛选
                 const studentSelect = document.getElementById('exportStudentSelect');
                 if (studentSelect && studentSelect.value) {
-                    scheduleBody.studentId = studentSelect.value;
+                    requestBody.studentId = studentSelect.value;
                 }
 
-                // 添加教师筛选
                 const teacherSelect = document.getElementById('exportTeacherSelect');
                 if (teacherSelect && teacherSelect.value) {
-                    scheduleBody.teacherId = teacherSelect.value;
+                    requestBody.teacherId = teacherSelect.value;
                     state.teacherName = teacherSelect.options[teacherSelect.selectedIndex].text;
                 } else {
                     state.teacherName = '全部老师';
@@ -758,50 +752,20 @@ window.ExportDialog = (function () {
                         const day = String(d.getDate()).padStart(2, '0');
                         return `${year}-${month}-${day}`;
                     };
-                    scheduleBody.startDate = formatDateLocal(state.startDate);
-                    scheduleBody.endDate = formatDateLocal(state.endDate);
+                    requestBody.startDate = formatDateLocal(state.startDate);
+                    requestBody.endDate = formatDateLocal(state.endDate);
                 }
-
-                fetchResponse = await fetch('/api/export/schedule', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(scheduleBody)
-                });
             }
+
+            const download = await window.apiUtils.requestDownload(endpoint, {
+                method: 'POST',
+                body: requestBody,
+                suppressErrorToast: true
+            });
 
             updateProgress(60, '正在生成文件...');
-
-            if (!fetchResponse.ok) {
-                // 尝试解析错误信息
-                let errorMsg = '导出失败';
-                try {
-                    const errorData = await fetchResponse.json();
-                    errorMsg = errorData.message || errorMsg;
-                } catch (e) {
-                    errorMsg = `HTTP ${fetchResponse.status}: ${fetchResponse.statusText}`;
-                }
-                throw new Error(errorMsg);
-            }
-
-            // 获取 blob 数据
-            const blob = await fetchResponse.blob();
-
-            if (!blob || blob.size === 0) {
-                throw new Error('导出 API 返回为空');
-            }
-
-            // 从响应头获取文件名
-            const contentDisposition = fetchResponse.headers.get('Content-Disposition');
-            let filename = `数据导出_${Date.now()}.xlsx`;
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-                if (filenameMatch && filenameMatch[1]) {
-                    filename = decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
-                }
-            }
+            const blob = download.blob;
+            const filename = download.filename || `数据导出_${Date.now()}.xlsx`;
 
             // 下载文件
             const url = window.URL.createObjectURL(blob);
