@@ -164,13 +164,16 @@ export async function loadSchedules(baseDate, showLoading = true) {
             ...(window.teacherShowPlan ? { show_plan: 'true' } : {})
         });
 
-        cachedSchedules = Array.isArray(schedules) ? schedules : [];
+        if (!Array.isArray(schedules)) {
+            throw new Error('课程安排响应格式无效');
+        }
+        cachedSchedules = schedules;
         if (requestId !== scheduleLoadSeq) return;
         renderSchedules(weekDates, cachedSchedules);
         showInlineFeedback(elements.feedback(), '', 'info');
     } catch (error) {
         if (requestId !== scheduleLoadSeq) return;
-        renderScheduleErrorState(weekDates, currentWeekStart);
+        renderScheduleErrorState(weekDates, currentWeekStart, error);
         showInlineFeedback(elements.feedback(), '加载课程安排失败，请点击重试', 'error');
     } finally {
         // 3. 加载完成后隐藏动画
@@ -720,7 +723,7 @@ function showStatusActionSheet(schedule, card) {
 // --------------------------------------------------------------------------
 
 
-function renderScheduleErrorState(weekDates, weekStart) {
+function renderScheduleErrorState(weekDates, weekStart, error) {
     const container = document.querySelector('#schedules .schedule-unified-card');
     container?.querySelector('.mobile-schedule-table')?.remove();
     const desktopTable = container?.querySelector('.weekly-schedule-table');
@@ -732,8 +735,9 @@ function renderScheduleErrorState(weekDates, weekStart) {
     // 统一错误态（shared/error-ui.js）替代内联样式的错误行
     renderTableErrorRow(tbody, {
         colspan: 7,
+        error,
         title: '课程安排加载失败',
-        detail: '暂时无法显示数据，请点击重试',
+        detail: null,
         onRetry: () => loadSchedules(weekStart, true),
         retryText: '重试'
     });
@@ -760,13 +764,9 @@ async function handleStatusChange(scheduleId, newStatus, cardElement, statusSele
         }
 
         // 调用API更新状态
-        const response = await window.apiUtils.put(`/teacher/schedules/${scheduleId}/status`, {
+        await window.apiUtils.put(`/teacher/schedules/${scheduleId}/status`, {
             status: newStatus
         });
-
-        if (!response || response.error) {
-            throw new Error(response?.message || '状态更新失败');
-        }
 
         // 更新UI - 更新select的class以反映新状态
         if (statusSelect) {

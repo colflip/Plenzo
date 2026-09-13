@@ -5,6 +5,7 @@
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading, setButtonLoading } from '../shared/loading-ui.js';
 import { setupDateRangePickers, formatDate, getLegendColor } from '../shared/stats-view-utils.js';
+import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 import { initRewardEasterEgg } from './reward-easter-egg.js';
 
 let currentTeachingData = null;
@@ -17,17 +18,8 @@ export async function initStatisticsSection() {
     setupEventListeners();
     initRewardEasterEgg();
 
-    try {
-        // 并发发起两个请求，避免明细请求等待汇总完成（消除前端瀑布）：
-        //  - loadTeachingSummary：汇总卡片 + 每日图表（主视图）
-        //  - loadTeachingCount：明细列表/表格（次视图）
-        // 二者命中不同接口，可同时进行；渲染结果一致。
-        const summaryPromise = loadTeachingSummary();
-        const detailPromise = loadTeachingCount();
-        await Promise.allSettled([summaryPromise, detailPromise]);
-    } catch (error) {
-        updateDisplay({ schedules: [], typeStats: {} }, '', '');
-    }
+    // 汇总与明细互不依赖，各自负责对应区域的错误态。
+    await Promise.allSettled([loadTeachingSummary(), loadTeachingCount()]);
 }
 
 // setupDateRangePickers / formatDate / getLegendColor 由 shared/stats-view-utils.js 提供
@@ -175,39 +167,35 @@ export async function loadTeachingCount() {
     }
 
     try {
-        const response = await fetch(
-            `/api/teacher/detailed-schedules?startDate=${startDate}&endDate=${endDate}&limit=500`,
-            {
-                credentials: 'include',
-                headers: {}
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error('获取授课数据失败');
+        if (!window.apiUtils) {
+            throw new Error('API 客户端尚未加载');
         }
-
-        const data = await response.json();
-        // data is an array of schedule objects
-        let schedules = Array.isArray(data) ? data : [];
+        const schedules = await window.apiUtils.get(
+            `/teacher/detailed-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=500`,
+            {},
+            { timeoutMs: 20000, suppressErrorToast: true }
+        );
+        if (!Array.isArray(schedules)) {
+            throw new Error('授课明细响应格式无效');
+        }
 
         // Preserve typeStats and dailyStats from the summary fetch if available
         currentTeachingData = currentTeachingData || {};
         currentTeachingData.schedules = schedules;
 
-        // If typeStats empty, calculate it minimally from schedules for fallback
-        if (!currentTeachingData.typeStats || Object.keys(currentTeachingData.typeStats).length === 0) {
-            const typeStats = {};
-            schedules.forEach(schedule => {
-                const status = (schedule.status || '').toLowerCase();
-                if (status === 'cancelled' || status === 'modified_away') return;
-                const type = schedule.schedule_type_cn || schedule.schedule_type || schedule.course_type || '其他';
-                typeStats[type] = (typeStats[type] || 0) + 1;
-            });
-            currentTeachingData.typeStats = typeStats;
-        }
-
         updateDisplay(currentTeachingData, startDate, endDate);
+    } catch (error) {
+        const tbody = document.getElementById('teachingDetailsBody');
+        if (tbody) {
+            renderTableErrorRow(tbody, {
+                colspan: 6,
+                error,
+                title: '授课明细加载失败',
+                detail: null,
+                onRetry: () => loadTeachingCount(),
+                retryText: '重试'
+            });
+        }
     } finally {
         // 隐藏列表加载动画
         const tableCard = document.getElementById('teachingDetailsCard');
@@ -215,6 +203,57 @@ export async function loadTeachingCount() {
             hideTableLoading(tableCard);
         }
     }
+}
+
+function clearTeachingSummaryErrors() {
+    document.getElementById('teachingTypeStatsError')?.remove();
+    document.getElementById('dailyTeachingChartError')?.remove();
+
+    const statsGrid = document.getElementById('teachingTypeStats');
+    const chartCanvas = document.getElementById('dailyTeachingChart');
+    if (statsGrid) statsGrid.hidden = false;
+    if (chartCanvas?.parentElement) chartCanvas.parentElement.hidden = false;
+}
+
+function renderTeachingSummaryErrors(error) {
+    const statsGrid = document.getElementById('teachingTypeStats');
+    const typeStatsCard = statsGrid?.closest('.stats-component-card');
+    const chartCard = document.getElementById('dailyTeachingChartCard');
+    const chartCanvas = document.getElementById('dailyTeachingChart');
+
+    if (statsGrid) statsGrid.hidden = true;
+    if (chartCanvas?.parentElement) chartCanvas.parentElement.hidden = true;
+
+    const regions = [
+        {
+            parent: typeStatsCard,
+            id: 'teachingTypeStatsError',
+            title: '授课统计加载失败'
+        },
+        {
+            parent: chartCard,
+            id: 'dailyTeachingChartError',
+            title: '每日授课统计加载失败'
+        }
+    ];
+
+    regions.forEach(({ parent, id, title }) => {
+        if (!parent) return;
+        let container = document.getElementById(id);
+        if (!container) {
+            container = document.createElement('div');
+            container.id = id;
+            parent.appendChild(container);
+        }
+        renderErrorState(container, {
+            error,
+            title,
+            detail: null,
+            onRetry: () => loadTeachingSummary(),
+            retryText: '重试',
+            compact: true
+        });
+    });
 }
 
 /**
@@ -241,18 +280,17 @@ export async function loadTeachingSummary(showLoading = true) {
     }
 
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for summary
-
-        const res = await fetch(`/api/teacher/statistics?startDate=${startDate}&endDate=${endDate}`, {
-            credentials: 'include',
-            headers: {},
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        if (!window.apiUtils) {
+            throw new Error('API 客户端尚未加载');
+        }
+        const payload = await window.apiUtils.get(
+            `/teacher/statistics?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+            {},
+            { timeoutMs: 15000, suppressErrorToast: true }
+        );
+        if (!payload || typeof payload !== 'object' || !Array.isArray(payload.typeStats) || !Array.isArray(payload.dailyStats)) {
+            throw new Error('授课统计响应格式无效');
+        }
 
         // Convert typeStats array to map-like object for compatibility
         const typeStatsObj = {};
@@ -266,15 +304,18 @@ export async function loadTeachingSummary(showLoading = true) {
         // Update currentTeachingData with available aggregated info
         currentTeachingData = currentTeachingData || {};
         currentTeachingData.typeStats = typeStatsObj;
-        currentTeachingData.dailyStats = Array.isArray(payload.dailyStats) ? payload.dailyStats : [];
+        currentTeachingData.dailyStats = payload.dailyStats;
+
+        clearTeachingSummaryErrors();
 
         // Update UI using aggregated data
         updateDisplayFromAggregates(currentTeachingData, startDate, endDate);
-    } catch (err) {
-        if (err.name === 'AbortError') {
-        } else {
-
+    } catch (error) {
+        if (dailyChartInstance) {
+            dailyChartInstance.destroy();
+            dailyChartInstance = null;
         }
+        renderTeachingSummaryErrors(error);
     } finally {
         // 3. 加载完成后隐藏动画
         if (showLoading && statsContainer) {
@@ -348,16 +389,10 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
         }
     }
 
-    // Render chart from dailyStats or schedules
-    // Always use the full renderDailyTeachingChart for consistency
-    // It will handle the full date range properly
-    // Render chart from dailyStats
+    // dailyStats 是当前查询周期的权威结果；为空时清空图表，不能回退到可能属于上一周期的明细缓存。
     if (data.dailyStats && data.dailyStats.length > 0) {
-        renderDailyTeachingChart(data.schedules, data.dailyStats);
-    } else if (data.schedules && data.schedules.length > 0) {
-        renderDailyTeachingChart(data.schedules, null);
+        renderDailyTeachingChart(null, data.dailyStats);
     } else {
-        // If only aggregated data available, clear the chart
         const canvas = document.getElementById('dailyTeachingChart');
         if (canvas && dailyChartInstance) {
             dailyChartInstance.destroy();
@@ -372,47 +407,6 @@ function updateDisplayFromAggregates(data, startDate, endDate) {
     const tbody = document.getElementById('teachingDetailsBody');
     if (tbody && !data.schedules) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#64748b; background:#f8fafc; border-radius:8px;">正在飞速加载明细数据...</td></tr>';
-    }
-}
-
-/**
- * Fetch detailed schedules in background (non-blocking). If `replaceImmediately` is true,
- * update the details table when data returns.
- */
-async function fetchDetailedSchedulesBackground(replaceImmediately = false) {
-    try {
-        const startDate = document.getElementById('teachingStartDate')?.value;
-        const endDate = document.getElementById('teachingEndDate')?.value;
-        if (!startDate || !endDate) return;
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
-
-        const res = await fetch(`/api/teacher/detailed-schedules?startDate=${startDate}&endDate=${endDate}&limit=500`, {
-            credentials: 'include',
-            headers: {},
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) {
-            return;
-        }
-
-        const rows = await res.json();
-
-        let schedules = Array.isArray(rows) ? rows : [];
-
-        currentTeachingData = currentTeachingData || {};
-        currentTeachingData.schedules = schedules;
-
-        if (replaceImmediately) {
-            updateDisplay(currentTeachingData, startDate, endDate);
-        }
-    } catch (e) {
-        if (e.name === 'AbortError') {
-        } else {
-        }
     }
 }
 
@@ -480,9 +474,8 @@ function updateDisplay(data, startDate, endDate) {
             }
         }
 
-        // Render daily teaching chart only as a fallback
-        renderDailyTeachingChart(data.schedules, data.dailyStats);
-        data.summaryRendered = true; // prevent repeated fallback
+        // Summary statistics are rendered only from the dedicated aggregate endpoint.
+        // Detailed rows must not synthesize a second, potentially different metric.
     }
 
     // Update details table

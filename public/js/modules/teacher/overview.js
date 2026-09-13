@@ -1,5 +1,6 @@
 import { setText } from './utils.js';
 import { createInlineLoading } from '../shared/loading-ui.js';
+import { renderErrorState } from '../shared/error-ui.js';
 import { showReward } from '../shared/reward-view.js';
 import {
     renderGroupedTodayScheduleList,
@@ -34,7 +35,10 @@ async function fetchSchedulesForDate(dateStr) {
         startDate: dateStr,
         endDate: dateStr
     });
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) {
+        throw new Error('课程安排响应格式无效');
+    }
+    return data;
 }
 
 export async function initOverviewSection() {
@@ -91,18 +95,31 @@ export async function loadOverview() {
 
         // Use dedicated overview endpoint that provides all stats
         const overviewData = await window.apiUtils.get('/teacher/overview');
+        const metricKeys = [
+            'weeklyCount', 'monthlyCount', 'yearlyCount',
+            'totalPending', 'totalCompleted', 'totalCancelled'
+        ];
+        if (!overviewData || typeof overviewData !== 'object' || Array.isArray(overviewData) ||
+            !Array.isArray(overviewData.todaySchedules) ||
+            metricKeys.some(key => !Number.isFinite(Number(overviewData[key])))) {
+            throw new Error('总览数据响应格式无效');
+        }
 
+        clearStatsErrorState();
         updateOverviewStats(overviewData);
         updateTodayTitle();
         // 当前查看的是今天时直接用总览接口附带的数据，否则按查看日期查询
         if (getViewDate() === getTodayStr()) {
-            renderTodaySchedules(Array.isArray(overviewData.todaySchedules) ? overviewData.todaySchedules : []);
+            renderTodaySchedules(overviewData.todaySchedules);
         } else {
-            renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
+            try {
+                renderTodaySchedules(await fetchSchedulesForDate(getViewDate()));
+            } catch (error) {
+                showTodayListError(error);
+            }
         }
     } catch (error) {
-
-        showStatsErrorState();
+        showStatsErrorState(error);
     }
 }
 
@@ -122,18 +139,36 @@ function showStatsLoadingState() {
     }
 }
 
-function showStatsErrorState() {
-    // 统计卡加载失败：用占位符而非「Err」字面量
-    const errorText = '—';
-    setText(weeklyLessonsEl(), errorText);
-    setText(monthlyLessonsEl(), errorText);
-    setText(yearlyLessonsEl(), errorText);
-    setText(totalPendingEl(), errorText);
-    setText(totalCompletedEl(), errorText);
-    setText(totalCancelledEl(), errorText);
+function clearStatsErrorState() {
+    document.getElementById('teacherOverviewStatsError')?.remove();
+    const statsGrid = document.querySelector('#overview .overview-stats-grid');
+    if (statsGrid) statsGrid.hidden = false;
+}
 
-    // 今日排课区显示统一错误态（带重试）
-    showTodayListError(new Error('总览数据加载失败'));
+function showStatsErrorState(error) {
+    const statsGrid = document.querySelector('#overview .overview-stats-grid');
+    if (statsGrid) statsGrid.hidden = true;
+
+    const section = document.getElementById('overview');
+    if (section) {
+        let errorContainer = document.getElementById('teacherOverviewStatsError');
+        if (!errorContainer) {
+            errorContainer = document.createElement('div');
+            errorContainer.id = 'teacherOverviewStatsError';
+            if (statsGrid) statsGrid.insertAdjacentElement('beforebegin', errorContainer);
+            else section.prepend(errorContainer);
+        }
+        renderErrorState(errorContainer, {
+            error,
+            title: '授课统计加载失败',
+            detail: null,
+            onRetry: () => loadOverview(),
+            retryText: '重试',
+            compact: true
+        });
+    }
+
+    showTodayListError(error);
 }
 
 // 酬劳达成弹窗逻辑见 shared/reward-view.js
@@ -141,12 +176,12 @@ function showStatsErrorState() {
 function updateOverviewStats(overviewData) {
     // 卡片数据列表（HTML 已包含渐变卡片结构，仅更新数值）
     const cardDataList = [
-        { id: 'weeklyLessons', label: '本周授课', value: overviewData?.weeklyCount ?? 0, type: 'weekly' },
-        { id: 'monthlyLessons', label: '本月授课', value: overviewData?.monthlyCount ?? 0, type: 'monthly' },
-        { id: 'yearlyLessons', label: '本年授课', value: overviewData?.yearlyCount ?? 0, type: 'yearly' },
-        { id: 'totalPending', label: '待我确认', value: overviewData?.totalPending ?? 0, type: 'pending' },
-        { id: 'totalCompleted', label: '已完成授课', value: overviewData?.totalCompleted ?? 0, type: 'completed' },
-        { id: 'totalCancelled', label: '已取消记录', value: overviewData?.totalCancelled ?? 0, type: 'cancelled' }
+        { id: 'weeklyLessons', label: '本周授课', value: Number(overviewData.weeklyCount), type: 'weekly' },
+        { id: 'monthlyLessons', label: '本月授课', value: Number(overviewData.monthlyCount), type: 'monthly' },
+        { id: 'yearlyLessons', label: '本年授课', value: Number(overviewData.yearlyCount), type: 'yearly' },
+        { id: 'totalPending', label: '待我确认', value: Number(overviewData.totalPending), type: 'pending' },
+        { id: 'totalCompleted', label: '已完成授课', value: Number(overviewData.totalCompleted), type: 'completed' },
+        { id: 'totalCancelled', label: '已取消记录', value: Number(overviewData.totalCancelled), type: 'cancelled' }
     ];
 
     cardDataList.forEach((item) => {

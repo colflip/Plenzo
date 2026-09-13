@@ -1,6 +1,7 @@
 import { getStatusLabel } from './constants.js';
 import { formatDateTimeDisplay, setText } from './utils.js';
 import { updateSessionUserData } from '../shared/dashboard-kit.js';
+import { renderErrorState } from '../shared/error-ui.js';
 
 const STATUS_TEXT_MAP = Object.freeze({
     '1': '正常',
@@ -32,6 +33,8 @@ const elements = {
     editBtn: () => document.getElementById('profileEditBtn'),
     saveBtn: () => document.getElementById('profileSaveBtn'),
     changePasswordBtn: () => document.getElementById('changePasswordBtn'),
+    profileLayout: () => document.querySelector('#profile .profile-layout'),
+    profileError: () => document.getElementById('teacherProfileLoadError'),
     // Modal elements
     passwordModal: () => document.getElementById('passwordChangeModal'),
     passwordForm: () => document.getElementById('passwordChangeForm'),
@@ -128,14 +131,36 @@ function bindPasswordModalActions() {
 export async function loadProfile() {
     try {
         const profile = await window.apiUtils.get('/teacher/profile');
+        if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+            throw new Error('个人信息响应格式无效');
+        }
         cachedProfile = profile;
+        elements.profileError()?.remove();
+        const layout = elements.profileLayout();
+        if (layout) layout.hidden = false;
         renderProfile(profile);
         if (profile.student_ids) {
             loadAssociatedStudents();
         }
     } catch (error) {
-        
-        window.apiUtils.showErrorToast(error);
+        const layout = elements.profileLayout();
+        if (layout) layout.hidden = true;
+        const section = document.getElementById('profile');
+        if (!section) return;
+        let errorContainer = elements.profileError();
+        if (!errorContainer) {
+            errorContainer = document.createElement('div');
+            errorContainer.id = 'teacherProfileLoadError';
+            section.prepend(errorContainer);
+        }
+        renderErrorState(errorContainer, {
+            error,
+            title: '个人信息加载失败',
+            detail: null,
+            onRetry: () => loadProfile(),
+            retryText: '重试',
+            compact: true
+        });
     }
 }
 
@@ -355,6 +380,9 @@ async function saveProfile() {
 
     try {
         const updated = await window.apiUtils.put('/teacher/profile', payload);
+        if (!updated || typeof updated !== 'object' || Array.isArray(updated)) {
+            throw new Error('个人信息保存响应格式无效');
+        }
         cachedProfile = {
             ...cachedProfile,
             ...payload,
@@ -403,16 +431,23 @@ function bindStudentManagementActions() {
 
 async function loadAssociatedStudents() {
     try {
-        const response = await window.apiUtils.get('/teacher/associated-students/detail');
-        if (response.success && response.data) {
-            cachedStudents = response.data;
-            renderStudentList(response.data);
-        } else {
-            renderStudentList([]);
+        const students = await window.apiUtils.get('/teacher/associated-students/detail');
+        if (!Array.isArray(students)) {
+            throw new Error('关联学生响应格式无效');
         }
+        cachedStudents = students;
+        renderStudentList(cachedStudents);
     } catch (error) {
-        
-        window.apiUtils.showErrorToast(error);
+        const container = elements.studentListContainer();
+        if (!container) return;
+        renderErrorState(container, {
+            error,
+            title: '关联学生加载失败',
+            detail: null,
+            onRetry: () => loadAssociatedStudents(),
+            retryText: '重试',
+            compact: true
+        });
     }
 }
 
@@ -535,16 +570,12 @@ async function handleSaveStudentEdit() {
     };
 
     try {
-        const response = await window.apiUtils.put(`/teacher/associated-students/${studentId}`, payload);
-        if (response.success) {
-            window.apiUtils.showSuccessToast('学生信息更新成功');
-            closeStudentEditModalFn();
-            await loadAssociatedStudents();
-        } else {
-            throw new Error(response.message || '更新失败');
-        }
+        await window.apiUtils.put(`/teacher/associated-students/${studentId}`, payload);
+        window.apiUtils.showSuccessToast('学生信息更新成功');
+        closeStudentEditModalFn();
+        await loadAssociatedStudents();
     } catch (error) {
-        
+
         window.apiUtils.showErrorToast(error);
     }
 }
