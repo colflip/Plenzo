@@ -41,6 +41,8 @@ const {
     additionalSecurityHeaders,
     corsOptions
 } = require('./security');
+const { requestContext } = require('./request-context');
+const { responseEnvelope } = require('./response-envelope');
 
 module.exports = {
     // 认证
@@ -80,5 +82,9 @@ module.exports = {
     strictLimiter,
     securityHeaders,
     additionalSecurityHeaders,
-    corsOptions
+    corsOptions,
+
+    // 响应信封（边缘归一化为 { ok, data, error, meta }）
+    requestContext,
+    responseEnvelope
 };

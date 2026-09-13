@@ -22,13 +22,17 @@ const {
     securityHeaders,
     additionalSecurityHeaders,
     corsOptions,
-    getJwtSecret
+    getJwtSecret,
+    requestContext,
+    responseEnvelope
 } = require('./middleware');
 
 const initScheduler = require('./jobs/scheduler');
 const runDatabaseMigrations = require('./db/migrations');
 const { warmup: dbWarmup } = require('./db/db');
 const db = require('./db/db');
+const { successResponse } = require('./utils/response');
+const { AppError } = require('./middleware/error');
 
 const app = express();
 
@@ -92,8 +96,18 @@ if (process.env.NODE_ENV !== 'test') {
     }));
 }
 
+// 请求上下文：为每次请求分配稳定的 requestId 并回写响应头 X-Request-Id，
+// 使后续所有控制器、限流、错误出口共享同一 id（错误信封 meta.requestId 与日志一致）。
+// 必须先于 body 解析：JSON 解析失败时也要带上 requestId 进入错误出口。
+app.use(requestContext);
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// 响应信封：在边缘强制控制器输出为 { ok, data, error, meta } 信封，与前端
+// api-client.isEnvelope 契约对齐。遗漏迁移的接口在此 loud-fail（抛错→500 信封），
+// 而不向前端吐出无法识别的畸形 JSON。必须先于限流与路由装载。
+app.use(responseEnvelope);
 
 app.use(express.static(path.join(__dirname, '../../public'), {
     maxAge: isProduction ? '1d' : '0',
@@ -249,7 +263,7 @@ function getTokenFromRequest(req) {
     return null;
 }
 
-app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
+app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res, next) => {
     const { start, end } = req.query;
     const raw = getTokenFromRequest(req);
     let user = null;
@@ -259,23 +273,27 @@ app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res) => {
             if (secret) user = jwt.verify(raw, secret);
         } catch (_) { user = null; }
     }
-    try {
-        if (user && user.userType === 'teacher') {
-            // 姓名查询与酬劳聚合互不依赖：getRewardPayload 的 SQL 只用 userId/start/end，
-            // name 仅被回填进 basic_info，故并发发出、拿到后补写（省一次往返，约 250ms）
-            const [name, payload] = await Promise.all([
-                db.query('SELECT name FROM teachers WHERE id = $1', [user.id])
-                    .then(r => (r.rows && r.rows[0] && r.rows[0].name) || '未知')
-                    .catch(() => '未知'),
-                rewardCalc.getRewardPayload({ userId: user.id, name: '未知', start, end })
-            ]);
-            payload.basic_info.name = name;
-            return res.json(payload);
-        }
-    } catch (err) {
-        logger.error('[goodluck] 计算失败，降级空数据:', err && err.message);
+    // 契约：未登录 / 非教师 / 数据失败一律明确拒绝，绝不回退空数据（防信息泄露与静默降级）
+    if (!user) {
+        return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '需要登录后访问' }));
     }
-    res.json(rewardCalc.buildEmptyPayload('未知', start, end));
+    if (user.userType !== 'teacher') {
+        return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '仅教师可访问本页面' }));
+    }
+    try {
+        // 姓名查询与酬劳聚合互不依赖：getRewardPayload 的 SQL 只用 userId/start/end，
+        // name 仅被回填进 basic_info，故并发发出、拿到后补写（省一次往返，约 250ms）
+        const [name, payload] = await Promise.all([
+            db.query('SELECT name FROM teachers WHERE id = $1', [user.id])
+                .then(r => (r.rows && r.rows[0] && r.rows[0].name) || '未知'),
+            rewardCalc.getRewardPayload({ userId: user.id, name: '未知', start, end })
+        ]);
+        payload.basic_info.name = name;
+        return res.json(successResponse(payload));
+    } catch (err) {
+        logger.error('[goodluck] 计算失败，拒绝而非降级:', err && err.message);
+        return next(err);
+    }
 });
 app.get(['/teacher/dashboard/:section', '/teacher/dashboard.html/:section'], serveDashboardSection('teacher'));
 
@@ -356,8 +374,10 @@ const dbBootstrapPromise = (process.env.NODE_ENV !== 'test')
     })
     : Promise.resolve(false);
 
-// 启动服务器逻辑：除非在 Vercel Serverless 环境，否则一律启动监听
-if (process.env.VERCEL) {
+// 启动服务器逻辑：除非在 Vercel Serverless 环境，否则一律启动监听。
+// 注意：测试环境（NODE_ENV==='test'）由各自测试创建独立 server（http.createServer(app) + listen(0)），
+// 此处不自动监听，避免多测试文件重复 require('../app') 时端口冲突（EADDRINUSE）。
+if (process.env.VERCEL || process.env.NODE_ENV === 'test') {
     // Vercel 自动处理导出
     module.exports = app;
 } else {
