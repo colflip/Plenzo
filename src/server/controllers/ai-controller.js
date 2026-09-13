@@ -5,10 +5,8 @@ const logger = require('../utils/logger.js');
  * @module controllers/aiController
  */
 
-const { standardResponse } = require('../middleware/validation');
-const { AppError, asyncHandler } = require('../middleware/error');
 const { successResponse, errorResponse } = require('../utils/response');
-const { statusToErrorCode } = require('../utils/http-status');
+const { AppError, asyncHandler, normalizeError } = require('../middleware/error');
 const aiService = require('../services/ai-service');
 const db = require('../db/db');
 const scheduleService = require('../services/schedule-service');
@@ -26,7 +24,7 @@ const getStatus = (req, res) => {
         enabled: aiService.isAvailable(),
         provider: aiService.getAIConfig().provider,
         role: req.user?.userType
-    }));
+    }, { requestId: req.requestId }));
 };
 
 /**
@@ -54,10 +52,10 @@ function loadCourseTypeMapping() {
             (result.rows || []).forEach(row => { map[row.name] = row.description; });
             return map;
         })
-        .catch(() => {
-            // 失败不固化空结果，下次调用重试
+        .catch(error => {
+            // 失败不固化结果，下次调用可以重新查询，但当前请求必须看到真实故障。
             courseTypePromise = null;
-            return {};
+            throw error;
         });
     return courseTypePromise;
 }
@@ -290,7 +288,7 @@ const MAX_STORE_SIZE = 500;
 /**
  * 清理过期条目并限制 Map 大小
  */
-function pruneStore(store, next) {
+function pruneStore(store) {
     const now = Date.now();
     for (const [key, entry] of store) {
         if (entry && entry.expireAt && now > entry.expireAt) {
@@ -663,7 +661,7 @@ async function executeDataTool(toolName, args, req) {
 
     switch (toolName) {
         case 'query_overview': {
-            if (userType !== 'admin') throw new AppError('权限不足', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
             const scopeSql = selfScoped ? ' AND (created_by=$1 OR created_by IS NULL)' : '';
             const scopeParams = selfScoped ? [userId] : [];
@@ -694,7 +692,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_schedules': {
-            if (userType !== 'admin') throw new AppError('权限不足', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
             let query = 'SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status, ' +
                        't.name as teacher_name, s.name as student_name, st.name as course_type ' +
@@ -749,7 +747,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_teachers': {
-            if (userType !== 'admin') throw new AppError('权限不足', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
             let query = 'SELECT id, name, profession, status FROM teachers';
             const params = [];
@@ -781,7 +779,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_students': {
-            if (userType !== 'admin') throw new AppError('权限不足', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
             let query = 'SELECT id, name, nickname, profession, status FROM students';
             const params = [];
@@ -818,7 +816,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_schedule_stats': {
-            if (userType !== 'admin') throw new AppError('权限不足', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
             const { dimension, startDate, endDate } = args;
             let query, params = [];
@@ -866,7 +864,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_my_overview': {
-            if (userType !== 'teacher' && userType !== 'student') throw new AppError('仅教师和学生可查询', 403);
+            if (userType !== 'teacher' && userType !== 'student') throw new AppError({ code: 'FORBIDDEN', message: '仅教师和学生可查询' });
 
             const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
 
@@ -899,7 +897,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_my_schedules': {
-            if (userType !== 'teacher' && userType !== 'student') throw new AppError('仅教师和学生可查询', 403);
+            if (userType !== 'teacher' && userType !== 'student') throw new AppError({ code: 'FORBIDDEN', message: '仅教师和学生可查询' });
 
             const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
             const joinField = userType === 'teacher' ? 's.name as student_name' : 't.name as teacher_name';
@@ -945,7 +943,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'query_my_statistics': {
-            if (userType !== 'student') throw new AppError('仅学生可查询学习统计', 403);
+            if (userType !== 'student') throw new AppError({ code: 'FORBIDDEN', message: '仅学生可查询学习统计' });
 
             // 默认查询最近3个月
             const startDate = args.startDate || new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().split('T')[0];
@@ -963,11 +961,30 @@ async function executeDataTool(toolName, args, req) {
                     GROUP BY month ORDER BY month`, [userId, startDate, endDate])
             ]);
 
+            // 课程类型归一化：大评审 等同 评审（与管理端/教师端/学生端统计口径一致）
+            const REVIEW_ALIASES = ['大评审', '大評審', 'big_review', 'bigreview'];
+            const isReviewAlias = (l) => {
+                const s = String(l == null ? '' : l).trim();
+                return REVIEW_ALIASES.includes(s) || REVIEW_ALIASES.includes(s.toLowerCase());
+            };
+            const mergedTypeStats = [];
+            const typeMap = new Map();
+            (typeStats.rows || []).forEach(r => {
+                const cn = r.category_cn || r.category || '未分类';
+                const key = isReviewAlias(cn) ? '评审' : cn;
+                if (!typeMap.has(key)) {
+                    const entry = { category: key, category_cn: key, count: 0 };
+                    typeMap.set(key, entry);
+                    mergedTypeStats.push(entry);
+                }
+                typeMap.get(key).count += parseInt(r.count, 10) || 0;
+            });
+
             return {
                 type: 'chart_data',
                 title: '学习统计',
                 data: {
-                    typeStats: typeStats.rows,
+                    typeStats: mergedTypeStats,
                     monthlyStats: monthlyStats.rows,
                     period: { startDate, endDate }
                 }
@@ -975,7 +992,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'resolve_datetime': {
-            if (userType !== 'admin') throw new AppError('仅管理员可解析排课时间', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可解析排课时间' });
             const parsed = resolveDateTime(args.text || '');
             const note = parsed.warnings && parsed.warnings.length > 0 ? parsed.warnings.join('；') : '';
             return {
@@ -995,7 +1012,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'find_available_slots': {
-            if (userType !== 'admin') throw new AppError('仅管理员可查找时段', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可查找时段' });
 
             const { teacherId, studentId, startDate, endDate, preferredDays, duration = 2 } = args;
 
@@ -1014,8 +1031,8 @@ async function executeDataTool(toolName, args, req) {
                 )
             ]);
 
-            if (teacher.rows.length === 0) throw new AppError(`教师 ID ${teacherId} 不存在或已禁用`, 404);
-            if (student.rows.length === 0) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
+            if (teacher.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${teacherId} 不存在或已禁用` });
+            if (student.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${studentId} 不存在或已禁用` });
 
             // 生成日期范围
             const start = new Date(startDate);
@@ -1080,7 +1097,7 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'create_schedule_preview': {
-            if (userType !== 'admin') throw new AppError('仅管理员可创建排课', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可创建排课' });
 
             const { groups } = args;
             const isBatch = Array.isArray(groups) && groups.length > 0;
@@ -1125,10 +1142,10 @@ async function executeDataTool(toolName, args, req) {
                 if (!tIds.length || !studentId || !courseType || !slots?.length) continue;
 
                 const student = studentMap[studentId];
-                if (!student) throw new AppError(`学生 ID ${studentId} 不存在或已禁用`, 404);
+                if (!student) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${studentId} 不存在或已禁用` });
 
                 const courseTypeRow = courseTypeMap[courseType];
-                if (!courseTypeRow) throw new AppError(`课程类型 ${courseType} 不存在`, 404);
+                if (!courseTypeRow) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${courseType} 不存在` });
 
                 const courseId = courseTypeRow.id;
                 const courseTypeCn = courseTypeRow.description || courseType;
@@ -1137,7 +1154,7 @@ async function executeDataTool(toolName, args, req) {
                 const teachers = [];
                 for (const tid of tIds) {
                     const t = teacherMap[tid];
-                    if (!t) throw new AppError(`教师 ID ${tid} 不存在或已禁用`, 404);
+                    if (!t) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${tid} 不存在或已禁用` });
                     teachers.push(t);
                 }
 
@@ -1174,7 +1191,8 @@ async function executeDataTool(toolName, args, req) {
             // 生成预览ID
             const previewId = `preview_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
             schedulePreviewStore.set(previewId, { previewId, groups: previewGroups, createdAt: new Date().toISOString() });
-            setTimeout(() => schedulePreviewStore.delete(previewId), 5 * 60 * 1000);
+            const expiryTimer = setTimeout(() => schedulePreviewStore.delete(previewId), 5 * 60 * 1000);
+            expiryTimer.unref();
 
             const uniqueTeachers = [...new Set(previewGroups.flatMap(g => g.teacherNames))];
             const uniqueStudents = [...new Set(previewGroups.map(g => g.studentName))];
@@ -1195,14 +1213,14 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'confirm_schedule_creation': {
-            if (userType !== 'admin') throw new AppError('仅管理员可创建排课', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可创建排课' });
 
             const { previewId } = args;
 
             // 从存储中获取预览数据
             const previewData = schedulePreviewStore.get(previewId);
             if (!previewData) {
-                throw new AppError('预览方案不存在或已过期，请重新生成', 404);
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '预览方案不存在或已过期，请重新生成' });
             }
 
             // 兼容批量模式（groups）和旧单组模式
@@ -1252,16 +1270,16 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'preview_schedule_update': {
-            if (userType !== 'admin') throw new AppError('仅管理员可修改排课', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可修改排课' });
 
             const { scheduleIds, fields } = args;
 
             if (!scheduleIds || scheduleIds.length === 0) {
-                throw new AppError('请提供要修改的排课ID', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '请提供要修改的排课ID' });
             }
 
             if (!fields || Object.keys(fields).length === 0) {
-                throw new AppError('请提供要修改的字段', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '请提供要修改的字段' });
             }
 
             // 检查排课是否存在并获取详细信息（含 created_by 归属）
@@ -1281,18 +1299,18 @@ async function executeDataTool(toolName, args, req) {
             );
 
             if (existingSchedules.rows.length === 0) {
-                throw new AppError('未找到指定的排课', 404);
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '未找到指定的排课' });
             }
 
             if (existingSchedules.rows.length < scheduleIds.length) {
                 const foundIds = existingSchedules.rows.map(r => r.id);
                 const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
-                throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ID ${missingIds.join(', ')} 不存在` });
             }
 
             // 权限落地（Phase 1.5）：L3 只能修改自己创建或无主的排课，任一越权则整批拒绝
             if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
-                throw new AppError('所选排课包含您无权操作的记录', 403);
+                throw new AppError({ code: 'FORBIDDEN', message: '所选排课包含您无权操作的记录' });
             }
 
             // 验证新值的合法性
@@ -1313,19 +1331,19 @@ async function executeDataTool(toolName, args, req) {
             ]);
 
             if (teacherCheck) {
-                if (teacherCheck.rows.length === 0) throw new AppError(`教师 ID ${fields.teacherId} 不存在`, 404);
-                if (teacherCheck.rows[0].status !== 1) throw new AppError(`教师 ${teacherCheck.rows[0].name} 已被禁用`, 400);
+                if (teacherCheck.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${fields.teacherId} 不存在` });
+                if (teacherCheck.rows[0].status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `教师 ${teacherCheck.rows[0].name} 已被禁用` });
                 newTeacherName = teacherCheck.rows[0].name;
             }
 
             if (studentCheck) {
-                if (studentCheck.rows.length === 0) throw new AppError(`学生 ID ${fields.studentId} 不存在`, 404);
-                if (studentCheck.rows[0].status !== 1) throw new AppError(`学生 ${studentCheck.rows[0].name} 已被禁用`, 400);
+                if (studentCheck.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${fields.studentId} 不存在` });
+                if (studentCheck.rows[0].status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `学生 ${studentCheck.rows[0].name} 已被禁用` });
                 newStudentName = studentCheck.rows[0].name;
             }
 
             if (courseTypeResult) {
-                if (courseTypeResult.rows.length === 0) throw new AppError(`课程类型 ${fields.courseType} 不存在`, 404);
+                if (courseTypeResult.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${fields.courseType} 不存在` });
                 newCourseTypeCn = courseTypeResult.rows[0].description;
                 newCourseTypeId = courseTypeResult.rows[0].id;
             }
@@ -1404,7 +1422,8 @@ async function executeDataTool(toolName, args, req) {
             });
 
             // 5分钟后自动过期
-            setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
+            const expiryTimer = setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
+            expiryTimer.unref();
 
             return {
                 type: 'schedule_operation_preview',
@@ -1424,12 +1443,12 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'preview_schedule_deletion': {
-            if (userType !== 'admin') throw new AppError('仅管理员可删除排课', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可删除排课' });
 
             const { scheduleIds, reason } = args;
 
             if (!scheduleIds || scheduleIds.length === 0) {
-                throw new AppError('请提供要删除的排课ID', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '请提供要删除的排课ID' });
             }
 
             // 检查排课是否存在并获取详细信息（含 created_by 归属）
@@ -1447,18 +1466,18 @@ async function executeDataTool(toolName, args, req) {
             );
 
             if (existingSchedules.rows.length === 0) {
-                throw new AppError('未找到指定的排课', 404);
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '未找到指定的排课' });
             }
 
             if (existingSchedules.rows.length < scheduleIds.length) {
                 const foundIds = existingSchedules.rows.map(r => r.id);
                 const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
-                throw new AppError(`排课 ID ${missingIds.join(', ')} 不存在`, 404);
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ID ${missingIds.join(', ')} 不存在` });
             }
 
             // 权限落地（Phase 1.5）：L3 只能删除自己创建或无主的排课，任一越权则整批拒绝
             if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
-                throw new AppError('所选排课包含您无权操作的记录', 403);
+                throw new AppError({ code: 'FORBIDDEN', message: '所选排课包含您无权操作的记录' });
             }
 
             // 生成操作ID
@@ -1474,7 +1493,8 @@ async function executeDataTool(toolName, args, req) {
             });
 
             // 5分钟后自动过期
-            setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
+            const expiryTimer = setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
+            expiryTimer.unref();
 
             return {
                 type: 'schedule_operation_preview',
@@ -1491,19 +1511,19 @@ async function executeDataTool(toolName, args, req) {
         }
 
         case 'confirm_operation': {
-            if (userType !== 'admin') throw new AppError('仅管理员可执行敏感操作', 403);
+            if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可执行敏感操作' });
 
             const { operationId } = args;
 
             if (!operationId) {
-                throw new AppError('请提供操作ID', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '请提供操作ID' });
             }
 
             // 从临时存储中获取操作信息
             const operation = pendingOperationStore.get(operationId);
 
             if (!operation) {
-                throw new AppError('操作ID无效或已过期（5分钟有效期），请重新预览', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '操作ID无效或已过期（5分钟有效期），请重新预览' });
             }
 
             // 权限落地（Phase 1.5）：执行前再次核验归属（防止跨账号确认他人预览的操作）
@@ -1515,7 +1535,7 @@ async function executeDataTool(toolName, args, req) {
                 );
                 const ownedCount = ownRes.rows && ownRes.rows[0] ? Number(ownRes.rows[0].count) : 0;
                 if (ownedCount !== operation.scheduleIds.length) {
-                    throw new AppError('所选排课包含您无权操作的记录，请重新发起', 403);
+                    throw new AppError({ code: 'FORBIDDEN', message: '所选排课包含您无权操作的记录，请重新发起' });
                 }
             }
 
@@ -1544,17 +1564,17 @@ async function executeDataTool(toolName, args, req) {
                                  FROM course_sessions WHERE id = $1 FOR UPDATE`,
                                 [sid]
                             );
-                            if (curRes.rows.length === 0) throw new AppError(`排课 ${sid} 不存在`, 404);
+                            if (curRes.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
                             const session = curRes.rows[0];
 
                             // 定位要调整的教师 pair：显式 uid 优先，否则本场唯一教师
                             const uid = operation.teacherUid
                                 || ((session.teachers || []).length === 1 ? session.teachers[0].uid : null);
                             const pair = (session.teachers || []).find(x => String(x.uid) === String(uid));
-                            if (!pair) throw new AppError(`排课 ${sid} 有多位教师，请指明 teacher_uid`, 400);
+                            if (!pair) throw new AppError({ code: 'BAD_REQUEST', message: `排课 ${sid} 有多位教师，请指明 teacher_uid` });
                             const { category, lifecycle } = splitStatus(pair.status);
-                            if (lifecycle === 'modified_away') throw new AppError(`排课 ${sid} 已被调整过，不能再次调整`, 409);
-                            if (category === 'adjusted') throw new AppError(`排课 ${sid} 是增补记录，不能再次被调整`, 409);
+                            if (lifecycle === 'modified_away') throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 已被调整过，不能再次调整` });
+                            if (category === 'adjusted') throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 是增补记录，不能再次被调整` });
 
                             // 生效值：新条件覆盖，其余沿用原场次
                             const effTeacherId = fields.teacherId ?? pair.teacher_id;
@@ -1575,7 +1595,7 @@ async function executeDataTool(toolName, args, req) {
                                 { id: req.user.id, actorType: 'admin' }, Number(session.version), session,
                                 { skipTypeAssert: true }
                             );
-                            if (adjusted.notFound) throw new AppError(`排课 ${sid} 不存在`, 404);
+                            if (adjusted.notFound) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
 
                             // 2. 冲突检测（原 pair 已 modified_away，不会自冲突）
                             const conflict = await scheduleService.checkConflicts(
@@ -1584,7 +1604,7 @@ async function executeDataTool(toolName, args, req) {
                             );
                             if (conflict.hasConflicts) {
                                 // 抛错 → 事务回滚 → 原 pair 的标记一并撤销
-                                throw new AppError(`新课程与现有排课冲突：${conflict.message}`, 409);
+                                throw new AppError({ code: 'CONFLICT', message: `新课程与现有排课冲突：${conflict.message}` });
                             }
 
                             // 3. 时间/地点/教师/学生有变化时，另起一场新课承载（头部字段是整场共享的）
@@ -1717,12 +1737,12 @@ async function executeDataTool(toolName, args, req) {
                 };
 
             } else {
-                throw new AppError('未知的操作类型', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '未知的操作类型' });
             }
         }
 
         default:
-            throw new AppError(`未知工具: ${toolName}`, 400);
+            throw new AppError({ code: 'BAD_REQUEST', message: `未知工具: ${toolName}` });
     }
 }
 
@@ -1830,14 +1850,24 @@ function getToolProgressMessage(toolNames) {
     return msgs.length > 0 ? msgs[0] : '正在处理数据...';
 }
 
+function writeSSEError(res, err, requestId) {
+    const normalized = normalizeError(err);
+    const payload = errorResponse(normalized, { requestId: requestId || null });
+    res.write(`event: error\ndata: ${JSON.stringify({
+        error: payload.error,
+        meta: payload.meta
+    })}\n\n`);
+    return res.end();
+}
+
 /**
  * AI 数据查询主入口
  * POST /api/ai/query
  * body: { question: string, history?: array }
  */
-const query = asyncHandler(async (req, res, next) => {
+const query = asyncHandler(async (req, res) => {
     if (!aiService.isAvailable()) {
-        throw new AppError('AI 功能未启用，请在服务端配置 AI_API_KEY 并设置 AI_ENABLED=true', 503);
+        throw new AppError({ code: 'AI_NOT_CONFIGURED', message: 'AI 功能未启用，请联系管理员完成配置' });
     }
 
     const { question, history, action, images } = req.body;
@@ -1846,15 +1876,15 @@ const query = asyncHandler(async (req, res, next) => {
     const isAction = action && typeof action === 'object' && typeof action.type === 'string';
 
     if (!isAction && (!question || !question.trim())) {
-        throw new AppError('请输入问题', 400);
+        throw new AppError({ code: 'BAD_REQUEST', message: '请输入问题' });
     }
 
     // 输入长度验证（防止滥用 token 配额）
     if (question && question.length > 2000) {
-        throw new AppError('问题长度不能超过 2000 个字符', 400);
+        throw new AppError({ code: 'BAD_REQUEST', message: '问题长度不能超过 2000 个字符' });
     }
     if (history && Array.isArray(history) && history.length > 20) {
-        throw new AppError('对话历史不能超过 20 条消息', 400);
+        throw new AppError({ code: 'BAD_REQUEST', message: '对话历史不能超过 20 条消息' });
     }
 
     // SSE 模式设置响应头
@@ -1878,17 +1908,13 @@ const query = asyncHandler(async (req, res, next) => {
         thisWeekDateMap, nextWeekDateMap
     } = computeDateContext();
 
-    // 动态加载课程类型和教师列表（用于系统提示，帮助 LLM 精确匹配）
-    let courseTypeListStr = '';
-    let teacherListStr = '';
-    try {
-        const [ctResult, tResult] = await Promise.all([
-            db.query('SELECT name, description FROM schedule_types ORDER BY id'),
-            db.query("SELECT name FROM teachers WHERE status=1 ORDER BY id")
-        ]);
-        courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
-        teacherListStr = tResult.rows.map(r => r.name).join('、');
-    } catch (_) { /* 静默失败，不影响主流程 */ }
+    // 课程类型和教师名单决定后续工具参数是否合法；查询失败时不能让模型把故障误判为空数据。
+    const [ctResult, tResult] = await Promise.all([
+        db.query('SELECT name, description FROM schedule_types ORDER BY id'),
+        db.query("SELECT name FROM teachers WHERE status=1 ORDER BY id")
+    ]);
+    const courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
+    const teacherListStr = tResult.rows.map(r => r.name).join('、');
 
     const systemPrompt = userType === 'admin'
         ? `你是 Plenzo 课程管理系统的排课助手，全程用中文、简洁作答。你的职责是理解管理员的自然语言，调用工具完成查询与排课，绝不臆造数据。\n` +
@@ -2018,7 +2044,13 @@ const query = asyncHandler(async (req, res, next) => {
     // 统一的确认创建处理
     const handleConfirmCreate = async (previewIdStr) => {
         const previewIds = String(previewIdStr).split(',').map(s => s.trim()).filter(Boolean);
+        if (previewIds.length === 0) {
+            throw new AppError({ code: 'BAD_REQUEST', message: '缺少排课预览 ID' });
+        }
+
         const allInsertedIds = [];
+        const failedPreviewIds = [];
+        let firstError = null;
         for (const pid of previewIds) {
             try {
                 const result = await executeDataTool('confirm_schedule_creation', { previewId: pid }, req);
@@ -2026,16 +2058,26 @@ const query = asyncHandler(async (req, res, next) => {
                     allInsertedIds.push(...result.data.scheduleIds);
                 }
             } catch (err) {
+                if (!firstError) firstError = err;
+                failedPreviewIds.push(pid);
                 logger.warn('[AI][confirm_create] previewId 执行失败:', pid, err.message);
             }
         }
-        const answerText = allInsertedIds.length > 0
-            ? `成功创建 ${allInsertedIds.length} 条排课记录`
-            : '排课创建失败，预览可能已过期，请重新生成';
+        if (allInsertedIds.length === 0 && firstError) throw firstError;
+
+        const partial = failedPreviewIds.length > 0;
+        const answerText = partial
+            ? `部分排课创建成功：已创建 ${allInsertedIds.length} 条，${failedPreviewIds.length} 个预览创建失败`
+            : `成功创建 ${allInsertedIds.length} 条排课记录`;
         return {
             type: 'text',
             answer: answerText,
-            structuredData: { message: answerText, scheduleIds: allInsertedIds },
+            structuredData: {
+                message: answerText,
+                status: partial ? 'partial' : 'success',
+                scheduleIds: allInsertedIds,
+                failedPreviewIds
+            },
             toolsUsed: ['confirm_schedule_creation']
         };
     };
@@ -2062,7 +2104,7 @@ const query = asyncHandler(async (req, res, next) => {
             } else if (action.type === 'confirm_operation' && action.operationId) {
                 responseData = await handleConfirmOperation(action.operationId);
             } else {
-                throw new AppError('无效的确认操作参数', 400);
+                throw new AppError({ code: 'BAD_REQUEST', message: '无效的确认操作参数' });
             }
             if (useStream) {
                 res.writeHead(200, {
@@ -2074,11 +2116,10 @@ const query = asyncHandler(async (req, res, next) => {
                 res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
                 return res.end();
             }
-            return res.json(successResponse(responseData));
+            return res.json(successResponse(responseData, { requestId: req.requestId }));
         } catch (err) {
             if (useStream && res.headersSent) {
-                res.write(`data: ${JSON.stringify({ type: 'error', message: err.message || '确认操作失败' })}\n\n`);
-                return res.end();
+                return writeSSEError(res, err, req.requestId);
             }
             throw err;
         }
@@ -2092,7 +2133,7 @@ const query = asyncHandler(async (req, res, next) => {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
         }
-        return res.json(successResponse(responseData));
+        return res.json(successResponse(responseData, { requestId: req.requestId }));
     }
 
     const confirmOpMatch = question && question.match(/确认执行操作.*operationId[:\s]+(\S+)/);
@@ -2102,7 +2143,7 @@ const query = asyncHandler(async (req, res, next) => {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
         }
-        return res.json(successResponse(responseData));
+        return res.json(successResponse(responseData, { requestId: req.requestId }));
     }
 
     // 构建消息列表：系统提示 + 历史对话 + 当前问题
@@ -2197,8 +2238,16 @@ const query = asyncHandler(async (req, res, next) => {
         // 并行执行所有工具调用
         const toolCallResults = await Promise.all(toolCalls.map(async (call) => {
             const name = call.function.name;
-            let args = {};
-            try { args = JSON.parse(call.function.arguments || '{}'); } catch (_) { /* noop */ }
+            let args;
+            try {
+                args = JSON.parse(call.function.arguments || '{}');
+            } catch (err) {
+                throw new AppError({
+                    code: 'AI_UPSTREAM_BAD_RESPONSE',
+                    message: 'AI 返回的工具参数不是有效 JSON',
+                    cause: err
+                });
+            }
             toolsUsed.push(name);
 
             try {
@@ -2208,7 +2257,7 @@ const query = asyncHandler(async (req, res, next) => {
                 return { role: 'tool', tool_call_id: call.id, content: summarizeToolResult(result) };
             } catch (err) {
                 log(`round ${rounds} tool "${name}" FAILED: ${err.message}`);
-                return { role: 'tool', tool_call_id: call.id, content: `工具执行失败: ${err.message}` };
+                throw err;
             }
         }));
         messages.push(...toolCallResults);
@@ -2281,22 +2330,18 @@ const query = asyncHandler(async (req, res, next) => {
             answer,
             structuredData,
             toolsUsed
-        }));
+        }, { requestId: req.requestId }));
     }
 
     } catch (err) {
         if (useStream && res.headersSent) {
-            // SSE 头已发送，通过 SSE 发送错误
             try {
-                res.write(`data: ${JSON.stringify({ type: 'error', message: err.message || '查询失败，请稍后重试' })}\n\n`);
-                res.end();
-            } catch (_) { try { res.end(); } catch (_) {} }
-        } else if (useStream) {
-            // SSE 头未发送，返回 JSON 错误
-            return next(new AppError({ code: statusToErrorCode(err.statusCode || 500), statusCode: err.statusCode || 500, message: err.message || '查询失败' }));
-        } else {
-            throw err; // 非 SSE 模式交给 asyncHandler 处理
+                return writeSSEError(res, err, req.requestId);
+            } catch (_) {
+                try { return res.end(); } catch (_) { return undefined; }
+            }
         }
+        throw err;
     }
 });
 
@@ -2305,12 +2350,8 @@ const query = asyncHandler(async (req, res, next) => {
  * GET /api/ai/config
  */
 const getConfig = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.getConfig(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.getConfig();
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2318,12 +2359,8 @@ const getConfig = asyncHandler(async (req, res) => {
  * GET /api/ai/presets
  */
 const getPresets = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.getPresets(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.getPresets();
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2331,12 +2368,8 @@ const getPresets = asyncHandler(async (req, res) => {
  * PUT /api/ai/config
  */
 const updateConfig = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.updateConfig(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.updateConfig(req);
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2344,12 +2377,8 @@ const updateConfig = asyncHandler(async (req, res) => {
  * POST /api/ai/check
  */
 const checkModel = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.checkModel(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.checkModel(req);
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2357,12 +2386,8 @@ const checkModel = asyncHandler(async (req, res) => {
  * POST /api/ai/test
  */
 const testModel = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.testModel(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.testModel(req);
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2370,12 +2395,8 @@ const testModel = asyncHandler(async (req, res) => {
  * GET /api/ai/models
  */
 const getAvailableModels = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.getAvailableModels(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.getAvailableModels();
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 /**
@@ -2383,12 +2404,8 @@ const getAvailableModels = asyncHandler(async (req, res) => {
  * GET /api/ai/capabilities
  */
 const getModelCapabilities = asyncHandler(async (req, res) => {
-    const out = await aiConfigService.getModelCapabilities(req);
-    return res.status(out.status).json(
-        out.status >= 400
-            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-            : successResponse(out.body.data)
-    );
+    const data = await aiConfigService.getModelCapabilities();
+    return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
 module.exports = {
