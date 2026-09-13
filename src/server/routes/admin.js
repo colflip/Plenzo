@@ -12,6 +12,7 @@ const { requireCapability } = require('../utils/admin-permissions');
 const { validate, scheduleValidation, userValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, scheduleTypeValidation, holidayValidation, holidayBatchValidation, holidaySyncValidation, feedbackCreateValidation, feedbackUpdateValidation, adminConfirmValidation, teacherPairStatusValidation, sessionAddPairValidation, adminTeacherAvailabilityValidation, adminStudentAvailabilityValidation } = require('../middleware/validation');
 const adminController = require('../controllers/admin-controller');
 const updateScheduleStatus = require('../jobs/update-schedule-status');
+const { successResponse } = require('../utils/response');
 
 // 用户管理路由：读全级别（字段按敏感度裁剪）；所有账号写操作仅 L1
 router.get('/users/:userType', authMiddleware, adminOnly, requireCapability('users:read'), adminController.getUsers);
@@ -91,10 +92,10 @@ router.post('/jobs/trigger-status-update', authMiddleware, adminOnly, requireCap
     try {
         logger.log(`[AdminAPI] Manual trigger for status update by ${req.user?.username || 'unknown'}`);
         const result = await updateScheduleStatus();
-        res.json({
+        res.json(successResponse({
             message: 'Status update job executed',
             data: result
-        });
+        }));
     } catch (err) {
         next(err);
     }

@@ -1,6 +1,7 @@
 /**
  * 健康检查路由
- * @description 提供系统和依赖服务的健康状态检查
+ * @description 提供进程 / 依赖的轻量探针。为便于编排与负载均衡器直接判定，
+ *              本组端点使用最小协议（不套统一响应信封），且绝不外泄数据库错误细节。
  * @module routes/health
  */
 
@@ -8,99 +9,62 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
 
-const startTime = new Date();
+const nowIso = () => new Date().toISOString();
 
-const checkDatabaseHealth = async () => {
-    const start = Date.now();
+// 探针端点统一跳过响应信封（responseEnvelope 中间件识别此标志后放行最小协议）
+function markProbe(res) {
+    res.locals = res.locals || {};
+    res.locals.skipResponseEnvelope = true;
+}
+
+// 仅判定数据库是否可用，不返回主机 / 错误码 / 延迟等可被利用的细节
+async function isDbHealthy() {
     try {
         const result = await db.query('SELECT 1 as ok');
-        const latency = Date.now() - start;
-        
-        if (result && result.rows && result.rows[0] && result.rows[0].ok === 1) {
-            return {
-                status: 'healthy',
-                latency: `${latency}ms`
-            };
-        }
-        return {
-            status: 'unhealthy',
-            latency: `${latency}ms`,
-            error: '数据库查询返回异常结果'
-        };
-    } catch (error) {
-        const latency = Date.now() - start;
-        return {
-            status: 'unhealthy',
-            latency: `${latency}ms`,
-            error: error.message,
-            code: error.code,
-            // 熔断状态与目标主机：DB 不通时最有价值的两条信息（是断网？DNS？还是连错库？）
-            ...(db.getStatus ? { target: `${db.getStatus().host}/${db.getStatus().database}` } : {}),
-            ...(db.getStatus ? { breakerOpen: db.getStatus().breakerOpen } : {})
-        };
+        return !!(result && result.rows && result.rows[0] && result.rows[0].ok === 1);
+    } catch (_) {
+        return false;
     }
-};
-
-const getMemoryUsage = () => {
-    const usage = process.memoryUsage();
-    return {
-        heapUsed: `${Math.round(usage.heapUsed / 1024 / 1024)}MB`,
-        heapTotal: `${Math.round(usage.heapTotal / 1024 / 1024)}MB`,
-        rss: `${Math.round(usage.rss / 1024 / 1024)}MB`,
-        external: `${Math.round(usage.external / 1024 / 1024)}MB`
-    };
-};
+}
 
 router.get('/', async (req, res) => {
-    const dbHealth = await checkDatabaseHealth();
-    const isHealthy = dbHealth.status === 'healthy';
-    
-    const healthData = {
-        status: isHealthy ? 'ok' : 'degraded',
-        timestamp: new Date().toISOString(),
-        uptime: Math.floor((Date.now() - startTime.getTime()) / 1000),
-        environment: process.env.NODE_ENV || 'development',
-        version: process.env.npm_package_version || '1.0.0',
-        dependencies: {
-            database: dbHealth
-        },
-        system: {
-            memory: getMemoryUsage(),
-            nodeVersion: process.version,
-            platform: process.platform
-        }
-    };
-
-    const statusCode = isHealthy ? 200 : 503;
-    res.status(statusCode).json(healthData);
+    const healthy = await isDbHealthy();
+    markProbe(res);
+    res.status(healthy ? 200 : 503).json({
+        status: healthy ? 'ok' : 'degraded',
+        checks: { database: healthy ? 'healthy' : 'unhealthy' },
+        timestamp: nowIso()
+    });
 });
 
 router.get('/db', async (req, res) => {
-    const dbHealth = await checkDatabaseHealth();
-    const isHealthy = dbHealth.status === 'healthy';
-    
-    const statusCode = isHealthy ? 200 : 503;
-    res.status(statusCode).json({
-        ok: isHealthy,
-        ...dbHealth
+    const healthy = await isDbHealthy();
+    markProbe(res);
+    res.status(healthy ? 200 : 503).json({
+        status: healthy ? 'ok' : 'degraded',
+        checks: { database: healthy ? 'healthy' : 'unhealthy' },
+        timestamp: nowIso()
     });
 });
 
 router.get('/live', (req, res) => {
-    res.status(200).json({ status: 'alive' });
+    // Liveness 探针不查询任何依赖，仅反映进程存活
+    markProbe(res);
+    res.status(200).json({
+        status: 'alive',
+        checks: { process: 'healthy' },
+        timestamp: nowIso()
+    });
 });
 
 router.get('/ready', async (req, res) => {
-    const dbHealth = await checkDatabaseHealth();
-    
-    if (dbHealth.status === 'healthy') {
-        res.status(200).json({ status: 'ready' });
-    } else {
-        res.status(503).json({ 
-            status: 'not_ready',
-            reason: '数据库不可用'
-        });
-    }
+    const healthy = await isDbHealthy();
+    markProbe(res);
+    res.status(healthy ? 200 : 503).json({
+        status: healthy ? 'ready' : 'not_ready',
+        checks: { database: healthy ? 'healthy' : 'unhealthy' },
+        timestamp: nowIso()
+    });
 });
 
 module.exports = router;

@@ -6,6 +6,8 @@
 
 const authService = require('../services/auth-service');
 const { asyncHandler } = require('../middleware');
+const { successResponse } = require('../utils/response');
+const { AppError } = require('../middleware/error');
 
 const authController = {
     /**
@@ -29,7 +31,7 @@ const authController = {
             maxAge
         });
 
-        res.json(result);
+        res.json(successResponse(result));
     }),
 
     /**
@@ -39,7 +41,7 @@ const authController = {
     logout: asyncHandler(async (req, res) => {
         const isProd = process.env.NODE_ENV === 'production';
         res.clearCookie('token', { path: '/', secure: isProd, sameSite: 'lax' });
-        res.json({ success: true, message: '已登出' });
+        res.json(successResponse({ message: '已登出' }));
     }),
 
     /**
@@ -49,7 +51,7 @@ const authController = {
     register: asyncHandler(async (req, res) => {
         // req.body 由 Joi 验证器清洗和验证
         const result = await authService.register(req.body);
-        res.status(201).json(result);
+        res.status(201).json(successResponse(result));
     }),
 
     /**
@@ -65,11 +67,11 @@ const authController = {
         // 验证目标用户类型合法性
         const validUserTypes = ['admin', 'teacher', 'student'];
         if (!validUserTypes.includes(targetUserType)) {
-            return res.status(400).json({ message: '无效的用户类型' });
+            return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' }));
         }
 
         const result = await authService.changePassword(username, oldPassword, newPassword, targetUserType);
-        res.json(result);
+        res.json(successResponse(result));
     })
 };
 

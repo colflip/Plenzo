@@ -7,6 +7,8 @@ const logger = require('../utils/logger.js');
 
 const { standardResponse } = require('../middleware/validation');
 const { AppError, asyncHandler } = require('../middleware/error');
+const { successResponse, errorResponse } = require('../utils/response');
+const { statusToErrorCode } = require('../utils/http-status');
 const aiService = require('../services/ai-service');
 const db = require('../db/db');
 const scheduleService = require('../services/schedule-service');
@@ -20,11 +22,11 @@ const path = require('path');
  * GET /api/ai/status
  */
 const getStatus = (req, res) => {
-    res.json(standardResponse(true, {
+    res.json(successResponse({
         enabled: aiService.isAvailable(),
         provider: aiService.getAIConfig().provider,
         role: req.user?.userType
-    }, 'ok'));
+    }));
 };
 
 /**
@@ -288,7 +290,7 @@ const MAX_STORE_SIZE = 500;
 /**
  * 清理过期条目并限制 Map 大小
  */
-function pruneStore(store) {
+function pruneStore(store, next) {
     const now = Date.now();
     for (const [key, entry] of store) {
         if (entry && entry.expireAt && now > entry.expireAt) {
@@ -1833,7 +1835,7 @@ function getToolProgressMessage(toolNames) {
  * POST /api/ai/query
  * body: { question: string, history?: array }
  */
-const query = asyncHandler(async (req, res) => {
+const query = asyncHandler(async (req, res, next) => {
     if (!aiService.isAvailable()) {
         throw new AppError('AI 功能未启用，请在服务端配置 AI_API_KEY 并设置 AI_ENABLED=true', 503);
     }
@@ -2072,7 +2074,7 @@ const query = asyncHandler(async (req, res) => {
                 res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
                 return res.end();
             }
-            return res.json(standardResponse(true, responseData));
+            return res.json(successResponse(responseData));
         } catch (err) {
             if (useStream && res.headersSent) {
                 res.write(`data: ${JSON.stringify({ type: 'error', message: err.message || '确认操作失败' })}\n\n`);
@@ -2090,7 +2092,7 @@ const query = asyncHandler(async (req, res) => {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
         }
-        return res.json(standardResponse(true, responseData));
+        return res.json(successResponse(responseData));
     }
 
     const confirmOpMatch = question && question.match(/确认执行操作.*operationId[:\s]+(\S+)/);
@@ -2100,7 +2102,7 @@ const query = asyncHandler(async (req, res) => {
             res.write(`data: ${JSON.stringify({ type: 'result', data: responseData })}\n\n`);
             return res.end();
         }
-        return res.json(standardResponse(true, responseData));
+        return res.json(successResponse(responseData));
     }
 
     // 构建消息列表：系统提示 + 历史对话 + 当前问题
@@ -2274,7 +2276,7 @@ const query = asyncHandler(async (req, res) => {
         res.write(`data: ${JSON.stringify({ type: 'result', data: { type: responseType, answer, structuredData, toolsUsed } })}\n\n`);
         res.end();
     } else {
-        res.json(standardResponse(true, {
+        res.json(successResponse({
             type: responseType,
             answer,
             structuredData,
@@ -2291,9 +2293,7 @@ const query = asyncHandler(async (req, res) => {
             } catch (_) { try { res.end(); } catch (_) {} }
         } else if (useStream) {
             // SSE 头未发送，返回 JSON 错误
-            return res.status(err.statusCode || 500).json(
-                standardResponse(false, null, err.message || '查询失败')
-            );
+            return next(new AppError({ code: statusToErrorCode(err.statusCode || 500), statusCode: err.statusCode || 500, message: err.message || '查询失败' }));
         } else {
             throw err; // 非 SSE 模式交给 asyncHandler 处理
         }
@@ -2306,7 +2306,11 @@ const query = asyncHandler(async (req, res) => {
  */
 const getConfig = asyncHandler(async (req, res) => {
     const out = await aiConfigService.getConfig(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2315,7 +2319,11 @@ const getConfig = asyncHandler(async (req, res) => {
  */
 const getPresets = asyncHandler(async (req, res) => {
     const out = await aiConfigService.getPresets(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2324,7 +2332,11 @@ const getPresets = asyncHandler(async (req, res) => {
  */
 const updateConfig = asyncHandler(async (req, res) => {
     const out = await aiConfigService.updateConfig(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2333,7 +2345,11 @@ const updateConfig = asyncHandler(async (req, res) => {
  */
 const checkModel = asyncHandler(async (req, res) => {
     const out = await aiConfigService.checkModel(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2342,7 +2358,11 @@ const checkModel = asyncHandler(async (req, res) => {
  */
 const testModel = asyncHandler(async (req, res) => {
     const out = await aiConfigService.testModel(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2351,7 +2371,11 @@ const testModel = asyncHandler(async (req, res) => {
  */
 const getAvailableModels = asyncHandler(async (req, res) => {
     const out = await aiConfigService.getAvailableModels(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 /**
@@ -2360,7 +2384,11 @@ const getAvailableModels = asyncHandler(async (req, res) => {
  */
 const getModelCapabilities = asyncHandler(async (req, res) => {
     const out = await aiConfigService.getModelCapabilities(req);
-    return res.status(out.status).json(out.body);
+    return res.status(out.status).json(
+        out.status >= 400
+            ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
+            : successResponse(out.body.data)
+    );
 });
 
 module.exports = {
