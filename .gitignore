@@ -11,6 +11,7 @@ node_modules/
 .claude/
 .opencode/
 CLAUDE.md
+AGENTS.md
 
 # IDE and editor state
 .vscode/
