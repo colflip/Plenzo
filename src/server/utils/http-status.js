@@ -39,7 +39,13 @@ const CODE_TO_STATUS = {
     INTERNAL_ERROR: 500,
     SERVICE_UNAVAILABLE: 503,
     REQUEST_FAILED: 400,
-    DB_UNAVAILABLE: 503
+    DB_UNAVAILABLE: 503,
+    AI_UPSTREAM_TIMEOUT: 504,
+    AI_UPSTREAM_RATE_LIMITED: 429,
+    AI_UPSTREAM_AUTH_FAILED: 502,
+    AI_UPSTREAM_BAD_RESPONSE: 502,
+    AI_UPSTREAM_UNAVAILABLE: 503,
+    AI_NOT_CONFIGURED: 503
 };
 
 // 机器错误码 -> 默认状态码与是否可重试（避免各中间件重复推导）
@@ -59,7 +65,13 @@ const CODE_DEFAULTS = {
     INTERNAL_ERROR: { status: 500, retryable: false },
     SERVICE_UNAVAILABLE: { status: 503, retryable: true },
     REQUEST_FAILED: { status: 400, retryable: false },
-    DB_UNAVAILABLE: { status: 503, retryable: true }
+    DB_UNAVAILABLE: { status: 503, retryable: true },
+    AI_UPSTREAM_TIMEOUT: { status: 504, retryable: true },
+    AI_UPSTREAM_RATE_LIMITED: { status: 429, retryable: true },
+    AI_UPSTREAM_AUTH_FAILED: { status: 502, retryable: false },
+    AI_UPSTREAM_BAD_RESPONSE: { status: 502, retryable: false },
+    AI_UPSTREAM_UNAVAILABLE: { status: 503, retryable: true },
+    AI_NOT_CONFIGURED: { status: 503, retryable: false }
 };
 
 const statusToErrorCode = (status) => STATUS_TO_CODE[status] || 'INTERNAL_ERROR';

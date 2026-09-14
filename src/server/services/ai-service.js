@@ -25,6 +25,10 @@ const { AppError } = require('../middleware/error');
 const axios = require('axios');
 const https = require('https');
 const aiConfigStore = require('./ai-config-store');
+// 各 provider 的默认配置已抽到 services/ai-providers.js（单一来源）。
+const { PROVIDER_DEFAULTS } = require('./ai-providers');
+// LLM 调用护栏：并发信号量 + 退避重试 + 指标（治理「访问频繁/不可用」根因）。
+const { withLLMRetry, llmMetrics } = require('./ai-guardrails');
 
 // 开发环境下跳过 TLS 验证（解决代理/MITM 导致的 TLS 错误）
 const isDev = process.env.NODE_ENV === 'development';
@@ -38,50 +42,6 @@ const axiosInstance = axios.create({
     // 禁用 axios 默认的 proxy 配置，避免干扰
     proxy: false
 });
-
-// 各 provider 的默认配置（protocol 决定走哪套请求/响应格式）
-const PROVIDER_DEFAULTS = {
-    openai: {
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4o-mini',
-        protocol: 'openai'
-    },
-    deepseek: {
-        baseUrl: 'https://api.deepseek.com/v1',
-        model: 'deepseek-chat',
-        protocol: 'openai'
-    },
-    qwen: {
-        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-        model: 'qwen-plus',
-        protocol: 'openai'
-    },
-    anthropic: {
-        baseUrl: 'https://api.anthropic.com/v1',
-        model: 'claude-haiku-4-5-20251001',
-        protocol: 'messages'
-    },
-    agnes: {
-        baseUrl: 'https://api.agnes.ai/v1',
-        model: 'gpt-4',
-        protocol: 'openai'
-    },
-    openmodel: {
-        baseUrl: 'https://api.openmodel.ai/v1',
-        model: 'deepseek-v4-flash',
-        protocol: 'openai'
-    },
-    mistral: {
-        baseUrl: 'https://api.mistral.ai/v1',
-        model: 'mistral-small-latest',
-        protocol: 'openai'
-    },
-    custom: {
-        baseUrl: '',
-        model: 'gpt-3.5-turbo',
-        protocol: 'openai'
-    }
-};
 
 const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -376,6 +336,13 @@ async function chat(messages, options = {}) {
     let headers;
     let body;
 
+    // 单次 query 的全局截止时间：12 轮 × 30s 理论上可拖到 360s，上游挂着不返回时
+    // 单轮可能卡到 TCP 超时。这里用 AbortController 给整个 chat 调用设一个硬上限，
+    // 避免一个 AI 请求把连接/信号量长时间占死。
+    const overallDeadlineMs = parseInt(process.env.AI_REQUEST_DEADLINE_MS, 10) || 120000;
+    const overallController = new AbortController();
+    const overallTimer = setTimeout(() => overallController.abort(), overallDeadlineMs);
+
     if (cfg.protocol === 'messages') {
         // ---- Anthropic Messages 协议 ----
         const { system, messages: amsgs } = toAnthropicMessages(messages);
@@ -416,77 +383,58 @@ async function chat(messages, options = {}) {
         };
     }
 
-    // 网络级重试：TLS/连接错误时用新连接重试（最多3次）
-    const MAX_RETRIES = 3;
+    // 单次 HTTP 调用（在信号量 + 退避重试护栏内执行）。
+    // 不再在 ai-service 内部手写网络重试循环——429/5xx/网络抖动统一交给 ai-guardrails
+    // 的 withLLMRetry 做指数退避重试（尊重上游 Retry-After，带 jitter 防惊群），并对
+    // 「同时对上游的并发」做信号量限流，从源头防止多实例 × 每请求多轮打爆上游 RPM。
     let resp;
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            // 每次重试创建新的 httpsAgent，强制新 TCP 连接
-            const freshAgent = isDev ? new https.Agent({
-                rejectUnauthorized: false,
-                keepAlive: false,
-                timeout: 30000
-            }) : undefined;
-            const freshAxios = axios.create({ httpsAgent: freshAgent, proxy: false });
-
-            resp = await freshAxios({
-                method: 'POST',
-                url: endpoint,
-                headers,
-                data: body,
-                timeout: cfg.timeout
-            });
-            break; // 成功，退出重试循环
-        } catch (err) {
-            const status = err.response?.status;
-            const isNetworkError = !status && (
-                err.code === 'ECONNRESET' ||
-                err.code === 'ECONNREFUSED' ||
-                err.code === 'ETIMEDOUT' ||
-                err.code === 'ENETUNREACH' ||
-                err.code === 'ERR_TLS_HANDSHAKE_TIMEOUT' ||
-                err.code === 'EPIPE' ||
-                err.message?.includes('TLS') ||
-                err.message?.includes('socket') ||
-                err.message?.includes('ECONNRESET') ||
-                err.message?.includes('disconnected before secure')
-            );
-
-            if (status) {
-                throw normalizeLLMError(err, status);
-            }
-
-            // 最后一次重试：用 Node.js 原生 fetch 保底（绕过 axios TLS 处理）
-            if (isNetworkError && attempt >= MAX_RETRIES) {
-                try {
-                    const controller = new AbortController();
-                    const fetchTimeout = setTimeout(() => controller.abort(), cfg.timeout);
-                    const fetchResp = await fetch(endpoint, {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify(body),
-                        signal: controller.signal
-                    });
-                    clearTimeout(fetchTimeout);
-                    if (!fetchResp.ok) {
-                        throw normalizeLLMError(new Error(`HTTP ${fetchResp.status}`), fetchResp.status);
-                    }
-                    resp = { data: await fetchResp.json() };
-                    break;
-                } catch (fetchErr) {
-                    if (fetchErr instanceof AppError) throw fetchErr;
-                    throw normalizeLLMError(fetchErr, fetchErr.status);
+    try {
+        resp = await withLLMRetry(
+            async () => {
+                // 每次调用创建新的 httpsAgent（生产也启用 keepAlive 复用，dev 跳 TLS 校验），
+                // 避免长连接被中间代理断开导致的偶发 ECONNRESET。
+                const agent = new https.Agent({
+                    rejectUnauthorized: isDev ? false : true,
+                    keepAlive: true,
+                    keepAliveMsecs: 30000,
+                    timeout: cfg.timeout
+                });
+                const instance = axios.create({ httpsAgent: agent, proxy: false });
+                const startedAt = Date.now();
+                const r = await instance({
+                    method: 'POST',
+                    url: endpoint,
+                    headers,
+                    data: body,
+                    timeout: cfg.timeout,
+                    signal: overallController.signal
+                });
+                llmMetrics.recordSuccess('chat', Date.now() - startedAt);
+                return r;
+            },
+            {
+                label: `chat:${cfg.provider}:${cfg.model}`,
+                isRetryable: (err, status) => {
+                    if (overallController.signal.aborted) return false; // 整体超时不再重试
+                    if (status === 429 || status >= 500) return true;
+                    if (!status) return true; // 网络错误（无状态码）
+                    return false; // 4xx 鉴权/404 等不重试
+                },
+                retryAfterOf: (err) => {
+                    const ra = err?.response?.headers?.['retry-after'];
+                    const n = Number(ra);
+                    return Number.isInteger(n) ? n : null;
                 }
             }
-
-            if (!isNetworkError) {
-                throw normalizeLLMError(err, status);
-            }
-
-            // 等待后重试（指数退避）
-            await new Promise(r => setTimeout(r, attempt * 1000));
-        }
+        );
+    } catch (err) {
+        clearTimeout(overallTimer);
+        // 上层已是 AppError（normalizeLLMError 产出）则直接抛出；否则归一化。
+        if (err instanceof AppError) throw err;
+        const status = err?.response?.status;
+        throw normalizeLLMError(err, status);
     }
+    clearTimeout(overallTimer);
 
     if (!resp) {
         throw new AppError({
@@ -562,5 +510,8 @@ module.exports = {
     toAnthropicMessages,
     toAnthropicTools,
     fromAnthropicResponse,
-    normalizeLLMError
+    normalizeLLMError,
+    // 护栏（信号量 / 重试 / 指标）
+    withLLMRetry,
+    llmMetrics
 };

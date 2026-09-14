@@ -5,14 +5,131 @@ const { tableExists } = require('./table-utils');
 const { migrateCourseSessions, isApplied, markApplied } = require('./migrations-course-sessions');
 
 /**
- * 历史迁移批次的版本标记。**往下面那个 try 块里加任何迁移语句，都要把尾号 +1**，
- * 否则新语句不会在已部署的库上执行。
+ * 历史迁移批次的版本标记。**一个批次一个 key，批次一旦部署过就不要再往里追加语句**：
+ * 已标记的库会直接 return，追加的语句永远不执行。要加新语句就新建一个批次
+ * （尾号 +1，见下面的 AI_STATE_SCHEMA_KEY），这正是 ai_user_model_prefs 建表
+ * 曾经漏掉的原因 —— 它被追加进了已部署的 v1 块里。
  *
  * 为什么要标记：这批语句全是 information_schema 探测 + 条件 DDL，语义上幂等，
  * 但在远程 Neon 上每条约 250ms，十几条就是 3 秒；而迁移是 app.js 模块加载时
  * fire-and-forget 发出的，正好和首批用户请求抢同一个连接池。加标记后稳态是 0 条。
  */
 const LEGACY_SCHEMA_KEY = 'legacy_migrations@v1';
+
+/**
+ * 第二批：AI 操作态（排课预览 / 敏感操作确认态）+ 用户级模型偏好。
+ *
+ * 独立成批而不是并进 v1：v1 已经部署过，往里面追加的语句在已标记的库上不会执行。
+ * 独立成批还有个好处 —— v1 块有十几条 Neon 往返（约 3 秒），稳态下已标记的库
+ * 不该为了新表再跑一遍；这里只有三条建表 + 两条索引 + 三条注释。
+ * 失败也不连累 v1 的标记：两个批次各自 try/catch、各自 markApplied。
+ */
+const AI_STATE_SCHEMA_KEY = 'legacy_migrations@v2';
+
+/**
+ * 第三批：给 ai_user_model_prefs 补上角色维度。
+ *
+ * 独立成批而不是改 v2 的建表语句：v2 已在线上库标记过，改它的语句对已部署的库无效
+ * （guard 直接 return），只会让「v2 建的表」在不同库上形态不一致。v2 保持原样，
+ * 这里用 ALTER 把旧形态迁到新形态 —— 全新库会先跑 v2 建旧表、再跑 v3 改造，结果一致。
+ *
+ * 为什么需要 user_type：user_id 是三张角色表共用的多态外键（号段 100-999 / 2000-2999 /
+ * 3000-3999），单凭 user_id 无法判断偏好属于哪个角色。管理员 500 号与教师/学生号段虽
+ * 不重叠，但号段外的历史存量 ID 可以同值存在于两张表，删除用户时按 user_id 单列清理
+ * 会误删另一个角色的偏好行。
+ */
+const AI_USER_MODEL_SCOPE_KEY = 'legacy_migrations@v3';
+
+async function migrateAiUserModelScope() {
+    try {
+        if (await isApplied(AI_USER_MODEL_SCOPE_KEY)) return;
+
+        await db.query(`ALTER TABLE public.ai_user_model_prefs ADD COLUMN IF NOT EXISTS user_type VARCHAR(20)`);
+
+        // 存量行没有角色信息。号段内（应用创建的用户都受号段约束）按号段反推，这是确定的；
+        // 号段外的历史 ID 无法判定归属，而读取时一律带 user_type 过滤，留着也永远不会被命中，
+        // 所以直接清掉而不是随便塞一个角色 —— 塞错角色等于把偏好还给了一个没设过它的人。
+        await db.query(`
+            UPDATE public.ai_user_model_prefs SET user_type = CASE
+                WHEN user_id BETWEEN 100 AND 999 THEN 'admin'
+                WHEN user_id BETWEEN 2000 AND 2999 THEN 'teacher'
+                WHEN user_id BETWEEN 3000 AND 3999 THEN 'student'
+            END
+            WHERE user_type IS NULL
+        `);
+        await db.query(`DELETE FROM public.ai_user_model_prefs WHERE user_type IS NULL`);
+
+        await db.query(`ALTER TABLE public.ai_user_model_prefs ALTER COLUMN user_type SET NOT NULL`);
+        // 主键换列：DROP 用 IF EXISTS，这样「改造到一半失败后重跑」也能接上
+        await db.query(`ALTER TABLE public.ai_user_model_prefs DROP CONSTRAINT IF EXISTS ai_user_model_prefs_pkey`);
+        await db.query(`ALTER TABLE public.ai_user_model_prefs ADD PRIMARY KEY (user_id, user_type)`);
+        await db.query(`COMMENT ON TABLE public.ai_user_model_prefs IS '用户自选 AI 模型（仅对本人会话生效，不含密钥）；主键 (user_id, user_type) 区分角色'`);
+
+        // 标记放在最后：中途任何一条报错都不写标记，下次启动重跑
+        await markApplied(AI_USER_MODEL_SCOPE_KEY);
+        logger.log(`数据库迁移完成：${AI_USER_MODEL_SCOPE_KEY}`);
+    } catch (error) {
+        logger.error('用户模型偏好角色维度迁移失败:', db.describeError(error));
+        // 不要因为迁移失败而中断应用启动
+    }
+}
+
+async function migrateAiStateTables() {
+    try {
+        if (await isApplied(AI_STATE_SCHEMA_KEY)) return;
+
+        // AI 操作态外置：把排课预览 / 敏感操作确认态从进程内存迁到数据库，
+        // 解决 Serverless 多实例下「生成预览的实例 ≠ 确认操作的实例」导致的过期/无效。
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.ai_schedule_previews (
+                id TEXT PRIMARY KEY,
+                created_by INTEGER,
+                groups JSONB NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                expire_at TIMESTAMPTZ NOT NULL
+            )
+        `);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_schedule_previews_expire ON public.ai_schedule_previews(expire_at)`);
+
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.ai_pending_operations (
+                id TEXT PRIMARY KEY,
+                type VARCHAR(20) NOT NULL,
+                created_by INTEGER,
+                payload JSONB NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                expire_at TIMESTAMPTZ NOT NULL
+            )
+        `);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_pending_operations_expire ON public.ai_pending_operations(expire_at)`);
+        await db.query(`COMMENT ON TABLE public.ai_schedule_previews IS 'AI 排课预览暂存（跨实例共享，带过期）'`);
+        await db.query(`COMMENT ON TABLE public.ai_pending_operations IS 'AI 敏感操作确认态暂存（跨实例共享，带过期）'`);
+
+        // 用户级模型偏好：只存标识符（preset_id + model_id），密钥仍留在服务端 env，
+        // 避免密钥随用户数据扩散。
+        //
+        // user_id 刻意不加外键：它是多态的，可能落在 administrators / teachers / students
+        // 任意一张表上（三张表的 id 区间互不重叠：100-999 / 2000-2999 / 3000-3999），
+        // 没有任何单张表能当外键目标 —— 原先写的 REFERENCES public.users(id) 指向的
+        // 表在全仓根本不存在，建表语句会直接报 42P01 而整批迁移失败。
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.ai_user_model_prefs (
+                user_id INTEGER PRIMARY KEY,
+                preset_id VARCHAR(50),
+                model_id VARCHAR(100) NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await db.query(`COMMENT ON TABLE public.ai_user_model_prefs IS '用户自选 AI 模型（仅对本人会话生效，不含密钥）'`);
+
+        // 标记放在最后：中途任何一条报错都不写标记，下次启动重跑（全部语句都是幂等的）
+        await markApplied(AI_STATE_SCHEMA_KEY);
+        logger.log(`数据库迁移完成：${AI_STATE_SCHEMA_KEY}`);
+    } catch (error) {
+        logger.error('AI 操作态表迁移失败:', db.describeError(error));
+        // 不要因为迁移失败而中断应用启动
+    }
+}
 
 async function runDatabaseMigrations() {
     // course_sessions 先跑，并独占一个 try/catch。
@@ -27,7 +144,17 @@ async function runDatabaseMigrations() {
         logger.error('course_sessions 迁移失败:', db.describeError(error));
     }
 
+    // 三个批次各自 guard、各自 markApplied，一个批次已应用或失败都不影响另一个。
+    // 顺序有意义：v1 在前，v3 改造的是 v2 建的表，必须排在 v2 之后。
+    await migrateLegacySchema();
+    await migrateAiStateTables();
+    await migrateAiUserModelScope();
+}
+
+async function migrateLegacySchema() {
     try {
+        // 这个 return 只退出本批次。别把它挪回 runDatabaseMigrations —— 那样
+        // v1 已应用的库会连 migrateAiStateTables 一起跳过，新表永远建不出来。
         if (await isApplied(LEGACY_SCHEMA_KEY)) return;
 
         // 检查是否需要添加 updated_at 列

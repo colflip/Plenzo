@@ -41,7 +41,13 @@ const state = {
         reasoning: false
     },
     floatBtnPos: null,  // 图标拖拽后的位置 { left, top }（右上角锚定，持久化恢复用）
-    floatBtnDragging: false
+    floatBtnDragging: false,
+    modelPicker: {       // 用户自选模型（仅本人会话生效，服务端按 userId 存）
+        loaded: false,
+        presetId: null,
+        modelId: null,
+        isDefault: true
+    }
 };
 
 /**
@@ -360,6 +366,126 @@ function injectStyles() {
     .ai-status-badge.offline .ai-status-dot {
         background: var(--ai-text-tertiary);
         animation: none;
+    }
+
+    /* 模型切换器：头部触发器 + 下拉清单 */
+    .ai-model-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 180px;
+        padding: 3px 8px;
+        border: 1px solid var(--ai-border);
+        border-radius: 9px;
+        background: var(--ai-surface);
+        color: var(--ai-text-secondary);
+        font-size: var(--fs-300);
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .ai-model-trigger:hover {
+        border-color: var(--ai-primary);
+        color: var(--ai-primary);
+    }
+
+    .ai-model-trigger.custom {
+        background: var(--ai-primary-light);
+        border-color: var(--ai-primary);
+        color: var(--ai-primary);
+    }
+
+    .ai-model-trigger-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ai-model-trigger svg {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+    }
+
+    .ai-model-menu {
+        display: none;
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 6px;
+        border-bottom: 1px solid var(--ai-border);
+        background: var(--ai-surface);
+    }
+
+    .ai-model-menu.open {
+        display: block;
+    }
+
+    .ai-model-group + .ai-model-group,
+    .ai-model-group + .ai-model-reset {
+        margin-top: 4px;
+        padding-top: 4px;
+        border-top: 1px solid var(--ai-border);
+    }
+
+    .ai-model-group-label {
+        padding: 4px 8px;
+        font-size: var(--fs-200);
+        font-weight: 600;
+        color: var(--ai-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .ai-model-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 8px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ai-text-primary);
+        font-size: var(--fs-300);
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .ai-model-item:hover {
+        background: var(--ai-primary-light);
+    }
+
+    .ai-model-item.active {
+        color: var(--ai-primary);
+        font-weight: 600;
+    }
+
+    .ai-model-item-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ai-model-item-tag {
+        flex-shrink: 0;
+        padding: 1px 6px;
+        border-radius: 6px;
+        background: var(--ai-primary-light);
+        color: var(--ai-primary);
+        font-size: var(--fs-200);
+        font-weight: 500;
+    }
+
+    .ai-model-item-check {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        color: var(--ai-primary);
     }
 
     .ai-panel-controls {
@@ -1105,6 +1231,12 @@ function buildPanel() {
                     <span class="ai-status-dot"></span>
                     <span>在线</span>
                 </div>
+                <button id="ai-model-trigger" class="ai-model-trigger" type="button" title="切换模型（仅对你生效）">
+                    <span class="ai-model-trigger-name">默认模型</span>
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
             </div>
             <div class="ai-panel-controls">
                 <button id="ai-clear-btn" title="清空对话">
@@ -1124,6 +1256,7 @@ function buildPanel() {
                 </button>
             </div>
         </div>
+        <div id="ai-model-menu" class="ai-model-menu" role="listbox" aria-label="选择 AI 模型"></div>
         <div id="ai-panel-quick" class="ai-panel-quick"></div>
         <div id="ai-panel-messages" class="ai-panel-body"></div>
         <div class="ai-panel-footer">
@@ -1169,6 +1302,12 @@ function buildPanel() {
     overlay.querySelector('#ai-clear-btn').addEventListener('click', clearHistory);
     overlay.querySelector('#ai-minimize-btn').addEventListener('click', minimize);
     overlay.querySelector('#ai-close-btn').addEventListener('click', closeCompletely);
+
+    // 模型切换：开关下拉。stopPropagation 避免触发 setupClickOutsideListener 直接收起整个面板。
+    overlay.querySelector('#ai-model-trigger').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleModelMenu();
+    });
     state.sendBtnEl.addEventListener('click', () => onSend());
     state.stopBtnEl.addEventListener('click', stopQuery);
 
@@ -2837,6 +2976,188 @@ async function fetchModelCapabilities() {
 }
 
 /**
+ * 加载用户的模型选择与可选清单
+ * @description 可选清单按渠道分组（来自服务端 env 预设 × 模型目录），只含标识符不含密钥。
+ */
+async function loadModelPicker() {
+    try {
+        const resp = await window.apiUtils.get('/ai/selectable-models');
+        const data = resp;
+
+        state.modelPicker.presets = data.presets || [];
+        state.modelPicker.defaultModel = data.defaultModel || null;
+        state.modelPicker.presetId = data.current?.presetId ?? null;
+        state.modelPicker.modelId = data.current?.modelId ?? null;
+        state.modelPicker.isDefault = !!data.current?.isDefault;
+        state.modelPicker.loaded = true;
+
+        renderModelMenu();
+        updateModelTrigger();
+    } catch (error) {
+        console.error('获取可选模型失败:', error);
+        state.modelPicker.loaded = false;
+        const trigger = document.getElementById('ai-model-trigger');
+        if (trigger) trigger.style.display = 'none';
+    }
+}
+
+/**
+ * 渲染模型下拉菜单（按渠道分组）
+ */
+function renderModelMenu() {
+    const menu = document.getElementById('ai-model-menu');
+    if (!menu) return;
+
+    const { presets = [], presetId, modelId, isDefault } = state.modelPicker;
+
+    const groupsHtml = presets.map(group => {
+        const itemsHtml = group.models.map(model => {
+            const active = !isDefault && group.presetId === presetId && model.id === modelId;
+            return `
+                <button class="ai-model-item${active ? ' active' : ''}" type="button"
+                        data-preset-id="${group.presetId}" data-model-id="${model.id}">
+                    <span class="ai-model-item-name">${escapeHtml(model.name || model.id)}</span>
+                    ${model.isPresetDefault ? '<span class="ai-model-item-tag">渠道默认</span>' : ''}
+                    ${active ? '<svg class="ai-model-item-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+                </button>
+            `;
+        }).join('');
+
+        return `
+            <div class="ai-model-group">
+                <div class="ai-model-group-label">${escapeHtml(group.presetName)}</div>
+                ${itemsHtml}
+            </div>
+        `;
+    }).join('');
+
+    menu.innerHTML = `
+        ${groupsHtml}
+        <button class="ai-model-item ai-model-reset${isDefault ? ' active' : ''}" type="button" data-reset="1">
+            <span class="ai-model-item-name">跟随系统默认</span>
+            <span class="ai-model-item-tag">全局</span>
+        </button>
+    `;
+
+    menu.querySelectorAll('.ai-model-item').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (btn.dataset.reset) {
+                resetUserModel();
+            } else {
+                selectUserModel(btn.dataset.presetId, btn.dataset.modelId);
+            }
+        });
+    });
+}
+
+/**
+ * 更新头部触发按钮的文案
+ */
+function updateModelTrigger() {
+    const trigger = document.getElementById('ai-model-trigger');
+    if (!trigger) return;
+
+    const nameEl = trigger.querySelector('.ai-model-trigger-name');
+    const { presets = [], presetId, modelId, isDefault } = state.modelPicker;
+
+    let label = null;
+    if (!isDefault) {
+        for (const group of presets) {
+            const hit = group.models.find(m => m.id === modelId && group.presetId === presetId);
+            if (hit) { label = hit.name || hit.id; break; }
+        }
+        if (!label) label = modelId;
+    }
+    if (!label) label = '默认模型';
+
+    if (nameEl) nameEl.textContent = label;
+    trigger.classList.toggle('custom', !isDefault);
+}
+
+/**
+ * 展开/收起模型下拉
+ */
+function toggleModelMenu() {
+    const menu = document.getElementById('ai-model-menu');
+    if (!menu) return;
+
+    const willOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', willOpen);
+
+    if (willOpen) {
+        // 只在打开时挂一次：点击面板其他位置收起下拉，再点一次才收起面板
+        const closeOnOutside = (ev) => {
+            const trigger = document.getElementById('ai-model-trigger');
+            if (menu.contains(ev.target) || (trigger && trigger.contains(ev.target))) return;
+            menu.classList.remove('open');
+            document.removeEventListener('click', closeOnOutside, true);
+        };
+        setTimeout(() => document.addEventListener('click', closeOnOutside, true), 0);
+    }
+}
+
+/**
+ * 切换为指定模型（仅本人生效）
+ * @description 先验通再保存：模型不通时就别写进偏好，否则用户以为切换成功，
+ *              直到下次提问才发现助手已经不可用，还不知道是自己换的模型导致的。
+ */
+async function selectUserModel(presetId, modelId) {
+    const menu = document.getElementById('ai-model-menu');
+    try {
+        // 探活会真实打一次上游，慢于普通请求，先给出「验证中」反馈
+        apiUtils.showToast(`正在验证 ${modelId}…`, 'info');
+
+        const check = await window.apiUtils.post('/ai/my-model/check', { presetId, modelId });
+        if (!check || check.available === false) {
+            // 不动 state：菜单重新渲染后高亮仍停在原选择上
+            renderModelMenu();
+            apiUtils.showToast(check?.error || '该模型当前不可用，已保留原选择', 'error');
+            return;
+        }
+
+        const resp = await window.apiUtils.put('/ai/my-model', { presetId, modelId });
+        state.modelPicker.presetId = resp.presetId;
+        state.modelPicker.modelId = resp.modelId;
+        state.modelPicker.isDefault = false;
+        updateModelTrigger();
+        renderModelMenu();
+        menu?.classList.remove('open');
+
+        // 能力可能随模型改变（如视觉），刷新图片按钮可见性
+        fetchModelCapabilities();
+
+        apiUtils.showToast(`已切换到 ${resp.modelName || modelId}，仅对你生效`, 'success');
+    } catch (error) {
+        console.error('切换模型失败:', error);
+        apiUtils.showToast(error?.message || '切换模型失败，请稍后重试', 'error');
+    }
+}
+
+/**
+ * 恢复为系统默认模型
+ */
+async function resetUserModel() {
+    const menu = document.getElementById('ai-model-menu');
+    try {
+        const resp = await window.apiUtils.delete('/ai/my-model');
+        state.modelPicker.presetId = null;
+        state.modelPicker.modelId = resp.modelId;
+        state.modelPicker.isDefault = true;
+        updateModelTrigger();
+        renderModelMenu();
+        menu?.classList.remove('open');
+
+        fetchModelCapabilities();
+
+        apiUtils.showToast('已恢复为系统默认模型', 'success');
+    } catch (error) {
+        console.error('恢复默认模型失败:', error);
+        apiUtils.showToast(error?.message || '恢复默认模型失败，请稍后重试', 'error');
+    }
+}
+
+/**
  * 更新图片按钮的显示/隐藏
  */
 function updateImageButtonVisibility() {
@@ -2875,6 +3196,7 @@ export function open(role) {
     renderMessages();
     refreshStatus();
     fetchModelCapabilities();  // 获取模型能力
+    loadModelPicker();         // 加载用户自选模型 + 可选清单
 
     // 权限落地（Phase 3）：受限级别提示 AI 数据范围（仅 admin L3，非持久化，不写入会话历史）
     try {

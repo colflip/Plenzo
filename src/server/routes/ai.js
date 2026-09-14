@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOrAdmin, anyAuthenticated } = require('../middleware/role');
 const aiController = require('../controllers/ai-controller');
-const { validate, aiConfigUpdateValidation, aiConfigTestValidation } = require('../middleware/validation');
+const { validate, aiConfigUpdateValidation, aiConfigTestValidation, aiUserModelValidation } = require('../middleware/validation');
 
 /**
  * AI 专用速率限制
@@ -63,6 +63,14 @@ router.get('/models', authMiddleware, teacherOrAdmin, aiController.getAvailableM
 
 // 获取当前模型的能力信息
 router.get('/capabilities', authMiddleware, aiController.getModelCapabilities);
+
+// 用户级模型偏好：所有人都能改，且只对自己生效（anyAuthenticated 覆盖 admin/teacher/student）
+router.get('/selectable-models', authMiddleware, anyAuthenticated, aiController.getSelectableModels);
+router.get('/my-model', authMiddleware, anyAuthenticated, aiController.getMyModel);
+router.put('/my-model', authMiddleware, anyAuthenticated, validate(aiUserModelValidation), aiController.setMyModel);
+// 验通候选模型（不落库）：会真实打一次上游，所以套用与 /check 同一个限流器
+router.post('/my-model/check', authMiddleware, anyAuthenticated, aiCheckLimiter, validate(aiUserModelValidation), aiController.checkMyModel);
+router.delete('/my-model', authMiddleware, anyAuthenticated, aiController.clearMyModel);
 
 // 数据查询接口（支持学生、教师、管理员）
 router.post('/query', authMiddleware, anyAuthenticated, aiLimiter, aiController.query);

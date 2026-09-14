@@ -159,8 +159,12 @@ const errorHandler = (err, req, res, next) => {
     }
 
     // 5xx 不向客户端泄露内部信息：统一为安全文案。
+    // 例外：AI 上游类错误（AI_UPSTREAM_* / AI_NOT_CONFIGURED）是面向用户的业务语义错误，
+    // 其 message 已是安全文案（"AI 请求过于频繁"等），不应被 5xx 兜底文案覆盖，
+    // 否则前端拿不到可理解的「过于频繁/鉴权失败」提示。
     if (statusCode >= 500) {
-        message = (code === 'DB_UNAVAILABLE') ? message : '服务器内部错误，请稍后重试';
+        const aiCodes = /^AI_UPSTREAM_|^AI_NOT_CONFIGURED$|^DB_UNAVAILABLE$/;
+        message = aiCodes.test(code) ? message : '服务器内部错误，请稍后重试';
     }
     if (retryAfterSeconds == null && retryable) {
         retryAfterSeconds = null;
@@ -197,11 +201,12 @@ const notFoundHandler = (req, res, next) => {
 
 /**
  * 异步错误包装器
+ * @description 必须把 promise 返回出去：Express 本身忽略返回值，不影响生产；
+ *              但直接调用（单测、内部复用）时若不返回，失败会变成 unhandled rejection
+ *              而不是可 await 的拒绝，Node 会直接终止进程且错误无从断言。
  */
 const asyncHandler = (fn) => {
-    return (req, res, next) => {
-        Promise.resolve(fn(req, res, next)).catch(next);
-    };
+    return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 };
 
 /**

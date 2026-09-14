@@ -34,7 +34,7 @@ function getPresetModels(includeApiKey = false) {
             protocol: process.env.LLM2_PROTOCOL || 'openai',
             apiKey: includeApiKey ? process.env.LLM2_API_KEY : '***已配置***',
             baseUrl: process.env.LLM2_BASE_URL,
-            model: process.env.LLM2_MODEL || 'agnes-2.0-flash',
+            model: process.env.LLM2_MODEL || 'agnes-3.0-flash',
             timeout: 30000,
             maxTokens: 3000
         });

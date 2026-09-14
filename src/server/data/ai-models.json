@@ -33,6 +33,16 @@
   ],
   "agnes": [
     {
+      "id": "agnes-3.0-flash",
+      "name": "Agnes 3.0 Flash",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": 524288
+    },
+    {
       "id": "agnes-1.5-flash",
       "name": "Agnes 1.5 Flash",
       "capabilities": {
