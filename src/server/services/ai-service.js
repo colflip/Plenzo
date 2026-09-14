@@ -15,10 +15,19 @@
  *   AI_PROVIDER  openai|deepseek|qwen|anthropic|custom   仅影响默认 BASE_URL / MODEL / PROTOCOL
  *   AI_PROTOCOL  openai|messages   可选，覆盖默认协议（custom 网关常需手动指定）
  *   AI_API_KEY   sk-xxx          LLM 服务商密钥
- *   AI_BASE_URL  可选，覆盖默认 endpoint（需含 /v1 等版本段，如 https://api.openmodel.ai/v1）
+ *   AI_BASE_URL  可选，覆盖默认 endpoint（需含 /v1 等版本段，如 https://apihub.agnes-ai.com/v1）
  *   AI_MODEL     可选，覆盖默认模型名
  *   AI_TIMEOUT   可选，单次请求超时(毫秒)，默认 30000
- *   AI_MAX_TOKENS 可选，回复最大 token 数，默认 2000
+ *   AI_MAX_TOKENS 可选，回复最大 token 数；仅在数据库无持久化配置时作为兜底
+ *   AI_REQUEST_DEADLINE_MS 可选，整次 chat（含多轮工具）的硬截止，默认 900000
+ *
+ *   以下三项用于控制「服务端主动施加的上下文限制」，**未配置 / 0 一律表示不限制**：
+ *   AI_HISTORY_TURNS        保留最近 N 轮历史（见 ai-controller）
+ *   AI_TOOL_RESULT_MAX_CHARS 单条工具结果最大字符数（见 ai-controller）
+ *   AI_MAX_TOOL_ROUNDS      工具调用循环最大轮数（见 ai-controller）
+ *
+ *   注意：真正生效的 provider/baseUrl/model/timeout/maxTokens 以 ai-config-store
+ *   （数据库 ai_config 表）为准，上述环境变量只在数据库无记录时兜底。
  */
 
 const { AppError } = require('../middleware/error');
@@ -44,6 +53,9 @@ const axiosInstance = axios.create({
 });
 
 const ANTHROPIC_VERSION = '2023-06-01';
+
+// 端点级自定义参数（cfg.extraParams）可透传给上游，但这些字段决定调用语义，禁止被覆盖。
+const RESERVED_BODY_KEYS = ['model', 'messages', 'system', 'stream', 'tools', 'tool_choice'];
 
 /**
  * 读取并归一化 AI 配置
@@ -336,10 +348,10 @@ async function chat(messages, options = {}) {
     let headers;
     let body;
 
-    // 单次 query 的全局截止时间：12 轮 × 30s 理论上可拖到 360s，上游挂着不返回时
-    // 单轮可能卡到 TCP 超时。这里用 AbortController 给整个 chat 调用设一个硬上限，
-    // 避免一个 AI 请求把连接/信号量长时间占死。
-    const overallDeadlineMs = parseInt(process.env.AI_REQUEST_DEADLINE_MS, 10) || 120000;
+    // 单次 query 的全局截止时间：工具多轮 + 长回复会显著拉长单次请求，
+    // 这里给一个足够宽松的默认上限（可用 AI_REQUEST_DEADLINE_MS 覆盖），
+    // 只在真正「上游挂着不返回」时才兜底中断，避免连接/信号量被长时间占死。
+    const overallDeadlineMs = parseInt(process.env.AI_REQUEST_DEADLINE_MS, 10) || 900000;
     const overallController = new AbortController();
     const overallTimer = setTimeout(() => overallController.abort(), overallDeadlineMs);
 
@@ -381,6 +393,16 @@ async function chat(messages, options = {}) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${cfg.apiKey}`
         };
+    }
+
+    // 端点级自定义参数（extraParams，来自 env 的 LLM{P}_ENDPOINT_{N}_PARAMS 或数据库行）：
+    // 允许覆盖 temperature / top_p 等采样参数，但 RESERVED_BODY_KEYS 决定调用语义，不允许动。
+    // 未配置 extraParams 时这段是 no-op，行为与改造前完全一致。
+    if (cfg.extraParams && typeof cfg.extraParams === 'object') {
+        for (const key of Object.keys(cfg.extraParams)) {
+            if (RESERVED_BODY_KEYS.includes(key)) continue;
+            body[key] = cfg.extraParams[key];
+        }
     }
 
     // 单次 HTTP 调用（在信号量 + 退避重试护栏内执行）。

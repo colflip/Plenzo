@@ -737,6 +737,39 @@ const aiUserModelValidation = Joi.object({
         .messages({ 'any.required': '缺少 modelId', 'string.min': 'modelId 不能为空' })
 });
 
+// AI 渠道端点（渠道 → 端点 → 模型）。apiKey 允许 null：语义是「清除端点独立凭证、继承渠道」，
+// 而不是「空字符串密钥」，所以不能简单用 empty('') 归一化掉。
+const aiEndpointCreateValidation = Joi.object({
+    channelId: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 channelId', 'string.min': 'channelId 不能为空' }),
+    baseUrl: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 baseUrl', 'string.min': 'baseUrl 不能为空' }),
+    label: Joi.string().allow('', null).optional(),
+    apiKey: Joi.string().allow('', null).optional(),
+    protocol: Joi.string().allow('', null).optional(),
+    timeout: Joi.number().integer().min(1).optional(),
+    maxTokens: Joi.number().integer().min(1).optional(),
+    models: Joi.array().items(Joi.string().min(1)).optional(),
+    extraParams: Joi.object().optional(),
+    enabled: Joi.boolean().optional(),
+    priority: Joi.number().integer().optional()
+});
+
+// 更新端点：所有字段可选（PATCH 语义）。baseUrl 若传入仍需非空。
+const aiEndpointUpdateValidation = Joi.object({
+    channelId: Joi.string().min(1).optional(),
+    baseUrl: Joi.string().min(1).optional(),
+    label: Joi.string().allow('', null).optional(),
+    apiKey: Joi.string().allow('', null).optional(),
+    protocol: Joi.string().allow('', null).optional(),
+    timeout: Joi.number().integer().min(1).allow(null).optional(),
+    maxTokens: Joi.number().integer().min(1).allow(null).optional(),
+    models: Joi.array().items(Joi.string().min(1)).optional(),
+    extraParams: Joi.object().allow(null).optional(),
+    enabled: Joi.boolean().optional(),
+    priority: Joi.number().integer().optional()
+}).min(1).messages({ 'object.min': '没有需要更新的字段' });
+
 // 空闲时段日期格式（YYYY-MM-DD）
 const availabilityDate = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -856,6 +889,8 @@ module.exports = {
     aiConfigUpdateValidation,
     aiConfigTestValidation,
     aiUserModelValidation,
+    aiEndpointCreateValidation,
+    aiEndpointUpdateValidation,
     teacherAvailabilitySetValidation,
     teacherAvailabilityDeleteValidation,
     teacherAvailabilityReplaceValidation,

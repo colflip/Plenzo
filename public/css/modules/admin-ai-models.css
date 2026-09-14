@@ -356,3 +356,194 @@
     padding-top: 20px;
     border-top: 1px solid #f0f0f0;
 }
+
+/* ===========================================
+   渠道端点（渠道 → 端点 → 模型）
+   =========================================== */
+.ai-endpoints-section {
+    margin-top: 24px;
+    padding: 16px 18px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+}
+
+.ai-endpoints-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.ai-endpoints-head h4 {
+    margin: 0 0 4px;
+    font-size: var(--fs-400);
+    font-weight: 600;
+    color: #333;
+}
+
+.ai-endpoints-hint {
+    margin: 0;
+    font-size: var(--fs-300);
+    color: #94a3b8;
+    line-height: 1.5;
+}
+
+.ai-endpoints-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ai-ep-channel {
+    border: 1px dashed #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.ai-ep-channel-name {
+    font-size: var(--fs-300);
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-ep-strategy {
+    font-weight: 400;
+    color: #94a3b8;
+}
+
+.ai-ep-card {
+    border: 1px solid #eef2f7;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: #fcfdfe;
+}
+
+.ai-ep-card.disabled {
+    opacity: 0.55;
+}
+
+.ai-ep-card:last-child {
+    margin-bottom: 0;
+}
+
+.ai-ep-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ai-ep-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-300);
+    font-weight: 600;
+    color: #333;
+}
+
+.ai-ep-url {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: var(--fs-200);
+    color: #64748b;
+    word-break: break-all;
+}
+
+.ai-ep-badge {
+    font-size: var(--fs-200);
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-weight: 400;
+}
+
+.ai-ep-badge.env {
+    background: #eef2ff;
+    color: #4f46e5;
+}
+
+.ai-ep-badge.off {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.ai-ep-meta {
+    margin-top: 6px;
+    font-size: var(--fs-200);
+    color: #94a3b8;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.ai-ep-models {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ai-ep-model {
+    font-size: var(--fs-200);
+    padding: 3px 8px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+}
+
+.ai-ep-model .ai-ep-model-caps {
+    color: #94a3b8;
+    margin-left: 4px;
+}
+
+.ai-ep-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.ai-ep-empty {
+    color: #94a3b8;
+    font-size: var(--fs-300);
+    padding: 12px;
+    text-align: center;
+}
+
+#aiEndpointForm textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: var(--fs-400);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+#aiEndpointForm textarea:focus {
+    outline: none;
+    border-color: #2ECC71;
+}
+
+#aiEndpointForm input[type="checkbox"] {
+    width: auto;
+}
+
+.ai-ep-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-ep-checkbox label {
+    margin: 0;
+}

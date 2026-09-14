@@ -488,6 +488,23 @@ function injectStyles() {
         color: var(--ai-primary);
     }
 
+    /* 模型能力徽标：上下文 / 最大输出 / 视觉 / 工具 */
+    .ai-model-item-cap {
+        flex-shrink: 0;
+        padding: 1px 5px;
+        border-radius: 5px;
+        background: var(--ai-bg-tertiary, #f1f5f9);
+        color: var(--ai-text-tertiary, #94a3b8);
+        font-size: var(--fs-200);
+        font-weight: 400;
+        white-space: nowrap;
+    }
+
+    .ai-model-item-cap.vision {
+        background: #ecfdf5;
+        color: #059669;
+    }
+
     .ai-panel-controls {
         display: flex;
         gap: 6px;
@@ -3002,6 +3019,45 @@ async function loadModelPicker() {
 }
 
 /**
+ * token 数量紧凑显示：524288 → 512K，1048576 → 1M
+ */
+function formatTokenAmount(n) {
+    if (!n || !Number.isFinite(Number(n))) return '';
+    const v = Number(n);
+    if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (v >= 1024) return Math.round(v / 1024) + 'K';
+    return String(v);
+}
+
+/**
+ * 模型能力摘要（用于 title 悬浮说明）
+ */
+function modelCapSummary(model) {
+    const caps = model.capabilities || {};
+    const parts = [];
+    if (model.contextLength) parts.push('上下文 ' + formatTokenAmount(model.contextLength));
+    if (model.maxOutput) parts.push('最大输出 ' + formatTokenAmount(model.maxOutput));
+    parts.push('视觉 ' + (caps.vision ? '支持' : '不支持'));
+    parts.push('函数调用 ' + (caps.tools ? '支持' : '不支持'));
+    return parts.join(' · ');
+}
+
+/**
+ * 模型能力徽标（上下文 / 最大输出 / 视觉 / 工具）
+ */
+function renderModelCapTags(model) {
+    const caps = model.capabilities || {};
+    const tags = [];
+    const ctx = formatTokenAmount(model.contextLength);
+    const out = formatTokenAmount(model.maxOutput);
+    if (ctx) tags.push('<span class="ai-model-item-cap">' + ctx + ' 上下文</span>');
+    if (out) tags.push('<span class="ai-model-item-cap">' + out + ' 输出</span>');
+    if (caps.vision) tags.push('<span class="ai-model-item-cap vision">视觉</span>');
+    if (caps.tools) tags.push('<span class="ai-model-item-cap">工具</span>');
+    return tags.join('');
+}
+
+/**
  * 渲染模型下拉菜单（按渠道分组）
  */
 function renderModelMenu() {
@@ -3015,9 +3071,11 @@ function renderModelMenu() {
             const active = !isDefault && group.presetId === presetId && model.id === modelId;
             return `
                 <button class="ai-model-item${active ? ' active' : ''}" type="button"
-                        data-preset-id="${group.presetId}" data-model-id="${model.id}">
+                        data-preset-id="${group.presetId}" data-model-id="${model.id}"
+                        title="${escapeHtml(modelCapSummary(model))}">
                     <span class="ai-model-item-name">${escapeHtml(model.name || model.id)}</span>
                     ${model.isPresetDefault ? '<span class="ai-model-item-tag">渠道默认</span>' : ''}
+                    ${renderModelCapTags(model)}
                     ${active ? '<svg class="ai-model-item-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
                 </button>
             `;

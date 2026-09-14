@@ -1741,12 +1741,32 @@ async function executeDataTool(toolName, args, req) {
 }
 
 /**
+ * 读取「不限制」类整型环境变量。
+ * @description 约定：**未配置 / 0 / 负数 一律表示不限制**，只有显式给出正整数才施加限制。
+ *              这样默认行为就是「把模型的真实能力用满」，要收紧时再在 .env 里显式配。
+ * @param {string} envKey
+ * @param {number} fallback - 非法或缺失时的取值
+ * @returns {number} 0 或负数表示不限制
+ */
+function limitFromEnv(envKey, fallback) {
+    const raw = process.env[envKey];
+    if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+/**
  * 将工具结果安全序列化为发给 LLM 的字符串。
  * 超长时不做字符硬截断（会破坏 JSON 且切断数据），改为按条数裁剪 + 明确标注省略数量，
  * 保证模型拿到的仍是合法可解析的 JSON，且知道数据被裁剪过。
+ * @param {*} result
+ * @param {number} maxLen - 最大字符数；<= 0 表示不限制（原样返回）。
+ *                          默认取 AI_TOOL_RESULT_MAX_CHARS，未配置即不限制。
  */
-function summarizeToolResult(result, maxLen = 4000) {
+function summarizeToolResult(result, maxLen = limitFromEnv('AI_TOOL_RESULT_MAX_CHARS', 0)) {
     let str = JSON.stringify(result);
+    // 不限制：直接返回，不做任何裁剪
+    if (!(maxLen > 0)) return str;
     if (str.length <= maxLen) return str;
 
     const cloned = JSON.parse(JSON.stringify(result));
@@ -2147,8 +2167,10 @@ const query = asyncHandler(async (req, res) => {
 
     // 添加历史对话（如果有）
     if (history && Array.isArray(history) && history.length > 0) {
-        // 只保留最近10轮对话，避免上下文过长
-        const recentHistory = history.slice(-10);
+        // AI_HISTORY_TURNS：只保留最近 N 轮；未配置 / <=0 表示不限制，全部保留。
+        // 上下文窗口（agnes-3.0-flash 为 512K）足够大时，交给模型自己处理即可。
+        const maxTurns = limitFromEnv('AI_HISTORY_TURNS', 0);
+        const recentHistory = maxTurns > 0 ? history.slice(-maxTurns) : history;
         messages.push(...recentHistory);
     }
 
@@ -2226,9 +2248,11 @@ const query = asyncHandler(async (req, res) => {
     let llmResp = await aiService.chat(messages, chatTools ? { ...chatOptions, tools: chatTools, toolChoice: 'auto' } : chatOptions);
     let toolCalls = toolsEnabled ? aiService.extractToolCalls(llmResp) : [];
 
-    // 循环执行工具调用（最多 12 轮，支持智能排课的多步操作）
+    // 循环执行工具调用（AI_MAX_TOOL_ROUNDS 轮，支持智能排课的多步操作；
+    // 未配置 / <=0 表示不限制轮数，由模型自行决定何时停止调用工具）
+    const maxToolRounds = limitFromEnv('AI_MAX_TOOL_ROUNDS', 0);
     let rounds = 0;
-    while (toolsEnabled && toolCalls.length > 0 && rounds < 12) {
+    while (toolsEnabled && toolCalls.length > 0 && (maxToolRounds <= 0 || rounds < maxToolRounds)) {
         rounds++;
         messages.push(llmResp.choices[0].message);
 
@@ -2353,8 +2377,8 @@ const query = asyncHandler(async (req, res) => {
  * GET /api/ai/config
  */
 const getConfig = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getConfig();
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getConfig();
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2362,8 +2386,8 @@ const getConfig = asyncHandler(async (req, res) => {
  * GET /api/ai/presets
  */
 const getPresets = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getPresets();
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getPresets();
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2371,8 +2395,8 @@ const getPresets = asyncHandler(async (req, res) => {
  * PUT /api/ai/config
  */
 const updateConfig = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.updateConfig(req);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.updateConfig(req);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2380,8 +2404,8 @@ const updateConfig = asyncHandler(async (req, res) => {
  * POST /api/ai/check
  */
 const checkModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.checkModel(req);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.checkModel(req);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2389,8 +2413,8 @@ const checkModel = asyncHandler(async (req, res) => {
  * POST /api/ai/test
  */
 const testModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.testModel(req);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.testModel(req);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2398,8 +2422,8 @@ const testModel = asyncHandler(async (req, res) => {
  * GET /api/ai/models
  */
 const getAvailableModels = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getAvailableModels();
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getAvailableModels();
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2407,8 +2431,8 @@ const getAvailableModels = asyncHandler(async (req, res) => {
  * GET /api/ai/capabilities
  */
 const getModelCapabilities = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getModelCapabilities(req.user?.userType, req.user?.id);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getModelCapabilities(req.user?.userType, req.user?.id);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2416,8 +2440,8 @@ const getModelCapabilities = asyncHandler(async (req, res) => {
  * GET /api/ai/selectable-models
  */
 const getSelectableModels = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getSelectableModels(req.user?.userType, req.user?.id);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getSelectableModels(req.user?.userType, req.user?.id);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2425,8 +2449,8 @@ const getSelectableModels = asyncHandler(async (req, res) => {
  * GET /api/ai/my-model
  */
 const getMyModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getMyModel(req.user?.userType, req.user?.id);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.getMyModel(req.user?.userType, req.user?.id);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2434,8 +2458,8 @@ const getMyModel = asyncHandler(async (req, res) => {
  * PUT /api/ai/my-model
  */
 const setMyModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.setMyModel(req.user?.userType, req.user?.id, req.body);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.setMyModel(req.user?.userType, req.user?.id, req.body);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2443,8 +2467,8 @@ const setMyModel = asyncHandler(async (req, res) => {
  * POST /api/ai/my-model/check
  */
 const checkMyModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.verifyUserModel(req.body);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.verifyUserModel(req.body);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 /**
@@ -2452,8 +2476,53 @@ const checkMyModel = asyncHandler(async (req, res) => {
  * DELETE /api/ai/my-model
  */
 const clearMyModel = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.clearMyModel(req.user?.userType, req.user?.id);
-    return res.json(successResponse(data, { requestId: req.requestId }));
+    const { status, body } = await aiConfigService.clearMyModel(req.user?.userType, req.user?.id);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
+});
+
+/**
+ * 渠道 → 端点 → 模型 树
+ * GET /api/ai/endpoints
+ */
+const getEndpoints = asyncHandler(async (req, res) => {
+    const { status, body } = await aiConfigService.listEndpoints(req.query.channelId);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
+});
+
+/**
+ * 新增端点
+ * POST /api/ai/endpoints
+ */
+const createEndpoint = asyncHandler(async (req, res) => {
+    const { status, body } = await aiConfigService.createEndpoint(req.body);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
+});
+
+/**
+ * 更新端点（id 可为数据库主键，或 env 种子的 env:LLM2:1）
+ * PUT /api/ai/endpoints/:id
+ */
+const updateEndpoint = asyncHandler(async (req, res) => {
+    const { status, body } = await aiConfigService.updateEndpoint(req.params.id, req.body);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
+});
+
+/**
+ * 删除端点（仅数据库行；env 种子端点只能停用）
+ * DELETE /api/ai/endpoints/:id
+ */
+const deleteEndpoint = asyncHandler(async (req, res) => {
+    const { status, body } = await aiConfigService.deleteEndpoint(req.params.id);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
+});
+
+/**
+ * 测试端点连通性
+ * POST /api/ai/endpoints/:id/test
+ */
+const testEndpoint = asyncHandler(async (req, res) => {
+    const { status, body } = await aiConfigService.testEndpoint(req.params.id, req.body && req.body.modelId);
+    return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
 module.exports = {
@@ -2471,6 +2540,11 @@ module.exports = {
     setMyModel,
     checkMyModel,
     clearMyModel,
+    getEndpoints,
+    createEndpoint,
+    updateEndpoint,
+    deleteEndpoint,
+    testEndpoint,
     // 内部纯函数导出（仅供单元测试使用）
     _test: {
         computeDateContext,
