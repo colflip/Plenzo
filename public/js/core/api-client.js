@@ -115,7 +115,7 @@ class ApiUtils {
     }
 
     protocolError(response, endpoint) {
-        return new ApiError({
+        const err = new ApiError({
             code: 'INVALID_RESPONSE',
             message: '服务返回了无法识别的数据，请稍后重试',
             status: response.status,
@@ -123,6 +123,9 @@ class ApiUtils {
             requestId: response.headers.get('X-Request-Id'),
             endpoint
         });
+        // 协议/格式错误不应重试：重试同样的坏响应没有意义
+        err._noRetry = true;
+        return err;
     }
 
     async request(url, options = {}) {
@@ -131,6 +134,9 @@ class ApiUtils {
             suppressErrorToast = false,
             suppressConsole = true,
             timeoutMs = 0,
+            // 客户端自动重试：对 429 / 5xx / 网络错误做指数退避，尊重服务端 Retry-After。
+            // 默认只重试 1 次（前端单用户，避免叠加放大上游压力）；可传 0 关闭。
+            maxRetries = 1,
             ...requestOptions
         } = options;
         const isFormData = typeof FormData !== 'undefined' && requestOptions.body instanceof FormData;
@@ -147,7 +153,11 @@ class ApiUtils {
 
         if (controller) {
             config.signal = controller.signal;
-            timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            timeoutId = setTimeout(() => {
+                const te = new ApiError({ code: 'REQUEST_TIMEOUT', message: '请求超时，请稍后重试', status: 0, retryable: true, endpoint });
+                te._noRetry = true;
+                controller.abort(te);
+            }, timeoutMs);
         }
         if (isFormData) {
             delete config.headers['Content-Type'];
@@ -157,36 +167,47 @@ class ApiUtils {
 
         const endpoint = this.resolveUrl(url);
         try {
-            const response = await fetch(endpoint, config);
-            const body = await this.readResponse(response);
+            let lastError = null;
+            for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+                try {
+                    const response = await fetch(endpoint, config);
+                    const body = await this.readResponse(response);
 
-            if (!this.isEnvelope(body) || (body.ok === true && body.error !== null)) {
-                throw this.protocolError(response, endpoint);
+                    if (!this.isEnvelope(body) || (body.ok === true && body.error !== null)) {
+                        throw this.protocolError(response, endpoint);
+                    }
+                    if (!response.ok || body.ok !== true) {
+                        throw this.errorFromEnvelope(body, response, endpoint);
+                    }
+                    return body.data;
+                } catch (error) {
+                    const timedOut = error && error.name === 'AbortError' && timeoutMs > 0;
+                    lastError = error instanceof ApiError
+                        ? error
+                        : new ApiError({
+                            code: timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR',
+                            message: timedOut ? '请求超时，请稍后重试' : '网络连接失败，请检查网络后重试',
+                            status: 0,
+                            retryable: true,
+                            endpoint
+                        });
+                    if (timedOut) lastError._noRetry = true;
+                    // 仅当可重试且还有重试次数时才退避后重试（超时 / 已标记不可重试则不再重试）
+                    const canRetry = lastError.retryable === true && attempt <= maxRetries && !lastError._noRetry;
+                    if (!canRetry) break;
+                    // 前端是交互式客户端：单次等待上限 3s，避免 Retry-After 过大时用户盯着空转
+                    const retryAfter = Number.isInteger(lastError.retryAfterSeconds) && lastError.retryAfterSeconds > 0
+                        ? Math.min(lastError.retryAfterSeconds * 1000, 3000)
+                        : Math.min(800 * Math.pow(2, attempt - 1), 3000);
+                    await new Promise(r => setTimeout(r, retryAfter));
+                }
             }
-            if (!response.ok || body.ok !== true) {
-                throw this.errorFromEnvelope(body, response, endpoint);
-            }
-            return body.data;
-        } catch (error) {
-            let normalized = error;
-            if (!(error instanceof ApiError)) {
-                const timedOut = error && error.name === 'AbortError' && timeoutMs > 0;
-                normalized = new ApiError({
-                    code: timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR',
-                    message: timedOut
-                        ? '请求超时，请稍后重试'
-                        : (typeof navigator !== 'undefined' && navigator.onLine === false
-                            ? '网络已断开，请检查连接后重试'
-                            : '网络连接失败，请检查网络后重试'),
-                    status: 0,
-                    retryable: true,
-                    endpoint
-                });
-            }
-            this.handleError(normalized, !suppressErrorToast, suppressConsole);
-            this.redirectForAuthError(normalized);
-            throw normalized;
+            this.handleError(lastError, !suppressErrorToast, suppressConsole);
+            this.redirectForAuthError(lastError);
+            throw lastError;
         } finally {
+            // 请求已结束（成功/失败/重试耗尽）就撤掉超时定时器，
+            // 否则它会一直挂到 timeoutMs 到点，对已完成的请求补一次无意义的 abort。
             if (timeoutId !== null) clearTimeout(timeoutId);
         }
     }
@@ -212,7 +233,11 @@ class ApiUtils {
 
         if (controller) {
             config.signal = controller.signal;
-            timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            timeoutId = setTimeout(() => {
+                const te = new ApiError({ code: 'REQUEST_TIMEOUT', message: '请求超时，请稍后重试', status: 0, retryable: true, endpoint });
+                te._noRetry = true;
+                controller.abort(te);
+            }, timeoutMs);
         }
         if (config.body !== undefined && config.body !== null) {
             config.body = JSON.stringify(config.body);
