@@ -24,7 +24,11 @@ const httpOnlyMode = connectionType === 'http' || connectionType === 'neon';
 const allowNeonFallback = !poolOnlyMode && neonFallbackEnabled && isNeonDatabase;
 
 // 连接池上限。放在模块作用域是因为 warmup() 要按它决定预热几条连接。
-const POOL_MAX = isVercel || isRender ? 1 : (parseInt(process.env.DB_POOL_MAX, 10) || 10);
+// Serverless 平台（Vercel / Render）旧设定 max=1 会串行化 AI 请求里的多条 DB 查询，
+// 造成「AI 调用慢 / 超时」。改为受控的默认值（2），仍远低于上游配额，但允许单请求内并发。
+const SERVERLESS_POOL_MAX = parseInt(process.env.DB_POOL_MAX_SERVERLESS, 10) || 2;
+const POOL_MAX = parseInt(process.env.DB_POOL_MAX, 10)
+  || (isVercel || isRender ? SERVERLESS_POOL_MAX : 10);
 
 /**
  * 把错误展开成可读的因果链。
@@ -415,7 +419,16 @@ const getClient = async () => {
   }
 };
 
-const runInTransaction = async function (workFn) {
+/**
+ * 交互式事务。
+ * @param {(client: object, usePool: boolean) => Promise<any>} workFn 事务体
+ * @param {{ allowDegraded?: boolean }} [options]
+ *   allowDegraded=true 时，若 pool.connect() 不可用（但 pool.query() 仍可用）则降级为
+ *   顺序执行（无 BEGIN/COMMIT）。**只有调用方自己确认过 workFn 不需要原子性时才可开启**：
+ *   降级后中途失败会留下半截写入，函数本身无从判断这一点。
+ *   默认 false：宁可报 DB_UNAVAILABLE 让调用方重试，也不静默丢掉原子性。
+ */
+const runInTransaction = async function (workFn, options = {}) {
   let clientLocal = null;
   try {
     clientLocal = await getClient();
@@ -431,13 +444,20 @@ const runInTransaction = async function (workFn) {
         logger.error('回滚事务时发生错误:', rollbackErr);
       }
     }
-    // pool.connect() 失败但 pool.query() 仍可用：降级为顺序执行（无 BEGIN/COMMIT）。
-    // 适用于单记录 UPDATE + 可选 INSERT 审计等不需要严格原子性的场景。
+    // pool.connect() 失败但 pool.query() 仍可用：仅在调用方显式允许时降级为顺序执行。
     // 直接用 pgPoolQuery 绕过 activeDriver（已切到 Neon HTTP），避免 Neon HTTP 重试延迟。
-    if (err.message && err.message.includes('pg Pool 不可用')) {
+    if (options.allowDegraded && err.message && err.message.includes('pg Pool 不可用')) {
       const fallbackQuery = pgPoolQuery || ((text, params) => query(text, params));
       logger.warn('[DB] 事务降级：pool.connect() 不可用，以 pool.query() 顺序执行（无事务保护）');
       return await workFn({ query: fallbackQuery }, true);
+    }
+    // getClient 在降级路径上抛的是普通 Error，这里换成带机器码的 503，
+    // 让前端拿到「稍后重试」而不是笼统的 500。
+    if (err.message && err.message.includes('pg Pool 不可用')) {
+      const unavailable = new Error('数据库暂时不可用，无法安全执行事务');
+      unavailable.code = 'DB_UNAVAILABLE';
+      unavailable.cause = err;
+      throw unavailable;
     }
     throw err;
   } finally {
