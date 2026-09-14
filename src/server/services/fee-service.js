@@ -14,6 +14,32 @@
 const SchemaHelper = require('../utils/schema-helper');
 const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/fee-status');
 const logger = require('../utils/logger');
+const { AppError } = require('../middleware/error');
+
+/**
+ * 费用业务规则抛错的中文消息与机器码对照表。
+ * 消息表与抛错点放在同一个文件：控制器需要稳定的 code/statusCode 才能产出
+ * canonical 错误信封，而这些规则归本层所有，放一起才不会两边漂移。
+ */
+const FEE_ERROR_RULES = [
+    [/包含负数费用/, 'BAD_REQUEST', 400],
+    [/不在您管理的班级范围内|不属于您/, 'FORBIDDEN', 403],
+    [/未能定位到任何有效的排课记录/, 'RESOURCE_NOT_FOUND', 404]
+];
+
+/**
+ * 把费用业务的错误归一成带机器码的 AppError。
+ * 已是结构化错误（AppError / 带 pg code）的原样返回，未知错误也原样返回，
+ * 交给全局 errorHandler 处理——不在这里把未知异常吞成 500。
+ * @param {Error} error
+ * @returns {Error}
+ */
+function toCanonicalFeeError(error) {
+    if (!error || error.statusCode || error.code) return error;
+    const hit = FEE_ERROR_RULES.find(([re]) => re.test(error.message || ''));
+    if (!hit) return error;
+    return new AppError({ code: hit[1], statusCode: hit[2], message: error.message, cause: error });
+}
 
 /**
  * 费用金额归一：空值/未传 → null（NULL，表示未填）；数字字符串 → number；
@@ -392,5 +418,6 @@ module.exports = {
     transitionFeeStatus,
     autoSubmitFeeStatus,
     batchTransitionFeeStatus,
-    batchUpdateScheduleFeesInTx
+    batchUpdateScheduleFeesInTx,
+    toCanonicalFeeError
 };

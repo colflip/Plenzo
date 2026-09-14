@@ -6,19 +6,19 @@
  *
  * 设计约定（与 holiday-service / fee-service 一致）：
  * - 直接 require 单例 `db` / `bcrypt` / `SchemaHelper` / `recordAudit`（jest 全局 mock 仍生效）；
- * - 方法返回 `{ status, body }`：`body` 为原控制器发送给前端的**精确响应体**
- *   （保留既有「部分端点用 {message}、部分用 standardResponse」的不一致形态，零 API 契约变化）；
- * - 业务/约束错误在此返回结构化结果，由控制器直接 `res.status(...).json(body)`，控制器退化为薄适配层。
+ * - 返回契约（D1）：只返回领域数据；业务错误抛 AppError，由 controller 统一封装 HTTP 响应；
+ * - 未识别的异常（含唯一约束 23505、外键约束 23503）原样上抛，交给全局 errorHandler 统一归类，
+ *   服务层不再各自把 SQLSTATE 翻译成状态码（两处翻译曾给出不一致的状态码）。
  */
 
 const db = require('../db/db');
 const bcrypt = require('bcrypt');
 const { recordAudit } = require('../middleware/audit');
 const SchemaHelper = require('../utils/schema-helper');
-const { standardResponse } = require('../utils/response');
-const logger = require('../utils/logger');
+const { AppError } = require('../middleware/error');
 const { PERMISSION_LEVELS } = require('../middleware/role');
 const courseSessionService = require('./course-session-service');
+const aiUserModelStore = require('./ai-user-model-store');
 const { getActorLevel, visibleColumns, filterObjectByLevel } = require('../utils/admin-permissions');
 
 const TABLES = { admin: 'administrators', teacher: 'teachers', student: 'students' };
@@ -63,12 +63,11 @@ const MAX_PAGE_SIZE = 1000;
  * invalid_text_representation，被控制器 catch 后报成 500「获取用户详情失败」。
  * 参数问题不该表现为服务端故障，这里提前拦成 400。
  */
-function invalidIdResult(id) {
+function assertValidId(id) {
     const raw = (id === undefined || id === null) ? '' : String(id);
     if (!/^\d+$/.test(raw)) {
-        return { status: 400, body: standardResponse(false, null, '无效的用户 ID') };
+        throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户 ID' });
     }
-    return null;
 }
 
 /**
@@ -103,13 +102,12 @@ function normalizeRows(result) {
     return (result.rows && Array.isArray(result.rows)) ? result.rows : [];
 }
 
-/** 权限落地（Phase 1）：所有账号写操作仅 L1。返回 null 表示放行，否则为拒绝响应 */
-function denyIfNotSuperAdmin(req) {
+/** 权限落地（Phase 1）：所有账号写操作仅 L1，级别不足即抛 403 */
+function assertSuperAdmin(req) {
     const actorLevel = getActorLevel(req && req.user);
     if (actorLevel !== PERMISSION_LEVELS.SUPER_ADMIN) {
-        return { status: 403, body: standardResponse(false, null, '权限级别不足：账号管理操作仅限超级管理员(L1)') };
+        throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '权限级别不足：账号管理操作仅限超级管理员(L1)' });
     }
-    return null;
 }
 
 /** 查询管理员目标行（含 permission_level，供自我保护与最后超管保护判定） */
@@ -121,7 +119,7 @@ async function fetchAdminTarget(id) {
 /** 列出某类型用户（分页 + 动态列 status/nickname 探测 + 按操作者级别裁剪敏感字段） */
 async function listUsers(userType, { page, size, limit } = {}, req) {
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: { message: '无效的用户类型' } };
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
 
     let selectColumns = BASE_COLUMNS[userType];
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -147,15 +145,14 @@ async function listUsers(userType, { page, size, limit } = {}, req) {
         [sizeNum, offset]
     );
     const rows = normalizeRows(result).map(row => filterObjectByLevel(row, actorLevel));
-    return { status: 200, body: standardResponse(true, rows, '获取用户列表成功') };
+    return rows;
 }
 
 /** 获取单个用户详情（teacher/student 才探测 status 列，与原逻辑一致；按操作者级别裁剪字段） */
 async function getUserById(userType, id, req) {
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: standardResponse(false, null, '无效的用户类型') };
-    const badId = invalidIdResult(id);
-    if (badId) return badId;
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
+    assertValidId(id);
 
     let selectColumns = BASE_COLUMNS[userType];
     try {
@@ -174,8 +171,8 @@ async function getUserById(userType, id, req) {
 
     const result = await db.query(`SELECT ${selectColumns} FROM ${table} WHERE id = $1`, [id]);
     const rows = normalizeRows(result);
-    if (!rows[0]) return { status: 404, body: standardResponse(false, null, '用户不存在') };
-    return { status: 200, body: standardResponse(true, filterObjectByLevel(rows[0], actorLevel), '获取用户成功') };
+    if (!rows[0]) throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '用户不存在' });
+    return filterObjectByLevel(rows[0], actorLevel);
 }
 
 /**
@@ -184,11 +181,10 @@ async function getUserById(userType, id, req) {
  */
 async function getNextUserId(userType, req) {
     // 仅 L1 会新增账号，因此与写操作同一道门禁，不额外扩大信息面
-    const denied = denyIfNotSuperAdmin(req);
-    if (denied) return denied;
+    assertSuperAdmin(req);
 
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: standardResponse(false, null, '无效的用户类型') };
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
 
     // 号段内取 max：号段外的历史 ID（如教师旧 1xxx 段）不参与计算
     const [lo, hi] = ID_RANGES[userType];
@@ -198,36 +194,35 @@ async function getNextUserId(userType, req) {
     );
     const row = normalizeRows(result)[0];
     const nextId = Math.max(lo, Number(row && row.next_id) || lo);
-    return { status: 200, body: standardResponse(true, { nextId }, '获取下一个可用ID成功') };
+    return { nextId };
 }
 
 /** 创建用户（含密码哈希、字段白名单、student_ids 归属校验、用户名/ID 占用检查、审计） */
 async function createUser(payload, req) {
     // 权限落地：所有账号写操作仅 L1
-    const denied = denyIfNotSuperAdmin(req);
-    if (denied) return denied;
+    assertSuperAdmin(req);
 
     const { userType, username, password, name, email, id, ...additionalInfo } = payload || {};
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: { message: '无效的用户类型' } };
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
 
     if (!username || !password || !name) {
-        return { status: 400, body: { message: '缺少必要字段：username, password, name' } };
+        throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '缺少必要字段：username, password, name' });
     }
 
     if (userType === 'admin') {
         const lvl = parseInt(additionalInfo.permission_level, 10);
         if (!Number.isInteger(lvl) || lvl < 1 || lvl > 3) {
-            return { status: 400, body: { message: '权限级别必须在1到3之间' } };
+            throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '权限级别必须在1到3之间' });
         }
         // 防提权②：不能创建比自己权限级别更高的账号（数字更小即权力更大）
         const actorLevel = getActorLevel(req && req.user);
         if (lvl < actorLevel) {
-            return { status: 403, body: standardResponse(false, null, '不能创建比自己权限级别更高的账号') };
+            throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '不能创建比自己权限级别更高的账号' });
         }
         additionalInfo.permission_level = lvl;
-        if (!email) return { status: 400, body: { message: '管理员必须提供 email' } };
-        if (!EMAIL_RE.test(email)) return { status: 400, body: { message: '邮箱格式不合法' } };
+        if (!email) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '管理员必须提供 email' });
+        if (!EMAIL_RE.test(email)) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '邮箱格式不合法' });
     }
 
     const filteredAdditional = filterAdditional(additionalInfo, userType);
@@ -240,7 +235,7 @@ async function createUser(payload, req) {
             const existingIds = normalizeRows(checkRes).map(r => Number(r.id));
             const missingIds = idsArr.filter(sId => !existingIds.includes(Number(sId)));
             if (missingIds.length > 0) {
-                return { status: 400, body: { message: `以下学生ID不存在: ${missingIds.join(', ')}` } };
+                throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: `以下学生ID不存在: ${missingIds.join(', ')}` });
             }
             filteredAdditional.student_ids = existingIds.join(',');
         } else {
@@ -266,25 +261,28 @@ async function createUser(payload, req) {
         id ? db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]) : Promise.resolve({ rows: [] })
     ]);
     if (normalizeRows(existingUser).length > 0) {
-        return { status: 400, body: { message: '用户名已存在' } };
+        // 用户名冲突与 ID 冲突同属唯一性冲突：原先这里给 400、改主键路径给 409，前端要按两套状态码分支
+        throw new AppError({ code: 'CONFLICT', statusCode: 409, message: '用户名已存在' });
     }
     // 自定义 ID：必须落在该角色号段内
     if (id && !inIdRange(userType, Number(id))) {
-        return { status: 400, body: { message: `ID 必须在 ${idRangeHint(userType)} 之间` } };
+        throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: `ID 必须在 ${idRangeHint(userType)} 之间` });
     }
     // 自定义 ID 占用检查
     if (normalizeRows(existingIdRow).length > 0) {
-        return { status: 400, body: { message: '该用户 ID 已被占用' } };
+        throw new AppError({ code: 'CONFLICT', statusCode: 409, message: '该用户 ID 已被占用' });
     }
     // 自定义 ID 不得与其他角色的现存 ID 重号（跨角色同号会让多态列只靠 role 消歧）
     if (id) {
         const clashRole = await findCrossRoleConflict(userType, id);
         if (clashRole) {
-            return { status: 409, body: { message: `该 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个` } };
+            throw new AppError({ code: 'CONFLICT', statusCode: 409, message: `该 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个` });
         }
     }
 
     let createdUser = null;
+    // allowDegraded：事务体只有一条 INSERT，再加一条失败不阻断的审计；
+    // 降级后最坏情况是「用户建好了但审计缺失」，不会留下半截数据。
     await db.runInTransaction(async (client, usePool) => {
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
@@ -316,22 +314,20 @@ async function createUser(payload, req) {
         try {
             await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0] && rows[0].id, details: { username, name, email, custom_id: id } });
         } catch (_) { /* 审计失败不阻断 */ }
-    });
+    }, { allowDegraded: true });
 
-    return { status: 201, body: standardResponse(true, createdUser, '创建用户成功') };
+    return createdUser;
 }
 
 /** 更新用户（含密码重置、字段白名单、可选主键变更、唯一约束冲突映射为 409） */
 async function updateUser(userType, id, payload, req) {
     // 权限落地：所有账号写操作仅 L1
-    const denied = denyIfNotSuperAdmin(req);
-    if (denied) return denied;
+    assertSuperAdmin(req);
 
     const { username, name, email, new_id, password, ...additionalInfo } = payload || {};
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: { message: '无效的用户类型' } };
-    const badId = invalidIdResult(id);
-    if (badId) return badId;
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
+    assertValidId(id);
 
     const actorLevel = getActorLevel(req && req.user);
     const actorId = req.user ? req.user.id : null;
@@ -342,12 +338,12 @@ async function updateUser(userType, id, payload, req) {
     let oldPermissionLevel = null;
     if (userType === 'admin') {
         targetAdmin = await fetchAdminTarget(id);
-        if (!targetAdmin) return { status: 404, body: standardResponse(false, null, '用户不存在') };
+        if (!targetAdmin) throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '用户不存在' });
         oldPermissionLevel = Number(targetAdmin.permission_level);
     } else {
         const existingUser = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [id]);
         if (normalizeRows(existingUser).length === 0) {
-            return { status: 404, body: { message: '用户不存在' } };
+            throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '用户不存在' });
         }
     }
 
@@ -355,18 +351,18 @@ async function updateUser(userType, id, payload, req) {
     if (userType === 'admin' && Object.prototype.hasOwnProperty.call(additionalInfo, 'permission_level')) {
         const lvl = parseInt(additionalInfo.permission_level, 10);
         if (!Number.isInteger(lvl) || lvl < 1 || lvl > 3) {
-            return { status: 400, body: { message: '权限级别必须在1到3之间' } };
+            throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '权限级别必须在1到3之间' });
         }
         // 防提权③：不可修改自己的权限级别；与现值相同的无操作回显直接忽略
         if (isSelf(targetAdmin)) {
             if (lvl !== oldPermissionLevel) {
-                return { status: 403, body: standardResponse(false, null, '不能修改自己的权限级别') };
+                throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '不能修改自己的权限级别' });
             }
             delete additionalInfo.permission_level;
         } else {
             // 防提权②：不能授予比自己级别更高的权力（数字更小即权力更大）
             if (lvl < actorLevel) {
-                return { status: 403, body: standardResponse(false, null, '不能授予比自己权限级别更高的权限') };
+                throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '不能授予比自己权限级别更高的权限' });
             }
             // 防提权④：最后一个超级管理员不可被降级
             if (oldPermissionLevel === PERMISSION_LEVELS.SUPER_ADMIN && lvl !== PERMISSION_LEVELS.SUPER_ADMIN) {
@@ -375,7 +371,7 @@ async function updateUser(userType, id, payload, req) {
                     [PERMISSION_LEVELS.SUPER_ADMIN]
                 ))[0];
                 if ((l1Res ? Number(l1Res.count) : 0) <= 1) {
-                    return { status: 403, body: standardResponse(false, null, '系统必须保留至少一个超级管理员(L1)，无法降级') };
+                    throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '系统必须保留至少一个超级管理员(L1)，无法降级' });
                 }
             }
             newPermissionLevel = lvl;
@@ -391,7 +387,7 @@ async function updateUser(userType, id, payload, req) {
         if (typeof new_id !== 'undefined' && String(new_id) !== String(id)) forbidden.push('new_id');
         if (typeof password !== 'undefined' && password !== null && password !== '') forbidden.push('password');
         if (forbidden.length > 0) {
-            return { status: 403, body: standardResponse(false, null, `不能修改自己的${forbidden.join('/')}，请联系其他超级管理员操作`) };
+            throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: `不能修改自己的${forbidden.join('/')}，请联系其他超级管理员操作` });
         }
         // 回显的同值 username 允许通过（等值更新无害），实际变化已在上方拦截
     }
@@ -406,7 +402,7 @@ async function updateUser(userType, id, payload, req) {
             const existingIds = normalizeRows(checkRes).map(r => Number(r.id));
             const missingIds = idsArr.filter(s => !existingIds.includes(Number(s)));
             if (missingIds.length > 0) {
-                return { status: 400, body: { message: `以下学生ID不存在: ${missingIds.join(', ')}` } };
+                throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: `以下学生ID不存在: ${missingIds.join(', ')}` });
             }
             filteredAdditional.student_ids = existingIds.join(',');
         } else {
@@ -443,12 +439,12 @@ async function updateUser(userType, id, payload, req) {
     if (typeof new_id !== 'undefined' && String(new_id) !== String(id)) {
         needIdChange = true; newIdInt = parseInt(new_id, 10);
         if (!inIdRange(userType, newIdInt)) {
-            return { status: 400, body: standardResponse(false, null, `新 ID 必须在 ${idRangeHint(userType)} 之间`) };
+            throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: `新 ID 必须在 ${idRangeHint(userType)} 之间` });
         }
     }
 
     if (userType === 'admin' && typeof email !== 'undefined') {
-        if (!EMAIL_RE.test(email)) return { status: 400, body: { message: '邮箱格式不合法' } };
+        if (!EMAIL_RE.test(email)) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '邮箱格式不合法' });
         updates.push(`email = $${idx}`); values.push(email); idx++;
     }
 
@@ -457,7 +453,7 @@ async function updateUser(userType, id, payload, req) {
     }
 
     if (updates.length === 0 && !needIdChange) {
-        return { status: 400, body: { message: '无更新字段' } };
+        throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无更新字段' });
     }
 
     // 改主键必须在同一事务里同步无外键引用（排课 JSONB pair、班主任 student_ids CSV、
@@ -467,12 +463,12 @@ async function updateUser(userType, id, payload, req) {
     if (needIdChange) {
         const checkNewId = await db.query(`SELECT id FROM ${table} WHERE id = $1`, [newIdInt]);
         if (normalizeRows(checkNewId).length > 0) {
-            return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
+            throw new AppError({ code: 'CONFLICT', statusCode: 409, message: '修改失败：用户名或新ID已被占用' });
         }
         // 新 ID 不得与其他角色的现存 ID 重号（改主键最容易把两个角色搅在一起的地方）
         const clashRole = await findCrossRoleConflict(userType, newIdInt);
         if (clashRole) {
-            return { status: 409, body: standardResponse(false, null, `新 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个`) };
+            throw new AppError({ code: 'CONFLICT', statusCode: 409, message: `新 ID 已被${ROLE_LABELS[clashRole]}占用（${idRangeHint(clashRole)} 号段），请换一个` });
         }
     }
 
@@ -489,28 +485,23 @@ async function updateUser(userType, id, payload, req) {
     const execUpdate = (q) => q(query, values);
 
     let rows;
-    try {
-        if (needIdChange) {
-            await db.runInTransaction(async (client, usePool) => {
-                const q = usePool ? db.query : client.query.bind(client);
-                const result = await execUpdate(q);
-                rows = normalizeRows(result);
-                for (const task of idSyncTasks) {
-                    await task(q);
-                }
-            });
-        } else {
-            const result = await execUpdate(db.query.bind(db));
+    // 唯一约束冲突（23505）不在此处捕获：原样上抛，由 errorHandler 统一映射成 409 CONFLICT
+    if (needIdChange) {
+        await db.runInTransaction(async (client, usePool) => {
+            const q = usePool ? db.query : client.query.bind(client);
+            const result = await execUpdate(q);
             rows = normalizeRows(result);
-        }
-    } catch (error) {
-        if (error && error.code === '23505') {
-            return { status: 409, body: standardResponse(false, null, '修改失败：用户名或新ID已被占用') };
-        }
-        throw error;
+            for (const task of idSyncTasks) {
+                await task(q);
+            }
+        });   // 不降级：改 ID 要同步改写关联表，半途中止会留下指向旧 ID 的孤儿引用
+    } else {
+        const result = await execUpdate(db.query.bind(db));
+        rows = normalizeRows(result);
     }
 
-    if (!rows[0]) return { status: 500, body: standardResponse(false, null, '更新失败') };
+    // 目标行刚被校验存在却更新不到，只可能是并发删除；按非预期错误上报
+    if (!rows[0]) throw new Error('更新用户失败：目标行在更新前被并发删除');
     delete rows[0].password_hash;
     delete rows[0].password;
     try {
@@ -526,7 +517,7 @@ async function updateUser(userType, id, payload, req) {
         });
     } catch (_) { /* 审计失败不阻断 */ }
 
-    return { status: 200, body: standardResponse(true, rows[0], '更新用户成功') };
+    return rows[0];
 }
 
 /**
@@ -564,20 +555,18 @@ function buildIdSyncTasks(userType, oldId, newId) {
  */
 async function deleteUser(userType, id, { cascade = false } = {}, req) {
     // 权限落地：所有账号写操作仅 L1
-    const denied = denyIfNotSuperAdmin(req);
-    if (denied) return denied;
+    assertSuperAdmin(req);
 
     const table = resolveTable(userType);
-    if (!table) return { status: 400, body: { message: '无效的用户类型' } };
-    const badId = invalidIdResult(id);
-    if (badId) return badId;
+    if (!table) throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '无效的用户类型' });
+    assertValidId(id);
 
     if (userType === 'admin') {
         const target = await fetchAdminTarget(id);
-        if (!target) return { status: 404, body: standardResponse(false, null, '用户不存在') };
+        if (!target) throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '用户不存在' });
         // 防提权③：不可删除自己
         if (req.user && Number(target.id) === Number(req.user.id)) {
-            return { status: 403, body: standardResponse(false, null, '不能删除自己的账号') };
+            throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '不能删除自己的账号' });
         }
         // 防提权④：最后一个超级管理员不可被删除
         if (Number(target.permission_level) === PERMISSION_LEVELS.SUPER_ADMIN) {
@@ -586,7 +575,7 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
                 [PERMISSION_LEVELS.SUPER_ADMIN]
             ))[0];
             if ((l1Res ? Number(l1Res.count) : 0) <= 1) {
-                return { status: 403, body: standardResponse(false, null, '系统必须保留至少一个超级管理员(L1)，无法删除') };
+                throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '系统必须保留至少一个超级管理员(L1)，无法删除' });
             }
         }
     }
@@ -603,10 +592,14 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
 
         if (refCount > 0 && !cascade) {
             const entityLabel = userType === 'teacher' ? '教师' : '学生';
-            return {
-                status: 409,
-                body: standardResponse(false, { referencedSchedules: refCount }, `该${entityLabel}仍有关联的排课（${refCount} 项），请先删除相关排课或使用级联删除`)
-            };
+            // 冲突细节放进 details（与 errorResponse 的 details 数组形态一致），
+            // 前端据此弹级联确认框，不必解析 message 里的数字
+            throw new AppError({
+                code: 'CONFLICT',
+                statusCode: 409,
+                message: `该${entityLabel}仍有关联的排课（${refCount} 项），请先删除相关排课或使用级联删除`,
+                details: [{ referencedSchedules: refCount }]
+            });
         }
 
         if (refCount > 0 && cascade) {
@@ -618,37 +611,38 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
                 const q = usePool ? db.query : client.query.bind(client);
                 await courseSessionService.removeUserFromAllSessions(id, userType, { id: req.user && req.user.id, actorType: 'admin' });
                 await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
+                // AI 模型偏好没有外键（user_id 是多态的），不手动清就会留下孤儿行
+                await aiUserModelStore.purgeUserModel(userType, id, q);
                 try {
                     await recordAudit(req, {
                         op: 'delete_cascade', entityType: userType, entityId: Number(id),
                         details: { affectedSessions: impact.affectedSessions, deletedSessions: impact.deletedSessions }
                     });
                 } catch (_) { /* 审计失败不阻断 */ }
-            });
+            });   // 不降级：先剥离场次再删用户，半途中止会留下「课没了、人还在」的不一致状态
             return {
-                status: 200,
-                body: standardResponse(true, {
-                    affectedSessions: impact.affectedSessions,
-                    deletedSessions: impact.deletedSessions,
-                    deletedSchedules: impact.deletedSessions
-                }, `用户已删除：${impact.affectedSessions} 场课移除了该${userType === 'teacher' ? '教师' : '学生'}，其中 ${impact.deletedSessions} 场因此被整场删除`)
+                affectedSessions: impact.affectedSessions,
+                deletedSessions: impact.deletedSessions,
+                deletedSchedules: impact.deletedSessions,
+                message: `用户已删除：${impact.affectedSessions} 场课移除了该${userType === 'teacher' ? '教师' : '学生'}，其中 ${impact.deletedSessions} 场因此被整场删除`
             };
         }
     }
 
-    try {
-        await db.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
-    } catch (error) {
-        if (error && error.code === '23503') {
-            return { status: 409, body: standardResponse(false, null, '删除失败：存在外键引用，请先删除相关排课或选择级联删除') };
-        }
-        throw error;
-    }
+    // 外键引用冲突（23503）原样上抛，由 errorHandler 统一映射
+    // 两条语句必须同生共死：删用户与清偏好之间中断会留下孤儿偏好行，正是这里要消除的东西。
+    // 不降级：降级后顺序执行，孤儿行窗口原样回来，等于没修。
+    await db.runInTransaction(async (client, usePool) => {
+        const q = usePool ? db.query : client.query.bind(client);
+        await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
+        // AI 模型偏好没有外键（user_id 是多态的），不手动清就会留下孤儿行
+        await aiUserModelStore.purgeUserModel(userType, id, q);
+    });
     try {
         await recordAudit(req, { op: 'delete', entityType: userType, entityId: Number(id) });
     } catch (_) { /* 审计失败不阻断 */ }
 
-    return { status: 200, body: standardResponse(true, null, '用户删除成功') };
+    return { message: '用户删除成功' };
 }
 
 module.exports = {

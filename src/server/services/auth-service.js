@@ -151,11 +151,9 @@ class AuthService {
         }
 
         // 4. 更新登录时间
-        try {
-            await db.query(`UPDATE ${table} SET last_login = NOW() WHERE id = $1`, [user.id]);
-        } catch (err) {
-            logger.warn('Failed to update last_login:', err.message);
-        }
+        // 失败不吞：写不进去说明库已经不可用，此时再签 token 会发出一个「登录成功」的假象——
+        // 会话没有落库，后续任何依赖 last_login 的审计/清理都看不到这次登录。宁可登录失败。
+        await db.query(`UPDATE ${table} SET last_login = NOW() WHERE id = $1`, [user.id]);
 
         // 5. 生成 Token — 根据 rememberMe 决定过期时间
         // tv（token epoch）：用户改号/重编 ID 后 +1 即可让全部旧 token 失效，见 middleware/auth.js

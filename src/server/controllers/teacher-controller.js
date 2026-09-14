@@ -22,9 +22,9 @@ const {
     replaceTeacherAvailability
 } = require('../services/availability-service');
 
-const { successResponse, errorResponse } = require('../utils/response');
+const { successResponse } = require('../utils/response');
 const { statusToErrorCode } = require('../utils/http-status');
-const { AppError } = require('../middleware/error');
+const { AppError, asyncHandler } = require('../middleware/error');
 
 // 空闲时段纯函数与读写事务逻辑已下沉至 services/availability-service.js（见 D1-4）
 
@@ -64,17 +64,17 @@ const teacherController = {
             );
 
             if (result.rows.length === 0) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到教师信息' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到教师信息' });
             }
 
             const profile = result.rows[0];
             if (profile.last_login instanceof Date) {
                 profile.last_login_iso = profile.last_login.toISOString();
             }
-            res.json(successResponse(profile));
+            res.json(successResponse(profile, { requestId: req.requestId }));
         } catch (error) {
             logger.error('获取教师信息错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -94,7 +94,7 @@ const teacherController = {
             if (typeof status !== 'undefined') {
                 const s = Number(status);
                 if (![-1, 0, 1].includes(s)) {
-                    return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '非法状态值' }));
+                    throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '非法状态值' });
                 }
                 sets.push(`status = $${vi++}`);
                 values.push(s);
@@ -109,13 +109,18 @@ const teacherController = {
                 values
             );
 
+            // UPDATE ... RETURNING 无行返回说明该 id 不存在，不能当作更新成功返回 undefined
+            if (!result.rows.length) {
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到教师信息' });
+            }
+
             // 记录审计（若存在）
             try { const { recordAudit } = require('../middleware/audit'); await recordAudit(req, { op: 'update_status', entityType: 'teacher', entityId: req.user.id, details: { status } }); } catch (_) { }
 
-            res.json(successResponse(result.rows[0]));
+            res.json(successResponse(result.rows[0], { requestId: req.requestId }));
         } catch (error) {
             logger.error('更新教师信息错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -138,17 +143,10 @@ const teacherController = {
                 studentName: '全部学生',
                 queryRawData: () => scheduleQueries.queryTeacherSchedule(startDate, endDate, { teacher_id: teacherId })
             });
-            if (out.buffer) {
-                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
-                res.setHeader('Content-Length', out.buffer.length);
-                return res.end(out.buffer);
-            }
-            return res.status(out.status).json(
-                out.status >= 400
-                    ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                    : successResponse(out.body)
-            );
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+            res.setHeader('Content-Length', out.buffer.length);
+            return res.end(out.buffer);
         } catch (error) {
             return handleExportError(error, req, res);
         }
@@ -161,11 +159,16 @@ const teacherController = {
     async getAvailability(req, res, next) {
         try {
             const { startDate, endDate } = req.query;
+            // 该路由没有 Joi 校验（同组的 POST/DELETE/PUT 都有）。缺日期时
+            // date BETWEEN NULL AND NULL 恒为 NULL，会静默返回空数组，让人误以为「这期间没安排」。
+            if (!startDate || !endDate) {
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少开始/结束日期' });
+            }
             const data = await getTeacherAvailability(db, req.user.id, startDate, endDate);
-            res.json(successResponse(data));
+            res.json(successResponse(data, { requestId: req.requestId }));
         } catch (error) {
             logger.error('获取时间安排错误:', error);
-            return next(new AppError({ code: statusToErrorCode(503), statusCode: 503, message: '数据库暂时不可用，请稍后重试' }));
+            throw error; // 保留原始错误，交由全局 errorHandler 按 code 精确映射状态
         }
     },
 
@@ -179,23 +182,22 @@ const teacherController = {
             const updatesByDate = collectAvailabilityUpdates(availabilityList);
 
             if (!updatesByDate.size) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少有效的时间安排数据' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少有效的时间安排数据' });
             }
 
             const { insertCount, updateCount, unchangedCount } = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await setTeacherAvailability(q, req.user.id, availabilityList);
-            });
+            }, { allowDegraded: true });   // 单条多值 UPSERT 幂等：降级只失去「整批同生共死」
 
             res.json(successResponse({
-                message: '时间安排更新成功',
                 insertCount,
                 updateCount,
                 unchangedCount
-            }));
+            }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('设置时间安排错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -223,22 +225,21 @@ const teacherController = {
             }
 
             if (!operations.length) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少需要删除的时间安排记录' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少需要删除的时间安排记录' });
             }
 
             const { updateCount, deleteCount } = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await deleteTeacherAvailability(q, req.user.id, operations);
-            });
+            }, { allowDegraded: true });   // 批量置位/删除空闲位，无跨表联动
 
             res.json(successResponse({
-                message: '时间安排删除成功',
                 updateCount,
                 deleteCount
-            }));
+            }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('删除时间安排错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -252,34 +253,29 @@ const teacherController = {
             const removals = Array.isArray(body.removals) ? body.removals : [];
 
             if (!updates.length && !removals.length) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少需要保存的时间安排' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少需要保存的时间安排' });
             }
 
             const { insertCount, updateCount, deleteCount } = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
                 return await replaceTeacherAvailability(q, req.user.id, { updates, removals });
-            });
+            }, { allowDegraded: true });   // 同上：只写 teacher_daily_availability 一张表
 
             res.json(successResponse({
-                message: '时间安排已保存',
                 insertCount,
                 updateCount,
                 deleteCount
-            }));
+            }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('原子保存时间安排错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
     // 获取课程安排
     async getSchedules(req, res) {
-        const out = await scheduleService.teacherListSchedules(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherListSchedules(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -290,12 +286,8 @@ const teacherController = {
      * @param {Object} req.body.notes - 备注信息
      */
     async confirmSchedule(req, res) {
-        const out = await scheduleService.teacherConfirmSchedule(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherConfirmSchedule(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -306,12 +298,8 @@ const teacherController = {
      * @param {Object} req.body.notes - 备注信息
      */
     async updateScheduleStatus(req, res) {
-        const out = await scheduleService.teacherUpdateScheduleStatus(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherUpdateScheduleStatus(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -321,22 +309,14 @@ const teacherController = {
      * @param {string} req.query.endDate - 结束日期
      */
     async getStatistics(req, res) {
-        const out = await scheduleService.teacherStatistics(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherStatistics(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     // 获取教师总览数据
     async getOverview(req, res) {
-        const out = await scheduleService.teacherOverview(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherOverview(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -365,10 +345,10 @@ const teacherController = {
                 count,
                 startDate,
                 endDate
-            }));
+            }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('获取授课总数错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -381,12 +361,8 @@ const teacherController = {
      * @param {number} req.query.offset - 偏移量（可选）
      */
     async getDetailedSchedules(req, res) {
-        const out = await scheduleService.teacherGetDetailedSchedules(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherGetDetailedSchedules(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     // 修改密码
@@ -397,11 +373,11 @@ const teacherController = {
 
             // 验证输入
             if (!currentPassword || !newPassword) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供当前密码和新密码' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供当前密码和新密码' });
             }
 
             if (newPassword.length < 6) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '新密码长度不能少于6位' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '新密码长度不能少于6位' });
             }
 
             // 获取当前密码哈希
@@ -411,7 +387,7 @@ const teacherController = {
             );
 
             if (result.rows.length === 0) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到教师信息' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到教师信息' });
             }
 
             const currentPasswordHash = result.rows[0].password_hash;
@@ -422,11 +398,11 @@ const teacherController = {
             try {
                 isValidPassword = await bcrypt.compare(currentPassword, currentPasswordHash);
             } catch (_) {
-                return next(new AppError({ code: statusToErrorCode(500), statusCode: 500, message: '密码验证失败' }));
+                throw new AppError({ code: statusToErrorCode(500), statusCode: 500, message: '密码验证失败' });
             }
 
             if (!isValidPassword) {
-                return next(new AppError({ code: statusToErrorCode(401), statusCode: 401, message: '当前密码不正确' }));
+                throw new AppError({ code: statusToErrorCode(401), statusCode: 401, message: '当前密码不正确' });
             }
 
             // 生成新密码哈希
@@ -452,10 +428,10 @@ const teacherController = {
                 // 忽略审计错误
             }
 
-            res.json(successResponse({ message: '密码修改成功' }));
+            res.json(successResponse(null, { requestId: req.requestId }));
         } catch (error) {
             logger.error('修改密码错误:', error.message);
-            return next(error);
+            throw error;
         }
     },
 
@@ -479,7 +455,7 @@ const teacherController = {
             const oFee = FeeService.parseFeeAmount(other_fee);
 
             if ((tFee !== null && tFee < 0) || (oFee !== null && oFee < 0)) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '费用不能为负数' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '费用不能为负数' });
             }
             // 已报销 / 退回报销 不因编辑金额而回退（resolveAutoFeeStatus 内部已含此规则）
             const requestedTarget = FeeService.hasFilledFee(tFee, oFee) ? 'teacher_submitted' : null;
@@ -491,20 +467,20 @@ const teacherController = {
                 resolveActor(db, req.user.id)
             ]);
             if (!session) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' });
             }
             const teacherUid = req.params.uid || req.body.teacher_uid
                 || (session.teachers || []).filter(p => Number(p.teacher_id) === Number(req.user.id)).map(p => p.uid)[0];
             const pair = FeeService.locateTeacherPair(session, teacherUid);
             if (!pair) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' });
             }
             const row = pair;
             const { transport_fee: old_t_fee, other_fee: old_o_fee } = pair;
 
             // 操作身份：班主任（有绑定学生）限关联学生，普通教师限本人 pair
             const scopeMsg = FeeService.checkScheduleScope(actor, { session, teacher: pair }, id);
-            if (scopeMsg) return next(new AppError({ code: statusToErrorCode(403), statusCode: 403, message: scopeMsg }));
+            if (scopeMsg) throw new AppError({ code: statusToErrorCode(403), statusCode: 403, message: scopeMsg });
 
             // 无事务单条更新：金额与「保存并提交」自动流转（教师端 → 待审核）在一条
             // UPDATE 里完成（fee-service.updateScheduleFeesInTx），审计旁路并行落地。
@@ -519,10 +495,10 @@ const teacherController = {
             });
             const feeStatus = targetStatus || row.fee_status;
 
-            res.json(successResponse({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus }));
+            res.json(successResponse({ message: '费用更新成功', transport_fee: tFee, other_fee: oFee, fee_status: feeStatus }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('更新费用错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -530,12 +506,8 @@ const teacherController = {
      * 获取班主任关联学生的所有排课
      */
     async getHeadTeacherStudentSchedules(req, res) {
-        const out = await scheduleService.teacherGetHeadTeacherStudentSchedules(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.teacherGetHeadTeacherStudentSchedules(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -546,7 +518,7 @@ const teacherController = {
         try {
             const { updates } = req.body;
             if (!updates || !Array.isArray(updates) || updates.length === 0) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '无可更新内容' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '无可更新内容' });
             }
 
             // 解析操作身份：班主任（有绑定学生）仅能操作关联学生；普通教师仅能操作本人课时
@@ -558,16 +530,17 @@ const teacherController = {
                 return await FeeService.batchUpdateScheduleFeesInTx(q, updates, {
                     actor, operatorId: req.user.id, autoSubmitActorType: actor.actorType
                 });
-            });
+            });   // 不降级：越权在事务内 throw 整批回滚，降级会留下「已改一半」的费用
 
             res.json(successResponse({
                 message: '批量更新费用成功',
                 changed: result.changed,
                 submitted: result.submitted
-            }));
+            }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('批量更新费用错误:', error);
-            return next(error);
+            // 业务规则以中文消息抛出，这里补上机器码；未知错误原样交给全局 errorHandler
+            throw FeeService.toCanonicalFeeError(error);
         }
     },
 
@@ -580,23 +553,23 @@ const teacherController = {
         try {
             const { id } = req.params;
             const { fee_status: target, note } = req.body;
-            if (!target) return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少目标状态' }));
+            if (!target) throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少目标状态' });
 
             // 身份解析与场次查询互不依赖，并发省一次往返（约 250ms）
             const [actor, session] = await Promise.all([
                 resolveActor(db, req.user.id),
                 courseSessionService.getSessionById(id)
             ]);
-            if (!session) return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '排课不存在' }));
+            if (!session) throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '排课不存在' });
 
             const teacherUid = req.params.uid || req.body.teacher_uid
                 || (session.teachers || []).filter(p => Number(p.teacher_id) === Number(req.user.id)).map(p => p.uid)[0];
             const pair = FeeService.locateTeacherPair(session, teacherUid);
-            if (!pair) return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '排课不存在' }));
+            if (!pair) throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '排课不存在' });
 
             // 范围校验：班主任限关联学生，普通教师限本人 pair
             const scopeMsg = FeeService.checkScheduleScope(actor, { session, teacher: pair }, id);
-            if (scopeMsg) return next(new AppError({ code: statusToErrorCode(403), statusCode: 403, message: scopeMsg }));
+            if (scopeMsg) throw new AppError({ code: statusToErrorCode(403), statusCode: 403, message: scopeMsg });
 
             const from = pair.fee_status;
             const result = await db.runInTransaction(async (client, usePool) => {
@@ -605,13 +578,13 @@ const teacherController = {
                     sessionId: id, teacherUid: pair.uid, from, target, note,
                     operatorId: req.user.id, actorType: actor.actorType
                 });
-            });
-            if (!result.ok) return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: result.error }));
+            }, { allowDegraded: true });   // 单 pair 状态：一条 UPDATE + 审计（审计失败不阻断）
+            if (!result.ok) throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: result.error });
 
-            res.json(successResponse({ message: '费用状态已更新', fee_status: target }));
+            res.json(successResponse({ message: '费用状态已更新', fee_status: target }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('教师更新费用状态错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -622,7 +595,7 @@ const teacherController = {
     async batchUpdateScheduleFeeStatus(req, res, next) {
         try {
             const { ids, scope, fee_status: target, note, skipStatus } = req.body;
-            if (!target) return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少目标状态' }));
+            if (!target) throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少目标状态' });
 
             const actor = await resolveActor(db, req.user.id);
 
@@ -655,10 +628,10 @@ const teacherController = {
                     return true;
                 }).map(x => ({ session_id: Number(x.session_id), teacher_uid: x.teacher_uid }));
             } else {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供 ids 或 scope 范围' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供 ids 或 scope 范围' });
             }
 
-            if (!targets.length) return res.json(successResponse({ message: '没有符合条件的排课', updated: 0 }));
+            if (!targets.length) return res.json(successResponse({ message: '没有符合条件的排课', updated: 0 }, { requestId: req.requestId }));
 
             const updated = await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
@@ -667,12 +640,12 @@ const teacherController = {
                     targets, target, note, operatorId: req.user.id,
                     actorType: actor.actorType, skipStatus, actor
                 });
-            });
+            }, { allowDegraded: true });   // 批量流转：状态本身单条语句提交，降级只可能丢审计
 
-            res.json(successResponse({ message: `已更新 ${updated} 条排课的费用状态`, updated }));
+            res.json(successResponse({ message: `已更新 ${updated} 条排课的费用状态`, updated }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('教师批量更新费用状态错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -682,50 +655,43 @@ const teacherController = {
      *              否则返回班主任绑定的学生列表（向下兼容）
      */
     async getAssociatedStudents(req, res) {
-        const out = await headTeacherService.getAssociatedStudents(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body.data)
-        );
+        const data = await headTeacherService.getAssociatedStudents(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
      * 获取关联学生详细信息列表
      */
     async getAssociatedStudentsDetail(req, res) {
-        const out = await headTeacherService.getAssociatedStudentsDetail(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body.data)
-        );
+        const data = await headTeacherService.getAssociatedStudentsDetail(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
      * 更新关联学生信息
      */
     async updateAssociatedStudent(req, res) {
-        const out = await headTeacherService.updateAssociatedStudent(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body.data)
-        );
+        const data = await headTeacherService.updateAssociatedStudent(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
      * 获取所有教师列表 (用于班主任导出筛选)
      */
     async getAllTeachers(req, res) {
-        const out = await headTeacherService.getAllTeachers(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body.data)
-        );
+        const data = await headTeacherService.getAllTeachers(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     }
 
 };
+
+// 处理器内部改为 throw 抛错（不再自己调 next），由这里统一包一层：
+// Express 4 不会捕获 async 拒绝，不包的话抛出的 AppError 会让请求挂死。
+// 包在导出处而不是逐条路由上，避免遗漏任何一条挂载路径。
+for (const key of Object.keys(teacherController)) {
+    if (typeof teacherController[key] === 'function') {
+        teacherController[key] = asyncHandler(teacherController[key]);
+    }
+}
 
 module.exports = teacherController;
