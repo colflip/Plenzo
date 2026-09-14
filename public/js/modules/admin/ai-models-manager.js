@@ -128,6 +128,8 @@ function showConfirm(message, detail = '') {
 function initAIModelsManager() {
     loadRemoteModelData();
     bindEvents();
+    // 端点树独立加载：端点接口不可用时只影响端点区块，不该拖垮整个模型表格
+    loadEndpoints();
 
     // 监听 AI 区块可见性：区块切到前台（showSection 加 active）时才触发状态检测，
     // 避免 dashboard/其他 admin 页加载时就并发打 /api/ai/check。
@@ -493,6 +495,9 @@ function bindEvents() {
             deleteCustomModel(parseInt(deleteBtn.dataset.customIndex));
         }
     });
+
+    // 端点区块（渠道 → 端点 → 模型）
+    bindEndpointEvents();
 }
 
 /**
@@ -519,7 +524,7 @@ function openAIModelForm(mode, index = null) {
         document.getElementById('aiModelBaseUrl').value = model.baseUrl;
         document.getElementById('aiModelModelName').value = model.model;
         document.getElementById('aiModelTimeout').value = model.timeout || 30000;
-        document.getElementById('aiModelMaxTokens').value = model.maxTokens || 3000;
+        document.getElementById('aiModelMaxTokens').value = model.maxTokens || 8000;
     }
     container.style.display = 'block';
 }
@@ -602,7 +607,7 @@ async function switchToCustom(index) {
             baseUrl: custom.baseUrl,
             model: custom.model,
             timeout: custom.timeout || 30000,
-            maxTokens: custom.maxTokens || 3000
+            maxTokens: custom.maxTokens || 8000
         }, { suppressErrorToast: true });
         apiUtils.showToast('配置已更新并立即生效！', 'success');
         await loadCurrentConfig();
@@ -677,6 +682,306 @@ async function deleteCustomModel(index) {
     saveCustomModels();
     renderModelsTable();
     apiUtils.showToast('删除成功！', 'success');
+}
+
+/* ===========================================
+   渠道端点：渠道 → 端点 → 模型
+   -------------------------------------------
+   环境变量在部署平台上是只读的，所以 env 里的端点只能「停用 / 覆盖」，
+   不能删除；数据库里新增的端点才能删。界面按 editable 字段区分这两种。
+   =========================================== */
+
+let endpointChannels = [];
+
+/** token 数量格式化：524288 → 512K，1048576 → 1M */
+function formatTokenCount(n) {
+    if (!n || !Number.isFinite(Number(n))) return '-';
+    const v = Number(n);
+    if (v >= 1000000) return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (v >= 1024) return Math.round(v / 1024) + 'K';
+    return String(v);
+}
+
+/** 模型能力摘要：上下文 / 最大输出 / 视觉 / 工具 */
+function renderModelCapHint(m) {
+    const parts = [];
+    if (m.contextLength) parts.push(formatTokenCount(m.contextLength) + ' 上下文');
+    if (m.maxOutput) parts.push(formatTokenCount(m.maxOutput) + ' 输出');
+    if (m.capabilities && m.capabilities.vision) parts.push('视觉');
+    if (m.capabilities && m.capabilities.tools) parts.push('工具');
+    return parts.length ? '<span class="ai-ep-model-caps">(' + parts.join(' · ') + ')</span>' : '';
+}
+
+async function loadEndpoints() {
+    const body = document.getElementById('aiEndpointsBody');
+    if (!body) return;
+    try {
+        const data = await apiUtils.getSilent('/ai/endpoints');
+        endpointChannels = (data && data.channels) || [];
+        renderEndpoints();
+    } catch (error) {
+        endpointChannels = [];
+        body.innerHTML = '<div class="ai-ep-empty">端点配置加载失败</div>';
+        console.error('加载端点失败:', error);
+    }
+}
+
+function renderEndpoints() {
+    const body = document.getElementById('aiEndpointsBody');
+    if (!body) return;
+    const esc = (v) => window.SecurityUtils ? window.SecurityUtils.escapeHtml(String(v ?? '')) : String(v ?? '');
+
+    if (!endpointChannels.length) {
+        body.innerHTML = '<div class="ai-ep-empty">暂无渠道端点</div>';
+        return;
+    }
+
+    body.innerHTML = endpointChannels.map(ch => {
+        const eps = ch.endpoints.length
+            ? ch.endpoints.map(ep => renderEndpointCard(ch, ep)).join('')
+            : '<div class="ai-ep-empty">该渠道暂无端点</div>';
+        return '<div class="ai-ep-channel">' +
+            '<div class="ai-ep-channel-name">' + esc(ch.channelName) +
+            '<span class="ai-ep-strategy">策略：' + esc(ch.strategy) + '</span></div>' +
+            eps +
+            '</div>';
+    }).join('');
+}
+
+function renderEndpointCard(ch, ep) {
+    const esc = (v) => window.SecurityUtils ? window.SecurityUtils.escapeHtml(String(v ?? '')) : String(v ?? '');
+
+    const badges = [
+        ep.source === 'env'
+            ? '<span class="ai-ep-badge env">环境变量</span>'
+            : '<span class="ai-ep-badge">数据库</span>',
+        ep.hasOwnKey
+            ? '<span class="ai-ep-badge">独立密钥</span>'
+            : '<span class="ai-ep-badge">继承渠道</span>',
+        ep.enabled ? '' : '<span class="ai-ep-badge off">已停用</span>'
+    ].join('');
+
+    const modelsHtml = ep.models.length
+        ? ep.models.map(m =>
+            '<span class="ai-ep-model">' + esc(m.name) + renderModelCapHint(m) + '</span>'
+        ).join('')
+        : '<span class="ai-ep-model">未挂载模型</span>';
+
+    const params = Object.keys(ep.extraParams || {}).length
+        ? '<span>自定义参数：' + esc(JSON.stringify(ep.extraParams)) + '</span>'
+        : '';
+
+    const actions = [
+        '<button class="ai-btn ai-btn-edit" data-ep-edit="' + esc(ep.id) + '">编辑</button>',
+        '<button class="ai-btn ai-btn-test" data-ep-test="' + esc(ep.id) + '">测试</button>',
+        '<button class="ai-btn" data-ep-toggle="' + esc(ep.id) + '">' + (ep.enabled ? '停用' : '启用') + '</button>',
+        ep.editable
+            ? '<button class="ai-btn ai-btn-delete" data-ep-del="' + esc(ep.id) + '">删除</button>'
+            : ''
+    ].join('');
+
+    return '<div class="ai-ep-card' + (ep.enabled ? '' : ' disabled') + '">' +
+        '<div class="ai-ep-row">' +
+            '<div class="ai-ep-title">' + esc(ep.label) + badges + '</div>' +
+            '<div class="ai-ep-actions">' + actions + '</div>' +
+        '</div>' +
+        '<div class="ai-ep-url">' + esc(ep.baseUrl) + '</div>' +
+        '<div class="ai-ep-meta">' +
+            '<span>协议：' + esc(ep.protocol || '-') + '</span>' +
+            '<span>超时：' + esc(ep.timeout || '-') + 'ms</span>' +
+            '<span>最大输出：' + esc(ep.maxTokens || '-') + '</span>' +
+            '<span>优先级：' + esc(ep.priority) + '</span>' +
+            params +
+        '</div>' +
+        '<div class="ai-ep-models">' + modelsHtml + '</div>' +
+    '</div>';
+}
+
+function openEndpointForm(mode, id = null) {
+    const container = document.getElementById('aiEndpointFormContainer');
+    const form = document.getElementById('aiEndpointForm');
+    const title = document.getElementById('aiEndpointFormTitle');
+    if (!container || !form) return;
+
+    form.dataset.mode = mode;
+    form.dataset.id = id === null ? '' : String(id);
+
+    // 渠道下拉：编辑时锁定当前渠道，避免把端点挪到别的渠道后模型对不上
+    const select = document.getElementById('aiEpChannel');
+    if (select) {
+        select.innerHTML = endpointChannels.map(c =>
+            '<option value="' + c.channelId + '">' + c.channelName + '</option>'
+        ).join('');
+    }
+
+    const set = (elId, v) => { const el = document.getElementById(elId); if (el) el.value = v ?? ''; };
+
+    if (mode === 'edit' && id !== null) {
+        let found = null;
+        let ch = null;
+        for (const c of endpointChannels) {
+            const hit = c.endpoints.find(e => String(e.id) === String(id));
+            if (hit) { found = hit; ch = c; break; }
+        }
+        if (!found) { apiUtils.showToast('端点不存在', 'error'); return; }
+        title.textContent = '编辑端点';
+        if (select) { select.value = ch.channelId; select.disabled = true; }
+        set('aiEpLabel', found.label);
+        set('aiEpBaseUrl', found.baseUrl);
+        set('aiEpApiKey', '');          // 密钥不回显，留空 = 保持原值
+        set('aiEpModels', (found.models || []).map(m => m.id).join(','));
+        set('aiEpTimeout', found.timeout ?? '');
+        set('aiEpMaxTokens', found.maxTokens ?? '');
+        set('aiEpPriority', found.priority ?? 100);
+        set('aiEpParams', Object.keys(found.extraParams || {}).length ? JSON.stringify(found.extraParams) : '');
+        const enabledEl = document.getElementById('aiEpEnabled');
+        if (enabledEl) enabledEl.checked = !!found.enabled;
+    } else {
+        title.textContent = '新增端点';
+        if (select) select.disabled = false;
+        set('aiEpLabel', '');
+        set('aiEpBaseUrl', '');
+        set('aiEpApiKey', '');
+        set('aiEpModels', '');
+        set('aiEpTimeout', '');
+        set('aiEpMaxTokens', '');
+        set('aiEpPriority', 100);
+        set('aiEpParams', '');
+        const enabledEl = document.getElementById('aiEpEnabled');
+        if (enabledEl) enabledEl.checked = true;
+    }
+
+    container.style.display = 'block';
+}
+
+function closeEndpointForm() {
+    const container = document.getElementById('aiEndpointFormContainer');
+    if (container) container.style.display = 'none';
+}
+
+async function handleEndpointFormSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const mode = form.dataset.mode;
+    const id = form.dataset.id || null;
+
+    const val = (elId) => { const el = document.getElementById(elId); return el ? el.value.trim() : ''; };
+
+    const payload = {
+        channelId: val('aiEpChannel'),
+        label: val('aiEpLabel') || null,
+        baseUrl: val('aiEpBaseUrl'),
+        models: val('aiEpModels') ? val('aiEpModels').split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        timeout: val('aiEpTimeout') ? Number(val('aiEpTimeout')) : null,
+        maxTokens: val('aiEpMaxTokens') ? Number(val('aiEpMaxTokens')) : null,
+        priority: val('aiEpPriority') ? Number(val('aiEpPriority')) : 100,
+        enabled: (() => { const el = document.getElementById('aiEpEnabled'); return el ? el.checked : true; })()
+    };
+
+    // 密钥：编辑时留空表示「不改动」，新增时留空表示「继承渠道」
+    const key = val('aiEpApiKey');
+    if (key) payload.apiKey = key;
+    else if (mode !== 'edit') payload.apiKey = null;
+
+    const paramsRaw = val('aiEpParams');
+    if (paramsRaw) {
+        try {
+            const parsed = JSON.parse(paramsRaw);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('必须是对象');
+            payload.extraParams = parsed;
+        } catch (err) {
+            apiUtils.showToast('自定义参数不是合法 JSON 对象', 'error');
+            return;
+        }
+    }
+
+    try {
+        if (mode === 'edit' && id) {
+            await apiUtils.put('/ai/endpoints/' + encodeURIComponent(id), payload);
+        } else {
+            await apiUtils.post('/ai/endpoints', payload);
+        }
+        apiUtils.showToast('端点已保存', 'success');
+        closeEndpointForm();
+        await loadEndpoints();
+    } catch (error) {
+        apiUtils.showToast('保存失败：' + error.message, 'error');
+    }
+}
+
+async function toggleEndpoint(id) {
+    let target = null;
+    for (const c of endpointChannels) {
+        const hit = c.endpoints.find(e => String(e.id) === String(id));
+        if (hit) { target = hit; break; }
+    }
+    if (!target) return;
+    try {
+        await apiUtils.put('/ai/endpoints/' + encodeURIComponent(id), { enabled: !target.enabled });
+        apiUtils.showToast(target.enabled ? '已停用' : '已启用', 'success');
+        await loadEndpoints();
+    } catch (error) {
+        apiUtils.showToast('操作失败：' + error.message, 'error');
+    }
+}
+
+async function deleteEndpoint(id) {
+    if (!await showConfirm('确定要删除该端点吗？', '此操作无法撤销')) return;
+    try {
+        await apiUtils.delete('/ai/endpoints/' + encodeURIComponent(id));
+        apiUtils.showToast('删除成功！', 'success');
+        await loadEndpoints();
+    } catch (error) {
+        apiUtils.showToast('删除失败：' + error.message, 'error');
+    }
+}
+
+async function testEndpoint(id, btn) {
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '测试中...';
+    try {
+        const result = await apiUtils.post('/ai/endpoints/' + encodeURIComponent(id) + '/test', {});
+        if (result && result.available) {
+            apiUtils.showToast('测试成功！响应时间：' + result.latency + 'ms', 'success');
+        } else {
+            apiUtils.showToast('测试失败：' + ((result && result.error) || '端点不可用'), 'error');
+        }
+    } catch (error) {
+        apiUtils.showToast('测试失败：' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+    }
+}
+
+function bindEndpointEvents() {
+    const addBtn = document.getElementById('addEndpointBtn');
+    if (addBtn) addBtn.addEventListener('click', () => openEndpointForm('add'));
+
+    const closeBtn = document.getElementById('closeAIEndpointFormBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeEndpointForm);
+
+    const cancelBtn = document.getElementById('cancelAIEndpointFormBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEndpointForm);
+
+    const form = document.getElementById('aiEndpointForm');
+    if (form) form.addEventListener('submit', handleEndpointFormSubmit);
+
+    const body = document.getElementById('aiEndpointsBody');
+    if (body) {
+        body.addEventListener('click', (e) => {
+            const edit = e.target.closest('[data-ep-edit]');
+            const test = e.target.closest('[data-ep-test]');
+            const toggle = e.target.closest('[data-ep-toggle]');
+            const del = e.target.closest('[data-ep-del]');
+
+            if (edit) openEndpointForm('edit', edit.dataset.epEdit);
+            else if (test) testEndpoint(test.dataset.epTest, test);
+            else if (toggle) toggleEndpoint(toggle.dataset.epToggle);
+            else if (del) deleteEndpoint(del.dataset.epDel);
+        });
+    }
 }
 
 // 导出初始化函数

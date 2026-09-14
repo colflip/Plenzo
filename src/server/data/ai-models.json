@@ -40,17 +40,48 @@
         "tools": true,
         "reasoning": false
       },
-      "contextLength": 524288
+      "contextLength": 524288,
+      "maxOutput": 65536
     },
     {
-      "id": "agnes-1.5-flash",
-      "name": "Agnes 1.5 Flash",
+      "id": "agnes-2.5-pro",
+      "name": "Agnes 2.5 Pro",
       "capabilities": {
-        "vision": false,
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": null
+    },
+    {
+      "id": "agnes-2.5-flash",
+      "name": "Agnes 2.5 Flash",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": null
+    },
+    {
+      "id": "agnes-2.5-pro-alpha",
+      "name": "Agnes 2.5 Pro (alpha)",
+      "capabilities": {
+        "vision": true,
+        "tools": true,
+        "reasoning": false
+      },
+      "contextLength": null
+    },
+    {
+      "id": "agnes-2.5-pro-beta",
+      "name": "Agnes 2.5 Pro (beta)",
+      "capabilities": {
+        "vision": true,
         "tools": false,
         "reasoning": false
       },
-      "contextLength": 8192
+      "contextLength": null
     },
     {
       "id": "agnes-2.0-flash",
@@ -58,26 +89,6 @@
       "capabilities": {
         "vision": false,
         "tools": true,
-        "reasoning": false
-      },
-      "contextLength": 16384
-    },
-    {
-      "id": "agnes-image-2.0-flash",
-      "name": "Agnes Image 2.0",
-      "capabilities": {
-        "vision": true,
-        "tools": false,
-        "reasoning": false
-      },
-      "contextLength": 16384
-    },
-    {
-      "id": "agnes-image-2.1-flash",
-      "name": "Agnes Image 2.1",
-      "capabilities": {
-        "vision": true,
-        "tools": false,
         "reasoning": false
       },
       "contextLength": 16384

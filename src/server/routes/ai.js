@@ -8,9 +8,16 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
-const { teacherOrAdmin, anyAuthenticated } = require('../middleware/role');
+const { teacherOrAdmin, anyAuthenticated, adminOnly } = require('../middleware/role');
 const aiController = require('../controllers/ai-controller');
-const { validate, aiConfigUpdateValidation, aiConfigTestValidation, aiUserModelValidation } = require('../middleware/validation');
+const {
+    validate,
+    aiConfigUpdateValidation,
+    aiConfigTestValidation,
+    aiUserModelValidation,
+    aiEndpointCreateValidation,
+    aiEndpointUpdateValidation
+} = require('../middleware/validation');
 
 /**
  * AI 专用速率限制
@@ -63,6 +70,16 @@ router.get('/models', authMiddleware, teacherOrAdmin, aiController.getAvailableM
 
 // 获取当前模型的能力信息
 router.get('/capabilities', authMiddleware, aiController.getModelCapabilities);
+
+// 渠道端点管理（渠道 → 端点 → 模型）。
+// 仅管理员：端点配置决定请求发往哪个地址、带哪把密钥，属于基础设施配置而非个人偏好。
+// 真实密钥永不出现在响应里（服务层只回 hasOwnKey 标记）。
+router.get('/endpoints', authMiddleware, adminOnly, aiController.getEndpoints);
+router.post('/endpoints', authMiddleware, adminOnly, validate(aiEndpointCreateValidation), aiController.createEndpoint);
+router.put('/endpoints/:id', authMiddleware, adminOnly, validate(aiEndpointUpdateValidation), aiController.updateEndpoint);
+router.delete('/endpoints/:id', authMiddleware, adminOnly, aiController.deleteEndpoint);
+// 会真实打一次上游，套用与 /check 相同的限流器
+router.post('/endpoints/:id/test', authMiddleware, adminOnly, aiCheckLimiter, aiController.testEndpoint);
 
 // 用户级模型偏好：所有人都能改，且只对自己生效（anyAuthenticated 覆盖 admin/teacher/student）
 router.get('/selectable-models', authMiddleware, anyAuthenticated, aiController.getSelectableModels);

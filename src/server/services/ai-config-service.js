@@ -17,6 +17,8 @@ const aiService = require('./ai-service');
 const { getPresetModels } = require('./preset-models');
 const aiConfigManager = require('./ai-config-manager');
 const aiUserModelStore = require('./ai-user-model-store');
+const endpointStore = require('./ai-endpoint-store');
+const endpointRegistry = require('./ai-endpoint-registry');
 
 // ai-models.json 与控制器同目录层级（controllers/../data == services/../data）
 const MODELS_FILE_PATH = path.join(__dirname, '../data/ai-models.json');
@@ -79,7 +81,9 @@ class AIConfigService {
                 baseUrl,
                 model,
                 timeout: timeout || 30000,
-                maxTokens: maxTokens || 3000
+                // 未显式传入时保留现值，不再兜底成 3000
+                // （原写法会把「切渠道」顺手把 maxTokens 压回 3000，静默截断长回复）
+                maxTokens: maxTokens || undefined
             });
         } catch (err) {
             logger.error('[AI] 更新配置失败:', err && err.message ? err.message : err);
@@ -293,33 +297,44 @@ class AIConfigService {
         const presets = getPresetModels(false);
         const globalConfig = aiService.getAIConfig();
 
-        const options = presets.map(preset => {
+        const options = [];
+        for (const preset of presets) {
             const catalogModels = catalog[preset.provider] || [];
-            // 预设默认模型可能未收录在目录里，补一条兜底项，避免用户看不到当前渠道默认值
-            const hasDefault = catalogModels.some(m => m.id === preset.model);
-            const models = catalogModels.map(m => ({
-                id: m.id,
-                name: m.name,
-                capabilities: m.capabilities,
-                contextLength: m.contextLength,
-                isPresetDefault: m.id === preset.model
-            }));
-            if (!hasDefault && preset.model) {
-                models.unshift({
-                    id: preset.model,
-                    name: preset.model,
-                    capabilities: { vision: false, tools: false, reasoning: false },
-                    contextLength: null,
-                    isPresetDefault: true
+            const byId = new Map(catalogModels.map(m => [m.id, m]));
+
+            // 模型清单优先取「端点树上实际挂载的模型」（env 种子 ∪ 数据库覆盖）。
+            // 端点一个模型都没挂（DB 不可用等极端情况）时，才回退到渠道级清单与模型目录，
+            // 保证新结构出问题时用户看到的清单与改造前一致。
+            let ids = await endpointRegistry.listChannelModels(preset.id);
+            if (!ids.length) {
+                ids = Array.isArray(preset.models) && preset.models.length
+                    ? [...preset.models]
+                    : catalogModels.map(m => m.id);
+            }
+            // 渠道默认模型若未出现在清单/目录里，补一条兜底项，避免用户看不到当前渠道默认值
+            if (preset.model && !ids.includes(preset.model)) ids.unshift(preset.model);
+
+            const models = ids.map(id => {
+                const known = byId.get(id);
+                return {
+                    id,
+                    name: known ? known.name : id,
+                    capabilities: known ? known.capabilities : { vision: false, tools: false, reasoning: false },
+                    // 目录没收录时用渠道级规格兜底，至少让用户看到数量级
+                    contextLength: (known && known.contextLength) || preset.contextWindow || null,
+                    maxOutput: (known && known.maxOutput) || preset.maxTokens || null,
+                    isPresetDefault: id === preset.model
+                };
+            });
+            if (models.length) {
+                options.push({
+                    presetId: preset.id,
+                    presetName: preset.name,
+                    provider: preset.provider,
+                    models
                 });
             }
-            return {
-                presetId: preset.id,
-                presetName: preset.name,
-                provider: preset.provider,
-                models
-            };
-        }).filter(group => group.models.length > 0);
+        }
 
         const pref = await aiUserModelStore.getUserModel(userType, userId).catch(() => null);
 
@@ -376,7 +391,9 @@ class AIConfigService {
         }
 
         const known = this._findModelInCatalog(this._loadModelCatalog(), modelId, preset.provider);
-        if (!known && modelId !== preset.model) {
+        // 可选范围 = 模型目录收录 ∪ env 的 LLMx_MODELS 清单 ∪ 渠道默认模型
+        const declared = Array.isArray(preset.models) ? preset.models : [];
+        if (!known && !declared.includes(modelId) && modelId !== preset.model) {
             throw new AppError('指定的模型不在该渠道的可选范围内', 400);
         }
         return { preset, known };
@@ -479,6 +496,191 @@ class AIConfigService {
     }
 
     /**
+     * 组装单个模型的展示信息（能力 + 上下文 + 最大输出）。
+     * @description 目录没收录的模型不给空值，而是回退到渠道级规格 ——
+     *              否则「.env 里新加的模型」在界面上会显示成一整片「未知」。
+     */
+    _describeModel(preset, modelId) {
+        const known = this._findModelInCatalog(this._loadModelCatalog(), modelId, preset && preset.provider);
+        return {
+            id: modelId,
+            name: known ? known.name : modelId,
+            capabilities: known ? known.capabilities : { vision: false, tools: false, reasoning: false },
+            contextLength: (known && known.contextLength) || (preset && preset.contextWindow) || null,
+            maxOutput: (known && known.maxOutput) || (preset && preset.maxTokens) || null,
+            fromCatalog: !!known
+        };
+    }
+
+    /**
+     * 列出渠道 → 端点 → 模型 树（GET /api/ai/endpoints）
+     * @description 合并 env 种子与数据库覆盖；**不含任何真实密钥**，只给 hasOwnKey 标记。
+     *              includeDisabled=true 让管理端能看到被停用的端点，否则它们会凭空消失。
+     * @param {string} [channelId] - 不传返回所有渠道
+     */
+    async listEndpoints(channelId) {
+        const presets = getPresetModels(false);
+        const targets = channelId ? presets.filter(p => p.id === channelId) : presets;
+
+        const channels = [];
+        for (const preset of targets) {
+            const endpoints = await endpointRegistry.listMergedEndpoints(preset.id, { includeDisabled: true });
+            channels.push({
+                channelId: preset.id,
+                channelName: preset.name,
+                provider: preset.provider,
+                strategy: preset.endpointStrategy || 'priority',
+                // 渠道级规格，供端点未覆盖字段的展示与前端默认值参考
+                channelDefaults: {
+                    protocol: preset.protocol,
+                    timeout: preset.timeout,
+                    maxTokens: preset.maxTokens,
+                    contextWindow: preset.contextWindow,
+                    models: preset.models
+                },
+                endpoints: endpoints.map(ep => ({
+                    id: ep.id,
+                    label: ep.label,
+                    baseUrl: ep.baseUrl,
+                    hasOwnKey: !!ep.apiKey && !ep.inheritsKey,
+                    // env 种子端点没有数据库行：可停用/覆盖（会新建 DB 行），但不可删除
+                    editable: typeof ep.id === 'number',
+                    inherited: !ep.inheritsKey ? false : true,
+                    protocol: ep.protocol,
+                    timeout: ep.timeout,
+                    maxTokens: ep.maxTokens,
+                    enabled: ep.enabled !== false,
+                    priority: ep.priority,
+                    source: ep.source,
+                    extraParams: ep.extraParams || {},
+                    models: (ep.models || []).map(m => this._describeModel(preset, m))
+                }))
+            });
+        }
+
+        return { status: 200, body: standardResponse(true, { channels }) };
+    }
+
+    /**
+     * 新增端点（POST /api/ai/endpoints）
+     */
+    async createEndpoint(body) {
+        try {
+            const created = await endpointStore.createEndpoint(body);
+            return { status: 201, body: standardResponse(true, { endpoint: created }) };
+        } catch (err) {
+            // normalizeEndpoint 抛的是带 status=400 的校验错误，直接透传给用户
+            if (err && err.status === 400) throw new AppError(err.message, 400);
+            logger.error('[AI] 新增端点失败:', err && err.message ? err.message : err);
+            throw new AppError('端点保存失败，请稍后重试', 500);
+        }
+    }
+
+    /**
+     * 更新端点（PUT /api/ai/endpoints/:id）
+     * @description id 可以是数据库主键，也可以是 env 种子的 `env:LLM2:1` 形式：
+     *              后者没有数据库行，管理员对它做「停用 / 改模型清单」时，
+     *              按 (channelId, baseUrl) upsert 一条覆盖行 —— 这也是唯一能
+     *              「停用 env 端点」的办法，因为 env 本身不可写。
+     */
+    async updateEndpoint(id, patch) {
+        try {
+            if (typeof id === 'number' || /^\d+$/.test(String(id))) {
+                const updated = await endpointStore.updateEndpoint(Number(id), patch);
+                if (!updated) throw new AppError('端点不存在', 404);
+                return { status: 200, body: standardResponse(true, { endpoint: updated }) };
+            }
+
+            // env 种子端点：env:LLM2:1
+            const [, prefix, index] = String(id).split(':');
+            const preset = getPresetModels(false).find(p => p.id === this._channelIdOfPrefix(prefix));
+            if (!preset) throw new AppError('端点不存在', 404);
+            const seed = (preset.endpoints || [])[Number(index) - 1];
+            if (!seed) throw new AppError('端点不存在', 404);
+
+            const existing = await endpointStore.findByUrl(preset.id, seed.baseUrl);
+            if (existing) {
+                const updated = await endpointStore.updateEndpoint(existing.id, patch);
+                return { status: 200, body: standardResponse(true, { endpoint: updated }) };
+            }
+            const created = await endpointStore.createEndpoint({
+                channelId: preset.id,
+                baseUrl: seed.baseUrl,
+                label: patch.label ?? seed.label,
+                models: patch.models ?? seed.models,
+                enabled: patch.enabled !== undefined ? patch.enabled : true,
+                priority: patch.priority ?? seed.priority,
+                timeout: patch.timeout ?? null,
+                maxTokens: patch.maxTokens ?? null,
+                extraParams: patch.extraParams ?? {}
+            });
+            return { status: 200, body: standardResponse(true, { endpoint: created }) };
+        } catch (err) {
+            if (err instanceof AppError) throw err;
+            if (err && err.status === 400) throw new AppError(err.message, 400);
+            logger.error('[AI] 更新端点失败:', err && err.message ? err.message : err);
+            throw new AppError('端点更新失败，请稍后重试', 500);
+        }
+    }
+
+    /** env 前缀 → 渠道 id（LLM2 → agnes），供 env 种子端点定位渠道 */
+    _channelIdOfPrefix(prefix) {
+        const map = { LLM: 'mistral', LLM2: 'agnes', LLM3: 'openmodel', LLM4: 'sensenova' };
+        return map[prefix] || null;
+    }
+
+    /**
+     * 删除端点（DELETE /api/ai/endpoints/:id）
+     * @description 只能删除数据库行。env 种子端点删不掉（env 不可写），
+     *              想停用它请走「停用」，那会写一条 enabled=false 的覆盖行。
+     */
+    async deleteEndpoint(id) {
+        if (typeof id !== 'number' && !/^\d+$/.test(String(id))) {
+            throw new AppError('该端点来自环境变量，无法删除；可改为停用', 400);
+        }
+        const ok = await endpointStore.deleteEndpoint(Number(id));
+        if (!ok) throw new AppError('端点不存在', 404);
+        return { status: 200, body: standardResponse(true, { message: '端点已删除' }) };
+    }
+
+    /**
+     * 测试端点连通性（POST /api/ai/endpoints/:id/test）
+     * @description 用端点自己的凭证与地址打一次极小请求；不落库、不影响全局配置。
+     *              不指定 modelId 时取该端点挂载的第一个模型。
+     */
+    async testEndpoint(id, modelId) {
+        const channels = await this.listEndpoints();
+        let target = null;
+        for (const ch of channels.body.data.channels) {
+            const hit = ch.endpoints.find(e => String(e.id) === String(id));
+            if (hit) { target = { channel: ch, endpoint: hit }; break; }
+        }
+        if (!target) throw new AppError('端点不存在', 404);
+
+        const model = modelId || (target.endpoint.models[0] && target.endpoint.models[0].id);
+        if (!model) throw new AppError('该端点未挂载任何模型', 400);
+
+        const config = await endpointRegistry.resolveCallConfig(target.channel.channelId, model);
+        if (!config) throw new AppError('渠道不可用', 400);
+
+        const testConfig = { ...config, timeout: Math.min(15000, config.timeout || 15000), maxTokens: 20 };
+        try {
+            const start = Date.now();
+            await aiService.chat([{ role: 'user', content: 'test' }], { configOverride: testConfig });
+            return {
+                status: 200,
+                body: standardResponse(true, { available: true, latency: Date.now() - start, model })
+            };
+        } catch (error) {
+            logger.warn('[AI] 端点测试失败:', error.message || error);
+            return {
+                status: 200,
+                body: standardResponse(true, { available: false, error: '端点当前不可用', model })
+            };
+        }
+    }
+
+    /**
      * 把用户偏好解析成完整的 LLM 调用配置（含密钥，**仅服务端使用**）
      * @description 供 ai-controller 作为 aiService.chat 的 configOverride 传入。
      *              渠道/模型来自用户选择，timeout 与 maxTokens 沿用全局配置，
@@ -498,6 +700,13 @@ class AIConfigService {
         if (!preset || !preset.apiKey || !preset.baseUrl) return null;
 
         const globalConfig = aiService.getAIConfig();
+        // 走端点注册表：按渠道的选择策略挑出实际服务该模型的端点（含端点级凭证/超时/自定义参数）。
+        // 渠道未配置任何端点时，注册表会回退到渠道默认地址，行为与改造前一致。
+        const resolved = await endpointRegistry
+            .resolveCallConfig(pref.presetId, pref.modelId, globalConfig)
+            .catch(() => null);
+        if (resolved) return resolved;
+
         return {
             enabled: true,
             provider: preset.provider,
