@@ -4,6 +4,7 @@ const fs = require('fs');
 const aiService = require('../../services/ai-service');
 const { getPresetModels } = require('../../services/preset-models');
 const aiUserModelStore = require('../../services/ai-user-model-store');
+const endpointRegistry = require('../../services/ai-endpoint-registry');
 const aiConfigService = require('../../services/ai-config-service');
 
 jest.mock('fs', () => ({ ...jest.requireActual('fs'), readFileSync: jest.fn() }));
@@ -12,6 +13,13 @@ jest.mock('../../services/ai-config-manager', () => ({ updateAIConfig: jest.fn()
 jest.mock('../../services/preset-models', () => ({ getPresetModels: jest.fn() }));
 jest.mock('../../services/ai-user-model-store', () => ({
     getUserModel: jest.fn(), setUserModel: jest.fn(), clearUserModel: jest.fn()
+}));
+// 模型清单以「端点树上实际挂载的模型」为准，渠道级清单只在端点树为空时兜底。
+// 不 mock 端点注册表的话，它按渠道真实 env 组装端点树，结果随运行环境漂移。
+jest.mock('../../services/ai-endpoint-registry', () => ({
+    listMergedEndpoints: jest.fn(() => Promise.resolve([])),
+    listChannelModels: jest.fn(() => Promise.resolve([])),
+    resolveCallConfig: jest.fn(() => Promise.resolve(null))
 }));
 jest.mock('../../utils/logger', () => ({ error: jest.fn(), warn: jest.fn(), log: jest.fn(), info: jest.fn(), debug: jest.fn() }));
 
@@ -25,9 +33,42 @@ const CATALOG = {
     ]
 };
 
+/**
+ * 端点树 → 渠道可选模型清单，镜像 ai-endpoint-registry.listChannelModels 的语义：
+ * 汇总所有已启用端点挂载的模型，并把渠道默认模型补在最前。
+ * ai-endpoint-store 在 test 环境下返回 []，所以这里由用例显式给出端点树。
+ */
+function stubEndpoints(byChannel) {
+    endpointRegistry.listChannelModels.mockImplementation(channelId => {
+        const endpoints = byChannel[channelId] || [];
+        if (!endpoints.length) return Promise.resolve([]);
+        const preset = PRESETS_NO_KEY.find(p => p.id === channelId);
+        const seen = new Set();
+        for (const ep of endpoints) {
+            for (const m of (ep.models || [])) seen.add(m);
+        }
+        const ids = [...seen];
+        if (preset && preset.model && !seen.has(preset.model)) ids.unshift(preset.model);
+        return Promise.resolve(ids);
+    });
+}
+
+/** 该渠道有已启用的端点，且端点上挂了给定模型 */
+const endpointsWithModels = (...models) => [
+    { id: 'env:LLM:1', baseUrl: 'https://m/v1', enabled: true, models }
+];
+
+// 模型清单以「端点树上实际挂载的模型」为准，渠道级清单只在端点树为空时兜底，
+// 所以每个用例都显式给出渠道级清单与端点树，避免回退分支被静默命中。
 const PRESETS_NO_KEY = [
-    { id: 'mistral', name: 'Mistral Small', provider: 'mistral', model: 'mistral-small-latest' },
-    { id: 'agnes', name: 'Agnes AI', provider: 'agnes', model: 'agnes-2.0-flash' }
+    {
+        id: 'mistral', name: 'Mistral Small', provider: 'mistral', model: 'mistral-small-latest',
+        models: ['mistral-small-latest', 'mistral-large-latest']
+    },
+    {
+        id: 'agnes', name: 'Agnes AI', provider: 'agnes', model: 'agnes-2.0-flash',
+        models: ['agnes-2.0-flash']
+    }
 ];
 
 const PRESETS_WITH_KEY = [
@@ -46,6 +87,8 @@ beforeEach(() => {
 
 describe('getSelectableModels', () => {
     test('按渠道分组返回模型，且绝不包含 apiKey/baseUrl', async () => {
+        // 端点树为空（无 env 种子、DB 在 test 下返回 []）→ 回退渠道级清单 preset.models
+        stubEndpoints({});
         const r = await aiConfigService.getSelectableModels('admin', 1);
         const { presets } = r.body.data;
 
@@ -56,6 +99,38 @@ describe('getSelectableModels', () => {
         expect(serialized).not.toContain('sk-');
         expect(serialized).not.toContain('apiKey');
         expect(serialized).not.toContain('baseUrl');
+    });
+
+    // 新契约：模型清单以「端点树上实际挂载的模型」为准，渠道级清单只在端点树为空时兜底。
+    test('端点树挂载了模型 → 用它，不枚举模型目录', async () => {
+        stubEndpoints({ mistral: endpointsWithModels('mistral-large-latest') });
+
+        const r = await aiConfigService.getSelectableModels('admin', 1);
+        const mistral = r.body.data.presets.find(g => g.presetId === 'mistral');
+
+        // 端点只挂了 large；渠道默认模型不在其中，补在最前，其余目录项不再列入
+        expect(mistral.models.map(m => m.id)).toEqual(['mistral-small-latest', 'mistral-large-latest']);
+        expect(mistral.models[0].isPresetDefault).toBe(true);
+        // agnes 无端点 → 走渠道级清单，与 mistral 的「端点优先」互不影响
+        expect(r.body.data.presets.find(g => g.presetId === 'agnes').models.map(m => m.id))
+            .toEqual(['agnes-2.0-flash']);
+    });
+
+    test('端点树为空且渠道级清单为空 → 回退枚举模型目录', async () => {
+        stubEndpoints({});
+        const noList = [
+            { id: 'mistral', name: 'Mistral Small', provider: 'mistral', model: 'mistral-small-latest', models: [] },
+            { id: 'agnes', name: 'Agnes AI', provider: 'agnes', model: 'agnes-2.0-flash', models: [] }
+        ];
+        getPresetModels.mockImplementation(includeApiKey => (includeApiKey ? PRESETS_WITH_KEY : noList));
+
+        const r = await aiConfigService.getSelectableModels('admin', 1);
+
+        expect(r.body.data.presets.find(g => g.presetId === 'mistral').models.map(m => m.id))
+            .toEqual(['mistral-small-latest', 'mistral-large-latest']);
+        // 目录未收录的 agnes 默认模型：靠「渠道默认模型」兜底项才看得见
+        expect(r.body.data.presets.find(g => g.presetId === 'agnes').models.map(m => m.id))
+            .toEqual(['agnes-2.0-flash', 'agnes-image-2.1-flash']);
     });
 
     test('未收录的预设默认模型会补一条兜底项（isPresetDefault）', async () => {
