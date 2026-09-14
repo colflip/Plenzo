@@ -27,6 +27,7 @@
     "test": "jest",
     "test:unit": "jest --passWithNoTests",
     "test:integration": "jest --testMatch '**/tests/(integration|performance)/**/*.test.js' --setupFilesAfterEnv '<rootDir>/tests/setup.js'",
+    "test:performance": "jest --testMatch '**/__tests__/performance/**/*.perf.js'",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },
