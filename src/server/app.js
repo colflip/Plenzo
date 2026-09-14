@@ -33,6 +33,7 @@ const { warmup: dbWarmup } = require('./db/db');
 const db = require('./db/db');
 const { successResponse } = require('./utils/response');
 const { auditScheduleTypes } = require('./utils/schedule-type-audit');
+const aiOperationStore = require('./services/ai-operation-store');
 const { AppError } = require('./middleware/error');
 
 const app = express();
@@ -358,6 +359,8 @@ async function bootstrapDatabase() {
 
     try {
         await runDatabaseMigrations();
+        // 迁移成功后才启动清理：表存在是前提，否则每分钟刷一次 relation does not exist。
+        aiOperationStore.startExpirySweeper();
     } catch (err) {
         logger.error('❌ 数据库迁移失败:', db.describeError(err));
     }

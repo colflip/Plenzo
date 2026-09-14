@@ -728,6 +728,15 @@ const aiConfigTestValidation = Joi.object({
     presetId: Joi.string().allow('', null).optional()
 });
 
+// 用户自选 AI 模型（ai PUT /my-model）：只收标识符。
+// 刻意不接受 baseUrl/apiKey——凭证由服务端按 presetId 从 env 补全，避免客户端可指定请求目标。
+const aiUserModelValidation = Joi.object({
+    presetId: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 presetId', 'string.min': 'presetId 不能为空' }),
+    modelId: Joi.string().min(1).required()
+        .messages({ 'any.required': '缺少 modelId', 'string.min': 'modelId 不能为空' })
+});
+
 // 空闲时段日期格式（YYYY-MM-DD）
 const availabilityDate = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -846,6 +855,7 @@ module.exports = {
     sessionAddPairValidation,
     aiConfigUpdateValidation,
     aiConfigTestValidation,
+    aiUserModelValidation,
     teacherAvailabilitySetValidation,
     teacherAvailabilityDeleteValidation,
     teacherAvailabilityReplaceValidation,

@@ -20,10 +20,13 @@ const path = require('path');
  * GET /api/ai/status
  */
 const getStatus = (req, res) => {
+    // 暴露 LLM 护栏指标，便于线上判断「谁/哪个 provider 在吃配额、是否被限流」
+    const metrics = aiService.llmMetrics ? aiService.llmMetrics.snapshot() : null;
     res.json(successResponse({
         enabled: aiService.isAvailable(),
         provider: aiService.getAIConfig().provider,
-        role: req.user?.userType
+        role: req.user?.userType,
+        llmMetrics: metrics
     }, { requestId: req.requestId }));
 };
 
@@ -32,6 +35,7 @@ const getStatus = (req, res) => {
  */
 const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus, splitStatus } = require('../utils/shared-utils');
 const { requiresOwnDataScope, canTouchRecord } = require('../utils/admin-permissions');
+const aiOperationStore = require('../services/ai-operation-store');
 
 /**
  * 课程类型映射缓存。缓存的是 **Promise** 而不是结果值 ——
@@ -1188,11 +1192,9 @@ async function executeDataTool(toolName, args, req) {
             // 按日期和时间排序
             allSchedules.sort((a, b) => `${a.class_date} ${a.start_time}`.localeCompare(`${b.class_date} ${b.start_time}`));
 
-            // 生成预览ID
+            // 生成预览ID（持久化到 DB，跨 Serverless 实例共享）
             const previewId = `preview_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-            schedulePreviewStore.set(previewId, { previewId, groups: previewGroups, createdAt: new Date().toISOString() });
-            const expiryTimer = setTimeout(() => schedulePreviewStore.delete(previewId), 5 * 60 * 1000);
-            expiryTimer.unref();
+            await aiOperationStore.savePreview(previewId, { created_by: userId, groups: previewGroups });
 
             const uniqueTeachers = [...new Set(previewGroups.flatMap(g => g.teacherNames))];
             const uniqueStudents = [...new Set(previewGroups.map(g => g.studentName))];
@@ -1217,8 +1219,8 @@ async function executeDataTool(toolName, args, req) {
 
             const { previewId } = args;
 
-            // 从存储中获取预览数据
-            const previewData = schedulePreviewStore.get(previewId);
+            // 从存储中获取预览数据（跨实例持久化）
+            const previewData = await aiOperationStore.getPreview(previewId);
             if (!previewData) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '预览方案不存在或已过期，请重新生成' });
             }
@@ -1251,7 +1253,7 @@ async function executeDataTool(toolName, args, req) {
             const insertedIds = createdSessions.map(x => x.id);
 
             // 删除预览数据
-            schedulePreviewStore.delete(previewId);
+            await aiOperationStore.deletePreview(previewId);
 
             const uniqueTeachers = [...new Set(groups.flatMap(g => Array.isArray(g.teacherNames) ? g.teacherNames : (g.teacherName ? [g.teacherName] : [])))];
             const uniqueStudents = [...new Set(groups.map(g => g.studentName).filter(Boolean))];
@@ -1408,8 +1410,8 @@ async function executeDataTool(toolName, args, req) {
                 changes.push({ field: '新课程', newValue: '按新条件新建 (adjustment_type=2, status=confirmed)' });
             }
 
-            // 存储待确认操作
-            pendingOperationStore.set(operationId, {
+            // 存储待确认操作（跨实例持久化）
+            await aiOperationStore.saveOperation(operationId, {
                 type: 'update',
                 scheduleIds,
                 fields,
@@ -1420,10 +1422,6 @@ async function executeDataTool(toolName, args, req) {
                 newCourseTypeId,
                 createdAt: Date.now()
             });
-
-            // 5分钟后自动过期
-            const expiryTimer = setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
-            expiryTimer.unref();
 
             return {
                 type: 'schedule_operation_preview',
@@ -1483,18 +1481,14 @@ async function executeDataTool(toolName, args, req) {
             // 生成操作ID
             const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-            // 存储待确认操作
-            pendingOperationStore.set(operationId, {
+            // 存储待确认操作（跨实例持久化）
+            await aiOperationStore.saveOperation(operationId, {
                 type: 'delete',
                 scheduleIds,
                 reason,
                 schedules: existingSchedules.rows,
                 createdAt: Date.now()
             });
-
-            // 5分钟后自动过期
-            const expiryTimer = setTimeout(() => pendingOperationStore.delete(operationId), 5 * 60 * 1000);
-            expiryTimer.unref();
 
             return {
                 type: 'schedule_operation_preview',
@@ -1519,8 +1513,8 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '请提供操作ID' });
             }
 
-            // 从临时存储中获取操作信息
-            const operation = pendingOperationStore.get(operationId);
+            // 从临时存储中获取操作信息（跨实例持久化）
+            const operation = await aiOperationStore.getOperation(operationId);
 
             if (!operation) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '操作ID无效或已过期（5分钟有效期），请重新预览' });
@@ -1625,9 +1619,9 @@ async function executeDataTool(toolName, args, req) {
                             }
                         }
                         return created;
-                    });
+                    });   // 不降级：整批 sid 的归档 + 新建必须同生共死，否则会留下「原记录已归档但新课没建」的空洞
 
-                    pendingOperationStore.delete(operationId);
+                    await aiOperationStore.deleteOperation(operationId);
                     return {
                         type: 'text',
                         title: '调整成功',
@@ -1698,7 +1692,7 @@ async function executeDataTool(toolName, args, req) {
                 }
 
                 // 删除已执行的操作
-                pendingOperationStore.delete(operationId);
+                await aiOperationStore.deleteOperation(operationId);
 
                 return {
                     type: 'text',
@@ -1719,7 +1713,7 @@ async function executeDataTool(toolName, args, req) {
                 await courseSessionService.deleteSessions(scheduleIds, { id: req.user.id, actorType: 'admin' });
 
                 // 删除已执行的操作
-                pendingOperationStore.delete(operationId);
+                await aiOperationStore.deleteOperation(operationId);
 
                 const deletedList = operation.schedules.map(row => {
                     return `${row.class_date.toISOString().split('T')[0]} ${row.start_time} ${row.teacher_name}-${row.student_name} ${row.course_type_cn}`;
@@ -2158,8 +2152,17 @@ const query = asyncHandler(async (req, res) => {
         messages.push(...recentHistory);
     }
 
+    // 用户自选模型（仅本人会话生效）：未自选时为 null，后续全部走全局配置。
+    // 必须在能力判定之前解析——否则会用全局模型的能力去决定是否发图/挂工具，
+    // 与真正调用的模型不一致。
+    const userOverride = await aiConfigService.resolveUserConfig(req.user?.userType, req.user?.id).catch(err => {
+        log(`resolve user model FAILED, fallback to global: ${err.message}`);
+        return null;
+    });
+    const chatOptions = userOverride ? { configOverride: userOverride } : {};
+
     // 模型能力：提前计算，供多模态 content 构造与后续工具分流共用
-    const currentModel = aiService.getAIConfig().model;
+    const currentModel = userOverride ? userOverride.model : aiService.getAIConfig().model;
     const caps = resolveModelCapabilities(currentModel);
 
     // 校验并规整当前轮图片（仅 data URL / http(s)），最多 5 张
@@ -2220,7 +2223,7 @@ const query = asyncHandler(async (req, res) => {
 
     // 第一轮：让 LLM 决定调用哪些工具
     sendSSE('progress', { step: 'thinking', message: '正在分析您的问题...' });
-    let llmResp = await aiService.chat(messages, chatTools ? { tools: chatTools, toolChoice: 'auto' } : {});
+    let llmResp = await aiService.chat(messages, chatTools ? { ...chatOptions, tools: chatTools, toolChoice: 'auto' } : chatOptions);
     let toolCalls = toolsEnabled ? aiService.extractToolCalls(llmResp) : [];
 
     // 循环执行工具调用（最多 12 轮，支持智能排课的多步操作）
@@ -2263,7 +2266,7 @@ const query = asyncHandler(async (req, res) => {
         messages.push(...toolCallResults);
 
         sendSSE('progress', { step: 'thinking', message: '正在整理结果...' });
-        llmResp = await aiService.chat(messages, { tools: chatTools, toolChoice: 'auto' });
+        llmResp = await aiService.chat(messages, { ...chatOptions, tools: chatTools, toolChoice: 'auto' });
         toolCalls = aiService.extractToolCalls(llmResp);
     }
 
@@ -2404,7 +2407,52 @@ const getAvailableModels = asyncHandler(async (req, res) => {
  * GET /api/ai/capabilities
  */
 const getModelCapabilities = asyncHandler(async (req, res) => {
-    const data = await aiConfigService.getModelCapabilities();
+    const data = await aiConfigService.getModelCapabilities(req.user?.userType, req.user?.id);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 获取当前用户可选的 AI 模型清单
+ * GET /api/ai/selectable-models
+ */
+const getSelectableModels = asyncHandler(async (req, res) => {
+    const data = await aiConfigService.getSelectableModels(req.user?.userType, req.user?.id);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 读取当前用户自选的模型
+ * GET /api/ai/my-model
+ */
+const getMyModel = asyncHandler(async (req, res) => {
+    const data = await aiConfigService.getMyModel(req.user?.userType, req.user?.id);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 设置当前用户自选的模型（仅对本人会话生效）
+ * PUT /api/ai/my-model
+ */
+const setMyModel = asyncHandler(async (req, res) => {
+    const data = await aiConfigService.setMyModel(req.user?.userType, req.user?.id, req.body);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 验通候选模型但不保存（仅对本人会话生效）
+ * POST /api/ai/my-model/check
+ */
+const checkMyModel = asyncHandler(async (req, res) => {
+    const data = await aiConfigService.verifyUserModel(req.body);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 恢复为系统默认模型
+ * DELETE /api/ai/my-model
+ */
+const clearMyModel = asyncHandler(async (req, res) => {
+    const data = await aiConfigService.clearMyModel(req.user?.userType, req.user?.id);
     return res.json(successResponse(data, { requestId: req.requestId }));
 });
 
@@ -2418,6 +2466,11 @@ module.exports = {
     testModel,
     getAvailableModels,
     getModelCapabilities,
+    getSelectableModels,
+    getMyModel,
+    setMyModel,
+    checkMyModel,
+    clearMyModel,
     // 内部纯函数导出（仅供单元测试使用）
     _test: {
         computeDateContext,
@@ -2429,7 +2482,6 @@ module.exports = {
         resolveModelCapabilities,
         // 集成测试用：驱动 preview_schedule_update / confirm_operation 完整链路
         executeDataTool,
-        pendingOperationStore,
-        schedulePreviewStore
+        aiOperationStore
     }
 };

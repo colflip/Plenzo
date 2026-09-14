@@ -23,17 +23,8 @@ const db = require('../db/db');
 const crypto = require('./ai-config-crypto');
 const { AppError } = require('../middleware/error');
 
-// 各 provider 的默认配置（与 ai-service.PROVIDER_DEFAULTS 保持一致）
-const PROVIDER_DEFAULTS = {
-    openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', protocol: 'openai' },
-    deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', protocol: 'openai' },
-    qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', protocol: 'openai' },
-    anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-haiku-4-5-20251001', protocol: 'messages' },
-    agnes: { baseUrl: 'https://api.agnes.ai/v1', model: 'gpt-4', protocol: 'openai' },
-    openmodel: { baseUrl: 'https://api.openmodel.ai/v1', model: 'deepseek-v4-flash', protocol: 'openai' },
-    mistral: { baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', protocol: 'openai' },
-    custom: { baseUrl: '', model: 'gpt-3.5-turbo', protocol: 'openai' }
-};
+// 各 provider 的默认配置已抽到 services/ai-providers.js（单一来源），此处仅 re-export 供旧调用方兼容。
+const { PROVIDER_DEFAULTS } = require('./ai-providers');
 
 const TABLE = 'ai_config';
 const LOAD_RETRY_INTERVAL_MS = 5000;
@@ -46,6 +37,11 @@ class AIConfigStore {
         this.loadingPromise = null;
         this.nextLoadRetryAt = 0;
         this.tableReady = false; // 是否已确认 ai_config 表存在
+        // 缓存 TTL：让「切换模型」在 TTL 窗口内（默认 10s）跨实例最终一致，
+        // 避免内存缓存成为永久真相源导致的配置不生效问题。
+        this.cacheLoadedAt = 0;
+        this.cacheTtlMs = parseInt(process.env.AI_CONFIG_CACHE_TTL_MS, 10) || 10000;
+
 
         // 后台异步预热（测试环境不触发数据库访问）
         if (process.env.NODE_ENV !== 'test') {
@@ -124,12 +120,14 @@ class AIConfigStore {
                         timeout: parseInt(r.timeout, 10) || 30000,
                         maxTokens: parseInt(r.max_tokens, 10) || 8000
                     };
+                this.cacheLoadedAt = Date.now();
                 } else {
                     this.cache = null; // 只有确认无持久化记录时才使用环境变量
                 }
                 this.loaded = true;
                 this.loadError = null;
                 this.nextLoadRetryAt = 0;
+                this.cacheLoadedAt = Date.now();
                 return this.cache;
             } catch (err) {
                 this.loaded = false;
@@ -152,7 +150,22 @@ class AIConfigStore {
      * 同步获取生效配置：环境变量默认值 + 数据库覆盖项。
      * 初始加载失败后按间隔触发后台重试；当前请求仍返回稳定错误或 last-known-good。
      */
+    /**
+     * 让本实例的缓存立即失效（供 saveConfig / 管理操作调用，或跨实例通过外部信号触发）。
+     * 失效后下次 getEffectiveConfig 会回源数据库，实现配置变更跨实例最终一致。
+     */
+    markStale() {
+        this.loaded = false;
+        this.cache = null;
+    }
+
     getEffectiveConfig() {
+        // 缓存 TTL 到期：视为失效，下次回源数据库（不阻塞当前请求，先返回旧值，
+        // 后台重新加载，避免单实例成为永久真相源）。
+        if (this.loaded && this.cache && Date.now() - this.cacheLoadedAt >= this.cacheTtlMs) {
+            this.markStale();
+            this.ensureLoaded().catch(() => {});
+        }
         if (!this.loaded && this.loadError && !this.loadingPromise && Date.now() >= this.nextLoadRetryAt) {
             this.ensureLoaded().catch(() => {});
         }
@@ -230,16 +243,10 @@ class AIConfigStore {
         this.loaded = true;
         this.loadError = null;
         this.nextLoadRetryAt = 0;
-
-        // 兜底：同步写入 process.env（GET /ai/config 与 ai-service 以缓存为准，此处仅作双保险）
-        process.env.AI_PROVIDER = merged.provider;
-        process.env.AI_PROTOCOL = merged.protocol;
-        process.env.AI_API_KEY = merged.apiKey;
-        process.env.AI_BASE_URL = merged.baseUrl;
-        process.env.AI_MODEL = merged.model;
-        process.env.AI_TIMEOUT = String(merged.timeout);
-        process.env.AI_MAX_TOKENS = String(merged.maxTokens);
-        process.env.AI_ENABLED = merged.enabled ? 'true' : 'false';
+        this.cacheLoadedAt = Date.now();
+        // 注意：不再写 process.env。Serverless 多实例下写入仅对本实例有效、且不可靠，
+        // 真正的 source of truth 是 ai_config 表 + 本缓存；跨实例一致性由缓存 TTL 失效保证
+        // （见 getEffectiveConfig 的 stale 逻辑），而非依赖进程环境变量。
 
         return merged;
     }
