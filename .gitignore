@@ -32,12 +32,8 @@ dist/
 build/
 .vercel/
 
-# Tests and test tooling (local only; not required for production deployment)
-tests/
-src/server/**/__tests__/
-e2e/
-jest.config.js
-playwright.config.js
+# Test artifacts. 测试源码、fixtures、jest.config.js 都入库 —— 它们被排除过一次，
+# 结果是干净检出后 jest 找不到任何用例，CI 变成空跑。这里只忽略生成物。
 coverage/
 .nyc_output/
 playwright-report/
@@ -49,7 +45,6 @@ backstop_data/
 docs/
 CHANGELOG.md
 CONTRIBUTING.md
-.github/
 
 # Local maintenance scripts
 scripts/
