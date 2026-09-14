@@ -10,9 +10,9 @@ const { handleExportError } = require('../middleware/export-error-handler');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
 const { pipeline, scheduleQueries } = require('../services/export');
-const { successResponse, errorResponse } = require('../utils/response');
+const { successResponse } = require('../utils/response');
 const { statusToErrorCode } = require('../utils/http-status');
-const { AppError } = require('../middleware/error');
+const { AppError, asyncHandler } = require('../middleware/error');
 
 
 const studentController = {
@@ -39,13 +39,13 @@ const studentController = {
             );
 
             if (result.rows.length === 0) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' });
             }
 
-            res.json(successResponse(result.rows[0]));
+            res.json(successResponse(result.rows[0], { requestId: req.requestId }));
         } catch (error) {
             logger.error('获取学生信息错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -67,7 +67,7 @@ const studentController = {
             if (typeof status !== 'undefined') {
                 const s = Number(status);
                 if (![-1, 0, 1].includes(s)) {
-                    return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '非法状态值' }));
+                    throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '非法状态值' });
                 }
                 sets.push(`status = $${vi++}`);
                 values.push(s);
@@ -82,12 +82,17 @@ const studentController = {
                 values
             );
 
+            // UPDATE ... RETURNING 无行返回说明该 id 不存在，不能当作更新成功返回 undefined
+            if (!result.rows.length) {
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' });
+            }
+
             try { const { recordAudit } = require('../middleware/audit'); await recordAudit(req, { op: 'update_status', entityType: 'student', entityId: req.user.id, details: { status } }); } catch (_) { }
 
-            res.json(successResponse(result.rows[0]));
+            res.json(successResponse(result.rows[0], { requestId: req.requestId }));
         } catch (error) {
             logger.error('更新学生信息错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -100,6 +105,11 @@ const studentController = {
     async getAvailability(req, res, next) {
         try {
             const { startDate, endDate } = req.query;
+            // 该路由没有 Joi 校验（同组的 POST/DELETE 都有）。缺日期时
+            // date BETWEEN NULL AND NULL 恒为 NULL，会静默返回空数组，让人误以为「这期间没安排」。
+            if (!startDate || !endDate) {
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '缺少开始/结束日期' });
+            }
             // 返回新的时段字段
             const result = await db.query(
                 `SELECT id, date, morning_available, afternoon_available, evening_available
@@ -110,10 +120,10 @@ const studentController = {
                 [req.user.id, startDate, endDate]
             );
 
-            res.json(successResponse(result.rows.map(mapRowToStudentAvailability)));
+            res.json(successResponse(result.rows.map(mapRowToStudentAvailability), { requestId: req.requestId }));
         } catch (error) {
             logger.error('获取时间安排错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -134,17 +144,10 @@ const studentController = {
                 studentName: req.user.name || req.user.username,
                 queryRawData: () => scheduleQueries.queryStudentSchedule(startDate, endDate, { student_id: studentId })
             });
-            if (out.buffer) {
-                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
-                res.setHeader('Content-Length', out.buffer.length);
-                return res.end(out.buffer);
-            }
-            return res.status(out.status).json(
-                out.status >= 400
-                    ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                    : successResponse(out.body)
-            );
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+            res.setHeader('Content-Length', out.buffer.length);
+            return res.end(out.buffer);
         } catch (error) {
             return handleExportError(error, req, res);
         }
@@ -162,7 +165,7 @@ const studentController = {
             const studentId = req.user.id;
 
             if (!Array.isArray(availabilityList)) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '无效的数据格式' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '无效的数据格式' });
             }
 
             let updateCount = 0;
@@ -224,12 +227,12 @@ const studentController = {
                          updated_at = CURRENT_TIMESTAMP`,
                     params
                 );
-            });
+            }, { allowDegraded: true });   // 单条多值 UPSERT 幂等，读现值只用于计数，降级不影响写入语义
 
-            res.json(successResponse({ message: '时间安排更新成功', updateCount, insertCount }));
+            res.json(successResponse({ updateCount, insertCount }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('[setAvailability] 错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -269,10 +272,10 @@ const studentController = {
                 );
             }
 
-            res.json(successResponse({ message: '时间安排删除成功' }));
+            res.json(successResponse({ clearedSlots: cols.size }, { requestId: req.requestId }));
         } catch (error) {
             logger.error('删除时间安排错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
@@ -284,12 +287,8 @@ const studentController = {
      * @param {string} req.query.status - 课程状态过滤（可选）
      */
     async getSchedules(req, res) {
-        const out = await scheduleService.studentListSchedules(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.studentListSchedules(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -299,12 +298,8 @@ const studentController = {
      * @param {string} req.query.endDate - 结束日期
      */
     async getStatistics(req, res) {
-        const out = await scheduleService.studentStatistics(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.studentStatistics(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -312,12 +307,8 @@ const studentController = {
      * @description 获取学生仪表盘总览数据，包括本月课程数、待上课数、已完成课数、今日课程
      */
     async getOverview(req, res) {
-        const out = await scheduleService.studentOverview(req);
-        return res.status(out.status).json(
-            out.status >= 400
-                ? errorResponse({ code: statusToErrorCode(out.status), message: (out.body && (out.body.message || (out.body.error && out.body.error.message))) || '请求失败' })
-                : successResponse(out.body)
-        );
+        const data = await scheduleService.studentOverview(req);
+        res.json(successResponse(data, { requestId: req.requestId }));
     },
 
     /**
@@ -339,11 +330,11 @@ const studentController = {
 
             // 验证输入
             if (!currentPassword || !newPassword) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供当前密码和新密码' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '请提供当前密码和新密码' });
             }
 
             if (newPassword.length < 6) {
-                return next(new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '新密码长度不能少于6位' }));
+                throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '新密码长度不能少于6位' });
             }
 
             // 获取当前密码哈希
@@ -353,7 +344,7 @@ const studentController = {
             );
 
             if (result.rows.length === 0) {
-                return next(new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' }));
+                throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '未找到学生信息' });
             }
 
             const currentPasswordHash = result.rows[0].password_hash;
@@ -364,11 +355,11 @@ const studentController = {
                 isValidPassword = await bcrypt.compare(currentPassword, currentPasswordHash);
             } catch (error) {
                 logger.error('密码比较错误:', error);
-                return next(new AppError({ code: statusToErrorCode(500), statusCode: 500, message: '密码验证失败' }));
+                throw error; // 保留原始错误，交由全局 errorHandler 按 code 精确映射状态
             }
 
             if (!isValidPassword) {
-                return next(new AppError({ code: statusToErrorCode(401), statusCode: 401, message: '当前密码不正确' }));
+                throw new AppError({ code: statusToErrorCode(401), statusCode: 401, message: '当前密码不正确' });
             }
 
             // 生成新密码哈希
@@ -394,13 +385,22 @@ const studentController = {
                 // 忽略审计错误
             }
 
-            res.json(successResponse({ message: '密码修改成功' }));
+            res.json(successResponse(null, { requestId: req.requestId }));
         } catch (error) {
             logger.error('修改密码错误:', error);
-            return next(error);
+            throw error;
         }
     },
 
 };
+
+// 处理器内部改为 throw 抛错（不再自己调 next），由这里统一包一层：
+// Express 4 不会捕获 async 拒绝，不包的话抛出的 AppError 会让请求挂死。
+// 包在导出处而不是逐条路由上，避免遗漏任何一条挂载路径。
+for (const key of Object.keys(studentController)) {
+    if (typeof studentController[key] === 'function') {
+        studentController[key] = asyncHandler(studentController[key]);
+    }
+}
 
 module.exports = studentController;

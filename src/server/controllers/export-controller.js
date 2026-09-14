@@ -12,7 +12,7 @@ const db = require('../db/db');
 const { pipeline, scheduleQueries } = require('../services/export');
 const headTeacherService = require('../services/head-teacher-service');
 const ExportLogService = require('../utils/export-log-service');
-const { handleExportError } = require('../middleware/export-error-handler');
+const { handleExportError, ExportError } = require('../middleware/export-error-handler');
 const { standardResponse } = require('../middleware/validation');
 const { validateDateFormat, getTimestamp, resolveUserName } = require('../utils/shared-utils');
 
@@ -45,10 +45,10 @@ const exportController = {
 
             // ===== 2. 统一日期验证 =====
             if (!startDate || !endDate) {
-                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '缺少起止日期参数' }));
+                throw new ExportError('缺少起止日期参数', 400, 'EXPORT_DATE_REQUIRED');
             }
             if (!validateDateFormat(startDate) || !validateDateFormat(endDate)) {
-                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '日期格式无效，请使用 YYYY-MM-DD 格式' }));
+                throw new ExportError('日期格式无效，请使用 YYYY-MM-DD 格式', 400, 'EXPORT_INVALID_DATE');
             }
 
             // ===== 3. 角色权限收敛 =====
@@ -72,16 +72,16 @@ const exportController = {
                         // 不能收敛为 teacherId = 本人，否则只会导出自己名下的排课。
                         const { found, studentIds: boundStudentIds } = await headTeacherService.getBoundStudentIds(userId);
                         if (!found) {
-                            return next(new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '未找到教师信息' }));
+                            throw new ExportError('未找到教师信息', 404, 'EXPORT_TEACHER_NOT_FOUND');
                         }
                         if (boundStudentIds.length === 0) {
-                            return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '您未绑定任何学生，无法导出数据' }));
+                            throw new ExportError('您未绑定任何学生，无法导出数据', 400, 'EXPORT_NO_BOUND_STUDENTS');
                         }
 
                         if (reqStudentId) {
                             const sId = parseInt(reqStudentId);
                             if (!boundStudentIds.includes(sId)) {
-                                return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '您无权导出该学生的数据' }));
+                                throw new ExportError('您无权导出该学生的数据', 403, 'EXPORT_STUDENT_FORBIDDEN');
                             }
                             studentId = sId;
                         } else {
@@ -107,7 +107,7 @@ const exportController = {
                     break;
 
                 default:
-                    return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无导出权限' }));
+                    throw new ExportError('无导出权限', 403, 'EXPORT_FORBIDDEN');
             }
 
             // ===== 4-6. 用户名 / 导出开始日志 / 原始数据 =====
@@ -139,7 +139,7 @@ const exportController = {
             ]);
 
             if (!rawData || rawData.length === 0) {
-                return next(new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '该时间段内无数据' }));
+                throw new ExportError('该时间段内无数据', 404, 'EXPORT_NO_DATA');
             }
 
             // ===== 7-8. 生成多 Sheet Excel（统一流水线） =====
@@ -209,7 +209,11 @@ const exportController = {
             const adminId = req.user.id;
 
             if (!type || !['teacher_info', 'student_info'].includes(type)) {
-                return next(new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '缺少必要参数: type (teacher_info 或 student_info)' }));
+                throw new ExportError('缺少必要参数: type (teacher_info 或 student_info)', 400, 'EXPORT_INVALID_TYPE');
+            }
+            // 目前只有 excel 一条产出路径（不再下发 JSON 让前端拼文件），其余格式一律拒绝
+            if (format !== 'excel') {
+                throw new ExportError('不支持的导出格式，请使用 excel', 400, 'EXPORT_INVALID_FORMAT');
             }
 
             const adminName = await resolveUserName(db, 'admin', adminId);
@@ -224,22 +228,33 @@ const exportController = {
                 logger.warn('记录导出日志失败:', e.message);
             }
 
-            let exportData, filename;
+            let exportData, sheetName;
 
             if (type === 'teacher_info') {
                 exportData = await scheduleQueries.exportTeacherInfo();
-                filename = `教师信息数据_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+                sheetName = '教师信息';
             } else {
                 exportData = await scheduleQueries.exportStudentInfo();
-                filename = `学生信息数据_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+                sheetName = '学生信息';
             }
+
+            // 空集不生成空文件：既浪费一次 Excel 组装，也让用户拿到一个「打不开的表格」而不知原因
+            if (!exportData || exportData.length === 0) {
+                throw new ExportError('没有可导出的数据', 404, 'EXPORT_NO_DATA');
+            }
+
+            const suffix = format === 'excel' ? 'xlsx' : 'csv';
+            const filename = `${type === 'teacher_info' ? '教师信息数据' : '学生信息数据'}_${new Date().toISOString().split('T')[0]}.${suffix}`;
+
+            // 信息类导出同样走 Excel 流水线，不再把数据塞进 JSON 让前端自己拼文件
+            const excelResult = await pipeline.generateInfoExcel(exportData, filename, sheetName);
 
             if (logId) {
                 try {
                     await logService.logExportSuccess(logId, {
                         recordCount: exportData.length,
-                        fileSize: 0,
-                        fileName: filename,
+                        fileSize: excelResult.buffer.length,
+                        fileName: excelResult.filename,
                         duration: Date.now() - startTime
                     });
                 } catch (e) {
@@ -247,13 +262,10 @@ const exportController = {
                 }
             }
 
-            return res.json(successResponse({
-                success: true,
-                data: exportData,
-                filename,
-                format,
-                recordCount: exportData.length
-            }));
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
+            res.setHeader('Content-Length', excelResult.buffer.length);
+            return res.end(excelResult.buffer);
 
         } catch (error) {
             if (logId) {

@@ -16,7 +16,7 @@ const scheduleController = {
     getAvailableTeachers: asyncHandler(async (req, res) => {
         const { date, timeSlot, startTime, endTime } = req.query;
         const teachers = await scheduleService.getAvailableTeachers(date, timeSlot, startTime, endTime);
-        res.json(successResponse(teachers));
+        res.json(successResponse(teachers, { requestId: req.requestId }));
     }),
 
     /**
@@ -26,7 +26,7 @@ const scheduleController = {
     getAvailableStudents: asyncHandler(async (req, res) => {
         const { date, timeSlot, startTime, endTime } = req.query;
         const students = await scheduleService.getAvailableStudents(date, timeSlot, startTime, endTime);
-        res.json(successResponse(students));
+        res.json(successResponse(students, { requestId: req.requestId }));
     }),
 
     /**
@@ -40,7 +40,7 @@ const scheduleController = {
         const result = await scheduleService.checkConflicts(
             teacherId, studentId, date, timeSlot, startTime, endTime
         );
-        res.json(successResponse(result));
+        res.json(successResponse(result, { requestId: req.requestId }));
     }),
 
     /**
@@ -50,7 +50,7 @@ const scheduleController = {
     createSchedule: asyncHandler(async (req, res) => {
         // req.body 已通过 Joi 验证
         const result = await scheduleService.createSchedule(req.body, req.user.id);
-        res.status(201).json(successResponse(result));
+        res.status(201).json(successResponse(result, { requestId: req.requestId }));
     }),
 
     /**
@@ -59,7 +59,7 @@ const scheduleController = {
      */
     getScheduleTypes: asyncHandler(async (req, res) => {
         const types = await scheduleService.getScheduleTypes();
-        res.json(successResponse(types));
+        res.json(successResponse(types, { requestId: req.requestId }));
     }),
 
     /**
@@ -68,8 +68,9 @@ const scheduleController = {
      */
     confirmTeacher: asyncHandler(async (req, res) => {
         const { id } = req.params;
-        await scheduleService.confirmSchedule(id, req.user.id, false);
-        res.json(successResponse({ message: '课程已确认' }));
+        const { teacher_uid: teacherUid } = req.body || {};
+        const result = await scheduleService.confirmSchedule(id, teacherUid, req.user.id, false);
+        res.json(successResponse({ message: '课程已确认', status: result.status }, { requestId: req.requestId }));
     }),
 
     /**
@@ -78,8 +79,9 @@ const scheduleController = {
      */
     confirmAdmin: asyncHandler(async (req, res) => {
         const { id } = req.params;
-        await scheduleService.confirmSchedule(id, req.user.id, true);
-        res.json(successResponse({ message: '课程已确认' }));
+        const { teacher_uid: teacherUid } = req.body || {};
+        const result = await scheduleService.confirmSchedule(id, teacherUid, req.user.id, true);
+        res.json(successResponse({ message: '课程已确认', status: result.status }, { requestId: req.requestId }));
     })
 };
 
