@@ -830,6 +830,9 @@
                                     <button id="addAIModelBtn" class="add-btn">
                                         <span class="material-icons-round">add</span> 添加模型
                                     </button>
+                                    <button id="addEndpointBtn" class="add-btn">
+                                        <span class="material-icons-round">add</span> 新增端点
+                                    </button>
                                 </div>
                                 <div class="settings-view-actions" data-actions-for="feedback-view">
                                     <button id="addFeedbackBtn" class="add-btn">
@@ -965,12 +968,13 @@
                                 </div>
                             </div>
 
-                            <!-- 统一模型表格 -->
+                            <!-- 统一模型表格：渠道 → 端点 → 模型 整合在同一张表里 -->
                             <div class="table-container">
                                 <table class="ai-models-table">
                                     <thead>
                                         <tr>
                                             <th>模型服务商</th>
+                                            <th>端点</th>
                                             <th>模型 ID</th>
                                             <th>协议</th>
                                             <th>能力</th>
@@ -982,23 +986,6 @@
                                         <!-- 通过 JS 动态加载 -->
                                     </tbody>
                                 </table>
-                            </div>
-
-                            <!-- 渠道端点：渠道 → 端点 → 模型 -->
-                            <div class="ai-endpoints-section">
-                                <div class="ai-endpoints-head">
-                                    <div>
-                                        <h4>渠道端点</h4>
-                                        <p class="ai-endpoints-hint">
-                                            一个渠道可挂多个服务地址，每个地址下挂自己的模型。
-                                            环境变量里的端点只能「停用/覆盖」，不能删除。
-                                        </p>
-                                    </div>
-                                    <button class="ai-btn" id="addEndpointBtn" type="button">新增端点</button>
-                                </div>
-                                <div id="aiEndpointsBody" class="ai-endpoints-body">
-                                    <!-- 通过 JS 动态加载 -->
-                                </div>
                             </div>
                         </div>
 
@@ -1017,37 +1004,37 @@
                                     <label for="aiEpLabel">端点名称</label>
                                     <input type="text" id="aiEpLabel" placeholder="例如：主站 / 备用">
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group form-group-wide">
                                     <label for="aiEpBaseUrl">服务地址</label>
                                     <input type="url" id="aiEpBaseUrl" required placeholder="https://api.example.com/v1">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiEpApiKey">端点独立密钥（留空则继承渠道）</label>
-                                    <input type="password" id="aiEpApiKey" placeholder="留空表示继承渠道密钥">
+                                    <label for="aiEpApiKey">端点独立密钥</label>
+                                    <input type="password" id="aiEpApiKey" placeholder="留空则继承渠道密钥">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiEpModels">挂载模型（逗号分隔）</label>
-                                    <input type="text" id="aiEpModels" placeholder="agnes-3.0-flash,agnes-2.5-pro">
+                                    <label for="aiEpModels">挂载模型</label>
+                                    <input type="text" id="aiEpModels" placeholder="逗号分隔，如 agnes-3.0-flash,agnes-2.5-pro">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiEpTimeout">超时（毫秒，留空继承渠道）</label>
-                                    <input type="number" id="aiEpTimeout" min="1" max="600000" placeholder="600000">
+                                    <label for="aiEpTimeout">超时（毫秒）</label>
+                                    <input type="number" id="aiEpTimeout" min="1" max="600000" placeholder="留空继承渠道，如 600000">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiEpMaxTokens">最大输出（留空继承渠道）</label>
-                                    <input type="number" id="aiEpMaxTokens" min="1" max="200000" placeholder="65536">
+                                    <label for="aiEpMaxTokens">最大输出</label>
+                                    <input type="number" id="aiEpMaxTokens" min="1" max="200000" placeholder="留空继承渠道，如 65536">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiEpPriority">优先级（越小越优先）</label>
-                                    <input type="number" id="aiEpPriority" value="100">
-                                </div>
-                                <div class="form-group">
-                                    <label for="aiEpParams">自定义参数（JSON，透传给上游）</label>
-                                    <textarea id="aiEpParams" rows="3" placeholder='{"temperature":0.3}'></textarea>
+                                    <label for="aiEpPriority">优先级</label>
+                                    <input type="number" id="aiEpPriority" value="100" placeholder="越小越优先">
                                 </div>
                                 <div class="form-group ai-ep-checkbox">
                                     <label for="aiEpEnabled">启用该端点</label>
                                     <input type="checkbox" id="aiEpEnabled" checked>
+                                </div>
+                                <div class="form-group form-group-wide">
+                                    <label for="aiEpParams">自定义参数（JSON，透传给上游）</label>
+                                    <textarea id="aiEpParams" rows="3" placeholder='{"temperature":0.3}'></textarea>
                                 </div>
                                 <div class="form-actions">
                                     <button type="button" id="cancelAIEndpointFormBtn" class="btn btn-secondary">取消</button>
@@ -1072,6 +1059,10 @@
                                     <input type="text" id="aiModelProvider" required placeholder="例如：openmodel">
                                 </div>
                                 <div class="form-group">
+                                    <label for="aiModelModelName">模型标识</label>
+                                    <input type="text" id="aiModelModelName" required placeholder="例如：gpt-4o-mini">
+                                </div>
+                                <div class="form-group">
                                     <label for="aiModelProtocol">协议</label>
                                     <select id="aiModelProtocol" required>
                                         <option value="openai">OpenAI Chat Completions</option>
@@ -1079,16 +1070,12 @@
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiModelApiKey">API Key</label>
-                                    <input type="password" id="aiModelApiKey" required placeholder="sk-... 或 om-...">
-                                </div>
-                                <div class="form-group">
                                     <label for="aiModelBaseUrl">API 基础地址</label>
                                     <input type="url" id="aiModelBaseUrl" required placeholder="https://api.example.com/v1">
                                 </div>
                                 <div class="form-group">
-                                    <label for="aiModelModelName">模型标识</label>
-                                    <input type="text" id="aiModelModelName" required placeholder="例如：gpt-4o-mini">
+                                    <label for="aiModelApiKey">API Key</label>
+                                    <input type="password" id="aiModelApiKey" required placeholder="sk-... 或 om-...">
                                 </div>
                                 <div class="form-group">
                                     <label for="aiModelTimeout">超时时间（毫秒）</label>

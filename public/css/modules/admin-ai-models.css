@@ -304,7 +304,8 @@
 }
 
 /* 表单样式 */
-#aiModelFormContainer {
+#aiModelFormContainer,
+#aiEndpointFormContainer {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -313,9 +314,11 @@
     border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     z-index: 1000;
-    width: 90%;
-    max-width: 520px;
-    max-height: 80vh;
+    /* 宽度跟着内容收缩（见下方两列栅格），只设上限；桌面端的 .form-container
+       600px 固定宽度在 admin-desktop.css 里，靠下面的媒体查询按 id 覆盖回来。 */
+    width: fit-content;
+    max-width: min(92vw, 780px);
+    max-height: 88vh;
     overflow-y: auto;
 }
 
@@ -357,93 +360,112 @@
     border-top: 1px solid #f0f0f0;
 }
 
-/* ===========================================
-   渠道端点（渠道 → 端点 → 模型）
-   =========================================== */
-.ai-endpoints-section {
-    margin-top: 24px;
-    padding: 16px 18px;
-    background: #fff;
-    border: 1px solid #eee;
-    border-radius: 8px;
+/* 两个 AI 弹窗：每行两个字段，标签与控件同行。沿用 #userForm 的两列 max-content
+   轨道 —— 列宽由内容决定，弹窗 width:fit-content 才能真的跟着内容收放。 */
+#aiModelForm,
+#aiEndpointForm {
+    grid-template-columns: repeat(2, minmax(0, max-content));
+    gap: 16px 24px;
 }
 
-.ai-endpoints-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 12px;
-}
-
-.ai-endpoints-head h4 {
-    margin: 0 0 4px;
-    font-size: var(--fs-400);
-    font-weight: 600;
-    color: #333;
-}
-
-.ai-endpoints-hint {
-    margin: 0;
-    font-size: var(--fs-300);
-    color: #94a3b8;
-    line-height: 1.5;
-}
-
-.ai-endpoints-body {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.ai-ep-channel {
-    border: 1px dashed #e2e8f0;
-    border-radius: 6px;
-    padding: 10px 12px;
-}
-
-.ai-ep-channel-name {
-    font-size: var(--fs-300);
-    font-weight: 600;
-    color: #475569;
-    margin-bottom: 8px;
+#aiModelForm .form-group,
+#aiEndpointForm .form-group {
     display: flex;
     align-items: center;
     gap: 8px;
-}
-
-.ai-ep-strategy {
-    font-weight: 400;
-    color: #94a3b8;
-}
-
-.ai-ep-card {
-    border: 1px solid #eef2f7;
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    background: #fcfdfe;
-}
-
-.ai-ep-card.disabled {
-    opacity: 0.55;
-}
-
-.ai-ep-card:last-child {
+    /* 行间距交给栅格 gap，避免和上面那条 margin-bottom: 16px 叠加 */
     margin-bottom: 0;
 }
 
-.ai-ep-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
+#aiModelForm .form-group label,
+#aiEndpointForm .form-group label {
+    white-space: nowrap;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+#aiModelForm .form-group input,
+#aiModelForm .form-group select,
+#aiEndpointForm .form-group input,
+#aiEndpointForm .form-group select,
+#aiEndpointForm .form-group textarea {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 130px;
+}
+
+/* 地址、密钥、模型清单这类长文本字段独占整行，避免被两列轨道压窄 */
+#aiModelForm .form-group-wide,
+#aiEndpointForm .form-group-wide {
+    grid-column: 1 / -1;
+}
+
+/* 复选框不参与拉伸，否则会被 flex:1 1 0 撑满整格 */
+#aiEndpointForm .form-group input[type="checkbox"] {
+    width: auto;
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+@media (min-width: 769px) {
+
+    /* 桌面端 .form-container 被强制成 600px 固定宽度，这里按 id 覆盖回内容宽度 */
+    #aiModelFormContainer.form-container,
+    #aiEndpointFormContainer.form-container {
+        width: fit-content !important;
+        max-width: min(92vw, 780px) !important;
+    }
+}
+
+@media (max-width: 640px) {
+
+    /* 窄屏回落单列，标签与控件仍同行 */
+    #aiModelForm,
+    #aiEndpointForm {
+        grid-template-columns: 1fr;
+        gap: 12px 16px;
+    }
+
+    #aiModelForm .form-group,
+    #aiEndpointForm .form-group {
+        flex-wrap: wrap;
+    }
+
+    #aiModelForm .form-group input,
+    #aiModelForm .form-group select,
+    #aiEndpointForm .form-group input,
+    #aiEndpointForm .form-group select,
+    #aiEndpointForm .form-group textarea {
+        min-width: 0;
+    }
+}
+
+/* ===========================================
+   统一模型表格里的端点单元格（渠道 → 端点 → 模型）
+   =========================================== */
+/* 端点行有两三行内容，居中对齐会让同行的渠道名浮在半空 */
+.ai-row-endpoint > td {
+    vertical-align: top;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+.ai-row-endpoint.disabled .ai-ep-title,
+.ai-row-endpoint.disabled .ai-ep-models,
+.ai-row-endpoint.disabled .ai-ep-url {
+    opacity: 0.5;
+}
+
+/* 渠道没有端点、端点接口没回来时占位，别让单元格塌成空白 */
+.ai-ep-none {
+    font-size: var(--fs-300);
+    color: #94a3b8;
 }
 
 .ai-ep-title {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     font-size: var(--fs-300);
     font-weight: 600;
@@ -476,17 +498,7 @@
     color: #b91c1c;
 }
 
-.ai-ep-meta {
-    margin-top: 6px;
-    font-size: var(--fs-200);
-    color: #94a3b8;
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-}
-
 .ai-ep-models {
-    margin-top: 8px;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -504,18 +516,6 @@
 .ai-ep-model .ai-ep-model-caps {
     color: #94a3b8;
     margin-left: 4px;
-}
-
-.ai-ep-actions {
-    display: flex;
-    gap: 6px;
-}
-
-.ai-ep-empty {
-    color: #94a3b8;
-    font-size: var(--fs-300);
-    padding: 12px;
-    text-align: center;
 }
 
 #aiEndpointForm textarea {

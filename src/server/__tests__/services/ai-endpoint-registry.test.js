@@ -5,6 +5,12 @@
  *              所以注册表在无 DB 覆盖时的行为 = 纯 env 视图，正好覆盖向后兼容场景。
  */
 
+// registry → store → db：不 mock 的话 require 链会拉起真实数据库连接，
+// 让这个纯逻辑用例在 CI/沙箱里被资源限制杀掉。
+jest.mock('../../db/db', () => ({
+    query: jest.fn().mockResolvedValue({ rows: [] })
+}));
+
 const { buildEnvEndpoints } = require('../../services/preset-models');
 const registry = require('../../services/ai-endpoint-registry');
 
