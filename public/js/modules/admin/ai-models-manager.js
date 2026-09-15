@@ -309,7 +309,7 @@ function renderModelsTable() {
     }
 
     if (!presetModels.length && !customModels.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:40px 20px;">暂无模型，请在环境变量中配置预设模型或添加自定义模型</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:40px 20px;">暂无模型，请在环境变量中配置预设模型或添加自定义模型</td></tr>';
         return;
     }
 
@@ -334,8 +334,9 @@ function renderModelsTable() {
             continue;
         }
         endpoints.forEach((ep, i) => {
+            const isFirst = i === 0;
             const isLast = i === endpoints.length - 1;
-            rows.push(renderChannelRow(model, ep, esc, isLast));
+            rows.push(renderChannelRow(model, ep, esc, isLast, epHint, isFirst));
         });
     }
 
@@ -354,7 +355,6 @@ function renderModelsTable() {
                 <span class="ai-model-source custom">自定义</span>
             </td>
             <td><span class="ai-ep-none">无端点</span></td>
-            <td><span class="ai-model-id">${esc(model.model)}</span></td>
             <td><span class="ai-protocol-tag">${esc(model.protocol)}</span></td>
             <td><div class="ai-caps">${renderCapsTags(getModelCapabilities(model.model))}</div></td>
             <td><span class="ai-status ${inUse ? 'in-use' : 'checking'}" ${statusAttr}><span class="ai-status-dot"></span>${inUse ? '使用中' : '检测中...'}</span></td>
@@ -376,12 +376,12 @@ function renderModelsTable() {
  * @param {boolean} [showDefaultModel] - 是否在本行补出渠道默认模型（该渠道最后一行）
  * @param {string|null} [epHint] - 端点接口未就绪时的占位文案（加载中/加载失败）
  */
-function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null) {
+function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null, isFirst = true) {
     const inUse = isInUse(model);
     const statusAttr = `data-preset-id="${esc(model.id)}"`;
 
-    // 渠道级操作：切换/测试打的是渠道默认模型，只在该渠道最后一行出现一次，
-    // 否则同一渠道的每个端点行都会重复一组一模一样的按钮。
+    // 渠道级「切换 / 测试」只在该渠道最后一行出现一次：渠道级测试打的是默认模型，
+    // 与端点级测试不是同一回事，**不能**让端点行也带测试 —— 否则同一行会出现两个测试按钮。
     const channelActions = showDefaultModel
         ? `<button class="ai-btn ai-btn-switch" data-preset-id="${esc(model.id)}" ${inUse ? 'disabled' : ''}>${inUse ? '使用中' : '切换'}</button>
                <button class="ai-btn ai-btn-test" data-preset-id="${esc(model.id)}">测试</button>`
@@ -395,46 +395,77 @@ function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null
     let actionsHtml;
 
     if (ep) {
+        // 当前端点 = 渠道 inUse 且该端点挂载了 currentConfig.model；
+        // 用于把状态从「所有端点都启用」区分出「当前生效 vs 候选 vs 停用」。
+        const isCurrent = inUse && Array.isArray(ep.models)
+            && ep.models.some(m => m.id === (currentConfig && currentConfig.model));
+
         const badges = [
-            ep.source === 'env' ? '<span class="ai-ep-badge env">环境变量</span>' : '<span class="ai-ep-badge">数据库</span>',
-            ep.hasOwnKey ? '<span class="ai-ep-badge">独立密钥</span>' : '<span class="ai-ep-badge">继承渠道</span>',
-            ep.enabled ? '' : '<span class="ai-ep-badge off">已停用</span>'
+            ep.source === 'env' ? '<span class="ai-ep-badge env">env</span>' : '<span class="ai-ep-badge db">db</span>',
+            ep.hasOwnKey ? '<span class="ai-ep-badge key">独立 key</span>' : '',
+            ep.enabled ? '' : '<span class="ai-ep-badge off">停用</span>'
         ].join('');
 
-        endpointCell = `<div class="ai-ep-title">${esc(ep.label)}${badges}</div>
-            <div class="ai-ep-url">${esc(ep.baseUrl)}</div>`;
+        // 完整 URL 塞 title，行内只显示去掉协议头的紧凑形式，避免每行挤下一长串字符
+        const shortUrl = (ep.baseUrl || '').replace(/^https?:\/\//, '');
 
-        const modelTags = ep.models.map(m =>
-            `<span class="ai-ep-model">${esc(m.name)}${renderModelCapHint(m)}</span>`);
+        // 模型 tag：每行一个，name + 上下文/输出/视觉/工具 的紧凑简写
+        const modelTags = ep.models.map(m => {
+            const ctx = formatTokenCount(m.contextLength);
+            const out = formatTokenCount(m.maxOutput);
+            const cBits = [];
+            const caps = m.capabilities || {};
+            if (caps.vision) cBits.push('视');
+            if (caps.tools) cBits.push('工');
+            const spec = [ctx, out].filter(Boolean).join('/');
+            const tail = [spec, cBits.join('/')].filter(Boolean).join(' ');
+            return `<span class="ai-ep-model" title="${esc(m.id)} · ${esc(modelCapSummary(m))}">` +
+                `${esc(m.name)}${tail ? ` <span class="ai-ep-model-spec">${esc(tail)}</span>` : ''}` +
+                `</span>`;
+        });
         if (showDefaultModel && model.model && !ep.models.some(m => m.id === model.model)) {
-            modelTags.push(`<span class="ai-ep-model">${esc(model.model)}<span class="ai-ep-model-caps">(默认)</span></span>`);
+            modelTags.push(`<span class="ai-ep-model ai-ep-model-default">${esc(model.model)} <span class="ai-ep-model-spec">(默认)</span></span>`);
         }
         modelsHtml = modelTags.length ? modelTags.join('') : '<span class="ai-ep-none">未挂载模型</span>';
+
+        // 端点 cell 整体：标题（label + 徽标）+ 短地址 + 模型清单 —— 紧凑一行排开
+        endpointCell = `<div class="ai-ep-title"><span class="ai-ep-label">${esc(ep.label)}</span>${badges}</div>` +
+            `<div class="ai-ep-url" title="${esc(ep.baseUrl)}">${esc(shortUrl)}</div>` +
+            `<div class="ai-ep-models">${modelsHtml}</div>`;
 
         protocol = ep.protocol || '-';
         // 端点挂多个模型时能力各异，取并集：这一列回答「这个端点能做什么」
         capsHtml = renderCapsTags(unionCapabilities(ep.models));
-        statusHtml = `<span class="ai-status ${ep.enabled ? 'available' : 'unknown'}"><span class="ai-status-dot"></span>${ep.enabled ? '已启用' : '已停用'}</span>`;
 
+        // 状态三态：当前端点「已启用」、其他可用端点「准备」、停用端点「停用」。
+        // 这样多个端点同时挂着时，状态列不再全显示「已启用」。
+        const statusClass = isCurrent ? 'in-use' : (ep.enabled ? 'ready' : 'off');
+        const statusText = isCurrent ? '已启用' : (ep.enabled ? '准备' : '停用');
+        statusHtml = `<span class="ai-status ${statusClass}"><span class="ai-status-dot"></span>${statusText}</span>`;
+
+        // 端点行操作：去掉「测试」按钮，避免与渠道行的测试重复。
+        // 想测端点连通性请用「编辑」旁边的 test 端点接口，或在端点详情中触发。
         actionsHtml = `<button class="ai-btn ai-btn-edit" data-ep-edit="${esc(ep.id)}">编辑</button>
-               <button class="ai-btn ai-btn-test" data-ep-test="${esc(ep.id)}">测试</button>
                <button class="ai-btn" data-ep-toggle="${esc(ep.id)}">${ep.enabled ? '停用' : '启用'}</button>
                ${ep.editable ? `<button class="ai-btn ai-btn-delete" data-ep-del="${esc(ep.id)}">删除</button>` : ''}`;
     } else {
         endpointCell = `<span class="ai-ep-none">${esc(epHint || '无端点')}</span>`;
-        modelsHtml = `<span class="ai-ep-model">${esc(model.model)}<span class="ai-ep-model-caps">(默认)</span></span>`;
+        modelsHtml = `<span class="ai-ep-model">${esc(model.model)}<span class="ai-ep-model-spec">(默认)</span></span>`;
         protocol = model.protocol;
         capsHtml = renderCapsTags(getModelCapabilities(model.model));
         statusHtml = `<span class="ai-status ${inUse ? 'in-use' : 'checking'}" ${statusAttr}><span class="ai-status-dot"></span>${inUse ? '使用中' : '检测中...'}</span>`;
         actionsHtml = '';
     }
 
-    const channelBadges = `<span class="ai-model-name">${esc(model.name)}</span><span class="ai-model-source preset">预设</span>`;
+    // 模型服务商列：只在每个渠道的第一行渲染，后续端点行留空（视觉上像 rowspan 合并），
+    // 避免每个端点行都重复一遍「渠道名 + 预设」徽标浪费空间。
+    const channelCell = isFirst
+        ? `<span class="ai-model-name">${esc(model.name)}</span><span class="ai-model-source preset">预设</span>`
+        : '';
 
     return `<tr class="ai-row-endpoint${ep && !ep.enabled ? ' disabled' : ''}">
-        <td>${channelBadges}</td>
+        <td>${channelCell}</td>
         <td>${endpointCell}</td>
-        <td><div class="ai-ep-models">${modelsHtml}</div></td>
         <td><span class="ai-protocol-tag">${esc(protocol)}</span></td>
         <td><div class="ai-caps">${capsHtml}</div></td>
         <td>${statusHtml}</td>
