@@ -522,10 +522,11 @@ class AIConfigService {
         const presets = getPresetModels(false);
         const targets = channelId ? presets.filter(p => p.id === channelId) : presets;
 
-        const channels = [];
-        for (const preset of targets) {
+        // 并行读各渠道：某个 DB 查询慢时最多只阻塞一次 READ_TIMEOUT_MS，
+        // 不要按渠道串行放大为 4 × timeout。
+        const channels = await Promise.all(targets.map(async preset => {
             const endpoints = await endpointRegistry.listMergedEndpoints(preset.id, { includeDisabled: true });
-            channels.push({
+            return {
                 channelId: preset.id,
                 channelName: preset.name,
                 provider: preset.provider,
@@ -555,8 +556,8 @@ class AIConfigService {
                     extraParams: ep.extraParams || {},
                     models: (ep.models || []).map(m => this._describeModel(preset, m))
                 }))
-            });
-        }
+            };
+        }));
 
         return { status: 200, body: standardResponse(true, { channels }) };
     }
