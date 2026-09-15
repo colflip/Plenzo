@@ -554,23 +554,17 @@
    - 状态三态：启用(in-use) / 准备(ready) / 停用(off)
    =========================================== */
 
-/* 列宽：6 列固定布局，减少水平空隙 */
+/* 列宽按内容自适应：去掉 table-layout: fixed 和固定 width，
+   让浏览器根据每列内容自动分配 —— 端点 cell 内容多自然变宽，
+   加载中的占位文案「加载中…」也不会把整列撑到 260px。
+   只保留少量列的居中对齐（协议、状态）保持可读性。 */
 .ai-models-table {
-    table-layout: fixed;
     width: 100%;
 }
-.ai-models-table th:nth-child(1),
-.ai-models-table td:nth-child(1) { width: 110px; }
-.ai-models-table th:nth-child(2),
-.ai-models-table td:nth-child(2) { width: auto; min-width: 260px; }
 .ai-models-table th:nth-child(3),
-.ai-models-table td:nth-child(3) { width: 72px; text-align: center; }
-.ai-models-table th:nth-child(4),
-.ai-models-table td:nth-child(4) { width: 110px; }
+.ai-models-table td:nth-child(3) { text-align: center; }
 .ai-models-table th:nth-child(5),
-.ai-models-table td:nth-child(5) { width: 80px; text-align: center; }
-.ai-models-table th:nth-child(6),
-.ai-models-table td:nth-child(6) { width: auto; min-width: 180px; }
+.ai-models-table td:nth-child(5) { text-align: center; }
 
 /* td 整体收紧 */
 .ai-models-table th,
