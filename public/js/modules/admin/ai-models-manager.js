@@ -16,6 +16,10 @@ let detectTimer = null;
 
 const apiUtils = window.apiUtils;
 
+// 合并表格后一个渠道可能占多行（一行一个端点），但渠道级的可用性状态只会渲染在
+// 「没有端点」那一行上；记下这批 id，免得对没有状态单元格的渠道白打 /api/ai/check
+const presetsWithStatusCell = new Set();
+
 const REMOTE_LOAD_KEYS = ['current', 'presets', 'capabilities'];
 const loadState = {
     custom: 'loading',
@@ -38,7 +42,7 @@ function renderLoadState() {
     if (failed.length > 0) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         const firstError = loadErrors[failed[0][0]];
         if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
             cell.appendChild(window.ErrorUI.createErrorState({
@@ -59,7 +63,7 @@ function renderLoadState() {
     if (Object.values(loadState).some(state => state === 'loading')) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'ai-models-loading';
         cell.setAttribute('role', 'status');
         cell.textContent = '正在加载 AI 模型配置…';
@@ -128,7 +132,7 @@ function showConfirm(message, detail = '') {
 function initAIModelsManager() {
     loadRemoteModelData();
     bindEvents();
-    // 端点树独立加载：端点接口不可用时只影响端点区块，不该拖垮整个模型表格
+    // 端点树独立加载：端点接口不可用时只影响「端点」列，不该拖垮整个模型表格
     loadEndpoints();
 
     // 监听 AI 区块可见性：区块切到前台（showSection 加 active）时才触发状态检测，
@@ -290,7 +294,11 @@ function renderCurrentBar() {
 }
 
 /**
- * 渲染统一模型表格
+ * 渲染统一模型表格：渠道 → 端点 → 模型 三层整合在同一张表
+ * @description
+ *  一行一个端点，渠道自己的默认模型补在该渠道最后一行的「模型 ID」里（标「默认」），
+ *  所以渠道默认模型不再单独占一行 —— 它在端点树里往往已经被某个端点挂载，单列会重复。
+ *  自定义模型没有端点概念，直接作为顶层行。
  */
 function renderModelsTable() {
     const tbody = document.getElementById('aiModelsTableBody');
@@ -300,52 +308,138 @@ function renderModelsTable() {
         return;
     }
 
-    // 合并预设和自定义模型为一个列表
-    const allModels = [
-        ...presetModels.map(p => ({ ...p, _type: 'preset' })),
-        ...customModels.map((c, i) => ({ ...c, _type: 'custom', _index: i }))
-    ];
-
-    if (allModels.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:40px 20px;">暂无模型，请在环境变量中配置预设模型或添加自定义模型</td></tr>';
+    if (!presetModels.length && !customModels.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:40px 20px;">暂无模型，请在环境变量中配置预设模型或添加自定义模型</td></tr>';
         return;
     }
 
     const esc = (v) => window.SecurityUtils ? window.SecurityUtils.escapeHtml(String(v ?? '')) : String(v ?? '');
+    const rows = [];
 
-    tbody.innerHTML = allModels.map(model => {
+    // 端点接口还没回来时不要先渲染成「无端点」，否则会闪一下空态
+    const epHint = endpointsState === 'success' ? null
+        : (endpointsState === 'loading' ? '端点加载中…' : '端点加载失败');
+
+    presetsWithStatusCell.clear();
+
+    for (const preset of presetModels) {
+        const channel = epHint ? null : endpointChannels.find(c => c.channelId === preset.id);
+        const endpoints = (channel && channel.endpoints) || [];
+        const model = { ...preset, _type: 'preset' };
+
+        if (!endpoints.length) {
+            // 只有这一行带渠道级可用性状态；有端点的渠道状态列归端点所有
+            presetsWithStatusCell.add(preset.id);
+            rows.push(renderChannelRow(model, null, esc, true, epHint));
+            continue;
+        }
+        endpoints.forEach((ep, i) => {
+            const isLast = i === endpoints.length - 1;
+            rows.push(renderChannelRow(model, ep, esc, isLast));
+        });
+    }
+
+    customModels.forEach((custom, index) => {
+        const model = { ...custom, _type: 'custom', _index: index };
         const inUse = isInUse(model);
-        const caps = getModelCapabilities(model.model);
-        const capsHtml = renderCapsTags(caps);
-        const statusClass = inUse ? 'in-use' : 'checking';
-        const statusText = inUse ? '使用中' : '检测中...';
-        const statusAttr = model._type === 'preset'
-            ? `data-preset-id="${esc(model.id)}"`
-            : `data-custom-index="${model._index}"`;
+        const statusAttr = `data-custom-index="${index}"`;
+        const actionsHtml = `<button class="ai-btn ai-btn-switch" data-custom-index="${index}" ${inUse ? 'disabled' : ''}>${inUse ? '使用中' : '切换'}</button>
+               <button class="ai-btn ai-btn-test" data-custom-index="${index}">测试</button>
+               <button class="ai-btn ai-btn-edit" data-custom-index="${index}">编辑</button>
+               <button class="ai-btn ai-btn-delete" data-custom-index="${index}">删除</button>`;
 
-        const actionsHtml = model._type === 'preset'
-            ? `<button class="ai-btn ai-btn-switch" data-preset-id="${esc(model.id)}" ${inUse ? 'disabled' : ''}>${inUse ? '使用中' : '切换'}</button>
-               <button class="ai-btn ai-btn-test" data-preset-id="${esc(model.id)}">测试</button>`
-            : `<button class="ai-btn ai-btn-switch" data-custom-index="${model._index}" ${inUse ? 'disabled' : ''}>${inUse ? '使用中' : '切换'}</button>
-               <button class="ai-btn ai-btn-test" data-custom-index="${model._index}">测试</button>
-               <button class="ai-btn ai-btn-edit" data-custom-index="${model._index}">编辑</button>
-               <button class="ai-btn ai-btn-delete" data-custom-index="${model._index}">删除</button>`;
-
-        return `<tr>
+        rows.push(`<tr class="ai-row-model">
             <td>
                 <span class="ai-model-name">${esc(model.name)}</span>
-                <span class="ai-model-source ${model._type}">${model._type === 'preset' ? '预设' : '自定义'}</span>
+                <span class="ai-model-source custom">自定义</span>
             </td>
+            <td><span class="ai-ep-none">无端点</span></td>
             <td><span class="ai-model-id">${esc(model.model)}</span></td>
             <td><span class="ai-protocol-tag">${esc(model.protocol)}</span></td>
-            <td><div class="ai-caps">${capsHtml}</div></td>
-            <td><span class="ai-status ${statusClass}" ${statusAttr}><span class="ai-status-dot"></span>${statusText}</span></td>
+            <td><div class="ai-caps">${renderCapsTags(getModelCapabilities(model.model))}</div></td>
+            <td><span class="ai-status ${inUse ? 'in-use' : 'checking'}" ${statusAttr}><span class="ai-status-dot"></span>${inUse ? '使用中' : '检测中...'}</span></td>
             <td><div class="ai-actions">${actionsHtml}</div></td>
-        </tr>`;
-    }).join('');
+        </tr>`);
+    });
+
+    tbody.innerHTML = rows.join('');
 
     // 仅在 AI 区块可见时检测模型状态（去抖/缓存由 detectAllModelStatuses 统一处理）
     detectAllModelStatuses();
+}
+
+/**
+ * 渲染一个渠道的某一行。
+ * @param {Object} model - 渠道预设（含 _type: 'preset'）
+ * @param {Object|null} ep - 该行的端点；null 表示该渠道还没有端点，退化成「渠道行」
+ * @param {Function} esc - HTML 转义
+ * @param {boolean} [showDefaultModel] - 是否在本行补出渠道默认模型（该渠道最后一行）
+ * @param {string|null} [epHint] - 端点接口未就绪时的占位文案（加载中/加载失败）
+ */
+function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null) {
+    const inUse = isInUse(model);
+    const statusAttr = `data-preset-id="${esc(model.id)}"`;
+
+    // 渠道级操作：切换/测试打的是渠道默认模型，只在该渠道最后一行出现一次，
+    // 否则同一渠道的每个端点行都会重复一组一模一样的按钮。
+    const channelActions = showDefaultModel
+        ? `<button class="ai-btn ai-btn-switch" data-preset-id="${esc(model.id)}" ${inUse ? 'disabled' : ''}>${inUse ? '使用中' : '切换'}</button>
+               <button class="ai-btn ai-btn-test" data-preset-id="${esc(model.id)}">测试</button>`
+        : '';
+
+    let endpointCell;
+    let modelsHtml;
+    let protocol;
+    let capsHtml;
+    let statusHtml;
+    let actionsHtml;
+
+    if (ep) {
+        const badges = [
+            ep.source === 'env' ? '<span class="ai-ep-badge env">环境变量</span>' : '<span class="ai-ep-badge">数据库</span>',
+            ep.hasOwnKey ? '<span class="ai-ep-badge">独立密钥</span>' : '<span class="ai-ep-badge">继承渠道</span>',
+            ep.enabled ? '' : '<span class="ai-ep-badge off">已停用</span>'
+        ].join('');
+
+        endpointCell = `<div class="ai-ep-title">${esc(ep.label)}${badges}</div>
+            <div class="ai-ep-url">${esc(ep.baseUrl)}</div>`;
+
+        const modelTags = ep.models.map(m =>
+            `<span class="ai-ep-model">${esc(m.name)}${renderModelCapHint(m)}</span>`);
+        if (showDefaultModel && model.model && !ep.models.some(m => m.id === model.model)) {
+            modelTags.push(`<span class="ai-ep-model">${esc(model.model)}<span class="ai-ep-model-caps">(默认)</span></span>`);
+        }
+        modelsHtml = modelTags.length ? modelTags.join('') : '<span class="ai-ep-none">未挂载模型</span>';
+
+        protocol = ep.protocol || '-';
+        // 端点挂多个模型时能力各异，取并集：这一列回答「这个端点能做什么」
+        capsHtml = renderCapsTags(unionCapabilities(ep.models));
+        statusHtml = `<span class="ai-status ${ep.enabled ? 'available' : 'unknown'}"><span class="ai-status-dot"></span>${ep.enabled ? '已启用' : '已停用'}</span>`;
+
+        actionsHtml = `<button class="ai-btn ai-btn-edit" data-ep-edit="${esc(ep.id)}">编辑</button>
+               <button class="ai-btn ai-btn-test" data-ep-test="${esc(ep.id)}">测试</button>
+               <button class="ai-btn" data-ep-toggle="${esc(ep.id)}">${ep.enabled ? '停用' : '启用'}</button>
+               ${ep.editable ? `<button class="ai-btn ai-btn-delete" data-ep-del="${esc(ep.id)}">删除</button>` : ''}`;
+    } else {
+        endpointCell = `<span class="ai-ep-none">${esc(epHint || '无端点')}</span>`;
+        modelsHtml = `<span class="ai-ep-model">${esc(model.model)}<span class="ai-ep-model-caps">(默认)</span></span>`;
+        protocol = model.protocol;
+        capsHtml = renderCapsTags(getModelCapabilities(model.model));
+        statusHtml = `<span class="ai-status ${inUse ? 'in-use' : 'checking'}" ${statusAttr}><span class="ai-status-dot"></span>${inUse ? '使用中' : '检测中...'}</span>`;
+        actionsHtml = '';
+    }
+
+    const channelBadges = `<span class="ai-model-name">${esc(model.name)}</span><span class="ai-model-source preset">预设</span>`;
+
+    return `<tr class="ai-row-endpoint${ep && !ep.enabled ? ' disabled' : ''}">
+        <td>${channelBadges}</td>
+        <td>${endpointCell}</td>
+        <td><div class="ai-ep-models">${modelsHtml}</div></td>
+        <td><span class="ai-protocol-tag">${esc(protocol)}</span></td>
+        <td><div class="ai-caps">${capsHtml}</div></td>
+        <td>${statusHtml}</td>
+        <td><div class="ai-actions">${actionsHtml}${channelActions}</div></td>
+    </tr>`;
 }
 
 /**
@@ -358,6 +452,23 @@ function renderCapsTags(caps) {
     if (caps.tools) tags.push('<span class="ai-cap-tag tools">工具</span>');
     if (caps.reasoning) tags.push('<span class="ai-cap-tag reasoning">推理</span>');
     return tags.length ? tags.join('') : '<span style="color:#cbd5e1;font-size: var(--fs-300);">-</span>';
+}
+
+/**
+ * 汇总一组模型的能力并集（端点行用）
+ */
+function unionCapabilities(models) {
+    const union = { vision: false, tools: false, reasoning: false };
+    let any = false;
+    for (const m of models || []) {
+        const caps = (m.capabilities) || getModelCapabilities(m.id || m.name);
+        if (!caps) continue;
+        any = true;
+        union.vision = union.vision || !!caps.vision;
+        union.tools = union.tools || !!caps.tools;
+        union.reasoning = union.reasoning || !!caps.reasoning;
+    }
+    return any ? union : null;
 }
 
 /**
@@ -440,7 +551,9 @@ function isAiTableVisible() {
 
 function collectAllModels() {
     return [
-        ...presetModels.map(p => ({ ...p, _type: 'preset' })),
+        ...presetModels
+            .filter(p => presetsWithStatusCell.has(p.id))
+            .map(p => ({ ...p, _type: 'preset' })),
         ...customModels.map((c, i) => ({ ...c, _type: 'custom', _index: i }))
     ];
 }
@@ -476,14 +589,23 @@ function bindEvents() {
     document.getElementById('cancelAIModelFormBtn').addEventListener('click', closeAIModelForm);
     document.getElementById('aiModelForm').addEventListener('submit', handleAIModelFormSubmit);
 
-    // 表格事件委托
+    // 表格事件委托：模型与端点两类行共用同一个 tbody，按 data-* 前缀分流
     document.getElementById('aiModelsTableBody').addEventListener('click', (e) => {
+        const epEdit = e.target.closest('[data-ep-edit]');
+        const epTest = e.target.closest('[data-ep-test]');
+        const epToggle = e.target.closest('[data-ep-toggle]');
+        const epDel = e.target.closest('[data-ep-del]');
         const switchBtn = e.target.closest('.ai-btn-switch');
         const testBtn = e.target.closest('.ai-btn-test');
         const editBtn = e.target.closest('.ai-btn-edit');
         const deleteBtn = e.target.closest('.ai-btn-delete');
 
-        if (switchBtn) {
+        // 端点按钮先判：它们也带 .ai-btn-* 类，但 data-* 前缀不同
+        if (epEdit) openEndpointForm('edit', epEdit.dataset.epEdit);
+        else if (epTest) testEndpoint(epTest.dataset.epTest, epTest);
+        else if (epToggle) toggleEndpoint(epToggle.dataset.epToggle);
+        else if (epDel) deleteEndpoint(epDel.dataset.epDel);
+        else if (switchBtn) {
             if (switchBtn.dataset.presetId) switchToPreset(switchBtn.dataset.presetId);
             else switchToCustom(parseInt(switchBtn.dataset.customIndex));
         } else if (testBtn) {
@@ -496,7 +618,7 @@ function bindEvents() {
         }
     });
 
-    // 端点区块（渠道 → 端点 → 模型）
+    // 端点表单（新增端点按钮在页面右上角操作区）
     bindEndpointEvents();
 }
 
@@ -689,9 +811,13 @@ async function deleteCustomModel(index) {
    -------------------------------------------
    环境变量在部署平台上是只读的，所以 env 里的端点只能「停用 / 覆盖」，
    不能删除；数据库里新增的端点才能删。界面按 editable 字段区分这两种。
+   端点数据并入模型表格渲染，这里只负责取数与表单。
    =========================================== */
 
 let endpointChannels = [];
+
+// 端点接口失败不拖垮整张表：模型数据照常显示，只在「端点」列给出失败提示
+let endpointsState = 'loading'; // loading | success | error
 
 /** token 数量格式化：524288 → 512K，1048576 → 1M */
 function formatTokenCount(n) {
@@ -713,88 +839,16 @@ function renderModelCapHint(m) {
 }
 
 async function loadEndpoints() {
-    const body = document.getElementById('aiEndpointsBody');
-    if (!body) return;
     try {
         const data = await apiUtils.getSilent('/ai/endpoints');
         endpointChannels = (data && data.channels) || [];
-        renderEndpoints();
+        endpointsState = 'success';
     } catch (error) {
         endpointChannels = [];
-        body.innerHTML = '<div class="ai-ep-empty">端点配置加载失败</div>';
+        endpointsState = 'error';
         console.error('加载端点失败:', error);
     }
-}
-
-function renderEndpoints() {
-    const body = document.getElementById('aiEndpointsBody');
-    if (!body) return;
-    const esc = (v) => window.SecurityUtils ? window.SecurityUtils.escapeHtml(String(v ?? '')) : String(v ?? '');
-
-    if (!endpointChannels.length) {
-        body.innerHTML = '<div class="ai-ep-empty">暂无渠道端点</div>';
-        return;
-    }
-
-    body.innerHTML = endpointChannels.map(ch => {
-        const eps = ch.endpoints.length
-            ? ch.endpoints.map(ep => renderEndpointCard(ch, ep)).join('')
-            : '<div class="ai-ep-empty">该渠道暂无端点</div>';
-        return '<div class="ai-ep-channel">' +
-            '<div class="ai-ep-channel-name">' + esc(ch.channelName) +
-            '<span class="ai-ep-strategy">策略：' + esc(ch.strategy) + '</span></div>' +
-            eps +
-            '</div>';
-    }).join('');
-}
-
-function renderEndpointCard(ch, ep) {
-    const esc = (v) => window.SecurityUtils ? window.SecurityUtils.escapeHtml(String(v ?? '')) : String(v ?? '');
-
-    const badges = [
-        ep.source === 'env'
-            ? '<span class="ai-ep-badge env">环境变量</span>'
-            : '<span class="ai-ep-badge">数据库</span>',
-        ep.hasOwnKey
-            ? '<span class="ai-ep-badge">独立密钥</span>'
-            : '<span class="ai-ep-badge">继承渠道</span>',
-        ep.enabled ? '' : '<span class="ai-ep-badge off">已停用</span>'
-    ].join('');
-
-    const modelsHtml = ep.models.length
-        ? ep.models.map(m =>
-            '<span class="ai-ep-model">' + esc(m.name) + renderModelCapHint(m) + '</span>'
-        ).join('')
-        : '<span class="ai-ep-model">未挂载模型</span>';
-
-    const params = Object.keys(ep.extraParams || {}).length
-        ? '<span>自定义参数：' + esc(JSON.stringify(ep.extraParams)) + '</span>'
-        : '';
-
-    const actions = [
-        '<button class="ai-btn ai-btn-edit" data-ep-edit="' + esc(ep.id) + '">编辑</button>',
-        '<button class="ai-btn ai-btn-test" data-ep-test="' + esc(ep.id) + '">测试</button>',
-        '<button class="ai-btn" data-ep-toggle="' + esc(ep.id) + '">' + (ep.enabled ? '停用' : '启用') + '</button>',
-        ep.editable
-            ? '<button class="ai-btn ai-btn-delete" data-ep-del="' + esc(ep.id) + '">删除</button>'
-            : ''
-    ].join('');
-
-    return '<div class="ai-ep-card' + (ep.enabled ? '' : ' disabled') + '">' +
-        '<div class="ai-ep-row">' +
-            '<div class="ai-ep-title">' + esc(ep.label) + badges + '</div>' +
-            '<div class="ai-ep-actions">' + actions + '</div>' +
-        '</div>' +
-        '<div class="ai-ep-url">' + esc(ep.baseUrl) + '</div>' +
-        '<div class="ai-ep-meta">' +
-            '<span>协议：' + esc(ep.protocol || '-') + '</span>' +
-            '<span>超时：' + esc(ep.timeout || '-') + 'ms</span>' +
-            '<span>最大输出：' + esc(ep.maxTokens || '-') + '</span>' +
-            '<span>优先级：' + esc(ep.priority) + '</span>' +
-            params +
-        '</div>' +
-        '<div class="ai-ep-models">' + modelsHtml + '</div>' +
-    '</div>';
+    renderModelsTable();
 }
 
 function openEndpointForm(mode, id = null) {
@@ -967,21 +1021,6 @@ function bindEndpointEvents() {
 
     const form = document.getElementById('aiEndpointForm');
     if (form) form.addEventListener('submit', handleEndpointFormSubmit);
-
-    const body = document.getElementById('aiEndpointsBody');
-    if (body) {
-        body.addEventListener('click', (e) => {
-            const edit = e.target.closest('[data-ep-edit]');
-            const test = e.target.closest('[data-ep-test]');
-            const toggle = e.target.closest('[data-ep-toggle]');
-            const del = e.target.closest('[data-ep-del]');
-
-            if (edit) openEndpointForm('edit', edit.dataset.epEdit);
-            else if (test) testEndpoint(test.dataset.epTest, test);
-            else if (toggle) toggleEndpoint(toggle.dataset.epToggle);
-            else if (del) deleteEndpoint(del.dataset.epDel);
-        });
-    }
 }
 
 // 导出初始化函数
