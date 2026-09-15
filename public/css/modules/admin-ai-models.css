@@ -547,3 +547,92 @@
 .ai-ep-checkbox label {
     margin: 0;
 }
+
+/* ===========================================
+   端点表格紧凑化（一个端点一行）
+   - 列宽固定 + 端点 cell 内联紧凑
+   - 状态三态：启用(in-use) / 准备(ready) / 停用(off)
+   =========================================== */
+
+/* 列宽：6 列固定布局，减少水平空隙 */
+.ai-models-table {
+    table-layout: fixed;
+    width: 100%;
+}
+.ai-models-table th:nth-child(1),
+.ai-models-table td:nth-child(1) { width: 110px; }
+.ai-models-table th:nth-child(2),
+.ai-models-table td:nth-child(2) { width: auto; min-width: 260px; }
+.ai-models-table th:nth-child(3),
+.ai-models-table td:nth-child(3) { width: 72px; text-align: center; }
+.ai-models-table th:nth-child(4),
+.ai-models-table td:nth-child(4) { width: 110px; }
+.ai-models-table th:nth-child(5),
+.ai-models-table td:nth-child(5) { width: 80px; text-align: center; }
+.ai-models-table th:nth-child(6),
+.ai-models-table td:nth-child(6) { width: auto; min-width: 180px; }
+
+/* td 整体收紧 */
+.ai-models-table th,
+.ai-models-table td { padding: 6px 8px; vertical-align: top; }
+.ai-models-table thead th { padding: 8px; }
+
+/* 端点 cell 紧凑 */
+.ai-ep-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 2px; }
+.ai-ep-label { font-weight: 600; color: #1e293b; font-size: var(--fs-300); }
+.ai-ep-badge {
+    font-size: var(--fs-200);
+    padding: 0 6px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-weight: 400;
+    line-height: 18px;
+    display: inline-block;
+}
+.ai-ep-badge.env { background: #eef2ff; color: #4f46e5; }
+.ai-ep-badge.db { background: #fef3c7; color: #92400e; }
+.ai-ep-badge.key { background: #f0fdf4; color: #166534; }
+.ai-ep-badge.off { background: #fee2e2; color: #b91c1c; }
+
+.ai-ep-url {
+    font-size: var(--fs-200);
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 2px 0 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.ai-ep-models { display: flex; flex-wrap: wrap; gap: 4px; }
+.ai-ep-model {
+    font-size: var(--fs-200);
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+    display: inline-block;
+    line-height: 18px;
+}
+.ai-ep-model-spec { color: #94a3b8; margin-left: 4px; font-weight: 400; }
+.ai-ep-model-default { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+
+/* 状态三态：当前端点「已启用」、其他可用「准备」、停用「停用」 */
+.ai-status { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: var(--fs-200); }
+.ai-status.in-use { background: #dcfce7; color: #166534; }
+.ai-status.ready { background: #f1f5f9; color: #475569; }
+.ai-status.off { background: #fee2e2; color: #b91c1c; }
+.ai-status.available { background: #dcfce7; color: #166534; }
+.ai-status.checking { background: #fef3c7; color: #92400e; }
+.ai-status.unknown { background: #f1f5f9; color: #94a3b8; }
+.ai-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+/* 操作列紧凑 */
+.ai-actions { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.ai-btn { font-size: var(--fs-200); padding: 2px 8px; }
+
+/* 端点行视觉上合并：相邻端点行去掉中间的边框分隔 */
+.ai-row-endpoint + .ai-row-endpoint td:first-child { border-top: 1px dashed #f1f5f9; }
+.ai-row-endpoint.disabled td { opacity: 0.6; }
