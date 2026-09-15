@@ -81,18 +81,28 @@ export function bindWeekNavigation({ prevBtn, nextBtn, onPrev, onNext }) {
 
 /**
  * 教师维度更新课程状态：教师端两个排课视图共用同一条端点与事件。
- * （course_sessions 之后状态挂在教师 pair 上，前端只需按场次 id 提交。）
+ *
+ * 状态挂在教师 pair 上，定位一行需要 (session_id, teacher_uid) 两个键 —— 班主任视图里
+ * 一场课的老师不是自己，只给场次 id 服务层找不到 pair，会误报「排课不存在」。
+ * 所以有 uid 就走 pair 级端点；两个列表接口都已透出 teacher_uid。
+ * 无 uid 时退回旧的按场次端点（服务层再按本人在场中的 pair 兜底）。
  */
-export async function updateTeacherScheduleStatus(id, newStatus) {
+export async function updateTeacherScheduleStatus(id, newStatus, teacherUid) {
     if (!window.apiUtils) {
         throw new Error('apiUtils 未就绪');
     }
-    const response = await window.apiUtils.put(`/teacher/schedules/${id}/status`, {
-        status: newStatus
-    });
+    const response = teacherUid
+        ? await window.apiUtils.patch(
+            `/teacher/sessions/${id}/teachers/${encodeURIComponent(teacherUid)}/status`,
+            { lifecycle: newStatus }
+        )
+        : await window.apiUtils.put(`/teacher/schedules/${id}/status`, {
+            status: newStatus
+        });
 
     window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
         id,
+        teacher_uid: teacherUid || null,
         status: newStatus,
         role: 'teacher'
     });

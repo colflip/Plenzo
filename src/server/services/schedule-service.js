@@ -1046,7 +1046,10 @@ class ScheduleService {
      */
     async teacherUpdateScheduleStatus(req) {
         const { id } = req.params;
-        const { status, lifecycle, notes, teacher_uid } = req.body || {};
+        const { status, lifecycle, notes } = req.body || {};
+        // uid 三处可拿：URL :uid > body.teacher_uid（兼容旧调用） > 自动定位
+        const teacherUidFromBody = (req.body && req.body.teacher_uid) || null;
+        const teacherUidFromUrl = req.params.uid || null;
         const wanted = lifecycle || status;
 
         if (!wanted) {
@@ -1062,9 +1065,9 @@ class ScheduleService {
             throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '未找到相关课程' });
         }
 
-        // 定位 pair：显式 teacher_uid 优先；否则取本人在这一场里的那个 pair
+        // 定位 pair：显式 uid（URL / body）优先；否则取本人在这一场里的那个 pair
         const teachers = session.teachers || [];
-        let uid = teacher_uid;
+        let uid = teacherUidFromUrl || teacherUidFromBody;
         if (!uid) {
             const own = teachers.filter(p => Number(p.teacher_id) === Number(req.user.id));
             if (own.length === 1) uid = own[0].uid;
@@ -1072,20 +1075,45 @@ class ScheduleService {
                 throw new AppError('本场课您有多条记录，请指明 teacher_uid', 400);
             }
         }
-        const pair = teachers.find(p => String(p.uid) === String(uid));
-        if (!pair) {
-            throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '未找到相关课程' });
-        }
 
-        // 权限：本人任课，或该场学生在自己名下（班主任）
-        let hasPermission = Number(pair.teacher_id) === Number(req.user.id);
+        // 权限前置检查：当前用户是不是「本人任课」或「该场学生在班主任名下」。
+        // 必须在定位 pair 前先做 —— 班主任（head teacher）不是场中教师 pair 成员，
+        // 但有合法改课权限；不允许在前一步先抛「未找到相关课程」挡住合法路径。
+        // 命中权限且 uid 仍未确定（前端没传，自身又不在教师 pair 里），就用该场第一个
+        // 活跃 teacher pair 当目标 —— 班主任视角下改的就是这场课的教师 pair 状态。
+        let hasPermission = false;
+        if (uid) {
+            const explicitPair = teachers.find(p => String(p.uid) === String(uid));
+            if (explicitPair && Number(explicitPair.teacher_id) === Number(req.user.id)) {
+                hasPermission = true;
+            }
+        }
         if (!hasPermission) {
             const teacherResult = await db.query('SELECT student_ids FROM teachers WHERE id = $1', [req.user.id]);
             const raw = teacherResult.rows.length ? teacherResult.rows[0].student_ids : null;
-            if (raw) {
-                const bound = String(raw).split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-                hasPermission = (session.students || []).some(s => bound.includes(Number(s.student_id)));
+            const bound = raw
+                ? String(raw).split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+                : [];
+            const isHeadTeacher = (session.students || []).some(s => bound.includes(Number(s.student_id)));
+            if (isHeadTeacher) {
+                hasPermission = true;
+                if (!uid) {
+                    // 班主任代改：取该场第一个活跃 teacher pair（cancelled/modified_away
+                    // 这两种视为已归档，再去改它们的 status 没有意义且会扰乱归档的意图）
+                    const fallback = (teachers || []).find(p => {
+                        const lc = String(p.status || '').split('.').pop();
+                        return lc !== 'cancelled' && lc !== 'modified_away';
+                    }) || (teachers || [])[0];
+                    if (fallback) uid = fallback.uid;
+                }
             }
+        }
+
+        const pair = teachers.find(p => String(p.uid) === String(uid));
+        if (!pair) {
+            // 到这里还找不到 pair，说明：既不是本人任课，也不是班主任带的学生，或者
+            // 显式给的 uid 不在 session 里 —— 一律视为越权（不暴露存在性，与全仓统一）
+            throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无权修改该课程状态（非本人任课且不属于所负责学生）' });
         }
         if (!hasPermission) {
             throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无权修改该课程状态（非本人任课且不属于所负责学生）' });

@@ -372,7 +372,7 @@ function buildCompactMobileScheduleCard(scheduleGroup) {
 
             try {
                 // 远程优先：先同步数据库
-                await updateScheduleStatus(schedule.id, newStatus);
+                await updateScheduleStatus(schedule.id, newStatus, schedule.teacher_uid);
                 // 远程成功后再更新本地UI
                 statusSelect.className = `status-select chip status-${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;
@@ -653,7 +653,7 @@ function buildScheduleCard(group) {
 
             try {
                 // 远程优先：先同步数据库，成功后再更新本地UI
-                await updateScheduleStatus(rec.id, newStatus);
+                await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
                 statusSelect.className = `status-select ${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;
                 showInlineFeedback(elements.feedback(), '状态更新成功', 'success');
@@ -712,7 +712,7 @@ function showStatusActionSheet(schedule, card) {
         })),
         async (newStatus) => {
             if (newStatus !== status) {
-                await handleStatusChange(schedule.id, newStatus, card, null, null);
+                await handleStatusChange(schedule.id, newStatus, card, null, schedule.teacher_uid);
             }
         }
     );
@@ -753,7 +753,7 @@ function updateWeekRangeLabel(weekDates) {
 
 
 // 处理状态修改 (for mobile view)
-async function handleStatusChange(scheduleId, newStatus, cardElement, statusSelect, _unused) {
+async function handleStatusChange(scheduleId, newStatus, cardElement, statusSelect, teacherUid) {
     const originalStatus = statusSelect ? statusSelect.value : null;
 
     try {
@@ -763,10 +763,8 @@ async function handleStatusChange(scheduleId, newStatus, cardElement, statusSele
             statusSelect.style.opacity = '0.6';
         }
 
-        // 调用API更新状态
-        await window.apiUtils.put(`/teacher/schedules/${scheduleId}/status`, {
-            status: newStatus
-        });
+        // 调用API更新状态（与桌面端共用 pair 级端点，需带上 teacher_uid）
+        await updateScheduleStatus(scheduleId, newStatus, teacherUid);
 
         // 更新UI - 更新select的class以反映新状态
         if (statusSelect) {
