@@ -450,7 +450,6 @@
     padding-bottom: 12px;
 }
 
-.ai-row-endpoint.disabled .ai-ep-title,
 .ai-row-endpoint.disabled .ai-ep-models,
 .ai-row-endpoint.disabled .ai-ep-url {
     opacity: 0.5;
@@ -462,40 +461,11 @@
     color: #94a3b8;
 }
 
-.ai-ep-title {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: var(--fs-300);
-    font-weight: 600;
-    color: #333;
-}
-
 .ai-ep-url {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: var(--fs-200);
     color: #64748b;
     word-break: break-all;
-}
-
-.ai-ep-badge {
-    font-size: var(--fs-200);
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: #f1f5f9;
-    color: #64748b;
-    font-weight: 400;
-}
-
-.ai-ep-badge.env {
-    background: #eef2ff;
-    color: #4f46e5;
-}
-
-.ai-ep-badge.off {
-    background: #fee2e2;
-    color: #b91c1c;
 }
 
 .ai-ep-models {
@@ -567,39 +537,24 @@
 .ai-models-table td:nth-child(5) { text-align: center; }
 
 /* td 整体收紧 */
+/* 参照节假日表格：表头/单元格留出明确的上下、左右呼吸空间。
+   端点 cell 内部仍用紧凑 badge，所以整体不会变成松散大卡片。 */
 .ai-models-table th,
-.ai-models-table td { padding: 6px 8px; vertical-align: top; }
-.ai-models-table thead th { padding: 8px; }
+.ai-models-table td { padding: 16px 20px; vertical-align: top; }
+.ai-models-table thead th { padding: 16px 20px; }
 
-/* 端点 cell 紧凑 */
-.ai-ep-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 2px; }
-.ai-ep-label { font-weight: 600; color: #1e293b; font-size: var(--fs-300); }
-.ai-ep-badge {
-    font-size: var(--fs-200);
-    padding: 0 6px;
-    border-radius: 4px;
-    background: #f1f5f9;
-    color: #64748b;
-    font-weight: 400;
-    line-height: 18px;
-    display: inline-block;
-}
-.ai-ep-badge.env { background: #eef2ff; color: #4f46e5; }
-.ai-ep-badge.db { background: #fef3c7; color: #92400e; }
-.ai-ep-badge.key { background: #f0fdf4; color: #166534; }
-.ai-ep-badge.off { background: #fee2e2; color: #b91c1c; }
-
+/* 端点 cell：地址 + 模型 tag 两段，段间留出垂直间隔（参照节假日表格的呼吸感） */
 .ai-ep-url {
     font-size: var(--fs-200);
     color: #94a3b8;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin: 2px 0 4px;
+    margin: 4px 0 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.ai-ep-models { display: flex; flex-wrap: wrap; gap: 4px; }
+.ai-ep-models { display: flex; flex-wrap: wrap; gap: 6px; }
 .ai-ep-model {
     font-size: var(--fs-200);
     padding: 1px 6px;

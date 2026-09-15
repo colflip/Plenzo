@@ -400,12 +400,6 @@ function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null
         const isCurrent = inUse && Array.isArray(ep.models)
             && ep.models.some(m => m.id === (currentConfig && currentConfig.model));
 
-        const badges = [
-            ep.source === 'env' ? '<span class="ai-ep-badge env">env</span>' : '<span class="ai-ep-badge db">db</span>',
-            ep.hasOwnKey ? '<span class="ai-ep-badge key">独立 key</span>' : '',
-            ep.enabled ? '' : '<span class="ai-ep-badge off">停用</span>'
-        ].join('');
-
         // 完整 URL 塞 title，行内只显示去掉协议头的紧凑形式，避免每行挤下一长串字符
         const shortUrl = (ep.baseUrl || '').replace(/^https?:\/\//, '');
 
@@ -428,9 +422,8 @@ function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null
         }
         modelsHtml = modelTags.length ? modelTags.join('') : '<span class="ai-ep-none">未挂载模型</span>';
 
-        // 端点 cell 整体：标题（label + 徽标）+ 短地址 + 模型清单 —— 紧凑一行排开
-        endpointCell = `<div class="ai-ep-title"><span class="ai-ep-label">${esc(ep.label)}</span>${badges}</div>` +
-            `<div class="ai-ep-url" title="${esc(ep.baseUrl)}">${esc(shortUrl)}</div>` +
+        // 端点 cell：短地址 + 模型清单（端点名称与来源徽标已按需求去掉）
+        endpointCell = `<div class="ai-ep-url" title="${esc(ep.baseUrl)}">${esc(shortUrl)}</div>` +
             `<div class="ai-ep-models">${modelsHtml}</div>`;
 
         protocol = ep.protocol || '-';
