@@ -619,7 +619,7 @@ function buildScheduleCard(group) {
 
             try {
                 // 远程优先：先同步数据库
-                await updateScheduleStatus(rec.id, newStatus);
+                await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
                 // 远程成功后再更新本地UI状态
                 statusSelect.className = `status-select ${newStatus}`;
                 statusSelect.dataset.lastStatus = newStatus;

@@ -1910,7 +1910,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
                         const prevText = statusBadge.textContent;
                         try {
                             // 远程优先：先同步数据库，成功后再更新本地UI
-                            await updateScheduleStatus(rec.id, opt.key);
+                            await updateScheduleStatus(rec.id, rec.teacher_uid, opt.key);
                             statusBadge.className = 'status-badge-sm ' + opt.key;
                             statusBadge.textContent = opt.label;
                         } catch (err) {
@@ -2139,8 +2139,9 @@ async function loadUsers(type, opts) {
 async function loadSchedules() {
     if (window.ScheduleManager) return window.ScheduleManager.loadSchedules();
 }
-async function updateScheduleStatus(id, status) {
-    if (window.ScheduleManager) return window.ScheduleManager.updateScheduleStatus(id, status);
+// 状态挂在教师 pair 上，(sessionId, teacherUid) 才唯一定位一行 —— 第三个参数不能丢
+async function updateScheduleStatus(id, teacherUid, status) {
+    if (window.ScheduleManager) return window.ScheduleManager.updateScheduleStatus(id, teacherUid, status);
 }
 async function deleteSchedule(id) {
     if (window.ScheduleManager) return window.ScheduleManager.deleteSchedule(id);
