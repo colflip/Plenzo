@@ -187,10 +187,21 @@ async function ensureTable() {
 let allRowsCache = null;
 let allRowsCacheAt = 0;
 const CACHE_TTL_MS = parseInt(process.env.AI_CONFIG_CACHE_TTL_MS, 10) || 10000;
+// 端点列表是管理页展示数据，不能跟着数据库连接重试把 HTTP 请求挂住。
+// 读超时后由 registry 直接使用 env 种子；写操作仍走 ensureTable 并保留完整错误。
+const READ_TIMEOUT_MS = parseInt(process.env.AI_ENDPOINT_READ_TIMEOUT_MS, 10) || 2000;
 
 function invalidateCache() {
     allRowsCache = null;
     allRowsCacheAt = 0;
+}
+
+function withTimeout(promise, timeoutMs) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`AI endpoint read timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -211,9 +222,11 @@ async function listEndpoints(channelId, opts = {}) {
         if (allRowsCache && Date.now() - allRowsCacheAt < CACHE_TTL_MS) {
             rows = allRowsCache;
         } else {
-            await ensureTable();
-            const res = await db.query(
-                `SELECT * FROM ${TABLE} ORDER BY channel_id, priority ASC, id ASC`
+            // 读取不主动建表：迁移尚未执行或 DB 暂时不可用时，直接降级到 env 种子。
+            // 建表只保留在 create/update/delete 路径，避免 GET /ai/endpoints 被 DDL/重试阻塞。
+            const res = await withTimeout(
+                db.query(`SELECT * FROM ${TABLE} ORDER BY channel_id, priority ASC, id ASC`),
+                READ_TIMEOUT_MS
             );
             rows = res.rows || [];
             allRowsCache = rows;

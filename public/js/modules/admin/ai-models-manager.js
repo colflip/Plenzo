@@ -42,7 +42,7 @@ function renderLoadState() {
     if (failed.length > 0) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 7;
+        cell.colSpan = 6;
         const firstError = loadErrors[failed[0][0]];
         if (window.ErrorUI && typeof window.ErrorUI.createErrorState === 'function') {
             cell.appendChild(window.ErrorUI.createErrorState({
@@ -63,7 +63,7 @@ function renderLoadState() {
     if (Object.values(loadState).some(state => state === 'loading')) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 7;
+        cell.colSpan = 6;
         cell.className = 'ai-models-loading';
         cell.setAttribute('role', 'status');
         cell.textContent = '正在加载 AI 模型配置…';
@@ -869,9 +869,33 @@ function renderModelCapHint(m) {
     return parts.length ? '<span class="ai-ep-model-caps">(' + parts.join(' · ') + ')</span>' : '';
 }
 
+/**
+ * 模型能力摘要（纯文本，供 title 悬浮说明）。
+ * 不能复用 ai-assistant-redesign.js 里的同名函数 —— 那是模块私有作用域，
+ * 经典脚本里拿不到，直接调用会在渲染端点行时抛 ReferenceError，
+ * 让「端点」列永久停在「端点加载中…」。
+ */
+function modelCapSummary(m) {
+    const parts = [];
+    if (m.contextLength) parts.push('上下文 ' + formatTokenCount(m.contextLength));
+    if (m.maxOutput) parts.push('最大输出 ' + formatTokenCount(m.maxOutput));
+    const caps = m.capabilities || {};
+    parts.push('视觉 ' + (caps.vision ? '支持' : '不支持'));
+    parts.push('工具 ' + (caps.tools ? '支持' : '不支持'));
+    return parts.join(' · ');
+}
+
 async function loadEndpoints() {
     try {
-        const data = await apiUtils.getSilent('/ai/endpoints');
+        // 不使用无超时的 getSilent：DB 连接异常时 GET /ai/endpoints 也必须尽快落到
+        // 「端点加载失败」，不能让整张表永久停在「端点加载中…」。后端正常时一般几十毫秒返回；
+        // 超时只影响端点展示，不影响切换/测试等渠道级功能。
+        const data = await apiUtils.request('/ai/endpoints', {
+            timeoutMs: 6000,
+            suppressErrorToast: true,
+            suppressConsole: true,
+            maxRetries: 0
+        });
         endpointChannels = (data && data.channels) || [];
         endpointsState = 'success';
     } catch (error) {
