@@ -2710,6 +2710,16 @@ async function onSend(action) {
             history: conversationHistory,
             stream: true
         };
+
+        // 本机自定义模型/端点（只存在这个浏览器里）：随请求带上，服务端优先用它。
+        // 地址会由服务端做出站护栏校验，被拒时请求直接失败并提示，不会静默回落到全局模型。
+        const customConfig = window.AICustomModelStore
+            ? window.AICustomModelStore.getQueryConfig()
+            : null;
+        if (customConfig) {
+            requestBody.customConfig = customConfig;
+        }
+
         if (isAction) {
             // 二次确认操作：走独立 action 字段，后端直接执行，不进 LLM
             requestBody.action = action;
@@ -3110,6 +3120,15 @@ function renderModelMenu() {
 }
 
 /**
+ * 本机自定义模型当前生效的配置（无则 null）
+ * @description 只存在于这个浏览器，服务端的 /ai/selectable-models 不知道它的存在，
+ *              所以按钮文案要单独读一次，否则界面显示的和服务端实际用的会对不上。
+ */
+function activeCustomQueryConfig() {
+    return window.AICustomModelStore ? window.AICustomModelStore.getQueryConfig() : null;
+}
+
+/**
  * 更新头部触发按钮的文案
  */
 function updateModelTrigger() {
@@ -3118,9 +3137,12 @@ function updateModelTrigger() {
 
     const nameEl = trigger.querySelector('.ai-model-trigger-name');
     const { presets = [], presetId, modelId, isDefault } = state.modelPicker;
+    const localConfig = activeCustomQueryConfig();
 
     let label = null;
-    if (!isDefault) {
+    if (localConfig) {
+        label = `${localConfig.model}（本机）`;
+    } else if (!isDefault) {
         for (const group of presets) {
             const hit = group.models.find(m => m.id === modelId && group.presetId === presetId);
             if (hit) { label = hit.name || hit.id; break; }
@@ -3130,7 +3152,7 @@ function updateModelTrigger() {
     if (!label) label = '默认模型';
 
     if (nameEl) nameEl.textContent = label;
-    trigger.classList.toggle('custom', !isDefault);
+    trigger.classList.toggle('custom', !!localConfig || !isDefault);
 }
 
 /**
@@ -3175,6 +3197,9 @@ async function selectUserModel(presetId, modelId) {
         }
 
         const resp = await window.apiUtils.put('/ai/my-model', { presetId, modelId });
+        // 选服务端模型意味着放弃本机自定义模型，否则 customConfig 优先级更高、
+        // 会把这次选择盖掉，用户看到「已切换」但实际没换。
+        if (window.AICustomModelStore) window.AICustomModelStore.clearActive();
         state.modelPicker.presetId = resp.presetId;
         state.modelPicker.modelId = resp.modelId;
         state.modelPicker.isDefault = false;
@@ -3199,6 +3224,7 @@ async function resetUserModel() {
     const menu = document.getElementById('ai-model-menu');
     try {
         const resp = await window.apiUtils.delete('/ai/my-model');
+        if (window.AICustomModelStore) window.AICustomModelStore.clearActive();
         state.modelPicker.presetId = null;
         state.modelPicker.modelId = resp.modelId;
         state.modelPicker.isDefault = true;

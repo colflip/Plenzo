@@ -193,18 +193,17 @@ async function loadPresetModels() {
  * 加载自定义模型列表
  */
 function loadCustomModels() {
-    const stored = localStorage.getItem('customAIModels');
-    if (!stored) {
+    const store = window.AICustomModelStore;
+    if (!store) {
+        // 存储模块没加载（脚本顺序被改动）时明确报错，而不是静默当成「没有自定义模型」
         customModels = [];
-        loadState.custom = 'success';
-        loadErrors.custom = null;
+        loadState.custom = 'error';
+        loadErrors.custom = new Error('本机存储模块未加载');
         return;
     }
 
     try {
-        const parsed = JSON.parse(stored);
-        if (!Array.isArray(parsed)) throw new Error('自定义模型缓存格式无效');
-        customModels = parsed;
+        customModels = store.listModels();
         loadState.custom = 'success';
         loadErrors.custom = null;
     } catch (error) {
@@ -219,7 +218,7 @@ function loadCustomModels() {
  * 保存自定义模型列表
  */
 function saveCustomModels() {
-    localStorage.setItem('customAIModels', JSON.stringify(customModels));
+    window.AICustomModelStore.saveModels(customModels);
 }
 
 /**
@@ -259,9 +258,16 @@ function getModelCapabilities(modelId) {
  * 是否为当前使用中的模型
  */
 function isInUse(model) {
-    return currentConfig &&
+    // 自定义模型只被本人选中，与全局 currentConfig 无关；反过来，本机选中自定义模型时
+    // 全局预设都不算「使用中」——否则界面同时高亮两个，用户看不出提问到底走的哪一个。
+    const active = window.AICustomModelStore.getActive();
+    if (model && model._type === 'custom') {
+        return !!(active && active.kind === 'model' && active.ref === model.name);
+    }
+    if (active) return false;
+    return !!(currentConfig &&
         currentConfig.provider === model.provider &&
-        currentConfig.baseUrl === model.baseUrl;
+        currentConfig.baseUrl === model.baseUrl);
 }
 
 /**
@@ -271,13 +277,22 @@ function renderCurrentBar() {
     if (!currentConfig) return;
     const display = document.getElementById('currentModelDisplay');
     const status = document.getElementById('currentModelStatus');
+    const active = window.AICustomModelStore.getActive();
+
     if (display) {
-        const matched = presetModels.find(p => p.provider === currentConfig.provider && p.baseUrl === currentConfig.baseUrl);
-        const name = matched ? matched.name : (currentConfig.provider || '-');
-        display.textContent = `${name} / ${currentConfig.model || '-'}`;
+        if (active && active.kind === 'model') {
+            display.textContent = `${active.ref} / （仅本机）`;
+        } else {
+            const matched = presetModels.find(p => p.provider === currentConfig.provider && p.baseUrl === currentConfig.baseUrl);
+            const name = matched ? matched.name : (currentConfig.provider || '-');
+            display.textContent = `${name} / ${currentConfig.model || '-'}`;
+        }
     }
     if (status) {
-        if (currentConfig.enabled && currentConfig.apiKey) {
+        if (active) {
+            status.textContent = '本机自定义';
+            status.className = 'ai-current-status active';
+        } else if (currentConfig.enabled && currentConfig.apiKey) {
             status.textContent = '已启用';
             status.className = 'ai-current-status active';
         } else {
@@ -285,12 +300,15 @@ function renderCurrentBar() {
             status.className = 'ai-current-status inactive';
         }
     }
-    // 详细信息标签
+    // 详细信息标签：选中本机自定义模型时，展示的是那份配置，不是全局 ai_config
+    const shown = (active && active.kind === 'model')
+        ? window.AICustomModelStore.configFromModel(customModels.find(m => m.name === active.ref) || {})
+        : currentConfig;
     const setTag = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    setTag('currentProtocol', `协议：${currentConfig.protocol || '-'}`);
-    setTag('currentBaseUrl', `地址：${currentConfig.baseUrl || '-'}`);
-    setTag('currentTimeout', `超时：${currentConfig.timeout || 30000}ms`);
-    setTag('currentMaxTokens', `Token：${currentConfig.maxTokens || 8000}`);
+    setTag('currentProtocol', `协议：${shown.protocol || '-'}`);
+    setTag('currentBaseUrl', `地址：${shown.baseUrl || '-'}`);
+    setTag('currentTimeout', `超时：${shown.timeout || 30000}ms`);
+    setTag('currentMaxTokens', `Token：${shown.maxTokens || 8000}`);
 }
 
 /**
@@ -337,6 +355,16 @@ function renderModelsTable() {
             const isFirst = i === 0;
             const isLast = i === endpoints.length - 1;
             rows.push(renderChannelRow(model, ep, esc, isLast, epHint, isFirst));
+        });
+    }
+
+    // 本机端点：不属于任何服务端渠道，单独成一组。
+    // 没有「渠道默认模型」的概念，所以 showDefaultModel 一律 false。
+    const localGroup = endpointChannels.find(c => c.channelId === LOCAL_CHANNEL_ID);
+    if (localGroup && localGroup.endpoints.length) {
+        const pseudo = { name: LOCAL_CHANNEL_NAME, id: LOCAL_CHANNEL_ID, model: '', protocol: '-', _type: 'local' };
+        localGroup.endpoints.forEach((ep, i) => {
+            rows.push(renderChannelRow(pseudo, ep, esc, false, null, i === 0));
         });
     }
 
@@ -413,9 +441,13 @@ function renderChannelRow(model, ep, esc, showDefaultModel = true, epHint = null
             if (caps.tools) cBits.push('工');
             const spec = [ctx, out].filter(Boolean).join('/');
             const tail = [spec, cBits.join('/')].filter(Boolean).join(' ');
+            // 本机端点：每个模型给一个「使用」，用它=把这份配置设为本机生效配置
+            const useBtn = ep.source === 'local'
+                ? ` <button class="ai-btn ai-btn-use" data-ep-activate="${esc(ep.id)}" data-ep-model="${esc(m.id)}">使用</button>`
+                : '';
             return `<span class="ai-ep-model" title="${esc(m.id)} · ${esc(modelCapSummary(m))}">` +
                 `${esc(m.name)}${tail ? ` <span class="ai-ep-model-spec">${esc(tail)}</span>` : ''}` +
-                `</span>`;
+                `${useBtn}</span>`;
         });
         if (showDefaultModel && model.model && !ep.models.some(m => m.id === model.model)) {
             modelTags.push(`<span class="ai-ep-model ai-ep-model-default">${esc(model.model)} <span class="ai-ep-model-spec">(默认)</span></span>`);
@@ -619,13 +651,15 @@ function bindEvents() {
         const epTest = e.target.closest('[data-ep-test]');
         const epToggle = e.target.closest('[data-ep-toggle]');
         const epDel = e.target.closest('[data-ep-del]');
+        const epActivate = e.target.closest('[data-ep-activate]');
         const switchBtn = e.target.closest('.ai-btn-switch');
         const testBtn = e.target.closest('.ai-btn-test');
         const editBtn = e.target.closest('.ai-btn-edit');
         const deleteBtn = e.target.closest('.ai-btn-delete');
 
         // 端点按钮先判：它们也带 .ai-btn-* 类，但 data-* 前缀不同
-        if (epEdit) openEndpointForm('edit', epEdit.dataset.epEdit);
+        if (epActivate) activateLocalEndpoint(epActivate.dataset.epActivate, epActivate.dataset.epModel);
+        else if (epEdit) openEndpointForm('edit', epEdit.dataset.epEdit);
         else if (epTest) testEndpoint(epTest.dataset.epTest, epTest);
         else if (epToggle) toggleEndpoint(epToggle.dataset.epToggle);
         else if (epDel) deleteEndpoint(epDel.dataset.epDel);
@@ -714,7 +748,10 @@ function handleAIModelFormSubmit(e) {
 }
 
 /**
- * 切换到预设模型
+ * 切换到预设模型（写全局 ai_config，对所有人生效）
+ * @description 与自定义模型不同，预设来自服务端 env，切换它就是改全局配置。
+ *              同时清掉本机自定义模型的选中态，否则用户以为切回了预设、
+ *              实际提问还在用自己的自定义模型。
  */
 async function switchToPreset(presetId) {
     const preset = presetModels.find(p => p.id === presetId);
@@ -730,6 +767,7 @@ async function switchToPreset(presetId) {
             timeout: preset.timeout || 30000,
             maxTokens: preset.maxTokens || 3000
         }, { suppressErrorToast: true });
+        window.AICustomModelStore.clearActive();
         apiUtils.showToast('配置已更新并立即生效！', 'success');
         await loadCurrentConfig();
         renderModelsTable();
@@ -739,28 +777,46 @@ async function switchToPreset(presetId) {
 }
 
 /**
- * 切换到自定义模型
+ * 切换到自定义模型（只在本机生效）
+ * @description 自定义模型只存在本机 localStorage，**不写全局 ai_config** ——
+ *              写全局等于把「我自己加的模型」推给所有人用，那不是个人自定义。
+ *              选中态记在本机，提问时由前端作为 customConfig 随请求带上。
  */
 async function switchToCustom(index) {
     const custom = customModels[index];
     if (!custom) return;
-    if (!await showConfirm(`确定要切换到"${custom.name}"吗？`, '切换后立即生效')) return;
-    try {
-        await apiUtils.put('/ai/config', {
-            provider: custom.provider,
-            protocol: custom.protocol,
-            apiKey: custom.apiKey,
-            baseUrl: custom.baseUrl,
-            model: custom.model,
-            timeout: custom.timeout || 30000,
-            maxTokens: custom.maxTokens || 8000
-        }, { suppressErrorToast: true });
-        apiUtils.showToast('配置已更新并立即生效！', 'success');
-        await loadCurrentConfig();
-        renderModelsTable();
-    } catch (error) {
-        apiUtils.showToast('切换失败：' + error.message, 'error');
+    if (!await showConfirm(`确定要切换到"${custom.name}"吗？`, '只在你自己的浏览器生效，不影响其他人')) return;
+
+    if (!custom.baseUrl || !custom.apiKey || !custom.model) {
+        apiUtils.showToast('该模型缺少地址 / 密钥 / 模型名，请先编辑补全', 'error');
+        return;
     }
+
+    window.AICustomModelStore.setActive({ kind: 'model', ref: custom.name });
+    apiUtils.showToast(`已切换到 ${custom.name}（仅本机生效）`, 'success');
+    await loadCurrentConfig();
+    renderModelsTable();
+}
+
+/**
+ * 启用本机端点上的某个模型（只在本机生效）
+ * @description 与 switchToCustom 同一套机制：只记本机选中态，不写全局 ai_config。
+ */
+async function activateLocalEndpoint(endpointId, modelId) {
+    const endpoint = window.AICustomModelStore.listEndpoints().find(e => String(e.id) === String(endpointId));
+    if (!endpoint) { apiUtils.showToast('端点不存在', 'error'); return; }
+    if (!endpoint.baseUrl || !endpoint.apiKey) {
+        apiUtils.showToast('该端点缺少地址或密钥，请先编辑补全', 'error');
+        return;
+    }
+
+    const name = endpoint.label || endpoint.baseUrl.replace(/^https?:\/\//, '');
+    if (!await showConfirm(`确定要使用"${modelId}"吗？`, `${name} · 只在你自己的浏览器生效`)) return;
+
+    window.AICustomModelStore.setActive({ kind: 'endpoint', ref: endpoint.id, model: modelId });
+    apiUtils.showToast(`已切换到 ${modelId}（仅本机生效）`, 'success');
+    await loadCurrentConfig();
+    renderModelsTable();
 }
 
 /**
@@ -831,16 +887,23 @@ async function deleteCustomModel(index) {
 }
 
 /* ===========================================
-   渠道端点：渠道 → 端点 → 模型
+   本机端点：只在当前浏览器存在，不进服务端数据库
    -------------------------------------------
-   环境变量在部署平台上是只读的，所以 env 里的端点只能「停用 / 覆盖」，
-   不能删除；数据库里新增的端点才能删。界面按 editable 字段区分这两种。
-   端点数据并入模型表格渲染，这里只负责取数与表单。
+   端点决定「请求发往哪个地址、带哪把密钥」，属于个人自定义——加一个端点
+   不应该成为所有人的基础设施变更，所以不再落 ai_channel_endpoints 表，
+   改存 localStorage（见 utils/ai-custom-model-store.js）。
+   选中某个端点上的模型后，提问时由前端把该配置作为 customConfig 发给 /api/ai/query。
+
+   端点数据并入模型表格渲染（单独成一组），这里只负责取数与表单。
    =========================================== */
+
+// 本机端点不属于任何服务端渠道，用一个固定的伪渠道承载，复用表格渲染
+const LOCAL_CHANNEL_ID = '__local__';
+const LOCAL_CHANNEL_NAME = '本机端点';
 
 let endpointChannels = [];
 
-// 端点接口失败不拖垮整张表：模型数据照常显示，只在「端点」列给出失败提示
+// 'loading' 只出现在首屏读 localStorage 之前；本机读取不会失败
 let endpointsState = 'loading'; // loading | success | error
 
 /** token 数量格式化：524288 → 512K，1048576 → 1M */
@@ -878,23 +941,38 @@ function modelCapSummary(m) {
     return parts.join(' · ');
 }
 
-async function loadEndpoints() {
+/** 本机端点 → 表格渲染所需的渠道分组形态（模型名补上本地能力表里的元信息） */
+function localEndpointsAsChannels() {
+    const endpoints = window.AICustomModelStore.listEndpoints().map(e => ({
+        id: e.id,
+        label: e.label || '',
+        baseUrl: e.baseUrl,
+        protocol: e.protocol || 'openai',
+        timeout: e.timeout ?? null,
+        maxTokens: e.maxTokens ?? null,
+        enabled: e.enabled !== false,
+        extraParams: e.extraParams || {},
+        editable: true,
+        source: 'local',
+        hasOwnKey: !!e.apiKey,
+        models: (e.models || []).map(id => ({
+            id,
+            name: id,
+            capabilities: getModelCapabilities(id) || undefined
+        }))
+    }));
+    if (!endpoints.length) return [];
+    return [{ channelId: LOCAL_CHANNEL_ID, channelName: LOCAL_CHANNEL_NAME, endpoints }];
+}
+
+function loadEndpoints() {
     try {
-        // 不使用无超时的 getSilent：DB 连接异常时 GET /ai/endpoints 也必须尽快落到
-        // 「端点加载失败」，不能让整张表永久停在「端点加载中…」。后端正常时一般几十毫秒返回；
-        // 超时只影响端点展示，不影响切换/测试等渠道级功能。
-        const data = await apiUtils.request('/ai/endpoints', {
-            timeoutMs: 6000,
-            suppressErrorToast: true,
-            suppressConsole: true,
-            maxRetries: 0
-        });
-        endpointChannels = (data && data.channels) || [];
+        endpointChannels = localEndpointsAsChannels();
         endpointsState = 'success';
     } catch (error) {
         endpointChannels = [];
         endpointsState = 'error';
-        console.error('加载端点失败:', error);
+        console.error('加载本机端点失败:', error);
     }
     renderModelsTable();
 }
@@ -908,39 +986,26 @@ function openEndpointForm(mode, id = null) {
     form.dataset.mode = mode;
     form.dataset.id = id === null ? '' : String(id);
 
-    // 渠道下拉：编辑时锁定当前渠道，避免把端点挪到别的渠道后模型对不上
-    const select = document.getElementById('aiEpChannel');
-    if (select) {
-        select.innerHTML = endpointChannels.map(c =>
-            '<option value="' + c.channelId + '">' + c.channelName + '</option>'
-        ).join('');
-    }
-
     const set = (elId, v) => { const el = document.getElementById(elId); if (el) el.value = v ?? ''; };
 
     if (mode === 'edit' && id !== null) {
-        let found = null;
-        let ch = null;
-        for (const c of endpointChannels) {
-            const hit = c.endpoints.find(e => String(e.id) === String(id));
-            if (hit) { found = hit; ch = c; break; }
-        }
+        const found = window.AICustomModelStore.listEndpoints().find(e => String(e.id) === String(id));
         if (!found) { apiUtils.showToast('端点不存在', 'error'); return; }
         title.textContent = '编辑端点';
-        if (select) { select.value = ch.channelId; select.disabled = true; }
+        set('aiEpChannel', found.channel || '');
         set('aiEpLabel', found.label);
         set('aiEpBaseUrl', found.baseUrl);
         set('aiEpApiKey', '');          // 密钥不回显，留空 = 保持原值
-        set('aiEpModels', (found.models || []).map(m => m.id).join(','));
+        set('aiEpModels', (found.models || []).join(','));
         set('aiEpTimeout', found.timeout ?? '');
         set('aiEpMaxTokens', found.maxTokens ?? '');
-        set('aiEpPriority', found.priority ?? 100);
+        set('aiEpPriority', 100);
         set('aiEpParams', Object.keys(found.extraParams || {}).length ? JSON.stringify(found.extraParams) : '');
         const enabledEl = document.getElementById('aiEpEnabled');
-        if (enabledEl) enabledEl.checked = !!found.enabled;
+        if (enabledEl) enabledEl.checked = found.enabled !== false;
     } else {
         title.textContent = '新增端点';
-        if (select) select.disabled = false;
+        set('aiEpChannel', '');
         set('aiEpLabel', '');
         set('aiEpBaseUrl', '');
         set('aiEpApiKey', '');
@@ -961,7 +1026,7 @@ function closeEndpointForm() {
     if (container) container.style.display = 'none';
 }
 
-async function handleEndpointFormSubmit(e) {
+function handleEndpointFormSubmit(e) {
     e.preventDefault();
     const form = e.target;
     const mode = form.dataset.mode;
@@ -969,82 +1034,102 @@ async function handleEndpointFormSubmit(e) {
 
     const val = (elId) => { const el = document.getElementById(elId); return el ? el.value.trim() : ''; };
 
-    const payload = {
-        channelId: val('aiEpChannel'),
-        label: val('aiEpLabel') || null,
-        baseUrl: val('aiEpBaseUrl'),
-        models: val('aiEpModels') ? val('aiEpModels').split(',').map(s => s.trim()).filter(Boolean) : undefined,
+    const baseUrl = val('aiEpBaseUrl');
+    if (!/^https?:\/\//i.test(baseUrl)) {
+        apiUtils.showToast('服务地址必须是 http/https 开头的公网地址', 'error');
+        return;
+    }
+
+    const list = window.AICustomModelStore.listEndpoints();
+    const existing = (mode === 'edit' && id)
+        ? list.find(x => String(x.id) === String(id))
+        : null;
+    if (mode === 'edit' && !existing) { apiUtils.showToast('端点不存在', 'error'); return; }
+
+    // 密钥：编辑时留空 = 保持原值（不回显，也不清空）
+    const key = val('aiEpApiKey');
+    const apiKey = key || (existing ? existing.apiKey : '');
+    if (!apiKey) {
+        apiUtils.showToast('请填写密钥；地址会由服务端代你请求，需要凭证', 'error');
+        return;
+    }
+
+    const record = {
+        id: existing ? existing.id : window.AICustomModelStore.nextEndpointId(),
+        channel: val('aiEpChannel'),
+        label: val('aiEpLabel'),
+        baseUrl,
+        apiKey,
+        models: val('aiEpModels') ? val('aiEpModels').split(',').map(s => s.trim()).filter(Boolean) : [],
+        protocol: existing ? existing.protocol : 'openai',
         timeout: val('aiEpTimeout') ? Number(val('aiEpTimeout')) : null,
         maxTokens: val('aiEpMaxTokens') ? Number(val('aiEpMaxTokens')) : null,
-        priority: val('aiEpPriority') ? Number(val('aiEpPriority')) : 100,
-        enabled: (() => { const el = document.getElementById('aiEpEnabled'); return el ? el.checked : true; })()
+        enabled: (() => { const el = document.getElementById('aiEpEnabled'); return el ? el.checked : true; })(),
+        extraParams: existing ? (existing.extraParams || {}) : {}
     };
-
-    // 密钥：编辑时留空表示「不改动」，新增时留空表示「继承渠道」
-    const key = val('aiEpApiKey');
-    if (key) payload.apiKey = key;
-    else if (mode !== 'edit') payload.apiKey = null;
 
     const paramsRaw = val('aiEpParams');
     if (paramsRaw) {
         try {
             const parsed = JSON.parse(paramsRaw);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('必须是对象');
-            payload.extraParams = parsed;
+            record.extraParams = parsed;
         } catch (err) {
             apiUtils.showToast('自定义参数不是合法 JSON 对象', 'error');
             return;
         }
     }
 
-    try {
-        if (mode === 'edit' && id) {
-            await apiUtils.put('/ai/endpoints/' + encodeURIComponent(id), payload);
-        } else {
-            await apiUtils.post('/ai/endpoints', payload);
-        }
-        apiUtils.showToast('端点已保存', 'success');
-        closeEndpointForm();
-        await loadEndpoints();
-    } catch (error) {
-        apiUtils.showToast('保存失败：' + error.message, 'error');
-    }
+    if (existing) list[list.indexOf(existing)] = record;
+    else list.push(record);
+
+    window.AICustomModelStore.saveEndpoints(list);
+    apiUtils.showToast('端点已保存（仅本机生效）', 'success');
+    closeEndpointForm();
+    loadEndpoints();
 }
 
-async function toggleEndpoint(id) {
-    let target = null;
-    for (const c of endpointChannels) {
-        const hit = c.endpoints.find(e => String(e.id) === String(id));
-        if (hit) { target = hit; break; }
-    }
+function toggleEndpoint(id) {
+    const list = window.AICustomModelStore.listEndpoints();
+    const target = list.find(e => String(e.id) === String(id));
     if (!target) return;
-    try {
-        await apiUtils.put('/ai/endpoints/' + encodeURIComponent(id), { enabled: !target.enabled });
-        apiUtils.showToast(target.enabled ? '已停用' : '已启用', 'success');
-        await loadEndpoints();
-    } catch (error) {
-        apiUtils.showToast('操作失败：' + error.message, 'error');
-    }
+    target.enabled = target.enabled === false;
+    window.AICustomModelStore.saveEndpoints(list);
+    apiUtils.showToast(target.enabled ? '已启用' : '已停用', 'success');
+    loadEndpoints();
 }
 
 async function deleteEndpoint(id) {
-    if (!await showConfirm('确定要删除该端点吗？', '此操作无法撤销')) return;
-    try {
-        await apiUtils.delete('/ai/endpoints/' + encodeURIComponent(id));
-        apiUtils.showToast('删除成功！', 'success');
-        await loadEndpoints();
-    } catch (error) {
-        apiUtils.showToast('删除失败：' + error.message, 'error');
-    }
+    if (!await showConfirm('确定要删除该端点吗？', '只影响你自己的浏览器，此操作无法撤销')) return;
+    const list = window.AICustomModelStore.listEndpoints().filter(e => String(e.id) !== String(id));
+    window.AICustomModelStore.saveEndpoints(list);
+    apiUtils.showToast('删除成功！', 'success');
+    loadEndpoints();
 }
 
 async function testEndpoint(id, btn) {
+    const endpoint = window.AICustomModelStore.listEndpoints().find(e => String(e.id) === String(id));
+    if (!endpoint) { apiUtils.showToast('端点不存在', 'error'); return; }
+    if (!endpoint.models || !endpoint.models.length) {
+        apiUtils.showToast('该端点未填写任何模型，无法测试', 'error');
+        return;
+    }
+
     btn.disabled = true;
     const old = btn.textContent;
     btn.textContent = '测试中...';
     try {
-        const result = await apiUtils.post('/ai/endpoints/' + encodeURIComponent(id) + '/test', {});
-        if (result && result.available) {
+        // 本机端点不在服务端注册表里，走通用 /ai/test（它收完整配置），
+        // 由服务端做出站地址护栏校验后真实打一次上游。
+        const result = await apiUtils.post('/ai/test', {
+            provider: 'custom',
+            protocol: endpoint.protocol || 'openai',
+            apiKey: endpoint.apiKey,
+            baseUrl: endpoint.baseUrl,
+            model: endpoint.models[0],
+            timeout: endpoint.timeout || 30000
+        });
+        if (result && Number.isFinite(Number(result.latency))) {
             apiUtils.showToast('测试成功！响应时间：' + result.latency + 'ms', 'success');
         } else {
             apiUtils.showToast('测试失败：' + ((result && result.error) || '端点不可用'), 'error');

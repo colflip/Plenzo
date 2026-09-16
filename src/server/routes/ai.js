@@ -89,7 +89,10 @@ router.put('/my-model', authMiddleware, anyAuthenticated, validate(aiUserModelVa
 router.post('/my-model/check', authMiddleware, anyAuthenticated, aiCheckLimiter, validate(aiUserModelValidation), aiController.checkMyModel);
 router.delete('/my-model', authMiddleware, anyAuthenticated, aiController.clearMyModel);
 
-// 数据查询接口（支持学生、教师、管理员）
+// 数据查询接口（支持学生、教师、管理员）。
+// 可选 body.customConfig：浏览器本地新增的模型/端点（只存在用户自己的浏览器里，
+// 不进数据库、不跨用户共享），由前端随每次提问带上，优先级高于用户偏好与全局配置。
+// 其中的 baseUrl 来自客户端，服务端会过出站地址护栏（utils/ssrf-guard.js）后才发起请求。
 router.post('/query', authMiddleware, anyAuthenticated, aiLimiter, aiController.query);
 
 module.exports = router;

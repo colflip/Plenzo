@@ -1812,6 +1812,15 @@ let _modelsCache = null;
  * @param {string} modelId
  * @returns {{vision:boolean, tools:boolean, reasoning:boolean, known:boolean}}
  */
+/** 只取主机名用于日志；baseUrl 可能带路径，apiKey 一律不进日志 */
+function safeHostOf(baseUrl) {
+    try {
+        return new URL(baseUrl).host;
+    } catch (_) {
+        return '(invalid)';
+    }
+}
+
 function isWeakModel(modelId) {
     // 启发式：小型/flash/lite 类模型对复杂中文多步推理不稳定，批量排课需提示用户可切换更强模型。
     const id = String(modelId || '').toLowerCase();
@@ -2174,17 +2183,28 @@ const query = asyncHandler(async (req, res) => {
         messages.push(...recentHistory);
     }
 
+    // 浏览器本地新增的模型/端点（仅自己、不落库）：由客户端随请求带上，优先级最高。
+    // 地址不安全时直接 400，不静默回退——否则用户会以为自己用的是本地配置。
+    const customOverride = await aiConfigService.resolveCustomConfig(req.body.customConfig);
+    if (customOverride) {
+        // 只记来源与模型，绝不记 apiKey
+        log(`customConfig model=${customOverride.model} base=${safeHostOf(customOverride.baseUrl)}`);
+    }
+
     // 用户自选模型（仅本人会话生效）：未自选时为 null，后续全部走全局配置。
     // 必须在能力判定之前解析——否则会用全局模型的能力去决定是否发图/挂工具，
     // 与真正调用的模型不一致。
-    const userOverride = await aiConfigService.resolveUserConfig(req.user?.userType, req.user?.id).catch(err => {
-        log(`resolve user model FAILED, fallback to global: ${err.message}`);
-        return null;
-    });
-    const chatOptions = userOverride ? { configOverride: userOverride } : {};
+    const userOverride = customOverride
+        ? null
+        : await aiConfigService.resolveUserConfig(req.user?.userType, req.user?.id).catch(err => {
+            log(`resolve user model FAILED, fallback to global: ${err.message}`);
+            return null;
+        });
+    const effectiveOverride = customOverride || userOverride;
+    const chatOptions = effectiveOverride ? { configOverride: effectiveOverride } : {};
 
     // 模型能力：提前计算，供多模态 content 构造与后续工具分流共用
-    const currentModel = userOverride ? userOverride.model : aiService.getAIConfig().model;
+    const currentModel = effectiveOverride ? effectiveOverride.model : aiService.getAIConfig().model;
     const caps = resolveModelCapabilities(currentModel);
 
     // 校验并规整当前轮图片（仅 data URL / http(s)），最多 5 张
