@@ -95,48 +95,88 @@ class AIConfigService {
     }
 
     /**
-     * 检测 AI 模型状态（POST /api/ai/check，快速检测）
+     * 组装 /check、/test 的临时探测配置。
+     *
+     * 带 presetId 时必须整套取预设：真实密钥、地址、协议都来自 env。
+     * 只换密钥不换地址的话，任何 teacherOrAdmin 都能把一把真实凭证指向自己的
+     * 公网主机，等于把密钥送出去 —— 出站护栏挡不住这种「地址本身合法」的外传。
+     * 客户端 baseUrl 只在没有可用预设时才生效（本机自定义模型/端点探活），
+     * 那条路径由 assertSafeBaseUrl 兜底。
+     *
+     * @returns {{config: object|null, error: string|null, fromPreset: boolean}}
+     *          config 为 null 表示参数不足；fromPreset 为 true 时地址来自 env，
+     *          调用方无需再跑出站护栏。
      */
-    async checkModel(req) {
-        const { provider, protocol, apiKey, baseUrl, model, presetId } = req.body;
+    _buildProbeConfig({ provider, protocol, apiKey, baseUrl, model, presetId, timeout, maxTokens }) {
+        let resolved = {
+            provider: provider || 'custom',
+            protocol: protocol || 'openai',
+            apiKey,
+            baseUrl,
+            model
+        };
+        let fromPreset = false;
 
-        // 如果是预设模型，从环境变量获取真实的 API Key
-        let realApiKey = apiKey;
         if (presetId) {
-            const presets = getPresetModels(true);
-            const preset = presets.find(p => p.id === presetId);
-            if (preset) {
-                realApiKey = preset.apiKey;
+            const preset = getPresetModels(true).find(p => p.id === presetId);
+            if (preset && preset.apiKey && preset.baseUrl) {
+                resolved = {
+                    provider: preset.provider || resolved.provider,
+                    protocol: preset.protocol || resolved.protocol,
+                    apiKey: preset.apiKey,
+                    baseUrl: preset.baseUrl,
+                    model
+                };
+                fromPreset = true;
             }
         }
 
-        if (!realApiKey || !baseUrl || !model) {
+        if (!resolved.apiKey || !resolved.baseUrl || !resolved.model) {
+            return { config: null, error: '缺少必要的参数', fromPreset: false };
+        }
+
+        return {
+            config: {
+                enabled: true,
+                provider: resolved.provider,
+                protocol: resolved.protocol,
+                apiKey: resolved.apiKey,
+                baseUrl: resolved.baseUrl,
+                model: resolved.model,
+                timeout,
+                maxTokens
+            },
+            error: null,
+            fromPreset
+        };
+    }
+
+    /**
+     * 检测 AI 模型状态（POST /api/ai/check，快速检测）
+     */
+    async checkModel(req) {
+        const probe = this._buildProbeConfig({ ...req.body, timeout: 8000, maxTokens: 20 });
+        if (!probe.config) {
             return {
                 status: 200,
                 body: standardResponse(false, {
                     available: false,
-                    error: '缺少必要的参数'
+                    error: probe.error
                 })
             };
         }
 
-        // baseUrl 由客户端提供（本机自定义模型/端点靠它探测连通性），必须过出站护栏
-        await assertSafeBaseUrl(baseUrl).catch(err => {
-            throw new AppError(err.message, err.status || 400);
-        });
+        // 非预设路径下 baseUrl 由客户端提供（本机自定义模型/端点靠它探测连通性），必须过出站护栏。
+        // 预设路径的地址来自 env，不必再过一次。
+        if (!probe.fromPreset) {
+            await assertSafeBaseUrl(probe.config.baseUrl).catch(err => {
+                throw new AppError(err.message, err.status || 400);
+            });
+        }
 
         try {
             // 快速检测：使用临时配置，避免修改全局 process.env（消除竞态条件）
-            const testConfig = {
-                enabled: true,
-                provider: provider || 'custom',
-                protocol: protocol || 'openai',
-                apiKey: realApiKey,
-                baseUrl,
-                model,
-                timeout: 8000, // 8秒超时
-                maxTokens: 20  // 20 token 足够返回简短响应
-            };
+            const testConfig = probe.config;
 
             // 发送极简测试请求（通过 configOverride 传入临时配置）
             await aiService.chat([
@@ -160,38 +200,20 @@ class AIConfigService {
      * 测试 AI 模型连接（POST /api/ai/test，完整测试）
      */
     async testModel(req) {
-        const { provider, protocol, apiKey, baseUrl, model, timeout, maxTokens, presetId } = req.body;
-
-        // 如果是预设模型测试，从环境变量获取真实的 API Key
-        let realApiKey = apiKey;
-        if (presetId) {
-            const presets = getPresetModels(true); // 包含真实 API Key
-            const preset = presets.find(p => p.id === presetId);
-            if (preset) {
-                realApiKey = preset.apiKey;
-            }
-        }
-
-        if (!realApiKey || !baseUrl || !model) {
+        const probe = this._buildProbeConfig({ ...req.body, timeout: req.body.timeout || 30000, maxTokens: 100 });
+        if (!probe.config) {
             throw new AppError('缺少必要的测试参数', 400);
         }
 
-        // 同 checkModel：baseUrl 来自客户端，必须过出站护栏
-        await assertSafeBaseUrl(baseUrl).catch(err => {
-            throw new AppError(err.message, err.status || 400);
-        });
+        // 同 checkModel：只有非预设路径的 baseUrl 来自客户端，才需要过出站护栏
+        if (!probe.fromPreset) {
+            await assertSafeBaseUrl(probe.config.baseUrl).catch(err => {
+                throw new AppError(err.message, err.status || 400);
+            });
+        }
 
         // 使用临时配置（通过 configOverride 传入，避免修改全局 process.env）
-        const testConfig = {
-            enabled: true,
-            provider: provider || 'custom',
-            protocol: protocol || 'openai',
-            apiKey: realApiKey,
-            baseUrl,
-            model,
-            timeout: timeout || 30000,
-            maxTokens: 100  // 增加到 100 token，确保完整响应
-        };
+        const testConfig = probe.config;
 
         try {
             const startTime = Date.now();
