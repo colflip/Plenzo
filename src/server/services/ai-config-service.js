@@ -19,6 +19,7 @@ const aiConfigManager = require('./ai-config-manager');
 const aiUserModelStore = require('./ai-user-model-store');
 const endpointStore = require('./ai-endpoint-store');
 const endpointRegistry = require('./ai-endpoint-registry');
+const { assertSafeBaseUrl } = require('../utils/ssrf-guard');
 
 // ai-models.json 与控制器同目录层级（controllers/../data == services/../data）
 const MODELS_FILE_PATH = path.join(__dirname, '../data/ai-models.json');
@@ -119,6 +120,11 @@ class AIConfigService {
             };
         }
 
+        // baseUrl 由客户端提供（本机自定义模型/端点靠它探测连通性），必须过出站护栏
+        await assertSafeBaseUrl(baseUrl).catch(err => {
+            throw new AppError(err.message, err.status || 400);
+        });
+
         try {
             // 快速检测：使用临时配置，避免修改全局 process.env（消除竞态条件）
             const testConfig = {
@@ -169,6 +175,11 @@ class AIConfigService {
         if (!realApiKey || !baseUrl || !model) {
             throw new AppError('缺少必要的测试参数', 400);
         }
+
+        // 同 checkModel：baseUrl 来自客户端，必须过出站护栏
+        await assertSafeBaseUrl(baseUrl).catch(err => {
+            throw new AppError(err.message, err.status || 400);
+        });
 
         // 使用临时配置（通过 configOverride 传入，避免修改全局 process.env）
         const testConfig = {
@@ -719,6 +730,86 @@ class AIConfigService {
             maxTokens: globalConfig.maxTokens || preset.maxTokens
         };
     }
+
+    /**
+     * 把「浏览器本地新增的模型/端点」解析成 LLM 调用配置（含密钥，**仅服务端使用**）
+     * @description 自定义模型/端点只存在用户自己的 localStorage 里，不落库、不同步，
+     *              所以由客户端随每次提问带上，优先级高于用户偏好与全局配置。
+     *
+     *              baseUrl 由客户端指定，等于把服务端当成出站代理，因此必须过
+     *              assertSafeBaseUrl：内网/环回/链路本地/云元数据地址一律 400。
+     *              这里**不做静默回退**——地址不安全就报错，不能让用户以为在用
+     *              自己的模型、实际却打到了别的 provider。
+     *
+     * @param {Object|undefined} raw - req.body.customConfig
+     * @returns {Promise<Object|null>} aiService.chat 的 configOverride；未提供时 null
+     */
+    async resolveCustomConfig(raw) {
+        if (raw === undefined || raw === null) return null;
+        if (typeof raw !== 'object' || Array.isArray(raw)) {
+            throw new AppError('customConfig 必须是对象', 400);
+        }
+
+        const model = String(raw.model || '').trim();
+        const apiKey = typeof raw.apiKey === 'string' ? raw.apiKey.trim() : '';
+        if (!model || !apiKey) {
+            throw new AppError('customConfig 缺少 model 或 apiKey', 400);
+        }
+
+        // 抛出的 Error 带 status=400，交给全局错误中间件转成 4xx
+        const url = await assertSafeBaseUrl(String(raw.baseUrl || '')).catch(err => {
+            throw new AppError(err.message, err.status || 400);
+        });
+
+        const globalConfig = aiService.getAIConfig();
+        return {
+            enabled: true,
+            provider: raw.provider ? String(raw.provider) : 'custom',
+            protocol: raw.protocol === 'messages' ? 'messages' : 'openai',
+            apiKey,
+            baseUrl: normalizeBase(this._baseOf(url)),
+            model,
+            timeout: clampInt(raw.timeout, 1000, 120000, globalConfig.timeout || 30000),
+            maxTokens: clampInt(raw.maxTokens, 1, 32000, globalConfig.maxTokens || 3000),
+            extraParams: sanitizeExtraParams(raw.extraParams)
+        };
+    }
+
+    /** URL → 不含查询串/锚点、末尾无斜杠的基地址（ai-service 会自己拼 /chat/completions） */
+    _baseOf(url) {
+        return url.origin + url.pathname;
+    }
+}
+
+/** 去掉末尾斜杠；空路径时只剩 origin */
+function normalizeBase(base) {
+    return base.replace(/\/+$/, '');
+}
+
+/**
+ * 请求参数收敛：正整数取原值（上限截断），其余一律回落到全局默认。
+ * @description 负数/0/非整数是「填错了」而不是「想要很小的值」，夹到 1 反而会把
+ *              错误藏起来，所以只有超上限才截断。
+ */
+function clampInt(value, min, max, fallback) {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < min) return fallback;
+    return Math.min(max, n);
+}
+
+// 与 ai-service 的 RESERVED_BODY_KEYS 同源的那几个决定调用语义的字段，外加
+// max_tokens/temperature：这两个已经被上面的 timeout/maxTokens 与固定 0.1 管住，
+// 再让 extraParams 覆盖就等于绕过了 maxTokens 的上限。
+const EXTRA_PARAM_DENYLIST = ['model', 'messages', 'system', 'stream', 'tools', 'tool_choice', 'max_tokens', 'temperature'];
+
+function sanitizeExtraParams(extraParams) {
+    if (!extraParams || typeof extraParams !== 'object' || Array.isArray(extraParams)) return undefined;
+    const out = {};
+    for (const [key, value] of Object.entries(extraParams)) {
+        if (EXTRA_PARAM_DENYLIST.includes(key)) continue;
+        out[key] = value;
+    }
+    return Object.keys(out).length ? out : undefined;
 }
 
 module.exports = new AIConfigService();

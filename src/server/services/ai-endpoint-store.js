@@ -1,6 +1,7 @@
 const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const crypto = require('./ai-config-crypto');
+const { inspectBaseUrl } = require('../utils/ssrf-guard');
 
 /**
  * AI 渠道端点存储（渠道 → 端点 → 模型）
@@ -29,15 +30,14 @@ const MASK = '***已配置***';
 
 let tableReady = false;
 
-/** 是否 http(s) URL；空字符串不算 */
+/**
+ * 是否 http(s) 且指向公网地址。
+ * @description 复用出站护栏的字面量检查（协议 / URL 凭证 / 主机名 / IP 段）：
+ *              端点地址最终会被服务端真实请求，指向内网就是在把接口当代理用。
+ *              这里只做同步检查——DNS 解析版在真正发起请求前的 assertSafeBaseUrl。
+ */
 function isHttpUrl(value) {
-    if (typeof value !== 'string' || !value.trim()) return false;
-    try {
-        const u = new URL(value.trim());
-        return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch (_) {
-        return false;
-    }
+    return inspectBaseUrl(value).ok;
 }
 
 /** 正整数或 undefined/null（null 语义是「继承渠道」） */
