@@ -262,9 +262,12 @@ async function batchTransitionFeeStatus(tx, { targetIds, targets, target, note, 
     if (auditItems.length === 0) return 0;
 
     // 批量写回：一条 UPDATE ... FROM (VALUES ...) 覆盖所有受影响场次
+    // updated_by FK 引用 administrators(id)：非 admin 操作者（教师/班主任）的 id 落在不相交的编号段，
+    // 若原样写入会触发 23503；因此非 admin 一律写 NULL（前端渲染为「最后修改人：—」）。
+    const updatedBy = actorType === 'admin' ? operatorId : null;
     const rows = [...writes.entries()];
     const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
-    const params = [operatorId, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
+    const params = [updatedBy, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
     await tx(
         `UPDATE course_sessions cs
             SET teachers = v.teachers, version = cs.version + 1,
@@ -364,9 +367,11 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
     }
 
     if (writes.size > 0) {
+        // 同上：非 admin 操作者写 NULL，避免 updated_by FK 违反 23503
+        const updatedBy = actor && actor.actorType === 'admin' ? operatorId : null;
         const rows = [...writes.entries()];
         const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
-        const params = [operatorId, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
+        const params = [updatedBy, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
         await tx(
             `UPDATE course_sessions cs
                 SET teachers = v.teachers, version = cs.version + 1,
