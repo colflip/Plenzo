@@ -545,7 +545,9 @@ async function setTeacherStatus(id, uid, lifecycle, actor, note, prev) {
           WHERE cs.id = $1
             AND EXISTS (SELECT 1 FROM jsonb_array_elements(cs.teachers) x WHERE x->>'uid' = $2)
           RETURNING ${SESSION_COLUMNS}`,
-        [id, String(uid), lifecycle, actor && actor.id ? Number(actor.id) : null]
+        // updated_by FK 引用 administrators(id)：教师/班主任 actor 的 id 落在不相交的编号段，
+        // 原样写入会触发 23503，因此非 admin 一律写 NULL。
+        [id, String(uid), lifecycle, (actor && actor.actorType === 'admin' && actor.id) ? Number(actor.id) : null]
     );
     if (r.rowCount === 0) return { updated: false, notFound: true };
 
@@ -573,7 +575,9 @@ async function cancelSession(id, actor) {
                 updated_at = CURRENT_TIMESTAMP, updated_by = $2
           WHERE cs.id = $1
           RETURNING ${SESSION_COLUMNS}`,
-        [id, actor && actor.id ? Number(actor.id) : null]
+        // 与 setTeacherStatus 同一条 FK 规则：updated_by 引用 administrators(id)，
+        // 教师/班主任 id 号段不相交，原样写入会触发 23503。
+        [id, (actor && actor.actorType === 'admin' && actor.id) ? Number(actor.id) : null]
     );
     if (r.rowCount === 0) return { updated: false, notFound: true };
     await writeStatusLogs(null, (before.teachers || []).map(p => ({
