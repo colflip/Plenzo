@@ -170,11 +170,19 @@ const errorHandler = (err, req, res, next) => {
         retryAfterSeconds = null;
     }
 
-    if (process.env.NODE_ENV !== 'production' && shouldLogDetail(err)) {
+    // 生产环境只记 5xx：4xx（401 登录失败、422 校验失败等）是正常业务噪声；
+    // 而 5xx 之前在生产**完全不落日志**，线上 500 只能靠客户端截图反推，排查成本极高
+    // （CORS 把同源请求拒成 500 的故障就是这样被藏了很久）。
+    if (process.env.NODE_ENV !== 'production'
+        ? shouldLogDetail(err)
+        : (statusCode >= 500 && shouldLogDetail(err))) {
         logger.error('[Error]', {
             message: err.message,
             stack: err.stack,
-            code: err.code
+            code,
+            requestId,
+            method: req && req.method,
+            path: req && req.originalUrl ? req.originalUrl.split('?')[0] : undefined
         });
     }
 
@@ -273,7 +281,10 @@ function normalizeError(err) {
         message = (code === 'DB_UNAVAILABLE') ? message : '服务器内部错误，请稍后重试';
     }
 
-    if (process.env.NODE_ENV !== 'production' && shouldLogDetail(err)) {
+    // 与 errorHandler 同一策略：非生产全记，生产只记 5xx
+    if (process.env.NODE_ENV !== 'production'
+        ? shouldLogDetail(err)
+        : (statusCode >= 500 && shouldLogDetail(err))) {
         logger.error('[Error]', { message: err.message, stack: err.stack, code });
     }
 
