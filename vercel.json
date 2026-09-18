@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/update-schedule-status",
-      "schedule": "30 15 * * *"
+      "schedule": "0 4 * * *"
     }
   ],
   "rewrites": [
