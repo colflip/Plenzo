@@ -1,8 +1,14 @@
 /**
  * Plenzo 统一入口 Worker
  *
- * 一个入口域名（如 plenzo.i.cd）→ Render（主源）/ Vercel（备源），
- * 主源「连不上」时自动回退到备源。
+ * ⛔ 当前**不可部署**：Cloudflare 已不允许个人 / 普通商业账号把子域添加为 zone
+ *    （`POST /zones` 返回 `code 1116 Please ensure you are providing the root domain
+ *    and not any subdomains`）。本项目域名都是 DNSHE 给的子域且不拥有其父域，
+ *    因此没有可绑的 zone。需要一个能整体托管到 Cloudflare的根域名才能启用。
+ *    详见 wrangler.toml 顶部说明与 docs/cloudflare-routing.md。
+ *    代码本身已验证可用（本地两个模拟 origin，7/7 通过），换域名后可直接复用。
+ *
+ * 一个入口域名 → Render（主源）/ Vercel（备源），主源「连不上」时自动回退到备源。
  *
  * 关键设计（改代码前请先读）：
  *

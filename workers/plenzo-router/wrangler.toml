@@ -1,5 +1,16 @@
 # Cloudflare Worker 配置：plenzo-router
 #
+# ⛔ 当前**不可部署**（2026-09-18 实测确认）：
+#    Cloudflare 已收紧策略，个人 / 普通商业账号**不能再把子域添加为 zone**。
+#    `POST /zones` 传 `plenzo.l.cd` 会返回：
+#      400 {"code":1116,"message":"Please ensure you are providing the root domain
+#           and not any subdomains (e.g., example.com, not subdomain.example.com)"}
+#    本项目现有域名（plenzo.l.cd / hangzhou.l.cd）都是 DNSHE 给的子域，且用户不拥有
+#    其父域 l.cd，因此**没有可用的 zone 可绑**。Worker 只能在「拥有一个能整体托管到
+#    Cloudflare 的根域名」之后使用。详见 docs/cloudflare-routing.md。
+#
+#    代码本身是好的：回退逻辑已在本地用两个模拟 origin 验证 7/7 通过，可直接复用。
+#
 # 部署方式二选一：
 #   A. 控制台粘贴：把 src/index.js 的内容贴进 Workers 在线编辑器（不需要本文件）
 #   B. 命令行：cd workers/plenzo-router && npx wrangler deploy
