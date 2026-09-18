@@ -1,0 +1,29 @@
+# Cloudflare Worker 配置：plenzo-router
+#
+# 部署方式二选一：
+#   A. 控制台粘贴：把 src/index.js 的内容贴进 Workers 在线编辑器（不需要本文件）
+#   B. 命令行：cd workers/plenzo-router && npx wrangler deploy
+#
+# 走 B 之前需要先 `npx wrangler login`（浏览器里授权一次）。
+
+name = "plenzo-router"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 两个 origin 主机名，不要带协议和路径。
+# 换成你自己的：Render Dashboard → 服务 → Settings 顶部的 URL；Vercel → 项目 → Domains。
+[vars]
+PRIMARY_ORIGIN = "plenzo.onrender.com"
+FALLBACK_ORIGIN = "plenzo.vercel.app"
+
+# 开启 Workers Logs，方便在控制台确认回退有没有触发
+[observability]
+enabled = true
+
+# 路由绑定：**等域名在 Cloudflare 里变成 Active 之后再取消注释**，
+# 否则 deploy 会因为找不到 zone 而失败。也可以直接在控制台
+# Workers → plenzo-router → Settings → Domains & Routes 里加，效果一样。
+#
+# routes = [
+#   { pattern = "plenzo.i.cd/*", zone_name = "plenzo.i.cd" }
+# ]

@@ -98,3 +98,9 @@ backups/
 /trace-*.js
 /deep-*.js
 /extract-*.js
+
+# Cloudflare Workers 本地状态（wrangler dev / deploy 生成）
+workers/**/.wrangler/
+workers/**/node_modules/
+workers/**/worker-configuration.d.ts
+workers/**/.dev.vars
