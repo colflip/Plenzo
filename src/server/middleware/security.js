@@ -5,6 +5,7 @@
  */
 
 const helmet = require('helmet');
+const cors = require('cors');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -90,6 +91,69 @@ const additionalSecurityHeaders = (req, res, next) => {
 };
 
 /**
+ * 判断请求是否与 Origin 同源（比较 host，含端口）。
+ *
+ * 为什么需要它：cors@2.8.5 调用 origin 回调时只传 origin 字符串
+ * （`originCallback(req.headers.origin, cb)`），回调里拿不到 req，因此**无法**自行判断同源。
+ * 同源判定只能放在中间件层，见 corsMiddleware。
+ *
+ * 只比 host 不比协议：服务端在反向代理之后无法可靠得知自己的对外协议，而 host 相同
+ * 已经意味着「这是本站页面发出的请求」，放行它不会授予任何跨站能力。
+ *
+ * @param {import('express').Request} req
+ * @param {string} origin
+ * @returns {boolean}
+ */
+const isSameOriginRequest = (req, origin) => {
+    if (!origin) return false;
+
+    let originUrl;
+    try {
+        originUrl = new URL(origin);
+    } catch (_) {
+        return false; // 非法 Origin（如字面量 'null'）一律按跨域处理
+    }
+    if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') return false;
+
+    // 主判据只用 Host：Host 由浏览器按请求 URL 生成，页面 JS 无法伪造（它在 Fetch 规范的
+    // 禁用头名单里）。X-Forwarded-Host **不在**该名单里 —— 任意页面都能在 fetch 时自行塞一个
+    // `X-Forwarded-Host: evil.com`，若拿它当主判据，跨域请求就能伪装成同源。
+    // 只在 Host 缺失（非浏览器客户端）时用 X-Forwarded-Host 兜底：这类客户端本来就能
+    // 不带 Origin 直接放行（见下方 `!origin` 分支），所以该兜底不扩大攻击面。
+    //
+    // Vercel 官方文档明确 host = 「客户端访问的域名」（自定义域名会覆盖 *.vercel.app），
+    // Render 同样透传原始 Host，因此正常部署下 Host 一定是对外域名。
+    const host = String(req.headers.host || '').trim();
+    const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    const requestHost = host || forwardedHost;
+    if (!requestHost) return false;
+
+    const normalize = (host) => host.toLowerCase().replace(/\.$/, '');
+    const stripDefaultPort = (host) => host.replace(originUrl.protocol === 'https:' ? /:443$/ : /:80$/, '');
+
+    return stripDefaultPort(normalize(originUrl.host)) === stripDefaultPort(normalize(requestHost));
+};
+
+/**
+ * CORS 拒绝错误：显式标成 403 的可操作错误。
+ *
+ * 不这么做的话，裸 Error 会落到 errorHandler 的兜底分支，客户端只看到 500
+ * 「服务器内部错误，请稍后重试」——把「来源未列入白名单」这种一眼可判的配置问题
+ * 伪装成服务端崩溃，排查成本极高。
+ */
+const corsForbiddenError = (origin) => {
+    const err = new Error(
+        `不允许的CORS请求：来源 ${origin} 未列入白名单。` +
+        '同源请求不受影响；如需放行该来源，请在部署平台配置 ALLOWED_ORIGINS。'
+    );
+    err.code = 'CORS_FORBIDDEN';
+    err.statusCode = 403;
+    err.retryable = false;
+    err.isOperational = true;
+    return err;
+};
+
+/**
  * CORS安全配置
  */
 const corsOptions = {
@@ -156,7 +220,7 @@ const corsOptions = {
             }
         }
 
-        callback(new Error('不允许的CORS请求'));
+        callback(corsForbiddenError(origin));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -169,8 +233,29 @@ const corsOptions = {
     maxAge: 86400
 };
 
+const corsWithWhitelist = cors(corsOptions);
+
+/**
+ * 生产环境 CORS 中间件：**先无条件放行同源，再对跨域做白名单校验**。
+ *
+ * 顺序不能反，也不能只依赖 corsOptions.origin：浏览器对同源的 POST/PUT/DELETE 同样会带
+ * Origin 头（Fetch 规范：非 GET/HEAD 一律附加 Origin），而 origin 回调拿不到 req、
+ * 判断不了同源。于是任何没有预先写进白名单的部署域名（典型场景：Render/Vercel 上绑定的
+ * 自定义域名）都会在同源写请求上被拒 —— 症状极具误导性：页面能正常打开、GET 接口也正常，
+ * 一提交表单就 500「服务器内部错误」（登录页正是踩中此坑）。
+ *
+ * 同源请求直接 next()：浏览器本来就不对它做 CORS 校验，不需要任何响应头。
+ */
+const corsMiddleware = (req, res, next) => {
+    const origin = req.headers.origin;
+    if (!origin || isSameOriginRequest(req, origin)) return next();
+    return corsWithWhitelist(req, res, next);
+};
+
 module.exports = {
     securityHeaders,
     additionalSecurityHeaders,
-    corsOptions
+    corsOptions,
+    corsMiddleware,
+    isSameOriginRequest
 };

@@ -39,7 +39,9 @@ const {
 const {
     securityHeaders,
     additionalSecurityHeaders,
-    corsOptions
+    corsOptions,
+    corsMiddleware,
+    isSameOriginRequest
 } = require('./security');
 const { requestContext } = require('./request-context');
 const { responseEnvelope } = require('./response-envelope');
@@ -83,6 +85,8 @@ module.exports = {
     securityHeaders,
     additionalSecurityHeaders,
     corsOptions,
+    corsMiddleware,
+    isSameOriginRequest,
 
     // 响应信封（边缘归一化为 { ok, data, error, meta }）
     requestContext,

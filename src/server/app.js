@@ -21,7 +21,7 @@ const {
     apiLimiter,
     securityHeaders,
     additionalSecurityHeaders,
-    corsOptions,
+    corsMiddleware,
     getJwtSecret,
     requestContext,
     responseEnvelope
@@ -72,11 +72,11 @@ app.use(compression({
     threshold: 1024
 }));
 
-if (isProduction) {
-    app.use(cors(corsOptions));
-} else {
-    app.use(cors());
-}
+// 生产：corsMiddleware 先放行同源、再对跨域走白名单。自定义域名（如 Render 上绑定的
+// plenzo.i.cd）不在硬编码白名单里，若直接用 cors(corsOptions)，同源的登录 POST 会被
+// origin 回调拒成 500「服务器内部错误」—— 见 middleware/security.js 的 corsMiddleware 注释。
+// 非生产：保持全放行，方便本地任意端口 / 工具联调。
+app.use(isProduction ? corsMiddleware : cors());
 
 if (process.env.NODE_ENV !== 'test') {
     const morganFormat = isProduction ? 'combined' : 'dev';
@@ -137,6 +137,9 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/health', require('./routes/health'));
 app.use('/api/meta', require('./routes/meta'));
 app.use('/api/ai', require('./routes/ai'));
+// 平台级 Cron 入口：Vercel Cron Jobs 按计划 HTTP 调用它（Serverless 无常驻进程，
+// node-cron 不会触发）。Render 等常驻进程仍走 jobs/scheduler.js，两条路互不干扰。
+app.use('/api/cron', require('./routes/cron'));
 
 const dashboardPages = {
     admin: path.join(__dirname, '../../public/admin/dashboard.html'),
