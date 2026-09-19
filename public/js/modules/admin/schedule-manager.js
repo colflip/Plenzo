@@ -122,6 +122,9 @@ function normalizeScheduleRows(rows) {
             status: r.status,
             status_category: r.status_category,
             status_code: r.status_code,
+            // 乐观锁版本：网格接口本就返回，透出后卡片可直接改状态时同步刷新它，
+            // 避免编辑弹窗拿到过期 version 触发 409。
+            version: r.version,
             startMin: start ? (Number(start.split(':')[0]) * 60 + Number(start.split(':')[1])) : NaN,
             endMin: end ? (Number(end.split(':')[0]) * 60 + Number(end.split(':')[1])) : NaN
         };
@@ -1244,6 +1247,10 @@ function buildAdminScheduleCard(group, student, dateKey) {
         // 同一场课会出现在多个学生列里，session id 不再唯一 —— 行的唯一标识是
         // (session_id, teacher_uid)，乐观更新与状态切换都按这两个键定位。
         if (rec.teacher_uid) row.dataset.teacherUid = rec.teacher_uid;
+        // 把乐观锁版本也挂到 DOM 上：状态切换成功后同步刷新它，编辑弹窗与后续操作
+        // 就能拿到与库一致的 version，不再拿过期值撞 409。
+        row.dataset.sessionId = rec.session_id != null ? rec.session_id : rec.id;
+        if (rec.version != null) row.dataset.version = rec.version;
         row.title = '点击修改';
         row.style.cursor = 'pointer';
 
@@ -1358,18 +1365,23 @@ export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
     if (row) row.classList.add('optimistic-loading');
 
     try {
-        // 远程优先：先同步到数据库
-        await window.apiUtils.patch(`/admin/sessions/${sessionId}/teachers/${teacherUid}/status`, { lifecycle: newStatus });
+        // 远程优先：先同步到数据库。响应是更新后的整场（带最新 version）。
+        const res = await window.apiUtils.patch(`/admin/sessions/${sessionId}/teachers/${teacherUid}/status`, { lifecycle: newStatus });
+        const freshVersion = res && res.version != null ? Number(res.version) : null;
 
-        // 远程成功后再更新本地缓存与UI
+        // 远程成功后再更新本地缓存与UI（status + version 一起写回，保持与库一致）
         for (const entry of WeeklyDataStore.schedules.values()) {
             if (entry.rows) {
                 entry.rows
                     .filter(r => String(r.session_id ?? r.id) === String(sessionId)
                         && (!teacherUid || String(r.teacher_uid) === String(teacherUid)))
-                    .forEach(r => { r.status = newStatus; });
+                    .forEach(r => {
+                        r.status = newStatus;
+                        if (freshVersion != null) r.version = freshVersion;
+                    });
             }
         }
+        if (row && freshVersion != null) row.dataset.version = String(freshVersion);
         optimisticUpdate(sessionId, { status: newStatus }, teacherUid);
         if (row) row.classList.remove('optimistic-loading');
         window.eventBus?.emit(window.EVENTS?.SCHEDULE_STATUS_CHANGED || 'schedule:statusChanged', {
@@ -1382,7 +1394,15 @@ export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
         window.apiUtils.showSuccessToast('状态已更新');
     } catch (err) {
         if (row) row.classList.remove('optimistic-loading');
-        window.apiUtils.showToast('更新状态失败', 'error');
+        // 不再静默吞错：409 说明这一场刚被别人改过（本地 version 过期），拉一次新数据
+        // 让卡片与缓存回到真实状态；其余错误按后端消息提示。
+        if (err && err.status === 409) {
+            window.apiUtils.showToast('该排课刚被他人修改，已为你刷新状态', 'warning');
+            WeeklyDataStore.invalidateSchedules();
+            await loadSchedules(true, false);
+        } else {
+            window.apiUtils.showToast(`更新状态失败：${(err && err.message) || '请稍后重试'}`, 'error');
+        }
     }
 }
 
@@ -2001,7 +2021,31 @@ export async function setupScheduleEventListeners() {
                     };
                     if (version !== undefined) payload.version = version;
 
-                    const saved = await window.apiUtils.patch(`/admin/sessions/${id}`, payload);
+                    // 乐观锁冲突（409）的鲁棒处理：弹窗打开后若有其他人改过这一场，
+                    // 携带的 version 已过期。这里自动拉一次详情拿最新 version 重放一次；
+                    // 若 pair 结构（教师 uid 集合）也变了，说明别人的改动与本次编辑实质冲突，
+                    // 不再自动重放，抛 needsRefresh 让上层重新拉取详情、刷新弹窗。
+                    let saved;
+                    try {
+                        saved = await window.apiUtils.patch(`/admin/sessions/${id}`, payload);
+                    } catch (firstErr) {
+                        if (!firstErr || firstErr.status !== 409) throw firstErr;
+                        const fresh = await window.apiUtils.get(`/admin/schedules/${id}`);
+                        const sameShape = JSON.stringify(
+                            (fresh.teachers || []).map(t => t.uid).sort()
+                        ) === JSON.stringify(
+                            pairs.teachers.filter(p => p.uid).map(p => String(p.uid)).sort()
+                        );
+                        if (!sameShape || fresh.version == null) {
+                            const e = new Error('该排课已被他人修改，已为你刷新，请重新确认后再保存');
+                            e.needsRefresh = true;
+                            throw e;
+                        }
+                        payload.version = Number(fresh.version);
+                        form.dataset.version = String(fresh.version);
+                        saved = await window.apiUtils.patch(`/admin/sessions/${id}`, payload);
+                        window.apiUtils?.showToast('检测到并发修改，已按最新版本自动保存', 'info');
+                    }
 
                     // 服务端按身份裁剪白名单之外的键。有残留 = 这次有字段没落库，
                     // 必须吭声，否则又是「提示成功但数据没变」。
@@ -2081,13 +2125,21 @@ export async function setupScheduleEventListeners() {
                 }
 
                 if (window.apiUtils) {
-                    // 409 = 乐观锁冲突：别人在你打开弹窗后改过这一场
-                    window.apiUtils.showToast(
-                        err && err.status === 409
-                            ? '该排课已被他人修改，请刷新后重试'
-                            : '保存失败: ' + (err.message || ''),
-                        'error'
-                    );
+                    // 并发冲突且无法自动重放：重新拉取这一场、用最新数据刷新弹窗，
+                    // 让用户在真实状态上重新确认，而不是对着过期表单反复失败。
+                    if (err && err.needsRefresh && mode === 'edit') {
+                        window.apiUtils.showToast(err.message || '该排课已被他人修改，已为你刷新', 'warning');
+                        WeeklyDataStore.invalidateSchedules();
+                        await editSchedule(id);
+                    } else {
+                        // 409 = 乐观锁冲突：别人在你打开弹窗后改过这一场
+                        window.apiUtils.showToast(
+                            err && err.status === 409
+                                ? '该排课已被他人修改，请刷新后重试'
+                                : '保存失败: ' + (err.message || ''),
+                            'error'
+                        );
+                    }
                 }
             } finally {
                 if (btn) {
