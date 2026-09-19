@@ -101,6 +101,13 @@ function normalizeScheduleRows(rows) {
 
         return {
             id: r.id,
+            // 卡片直接在课程上改状态时靠 (session_id, teacher_uid) 两个键定位教师 pair：
+            // 状态挂在教师 pair 上，服务层按 uid 匹配，缺了 teacher_uid 就会退化成
+            // 字面量 "undefined" 打到 /teachers/undefined/status，被误判成「排课不存在」。
+            // 网格接口本就返回这两个键，这里必须原样透出，不能只留 id。
+            session_id: r.session_id ?? r.id,
+            teacher_uid: r.teacher_uid,
+            student_uid: r.student_uid,
             student_id: r.student_id,
             student_name: r.student_name,
             teacher_id: r.teacher_id,

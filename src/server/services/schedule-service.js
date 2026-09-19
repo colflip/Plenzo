@@ -746,7 +746,14 @@ class ScheduleService {
             // URL 上是 /students/:uid 时不走这条分支：拿学生 uid 找教师 pair 必然落空。
             const kindFromUrl = req.params.kind;
             const teachers = current.teachers || [];
-            let teacherUid = b.teacher_uid || (kindFromUrl === 'student' ? null : req.params.uid);
+            // 占位符 uid（旧前端未透传 teacher_uid 时会把字面量 "undefined"/"null" 拼进 URL）
+            // 视作「未指定」，交给下面的单教师自动检测兜底 —— 否则拿这个假 uid 去 findPair
+            // 必然落空，会把「没带 uid」误判成「排课不存在」。
+            const sanitizeUid = (v) => {
+                const s = v == null ? '' : String(v).trim();
+                return (s === '' || s === 'undefined' || s === 'null') ? null : s;
+            };
+            let teacherUid = sanitizeUid(b.teacher_uid) || (kindFromUrl === 'student' ? null : sanitizeUid(req.params.uid));
             if (kindFromUrl !== 'student') {
                 if (!teacherUid && teachers.length === 1) teacherUid = teachers[0].uid;
                 if (!teacherUid && b.teacher_id != null) {
