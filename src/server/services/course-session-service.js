@@ -622,13 +622,21 @@ async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
 
     // 换人必须验引用 + 查重：否则能把同一位老师写进同一场两次，或写进一个不存在的 id。
     // 查重排除自己（uid 不同才算冲突），且只算活跃 pair —— 已取消/已调走的不占名额。
-    if (kind === 'teacher' && normalized.teacher_id !== undefined) {
+    //
+    // 只在「这一位真的换了人」时才查重：normalized.teacher_id 与 pair 当前值相等时是
+    // 一次 no-op（编辑弹窗保存会把整个 teachers[] 原样回传，未改动的 pair 也带着原来的
+    // teacher_id）。不跳过的话，一场被调整过的课（同时留有 normal.modified_away 原 pair 与
+    // adjusted.* 增补 pair、两者 teacher_id 相同）在仅改时间/其他字段时，会把没动的原 pair
+    // 拿去和活跃的增补 pair 比对 → 误报「这位老师已经在这一场课里了」。
+    if (kind === 'teacher' && normalized.teacher_id !== undefined
+        && Number(target.teacher_id) !== Number(normalized.teacher_id)) {
         if (arr.some(p => String(p.uid) !== String(uid)
             && Number(p.teacher_id) === Number(normalized.teacher_id) && isActive(p.status))) {
             throw new SessionValidationError('这位老师已经在这一场课里了');
         }
     }
-    if (kind === 'student' && normalized.student_id !== undefined) {
+    if (kind === 'student' && normalized.student_id !== undefined
+        && Number(target.student_id) !== Number(normalized.student_id)) {
         if (arr.some(p => String(p.uid) !== String(uid)
             && Number(p.student_id) === Number(normalized.student_id))) {
             throw new SessionValidationError('这位学生已经在这一场课里了');
