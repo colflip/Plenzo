@@ -862,7 +862,8 @@
     // 明细记录：每条课时记录渲染为一行，字段与表头列一一对应（学生列留白不显示内容）
     function buildDetailRows(config, key, list) {
         const frag = document.createDocumentFragment();
-        let prevDt = null; // 追踪上一行日期时间，相同则留空（表示复用上方）
+        let prevDate = null;   // 追踪上一行日期，同日期则省略日期前缀（分组省略规则）
+        let prevDtKey = null;  // 追踪上一行日期+时间，完全相同则为交叉积重复行（留空）
         list.slice().sort((a, b) =>
             (a.date || '').localeCompare(b.date || '') ||
             (a.start_time || '').localeCompare(b.start_time || '')
@@ -882,12 +883,23 @@
             const end = r.end_time ? r.end_time.substring(0, 5) : '--';
             const days = ['日', '一', '二', '三', '四', '五', '六'];
             const dt = new Date((r.date || '') + 'T00:00:00');
-            const dtText = r.date
-                ? `周${days[dt.getDay()]}（${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}，${start} - ${end}）`
-                : '-';
-            // 日期时间与上一行相同时留空（复用上行），并标记该行为「重复行」(去掉下方分割线)
-            const isDup = (prevDt !== null && dtText === prevDt);
-            if (!isDup) prevDt = dtText;
+            const timeRange = `${start} - ${end}`;
+            // 日期列格式：同天首条显示完整前缀，后续行前缀隐藏但占位（保持时间段水平位置一致）
+            const datePrefix = r.date
+                ? `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}（周${days[dt.getDay()]}） `
+                : '';
+            let dtHtml;
+            if (!r.date) {
+                dtHtml = '-';
+            } else {
+                const ghostCls = (prevDate === r.date) ? ' fm-date-ghost' : '';
+                dtHtml = `<span class="fm-date-prefix${ghostCls}">${datePrefix}</span>${timeRange}`;
+            }
+            prevDate = r.date || null;
+            // 交叉积重复行（同日期+同时间）：留空并去掉下方分割线
+            const dtKey = `${r.date}|${start}|${end}`;
+            const isDup = (prevDtKey !== null && dtKey === prevDtKey);
+            if (!isDup) prevDtKey = dtKey;
             else tr.classList.add('fm-dup-row');
             // 已取消课程：整行斜体显示（反馈）
             if (String(r.status || '').toLowerCase() === 'cancelled') tr.classList.add('fm-cancelled');
@@ -921,7 +933,7 @@
                     : { text: '¥' + money(total), cls: total === 0 ? 'fm-fee-zero' : 'fm-fee-set' };
             }
             // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
-            addCell('datetime', isDup ? '' : dtText);
+            addCell('datetime', isDup ? '' : dtHtml);
             addCell('teacher', teacher);
             addCell('merged', `${esc(typeStr)}，${esc(statusText(r.status))}`);
             addCell('location', locationText);
@@ -990,7 +1002,7 @@
             const tdDate = document.createElement('td');
             const dateClamp = document.createElement('span');
             dateClamp.className = 'fm-cell-clamp';
-            // 日期范围同行显示（MM-DD~MM-DD）；列宽由明细行（周X（MM-DD，HH:MM - HH:MM））决定，区间短于明细日期，单行可放下
+            // 日期范围同行显示（MM-DD~MM-DD）；列宽由明细行（MM-DD（周X） HH:MM - HH:MM）决定，区间短于明细日期，单行可放下
             dateClamp.textContent = dateRange;
             tdDate.appendChild(dateClamp);
             tr.appendChild(tdDate);
@@ -1271,11 +1283,11 @@
                         <div id="fmDynamicFeeInputsContainer" style="display:none; width:100%;"></div>
                         <div class="form-group" id="fmDefaultGroup">
                             <label>交通费 (元)</label>
-                            <input type="number" id="fmTransportInput" placeholder="0.00" step="0.5" min="0" max="999999.99">
+                            <input type="number" id="fmTransportInput" placeholder="0.00" step="0.01" min="0" max="999999.99">
                         </div>
                         <div class="form-group" id="fmDefaultOtherGroup">
                             <label>其他费用 (元)</label>
-                            <input type="number" id="fmOtherInput" placeholder="0.00" step="0.5" min="0" max="999999.99">
+                            <input type="number" id="fmOtherInput" placeholder="0.00" step="0.01" min="0" max="999999.99">
                         </div>
                         <div class="form-group">
                             <label><strong>总计费用 (元)</strong></label>
@@ -1357,7 +1369,7 @@
                 let label = date;
                 if (date !== '未排日期') {
                     const dt = new Date(date + 'T00:00:00');
-                    label = `${date}（周${weekDays[dt.getDay()]}）`;
+                    label = `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}（周${weekDays[dt.getDay()]}）`;
                 }
                 header.textContent = label;
                 group.appendChild(header);
@@ -1377,11 +1389,11 @@
                         <div class="fm-day-item-inputs">
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
                                 <label style="font-size: var(--fs-300);">交通费</label>
-                                <input type="number" class="fm-dyn-trans" data-pair="${esc(s._pairKey)}" step="0.5" min="0" value="${isUnfilled(s.transport_fee) ? '' : esc(String(s.transport_fee))}" placeholder="0.00">
+                                <input type="number" class="fm-dyn-trans" data-pair="${esc(s._pairKey)}" step="0.01" min="0" value="${isUnfilled(s.transport_fee) ? '' : esc(String(s.transport_fee))}" placeholder="0.00">
                             </div>
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
                                 <label style="font-size: var(--fs-300);">其他</label>
-                                <input type="number" class="fm-dyn-other" data-pair="${esc(s._pairKey)}" step="0.5" min="0" value="${isUnfilled(s.other_fee) ? '' : esc(String(s.other_fee))}" placeholder="0.00">
+                                <input type="number" class="fm-dyn-other" data-pair="${esc(s._pairKey)}" step="0.01" min="0" value="${isUnfilled(s.other_fee) ? '' : esc(String(s.other_fee))}" placeholder="0.00">
                             </div>
                         </div>
                     `;
@@ -1431,11 +1443,13 @@
         activeModal = null;
     }
 
-    // 输入框 → 费用值：留空/未传 → null（未填写）；0 或正数 → 数值。与「清除费用」显式置 null 一致。
+    // 输入框 → 费用值：留空/未传 → null（未填写）；0 或正数 → 数值，四舍五入到最多 2 位小数。
+    // 超过 2 位小数的输入（如 88.555）统一四舍五入为 2 位（88.56），与后端 round2 / money() 精度策略一致。
     function parseInputFee(val) {
         if (val === '' || val === null || val === undefined) return null;
         const n = parseFloat(val);
-        return Number.isNaN(n) ? null : n;
+        if (Number.isNaN(n)) return null;
+        return Math.round((n + Number.EPSILON) * 100) / 100;
     }
 
     function collectUpdates() {
