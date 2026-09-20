@@ -6911,18 +6911,32 @@ span.status-select {
 }
 
 /* 管理端分组表格：分割线用 td 背景绘制，左右各留 100px；
-   学生之间 0.5px 线 + 上下留白共 5px 高、列表顶底 1px；行高固定 65px */
+   学生之间 0.5px 线 + 上下留白共 5px 高、列表顶底 1px。
+   垂直节奏改为「内边距驱动」（原为固定行高 65px）：
+   - 同一学生相邻课程：上下间距 = --ts-gap-same，约原 65px 行高产生间距的一半；
+   - 不同学生课程组之间：组首行上内边距额外加大，组间距 = --ts-gap-diff，明显大于同学生行距，
+     让「同一学生为一组」的视觉关系更清晰。
+   仅调整垂直方向 padding，不改宽度 / 水平内边距 / 字号 / 行高；去掉固定行高后，窄屏换行时
+   行盒自然增高，避免重叠或过度拥挤。徽章仍压缩为 line-height:1 + middle 对齐以稳定行盒。 */
+.today-schedule-table.grouped {
+    --ts-gap-same: 17px;
+    --ts-gap-diff: 40px;
+}
+
 .today-schedule-table.grouped tbody tr {
-    height: 65px;
+    height: auto;
     border-bottom: none;
 }
 
-/* 行高固定 65px：去掉上下内边距，靠 height + vertical-align 居中；
-   徽章压缩为 line-height:1 + middle 对齐，避免撑高行盒（否则行高会变成 73px） */
 .today-schedule-table.grouped tbody td {
-    height: 65px;
-    padding-top: 0;
-    padding-bottom: 0;
+    height: auto;
+    padding-top: calc(var(--ts-gap-same) / 2);
+    padding-bottom: calc(var(--ts-gap-same) / 2);
+}
+
+/* 不同学生课程组：加大组首行上内边距，使组间距 = --ts-gap-diff（> 同学生行距） */
+.today-schedule-table.grouped tbody tr.today-schedule-group-start td {
+    padding-top: calc(var(--ts-gap-diff) - var(--ts-gap-same) / 2);
 }
 
 .today-schedule-table.grouped .today-schedule-type,
@@ -6941,7 +6955,7 @@ span.status-select {
     border-bottom: none;
 }
 
-/* 不同学生之间：0.5px 分割线（行顶），上下留白构成 5px 高的分割带 */
+/* 不同学生之间：0.5px 分割线居中于组间距带内（上下留白构成 5px 高的分割带） */
 .today-schedule-table.grouped tbody tr.today-schedule-group-start:not(:last-child) td {
     background-image: linear-gradient(to bottom,
         transparent 0,
@@ -6951,7 +6965,7 @@ span.status-select {
         transparent 2.5px,
         transparent 100%);
     background-repeat: no-repeat;
-    background-position: 100px top;
+    background-position: 100px calc((var(--ts-gap-diff) - var(--ts-gap-same)) / 2);
     background-size: calc(100% - 200px) 5px;
 }
 
@@ -6983,7 +6997,7 @@ span.status-select {
             transparent 100%),
         linear-gradient(#94a3b8, #94a3b8);
     background-repeat: no-repeat, no-repeat;
-    background-position: 100px top, 100px bottom;
+    background-position: 100px calc((var(--ts-gap-diff) - var(--ts-gap-same)) / 2), 100px bottom;
     background-size: calc(100% - 200px) 5px, calc(100% - 200px) 1px;
 }
 
@@ -9194,10 +9208,15 @@ span.status-select {
     text-overflow: ellipsis;
 }
 
-/* 日期时间列单行显示，避免「周一（08-10，19:00 - 21:45）」折行；
+/* 日期时间列单行显示，避免「09-14（周一） 19:00 - 21:45」折行；
    不设固定 min-width，列宽随内容自适应（顶部「每列宽度自适应」） */
 .fm-d-datetime {
     white-space: nowrap;
+}
+
+/* 同天续行日期前缀占位隐藏：保持时间段在列内水平位置与首行一致，不因省略而左移 */
+.fm-date-ghost {
+    visibility: hidden;
 }
 
 .fm-d-type {
