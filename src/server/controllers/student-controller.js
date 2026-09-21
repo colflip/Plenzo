@@ -7,6 +7,7 @@ const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const { slotToColumn, mapRowToStudentAvailability } = require('../services/availability-service');
 const { handleExportError } = require('../middleware/export-error-handler');
+const ExportUtils = require('../utils/export-utils');
 const SchemaHelper = require('../utils/schema-helper');
 const scheduleService = require('../services/schedule-service');
 const { pipeline, scheduleQueries } = require('../services/export');
@@ -145,7 +146,7 @@ const studentController = {
                 queryRawData: () => scheduleQueries.queryStudentSchedule(startDate, endDate, { student_id: studentId })
             });
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+            res.setHeader('Content-Disposition', ExportUtils.buildDownloadDisposition(out.filename, 'schedule-export'));
             res.setHeader('Content-Length', out.buffer.length);
             return res.end(out.buffer);
         } catch (error) {

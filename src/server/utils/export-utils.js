@@ -98,6 +98,23 @@ class ExportUtils {
     }
 
     /**
+     * 构造下载响应的 Content-Disposition
+     *
+     * 中文文件名必须走 RFC 5987 的 `filename*=UTF-8''`；普通 `filename=` 只放 ASCII
+     * 兜底名。把 encodeURIComponent 的结果塞进 `filename=` 是无效的——浏览器不会解码
+     * 该形式，用户拿到的是 `%E6%8E%92%E8%AF%BE...` 这样的乱码文件名。
+     *
+     * @param {string} filename - 真实文件名（可含中文）
+     * @param {string} fallbackBase - ASCII 兜底名主干（不含扩展名）
+     * @returns {string} Content-Disposition 头的值
+     */
+    static buildDownloadDisposition(filename, fallbackBase = 'export') {
+        const ext = /\.([A-Za-z0-9]+)$/.exec(filename);
+        const asciiFallback = `${fallbackBase}${ext ? '.' + ext[1] : ''}`;
+        return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+    }
+
+    /**
      * 脱敏处理 - 移除潜在危险的脚本标签和事件处理器
      * @param {any} value - 要脱敏的值
      * @returns {string} 脱敏后的字符串
