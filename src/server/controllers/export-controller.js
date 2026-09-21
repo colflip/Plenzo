@@ -15,6 +15,7 @@ const ExportLogService = require('../utils/export-log-service');
 const { handleExportError, ExportError } = require('../middleware/export-error-handler');
 const { standardResponse } = require('../middleware/validation');
 const { validateDateFormat, getTimestamp, resolveUserName } = require('../utils/shared-utils');
+const ExportUtils = require('../utils/export-utils');
 
 const exportController = {
     /**
@@ -181,7 +182,7 @@ const exportController = {
 
             // ===== 10. 发送文件 =====
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
+            res.setHeader('Content-Disposition', ExportUtils.buildDownloadDisposition(excelResult.filename, 'schedule-export'));
             res.setHeader('Content-Length', excelResult.buffer.length);
             return res.end(excelResult.buffer);
 
@@ -263,7 +264,7 @@ const exportController = {
             }
 
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(excelResult.filename)}"`);
+            res.setHeader('Content-Disposition', ExportUtils.buildDownloadDisposition(excelResult.filename, 'info-export'));
             res.setHeader('Content-Length', excelResult.buffer.length);
             return res.end(excelResult.buffer);
 
