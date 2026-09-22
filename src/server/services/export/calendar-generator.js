@@ -197,14 +197,14 @@ class CalendarGenerator {
                 const buildParts = (f, showTeacherNames) => {
                     const parts = [];
                     f.teacherFees.forEach((fee, teacher) => {
-                        const val = Math.ceil(fee * 100) / 100;
+                        const val = Math.round(fee * 100) / 100;
                         if (val > 0) {
                             parts.push(showTeacherNames ? `${teacher}${val}` : String(val));
                         }
                     });
                     const otherParts = [];
                     f.teacherOtherFees.forEach(fee => {
-                        const val = Math.ceil(fee * 100) / 100;
+                        const val = Math.round(fee * 100) / 100;
                         if (val > 0) otherParts.push(String(val));
                     });
                     if (otherParts.length > 0) parts.push(`其他费用${otherParts.join('+')}`);
@@ -260,7 +260,7 @@ class CalendarGenerator {
                 );
                 weeklyFees.set(
                     weekNumber,
-                    weekTotal > 0 ? String(Math.ceil(weekTotal * 100) / 100) : zeroValue
+                    weekTotal > 0 ? String(Math.round(weekTotal * 100) / 100) : zeroValue
                 );
             } else {
                 const studentWeekTotals = new Map();
@@ -275,7 +275,7 @@ class CalendarGenerator {
                 const lines = [];
                 studentWeekTotals.forEach((total, name) => {
                     if (total > 0) {
-                        lines.push(`${name}：${Math.ceil(total * 100) / 100}`);
+                        lines.push(`${name}：${Math.round(total * 100) / 100}`);
                     }
                 });
                 weeklyFees.set(weekNumber, lines.length > 0 ? lines.join('\n') : zeroValue);
