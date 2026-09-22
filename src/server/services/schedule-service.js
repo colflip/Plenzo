@@ -10,21 +10,10 @@
 const db = require('../db/db');
 const { AppError } = require('../middleware/error');
 const SchemaHelper = require('../utils/schema-helper');
-const { buildScopeClause, canTouchRecord, requiresOwnDataScope } = require('../utils/admin-permissions');
+const { buildScopeClause, canTouchRecord, requiresOwnDataScope, applyOwnerScope } = require('../utils/admin-permissions');
 const courseSessionService = require('./course-session-service');
 // 类型归一的唯一实现（与浏览页统计、Excel 导出共用同一份规则）
 const TypeConversion = require('../../../public/js/utils/type-conversion');
-
-/**
- * 权限落地（Phase 1）：为 L3 操作员追加「仅自己创建 + 无主存量」范围过滤。
- * 非 L3 原样返回 sql；L3 则把 actorId 追加进 params 并拼接 WHERE 条件。
- */
-function applyOwnerScope(sql, params, user, alias = 'ca') {
-    const scope = buildScopeClause(user, alias);
-    if (!scope) return sql;
-    params.push(scope.actorId);
-    return `${sql} AND ${scope.clause.replace('$ACTOR_ID', `$${params.length}`)}`;
-}
 
 // 课程状态枚举（与 teacher-controller 的 LESSON_STATUS_SET 保持一致，供 teacherUpdateScheduleStatus 使用）
 const LESSON_STATUS_SET = new Set(['pending', 'confirmed', 'completed', 'cancelled']);
@@ -329,6 +318,7 @@ class ScheduleService {
                 ca.status,
                 ca.teacher_id,
                 ca.teacher_uid,
+                ca.student_uid,
                 t.name AS teacher_name,
                 ca.student_id,
                 s.name AS student_name,
@@ -337,6 +327,7 @@ class ScheduleService {
                 ca.location,
                 ca.transport_fee,
                 ca.other_fee,
+                ca.fee_scope,
                 ca.status_category,
                 ca.fee_status
             FROM v_session_pairs ca
@@ -710,6 +701,10 @@ class ScheduleService {
 
         const notFound = () => new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '排课不存在' });
 
+        // 钱不在这条接口上：下面几步是各自独立的 UPDATE（没有外层事务），
+        // 等走到 pair 那一步才报错的话，时间/地点已经写进库了。动手前一次性拦掉。
+        courseSessionService.assertNoFeeFields(b);
+
         let version = b.version !== undefined ? Number(b.version) : Number(session.version);
         let current = session;
 
@@ -771,8 +766,7 @@ class ScheduleService {
                 if (Array.isArray(b.type_ids) && b.type_ids.length) pairPatch.type_id = b.type_ids[0];
                 if (b.teacher_rating !== undefined) pairPatch.teacher_rating = b.teacher_rating;
                 if (b.teacher_comment !== undefined) pairPatch.teacher_comment = b.teacher_comment;
-                if (b.transport_fee !== undefined) pairPatch.transport_fee = b.transport_fee;
-                if (b.other_fee !== undefined) pairPatch.other_fee = b.other_fee;
+                // 费用键不进 patch：改钱只有费用接口那一条路（见文件开头 updateSchedule 的拦校验）
                 if (Object.keys(pairPatch).length > 0) {
                     const r = await courseSessionService.patchPair(id, 'teacher', teacherUid, pairPatch, actor, version, current);
                     if (r.notFound) throw notFound();
@@ -986,6 +980,7 @@ class ScheduleService {
                 ${dateExpr} AS date,
                 ca.start_time, ca.end_time, ca.status,
                 ca.teacher_id, ca.teacher_uid, ca.location,
+                ca.student_uid, ca.fee_scope,
                 t.name as teacher_name,
                 ca.transport_fee, ca.other_fee,
                 ca.fee_status,
@@ -1230,9 +1225,11 @@ class ScheduleService {
                 ${dateExpr} AS date,
                 ca.start_time, ca.end_time, ca.status,
                 ca.location, ca.transport_fee, ca.other_fee,
+                ca.fee_scope,
                 ca.fee_status,
                 ca.status_category,
                 ca.teacher_uid,
+                ca.student_uid,
                 t.name as teacher_name, t.id as teacher_id,
                 st.name as student_name, st.id as student_id,
                 sty.name as schedule_type, sty.description as schedule_type_cn

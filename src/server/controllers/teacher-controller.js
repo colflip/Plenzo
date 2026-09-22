@@ -441,6 +441,7 @@ const teacherController = {
      * @param {string} req.params.id - 课程ID
      * @param {number} req.body.transport_fee - 交通费
      * @param {number} req.body.other_fee - 其他费用
+     * @param {string} [req.body.student_uid] - 学生 pair uid；传了就只写这一位学生那份
      *
      * 性能契约：**不再开启事务**。「费用更新」现是一条 UPDATE（金额 + 状态一次成型，
      * 见 fee-service.updateScheduleFeesInTx），金额审计与状态审计是「失败只告警」的旁路。
@@ -449,7 +450,7 @@ const teacherController = {
     async updateScheduleFees(req, res, next) {
         try {
             const { id } = req.params;
-            const { transport_fee, other_fee } = req.body;
+            const { transport_fee, other_fee, student_uid: studentUid } = req.body;
 
             // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0；负数仍拒绝。
             const tFee = FeeService.parseFeeAmount(transport_fee);
@@ -477,7 +478,8 @@ const teacherController = {
                 throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' });
             }
             const row = pair;
-            const { transport_fee: old_t_fee, other_fee: old_o_fee } = pair;
+            // 审计里的「改之前」按本次那一格取：带 student_uid 就是该学生那份，否则是整趟一笔
+            const { transport_fee: old_t_fee, other_fee: old_o_fee } = FeeService.effectiveFeeOf(pair, studentUid);
 
             // 操作身份：班主任（有绑定学生）限关联学生，普通教师限本人 pair
             const scopeMsg = FeeService.checkScheduleScope(actor, { session, teacher: pair }, id);
@@ -491,7 +493,7 @@ const teacherController = {
                 : null;
 
             await FeeService.updateScheduleFeesInTx(db.query, { sessionId: id, teacherUid: pair.uid }, {
-                tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
+                tFee, oFee, studentUid, oldTFee: old_t_fee, oldOFee: old_o_fee,
                 targetStatus, oldStatus: row.fee_status, operatorId: req.user.id, operatorRole: 'teacher'
             });
             const feeStatus = targetStatus || row.fee_status;
@@ -513,7 +515,7 @@ const teacherController = {
 
     /**
      * 批量更新排课费用
-     * @param {Array} req.body.updates - [{ id, transport_fee, other_fee }]
+     * @param {Array} req.body.updates - [{ id, teacher_uid?, student_uid?, transport_fee, other_fee }]
      */
     async batchUpdateScheduleFees(req, res, next) {
         try {

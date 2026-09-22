@@ -293,12 +293,10 @@ class UnifiedExportService {
 
         logger.log(`[UnifiedExportService] 分批处理: ${batches.length} 批, 每批 ${BATCH_SIZE} 条, 总计 ${rawData.length} 条`);
 
-        // 1. 每日排课明细 - 分批追加
-        const dailyRows = [];
-        for (const batch of batches) {
-            const batchRows = CalendarGenerator.generateDailyScheduleSheet(batch, options);
-            dailyRows.push(...batchRows);
-        }
+        // 1. 每日排课明细 —— 全量一趟生成。
+        // 该表按 options 的完整日期区间逐天展开，分批各调一次会把整个日期表重复 N 遍，
+        // 还会让周汇总/报销状态被批次切断、单多学生判定跨批漂移。
+        const dailyRows = CalendarGenerator.generateDailyScheduleSheet(rawData, options);
 
         // 2. 教师授课汇总 - 分批聚合后合并
         const teacherStatsArray = [];

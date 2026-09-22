@@ -34,6 +34,12 @@ const validate = (schema, property = 'body') => {
     };
 };
 
+// 排课编辑接口上的费用键：出现即报错（不是删掉）。见 scheduleValidation.update 的注释。
+const FEE_KEY_FORBIDDEN = Joi.any().forbidden().messages({
+    'any.unknown': '交通费/其他费用不能随排课修改提交：费用属于「这一趟的这位学生」那一格，'
+        + '请改用费用接口（…/fees，带 teacher_uid 与 student_uid）'
+});
+
 // 排课数据验证规则
 const scheduleValidation = {
     create: Joi.object({
@@ -102,6 +108,8 @@ const scheduleValidation = {
             lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'modified_away').default('pending'),
             teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
             teacher_comment: Joi.string().max(500).allow('', null),
+            // 新建场次可以带一笔「整趟」费用：这一刻还不存在逐学生格子，谈不上串到别人头上；
+            // 之后任何一位学生填过自己的格子，这一趟就转成逐学生档（见 fee-service）。
             transport_fee: Joi.number().min(0).allow(null),
             other_fee: Joi.number().min(0).allow(null)
         })).min(1).optional(),
@@ -174,8 +182,13 @@ const scheduleValidation = {
             .messages({ 'any.only': '类别只能是normal或temp' }),
         teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
         teacher_comment: Joi.string().max(500).allow('', null),
-        transport_fee: Joi.number().min(0).allow(null),
-        other_fee: Joi.number().min(0).allow(null),
+        // 交通费/其他费用**不在编辑接口放行**：钱挂在「这一趟的这位学生」那一格上，
+        // 只有费用接口（…/fees）带 teacher_uid + student_uid 才定得准，也只有那条路写
+        // session_fee_audit_logs。这里必须是 forbidden 而不是「不写这个键」：本仓库的
+        // validate() 用 stripUnknown:true，Joi 18 下未声明的键会被**静默删掉**（实测不报错），
+        // 于是请求方以为改成了、库里一分钱没动 —— 正是反复出过的那类静默失败。
+        transport_fee: FEE_KEY_FORBIDDEN,
+        other_fee: FEE_KEY_FORBIDDEN,
         family_participants: Joi.number().integer().min(0).max(5).optional(),
         // 乐观锁：整列写（改 pair 内容 / 增删 pair）必带；状态路径不需要
         version: Joi.number().integer().min(0).optional(),
@@ -189,8 +202,8 @@ const scheduleValidation = {
             lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'modified_away').optional(),
             teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
             teacher_comment: Joi.string().max(500).allow('', null),
-            transport_fee: Joi.number().min(0).allow(null),
-            other_fee: Joi.number().min(0).allow(null)
+            transport_fee: FEE_KEY_FORBIDDEN,
+            other_fee: FEE_KEY_FORBIDDEN
         })).optional(),
         students: Joi.array().items(Joi.object({
             uid: Joi.string().max(32).optional(),
@@ -496,12 +509,14 @@ const feeAmount = Joi.any().custom((value, helpers) => {
     return value;
 }).optional();
 
-// 费用更新（admin/teacher 共用 updateScheduleFees）：仅 transport_fee / other_fee 两个金额字段
+// 费用更新（admin/teacher 共用 updateScheduleFees）：两个金额字段 + 定位键
 const feeUpdateValidation = Joi.object({
     transport_fee: feeAmount,
     other_fee: feeAmount,
     // 费用挂在教师 pair 上：路径未带 :uid 时用它定位（本场只有一位教师时可省略）
-    teacher_uid: Joi.string().max(32).optional()
+    teacher_uid: Joi.string().max(32).optional(),
+    // 传了 student_uid 就只写「这一位学生那份」，不传写整趟一笔（老口径）
+    student_uid: Joi.string().max(32).allow(null).optional()
 });
 
 // 单条费用报销状态更新（admin/teacher 共用 updateScheduleFeeStatus）
@@ -546,6 +561,7 @@ const feeStatusBatchValidation = Joi.object({
 });
 
 // 教师批量费用更新（teacher batch-fees）：updates 数组，每项 { id, transport_fee, other_fee }
+// 每项可带 student_uid：带了就只写这一位学生那份，不带写整趟一笔（老口径）
 const feeBatchValidation = Joi.object({
     updates: Joi.array().items(
         Joi.object({
@@ -557,6 +573,7 @@ const feeBatchValidation = Joi.object({
                 }),
             session_id: Joi.number().integer().positive(),
             teacher_uid: Joi.string().max(32).optional(),
+            student_uid: Joi.string().max(32).allow(null).optional(),
             transport_fee: feeAmount,
             other_fee: feeAmount
         }).or('id', 'session_id').messages({ 'object.missing': '缺少排课ID' })

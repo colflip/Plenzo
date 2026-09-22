@@ -132,6 +132,18 @@ function buildScopeClause(user, alias = 'ca') {
 }
 
 /**
+ * 权限落地：为 L3 操作员追加「仅自己创建 + 无主存量」范围过滤。
+ * 非 L3 原样返回 sql；L3 则把 actorId 追加进 params 并拼接 WHERE 条件。
+ * 所有读路径（列表、统计、Excel 导出）共用这一份实现，避免导出口径漏掉行级范围。
+ */
+function applyOwnerScope(sql, params, user, alias = 'ca') {
+    const scope = buildScopeClause(user, alias);
+    if (!scope) return sql;
+    params.push(scope.actorId);
+    return `${sql} AND ${scope.clause.replace('$ACTOR_ID', `$${params.length}`)}`;
+}
+
+/**
  * 行级归属校验：L3 只能修改自己创建或无主的记录；其他级别不受限。
  * @param {*} rowCreatedBy - 目标记录当前 created_by 值
  */
@@ -152,5 +164,6 @@ module.exports = {
     filterObjectByLevel,
     requiresOwnDataScope,
     buildScopeClause,
+    applyOwnerScope,
     canTouchRecord
 };

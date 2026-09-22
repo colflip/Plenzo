@@ -99,20 +99,23 @@
             // 后端实际字段名可能是 date / class_date / arr_date 等
             const raw = r.date != null ? r.date : (r.class_date || r.arr_date || r.schedule_date || r.course_date || '');
             r.date = normalizeDate(raw);
-            // pair 唯一键：费用/费用状态挂在教师 pair 上，而列表的 id 是场次级。
+            // pair 唯一键：费用状态挂在教师 pair 上（一趟一个状态），而列表的 id 是场次级。
             // 同一场次多老师（或多学生交叉积）会返回多行同 id 记录，
-            // 前端编辑/状态流转必须用「场次 id + 教师 uid」才能唯一定位一条 pair，
+            // 前端状态流转必须用「场次 id + 教师 uid」才能唯一定位一条 pair，
             // 否则费用会写到错误的老师头上（同天多老师错位问题的根因）。
             r._pairKey = `${r.id}|${r.teacher_uid == null ? '' : r.teacher_uid}`;
+            // 费用格唯一键：交通费/其他费用是「这一趟的这位学生」那份，
+            // 交叉积会把同一场次展开成多名学生 —— 只按 pair 定位会恒命中第一个学生，
+            // 于是「给 A 填的钱落到 B 头上」。编辑入口一律用这个三合一键。
+            r._feeKey = `${r._pairKey}|${r.student_uid == null ? '' : r.student_uid}`;
             return r;
         });
     }
 
-    // 同一 pair 折叠：费用是「一趟一笔」挂在教师 pair 上，而 v_session_pairs 是
-    // 师生交叉积 —— 同场多学生会把同一个 pair（id 与 teacher_uid 全同）展开成多行。
-    // 不折叠就会出现「一个 pair 多组输入框」：保存时多组值互相覆盖（最后一次写入的赢），
-    // 表现正是「保存后再打开值不对 / 像没保存」。折叠后一组输入 = 一个 pair，
-    // 学生名合并展示以免丢信息。
+    // 同一 pair 折叠：v_session_pairs 是师生交叉积，同场多学生会把同一个教师 pair 展开成多行。
+    // 录入弹窗是「一位学生一次」（edit-stu 只传该学生的记录），所以折叠后一组输入 = 一个格子；
+    // 不折叠的话同一次提交里会出现重复条目。学生名合并展示以免丢信息。
+    // 写回后端时靠 student_uid 落到「这一趟的这位学生」那一格，不会串到别人头上（见 feeSlots）。
     function uniquePairs(list) {
         const map = new Map();
         (list || []).forEach(s => {
@@ -823,6 +826,21 @@
         return { groups, order };
     }
 
+    // 费用格去重：一行 = 一个「场次 + 老师 + 学生」格。清除费用按格提交，
+    // 不能按 pair 折叠 —— 折叠会把同一趟里别人的格子也一起清掉。
+    function feeSlots(list) {
+        const seen = new Set();
+        const out = [];
+        (list || []).forEach(r => {
+            const key = String(r._feeKey != null ? r._feeKey
+                : `${r.id}|${r.teacher_uid == null ? '' : r.teacher_uid}|${r.student_uid == null ? '' : r.student_uid}`);
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(r);
+        });
+        return out;
+    }
+
     function statusMini(list) {
         const cnt = {};
         list.forEach(r => {
@@ -955,8 +973,11 @@
             addCell('summary', totalDisp.text, 'fm-num ' + totalDisp.cls);
             const opTd = document.createElement('td');
             opTd.className = 'fm-detail-td fm-d-op fm-ops';
-            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(opTd, `<button class="fm-edit-one" data-fm="edit-one" data-pair="${fsId}">编辑</button>`);
-            else opTd.innerHTML = `<button class="fm-edit-one" data-fm="edit-one" data-pair="${fsId}">编辑</button>`;
+            // 编辑费用按 feeKey（场次 + 老师 + 学生）定位；状态下拉按 pairKey（费用状态整趟一个）
+            const editId = esc(r._feeKey);
+            const editHtml = `<button class="fm-edit-one" data-fm="edit-one" data-pair="${editId}">编辑</button>`;
+            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(opTd, editHtml);
+            else opTd.innerHTML = editHtml;
             tr.appendChild(opTd);
 
             frag.appendChild(tr);
@@ -1142,8 +1163,9 @@
         tbody.querySelectorAll('[data-fm="edit-one"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // 按 pairKey 定位记录：场次 id 在多老师/多学生时重复，find(id) 会命中错误 pair
-                const rec = schedules.find(r => r._pairKey === btn.dataset.pair);
+                // 按 feeKey（场次 + 老师 + 学生）定位记录：场次 id 在多老师/多学生时重复，
+                // find(id) 或只按 pair 找都会命中错误的学生那一格
+                const rec = schedules.find(r => r._feeKey === btn.dataset.pair);
                 if (rec) openModal(config, 'single', [rec]);
             });
         });
@@ -1211,8 +1233,9 @@
 
     // 一键清除某生范围内全部课时费用（置 null/未填写 后提交，不弹窗）
     async function batchClear(config, mountEl, list) {
-        const updates = uniquePairs(list).map(p => ({
-            id: p.rec.id, teacher_uid: p.rec.teacher_uid, transport_fee: null, other_fee: null
+        const updates = feeSlots(list).map(r => ({
+            id: r.id, teacher_uid: r.teacher_uid, student_uid: r.student_uid || null,
+            transport_fee: null, other_fee: null
         }));
         try {
             await persist(config, updates);
@@ -1474,6 +1497,9 @@
                 updates.push({
                     id: rec.id,
                     teacher_uid: rec.teacher_uid,
+                    // 学生 pair uid：这一格的钱只属于「这一趟的这位学生」，不传给后端
+                    // 就会写回整趟一笔、覆盖到同场别的学生头上
+                    student_uid: rec.student_uid || null,
                     transport_fee: parseInputFee(tInp.value),
                     other_fee: parseInputFee(oInp ? oInp.value : null),
                 });
@@ -1484,6 +1510,7 @@
         return [{
             id: rec.id,
             teacher_uid: rec.teacher_uid,
+            student_uid: rec.student_uid || null,
             transport_fee: parseInputFee(modal.querySelector('#fmTransportInput').value),
             other_fee: parseInputFee(modal.querySelector('#fmOtherInput').value),
         }];
@@ -1494,12 +1521,13 @@
             return window.apiUtils.post(config.batchEndpoint, { updates });
         }
         // 单条模式：逐条 PATCH（批量选择时也逐条提交，保证各端点兼容）
-        // teacher_uid 用于后端定位教师 pair（费用挂在 pair 上）
+        // teacher_uid + student_uid 定位那一格：前者定这一趟，后者定这趟里的这位学生
         await Promise.all(updates.map(u =>
             window.apiUtils.patch(config.feeEndpoint(u.id), {
                 transport_fee: u.transport_fee,
                 other_fee: u.other_fee,
                 teacher_uid: u.teacher_uid,
+                student_uid: u.student_uid,
             })
         ));
     }
@@ -1540,9 +1568,9 @@
             danger: true,
         });
         if (!ok) return;
-        // 按 pair 折叠后再置空：同一 pair 的多行会重复提交同一条 PATCH（并发写同值，无害但多余）
-        const updates = uniquePairs(mode === 'multi' ? schedules : [schedules[0]])
-            .map(p => ({ id: p.rec.id, teacher_uid: p.rec.teacher_uid, transport_fee: null, other_fee: null }));
+        // 按费用格去重后置空：只清这一位学生那一份，不动同一趟里别人的
+        const updates = feeSlots(mode === 'multi' ? schedules : [schedules[0]])
+            .map(r => ({ id: r.id, teacher_uid: r.teacher_uid, student_uid: r.student_uid || null, transport_fee: null, other_fee: null }));
         const saveBtn = document.getElementById('fmSaveBtn');
         saveBtn.disabled = true;
         saveBtn.textContent = '清除中...';
