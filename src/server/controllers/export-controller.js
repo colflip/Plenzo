@@ -115,12 +115,14 @@ const exportController = {
             // 三条互不依赖（userName 第 7 步才用，logId 第 9 步才用），并发省两次往返（每条约 250ms）
             const rawDataPromise = exportType === 'student_schedule'
                 ? scheduleQueries.queryStudentSchedule(startDate, endDate, {
-                    student_id: studentId
+                    student_id: studentId,
+                    actor: req.user
                 })
                 : scheduleQueries.queryTeacherSchedule(startDate, endDate, {
                     teacher_id: teacherId,
                     student_id: studentId,
-                    student_ids: studentIds
+                    student_ids: studentIds,
+                    actor: req.user
                 });
             const [userName, rawData] = await Promise.all([
                 resolveUserName(db, userType, userId),

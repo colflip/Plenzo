@@ -46,6 +46,7 @@ CREATE OR REPLACE FUNCTION validate_session_teachers(arr jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
     e jsonb;
+    f record;
     uids text[] := '{}';
     active_ids int[] := '{}';
     cat text;
@@ -83,6 +84,20 @@ BEGIN
         IF fee IS NOT NULL AND fee < 0 THEN RETURN false; END IF;
         fee := NULLIF(e->>'other_fee', '')::numeric;
         IF fee IS NOT NULL AND fee < 0 THEN RETURN false; END IF;
+
+        -- 逐学生费用：fees 是「学生 pair uid → 金额」的映射，键必须是该教师 pair 的
+        -- fees 对象里的字符串，值必须是对象，且两个金额字段非负（null = 未填写）。
+        -- 缺省即「这一趟按整笔记」的老数据，所以整个键允许不存在。
+        IF e ? 'fees' THEN
+            IF jsonb_typeof(e -> 'fees') <> 'object' THEN RETURN false; END IF;
+            FOR f IN SELECT * FROM jsonb_each(e -> 'fees') LOOP
+                IF jsonb_typeof(f.value) <> 'object' THEN RETURN false; END IF;
+                fee := NULLIF(f.value ->> 'transport_fee', '')::numeric;
+                IF fee IS NOT NULL AND fee < 0 THEN RETURN false; END IF;
+                fee := NULLIF(f.value ->> 'other_fee', '')::numeric;
+                IF fee IS NOT NULL AND fee < 0 THEN RETURN false; END IF;
+            END LOOP;
+        END IF;
 
         -- 活跃 pair 内 teacher_id 不得重复；作废（cancelled）与已调整（modified_away）
         -- 不占用活跃名额 —— 这正是「作废+增补」里同一位老师能有两个 pair 的依据。
@@ -164,6 +179,8 @@ const INDEXES = [
 
 // 四张审计表按 (session_id, teacher_uid) 记账。teacher_uid 只是文本、无外键
 // —— JSONB 数组元素无法被外键引用。
+// session_fee_audit_logs 额外带 student_uid（可空）：逐学生填的费用一行一档，
+// 整趟一笔的老数据留 NULL。费用报销状态仍是「一趟一笔」，所以状态表不加这一列。
 //
 // 前三张的 session_id 带 ON DELETE CASCADE，随场次一起清理；
 // **session_change_logs 刻意不加外键** —— 它要记「整场被删除」这件事，
@@ -186,6 +203,7 @@ const AUDIT_TABLES = {
             id SERIAL PRIMARY KEY,
             session_id INTEGER NOT NULL REFERENCES public.course_sessions(id) ON DELETE CASCADE,
             teacher_uid VARCHAR(32) NOT NULL,
+            student_uid VARCHAR(32),
             operator_id INTEGER NOT NULL,
             operator_role VARCHAR(20) NOT NULL,
             old_transport_fee DECIMAL(10,2),
@@ -259,8 +277,18 @@ SELECT cs.id AS session_id,
        (t->>'teacher_comment') AS teacher_comment,
        NULLIF(s->>'student_rating', '')::smallint AS student_rating,
        (s->>'student_comment') AS student_comment,
-       NULLIF(t->>'transport_fee', '')::numeric AS transport_fee,
-       NULLIF(t->>'other_fee', '')::numeric AS other_fee,
+       -- 本行这一「教师 pair × 学生 pair」的生效费用。逐学生金额存在时只认它自己
+       -- （写它的同时会把整趟金额清空，见 fee-service 的 applyStudentFees），
+       -- 否则回落到整趟一笔金额 —— 老数据与单师单生的常规场次都走这条回落。
+       COALESCE(NULLIF(t #>> ARRAY['fees', (s->>'uid'), 'transport_fee'], '')::numeric,
+                NULLIF(t->>'transport_fee', '')::numeric) AS transport_fee,
+       COALESCE(NULLIF(t #>> ARRAY['fees', (s->>'uid'), 'other_fee'], '')::numeric,
+                NULLIF(t->>'other_fee', '')::numeric) AS other_fee,
+       -- fee_scope 决定合计口径：'student' 的金额每位学生各算一份（逐行相加）；
+       --                        'pair' 的是「一趟一笔」，按 (场次, 老师) 只计一次，
+       --                        交叉积展开出的多学生行不得重复计入。
+       CASE WHEN jsonb_typeof(t #> ARRAY['fees', (s->>'uid')]) = 'object'
+            THEN 'student' ELSE 'pair' END AS fee_scope,
        (t->>'fee_status') AS fee_status,
        NULLIF(s->>'family_participants', '')::int AS family_participants,
        NULLIF(t->>'created_by', '')::int AS teacher_pair_created_by,
@@ -273,7 +301,9 @@ SELECT cs.id AS session_id,
 // 三条使用纪律写进视图注释，避免被误用
 const VIEW_COMMENT = `COMMENT ON VIEW public.v_session_pairs IS
 '教师 pair × 学生 pair 交叉积展开。使用纪律：
- 1) 费用绝不在此视图上聚合 —— 交叉积会把一笔交通费按学生数重复；费用一律从 course_sessions.teachers 直接遍历。
+ 1) 费用绝不在此视图上无条件聚合 —— transport_fee/other_fee 已是按 fee_scope 取出的生效值，
+    但 scope=pair 的那一档是「一趟一笔」，交叉积会把同一个数按学生数重复，合计必须按
+    (session_id, teacher_uid) 折叠；scope=student 的是逐学生金额，逐行相加即可。
  2) 过滤活跃排课用 status NOT IN (''cancelled'',''modified_away'')（status 列已是生命周期位）。
  3) 「计划安排」排除临时/增补用 status_category = ''normal''。
  status = 生命周期位（沿用旧字面量），status_code = 完整两段码，status_category = 类别位。'`;
@@ -292,8 +322,9 @@ const VIEW_COMMENT = `COMMENT ON VIEW public.v_session_pairs IS
  * 否则新语句不会在已部署的库上生效。
  */
 
-/** 版本标记：改本文件的 DDL 就把尾号 +1（v2 起启用标记短路） */
-const SCHEMA_KEY = 'course_sessions@v3';
+/** 版本标记：改本文件的 DDL 就把尾号 +1（v2 起启用标记短路）
+ *  v4 = 教师 pair 增加逐学生费用 fees 映射 + 视图生效费用/fee_scope + 费用审计带 student_uid */
+const SCHEMA_KEY = 'course_sessions@v4';
 
 /**
  * 版本标记是否已写入。schema_migrations 不存在时顺手建出来并返回 false。
@@ -346,6 +377,10 @@ async function migrateCourseSessions() {
     }
     for (const sql of AUDIT_INDEXES) await db.query(sql);
     for (const sql of AUDIT_COMMENTS) await db.query(sql);
+
+    // 逐学生费用上线：老库的费用审计表补 student_uid（新建库由 AUDIT_TABLES 自带）
+    await db.query(`ALTER TABLE public.session_fee_audit_logs
+        ADD COLUMN IF NOT EXISTS student_uid VARCHAR(32)`);
 
     // action 枚举先删后建，这样往 CHANGE_ACTIONS 里加动作对已建好的表也生效（幂等）
     await db.query(`ALTER TABLE public.session_change_logs DROP CONSTRAINT IF EXISTS chk_scl_action`);

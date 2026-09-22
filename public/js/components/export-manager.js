@@ -287,22 +287,23 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
         // 1. 数据分类与预处理
         const groups = {}; // { sName: { teacherTransports: { tName: number }, otherSum: number } }
-        let dailyHasCompletedOrCancelled = false;
         let dayAnyUnsubmitted = false;   // 当天存在未提交(draft)费用
         let dayHasSubmitted = false;     // 当天存在已提交（非 draft）费用的记录
         let dayTotal = 0;
+
+        // 「钱按填的那一格算，明细按填在哪就是哪」：金额由老师/管理员在页面上手填，系统只读不摊。
+        // 挂在哪儿由视图的 fee_scope 说明（口径与后端 calendar-generator 一致）：
+        //   'student' —— 挂在 (场次, 老师, 学生) 那一格，每位学生各一份，逐行相加；
+        //   'pair'    —— 挂在 (场次, 教师 pair) 上的「一趟一笔」，交叉积把同一个数显示在
+        //                这一场的每个学生那一行，当天合计这一趟只能计一次。
+        // 明细始终逐学生原样列出（绝不摊成几份，也绝不只塞给碰巧排在第一的那个学生）。
+        const countedTrips = new Set();
 
         dayRows.forEach(item => {
             const sName = item.student_name || item['学生名称'] || item.name || '未知学生';
             const tName = item.teacher_name || item.name || item['教师名称'] || '未知老师';
             const tFee = Number(item.transport_fee || item['交通费'] || item._transport_fee || 0);
             const oFee = Number(item.other_fee || item['其他费用'] || item._other_fee || 0);
-
-            const statusVal = String(item.status || item['状态']).toLowerCase();
-            const isFin = ['已完成', 'completed', '已取消', 'cancelled', '2', '0'].includes(statusVal);
-            if (isFin) {
-                dailyHasCompletedOrCancelled = true;
-            }
 
             // 费用提交状态：draft=待提交(未提交)
             const feeStatusVal = String(item.fee_status || item['费用状态'] || '').toLowerCase();
@@ -321,6 +322,13 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 groups[sName].teacherTransports[tName] = 0;
                 groups[sName].otherFees[tName] = 0;
             }
+
+            const isPerStudent = String(item.fee_scope || item['费用口径'] || 'pair') === 'student';
+            const pairKey = `${item.session_id ?? item.id ?? date}|${item.teacher_uid ?? item.teacher_id ?? tName}`
+                + (isPerStudent ? `|${item.student_uid ?? item.student_id ?? sName}` : '');
+            const counted = countedTrips.has(pairKey);
+            countedTrips.add(pairKey);
+
             // 待提交(draft)记录金额未定：不计入费用明细与合计（避免未提交金额进入报销单），
             // 仅已提交记录参与统计；同天部分待提交不再隐藏整天费用（如评审等无费用记录常年待提交）
             if (!isDraftFee) {
@@ -328,7 +336,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 groups[sName].otherFees[tName] += oFee;
                 groups[sName].otherSum += oFee;
 
-                dayTotal += (tFee + oFee);
+                if (!counted) dayTotal += tFee + oFee;
             }
         });
 
@@ -428,11 +436,11 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         const weekKey = `${dObj.getFullYear()}-W${weekNumber}`;
 
         if (!weeklyFees[weekKey]) {
-            weeklyFees[weekKey] = { total: 0, hasValidStatus: false, studentGroups: {} };
+            weeklyFees[weekKey] = { total: 0, hasCourse: false, studentGroups: {} };
         }
 
         weeklyFees[weekKey].total += dayTotal;
-        if (dailyHasCompletedOrCancelled) weeklyFees[weekKey].hasValidStatus = true;
+        if (dayRows.length > 0) weeklyFees[weekKey].hasCourse = true;
 
         studentNames.forEach(sName => {
             const g = groups[sName];
@@ -455,15 +463,16 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
         const feeStr = dailyFees[date] || '';
 
-        const weekData = weeklyFees[weekKey] || { total: 0, hasValidStatus: false, studentGroups: {} };
+        // 周汇总三态（与 Excel「每日排课明细」同口径）：
+        //   本周有费用 → 金额；本周上过课但费用为 0 → '0'；本周压根没课 → '/'
+        const weekData = weeklyFees[weekKey] || { total: 0, hasCourse: false, studentGroups: {} };
+        const weekZeroValue = weekData.hasCourse ? '0' : '/';
         let weekSumStr = '';
 
         if (isSingleStudent) {
-            if (weekData.total > 0) {
-                weekSumStr = String(Math.ceil(weekData.total * 100) / 100);
-            } else if (weekData.hasValidStatus) {
-                weekSumStr = '/';
-            }
+            weekSumStr = weekData.total > 0
+                ? String(Math.ceil(weekData.total * 100) / 100)
+                : weekZeroValue;
         } else {
             // 全体学生模式：周汇总按学生展示
             const sNames = Object.keys(weekData.studentGroups).filter(sn => weekData.studentGroups[sn] > 0);
@@ -475,8 +484,8 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                     weekPortions.push(`${sn}：${Math.ceil(val * 100) / 100}`);
                 });
                 weekSumStr = weekPortions.join('\n');
-            } else if (weekData.hasValidStatus) {
-                weekSumStr = '/';
+            } else {
+                weekSumStr = weekZeroValue;
             }
         }
 

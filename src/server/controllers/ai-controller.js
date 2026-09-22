@@ -12,6 +12,8 @@ const db = require('../db/db');
 const scheduleService = require('../services/schedule-service');
 const aiConfigService = require('../services/ai-config-service');
 const courseSessionService = require('../services/course-session-service');
+const FeeService = require('../services/fee-service');
+const { resolveAutoFeeStatus } = require('../utils/fee-status');
 const fs = require('fs');
 const path = require('path');
 
@@ -526,8 +528,8 @@ const DATA_TOOLS = {
                                 courseType: { type: 'string', description: '新课程类型名称（name字段）：visit/half_visit/review/review_record/consultation/consultation_record/trial/group_activity等' },
                                 location: { type: 'string', description: '新地点（如：新课堂、老课堂等）' },
                                 familyParticipants: { type: 'integer', description: '家长参与人数' },
-                                transportFee: { type: 'number', description: '交通费' },
-                                otherFee: { type: 'number', description: '其他费用' }
+                                transportFee: { type: 'number', description: '交通费（这趟课只有一位学生时才能改；多位学生同上一趟课时金额要说得清属于谁，请让用户去费用报销页逐位填写）' },
+                                otherFee: { type: 'number', description: '其他费用（同 transportFee：多学生场次不支持）' }
                             }
                         }
                     },
@@ -1652,6 +1654,29 @@ async function executeDataTool(toolName, args, req) {
                 );
                 const sessionById = new Map((sessionRows.rows || []).map(r => [Number(r.id), r]));
 
+                // 钱不落在这条批量 patchPair 上：AI 的「改交通费」以前写进 teachers[0] 的整趟标量，
+                // 同场别的学生也跟着拿到这个数，而且一行费用审计都没有。现在由费用那层写：
+                // 只有一趟一位学生时能确定「钱属于哪一格」，多学生时必须去费用页逐位填。
+                // 先扫再动手 —— 下面每个 sid 是各自独立的 UPDATE，中途抛错会留下半改状态。
+                const wantsFee = fields.transportFee !== undefined || fields.otherFee !== undefined;
+                if (wantsFee) {
+                    const neg = [fields.transportFee, fields.otherFee]
+                        .some(v => v !== undefined && v !== null && Number(v) < 0);
+                    if (neg) {
+                        throw new AppError({ code: 'AI_FEE_INVALID', statusCode: 400, message: '费用不能为负数' });
+                    }
+                    const shared = scheduleIds
+                        .map(sid => sessionById.get(Number(sid)))
+                        .filter(s => s && (s.students || []).length > 1);
+                    if (shared.length) {
+                        throw new AppError({
+                            code: 'AI_FEE_NEEDS_STUDENT',
+                            statusCode: 400,
+                            message: `有 ${shared.length} 条排课是多位学生同上一趟课，交通费/其他费用要按学生分别填写，请到费用报销页逐位学生录入。`
+                        });
+                    }
+                }
+
                 for (const sid of scheduleIds) {
                     let current = sessionById.get(Number(sid));
                     if (!current) continue;
@@ -1671,8 +1696,7 @@ async function executeDataTool(toolName, args, req) {
                     if (uid) {
                         const pairPatch = {};
                         if (typeId) pairPatch.type_id = typeId;
-                        if (fields.transportFee !== undefined) pairPatch.transport_fee = fields.transportFee;
-                        if (fields.otherFee !== undefined) pairPatch.other_fee = fields.otherFee;
+                        // 费用键不进 pairPatch：patchPair 现在对它直接 400（钱只走费用那条路）
                         if (Object.keys(pairPatch).length) {
                             const r = await courseSessionService.patchPair(sid, 'teacher', uid, pairPatch, actor, version, current);
                             if (!r.notFound) { current = r.session; version = Number(current.version); }
@@ -1688,6 +1712,27 @@ async function executeDataTool(toolName, args, req) {
                         await courseSessionService.patchPair(
                             sid, 'student', sUid, { family_participants: fields.familyParticipants }, actor, version, current
                         );
+                    }
+
+                    // 费用放在最后：上面几步会把 teachers / students 整列回写，先写钱会被抹掉。
+                    if (wantsFee && uid) {
+                        const pair = (current.teachers || []).find(p => String(p.uid) === String(uid)) || {};
+                        const studentUid = ((current.students || [])[0] || {}).uid || null;
+                        const before = FeeService.effectiveFeeOf(pair, studentUid);
+                        // AI 一句话通常只提一项，另一项按原值回填：费用页是两项一起提交的，
+                        // 这里把缺省那项当 null 写回去，等于顺手把别人的其他费用清了。
+                        const tFee = fields.transportFee !== undefined
+                            ? FeeService.parseFeeAmount(fields.transportFee) : before.transport_fee;
+                        const oFee = fields.otherFee !== undefined
+                            ? FeeService.parseFeeAmount(fields.otherFee) : before.other_fee;
+                        const targetStatus = FeeService.hasFilledFee(tFee, oFee)
+                            ? resolveAutoFeeStatus('admin', pair.fee_status) : null;
+                        await FeeService.updateScheduleFeesInTx(db.query, { sessionId: sid, teacherUid: uid }, {
+                            tFee, oFee, studentUid,
+                            oldTFee: before.transport_fee, oldOFee: before.other_fee,
+                            targetStatus, oldStatus: pair.fee_status,
+                            operatorId: req.user.id, operatorRole: 'admin'
+                        });
                     }
                 }
 
@@ -2028,6 +2073,8 @@ const query = asyncHandler(async (req, res) => {
           `# 9. 改课 / 删课流程\n` +
           `============================\n` +
           `改课：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
+          `改费用：交通费/其他费用只有「这趟课只有一位学生」时才改得了；多位学生同上一趟课时一个数说不清属于谁，` +
+          `请直接告诉用户去费用报销页逐位学生填写，不要重试。\n` +
           `删课：query_schedules 查到目标 → preview_schedule_deletion(scheduleIds) → 用户按钮确认。\n` +
           `\n============================\n` +
           `# 10. 回复格式\n` +

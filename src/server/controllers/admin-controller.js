@@ -464,6 +464,8 @@ const adminController = {
      * @param {string} req.params.id - 课程ID
      * @param {number} req.body.transport_fee - 交通费
      * @param {number} req.body.other_fee - 其他费用
+     * @param {string} [req.body.student_uid] - 学生 pair uid；传了就只写这一位学生那份
+     *                   （该教师 pair 随之从「一趟一笔」转成「逐学生」）
      *
      * 性能契约：**单条更新不开事务**。金额与「保存并提交」流转（管理员端 → 已审核）
      * 由 fee-service.updateScheduleFeesInTx 一条 UPDATE 完成，两项审计并行落地且失败
@@ -472,7 +474,7 @@ const adminController = {
     async updateScheduleFees(req, res, next) {
         try {
             const { id } = req.params;
-            const { transport_fee, other_fee } = req.body;
+            const { transport_fee, other_fee, student_uid: studentUid } = req.body;
 
             // 保留 null：空值/未传 = 未填写（NULL）；0 = 用户主动填 0；负数仍拒绝。
             const tFee = FeeService.parseFeeAmount(transport_fee);
@@ -482,7 +484,7 @@ const adminController = {
                 throw new AppError({ code: statusToErrorCode(400), statusCode: 400, message: '费用不能为负数' });
             }
 
-            // 费用挂在教师 pair 上（一趟一笔），定位需要「场次 id + teacher_uid」
+            // 定位到教师 pair（一趟）；金额落在这一趟的哪一位学生身上由 student_uid 决定
             const session = await courseSessionService.getSessionById(id);
             if (!session) {
                 throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' });
@@ -496,7 +498,9 @@ const adminController = {
                 throw new AppError({ code: statusToErrorCode(404), statusCode: 404, message: '课程不存在' });
             }
 
-            const { transport_fee: old_t_fee, other_fee: old_o_fee, fee_status: old_status } = pair;
+            const { fee_status: old_status } = pair;
+            // 审计里的「改之前」按本次那一格取：带 student_uid 就是该学生那份，否则是整趟一笔
+            const { transport_fee: old_t_fee, other_fee: old_o_fee } = FeeService.effectiveFeeOf(pair, studentUid);
 
             // 无事务单条更新：金额 + 「保存并提交」自动流转（管理员端 → 已审核）一次成型。
             // 仅本次填写了费用的记录改状态；留空 / 清除费用不动状态（只改金额）。
@@ -504,7 +508,7 @@ const adminController = {
                 ? resolveAutoFeeStatus('admin', old_status)
                 : null;
             await FeeService.updateScheduleFeesInTx(db.query, { sessionId: id, teacherUid: pair.uid }, {
-                tFee, oFee, oldTFee: old_t_fee, oldOFee: old_o_fee,
+                tFee, oFee, studentUid, oldTFee: old_t_fee, oldOFee: old_o_fee,
                 targetStatus, oldStatus: old_status, operatorId: req.user.id, operatorRole: 'admin'
             });
             const feeStatus = targetStatus || old_status;

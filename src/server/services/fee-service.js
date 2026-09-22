@@ -94,6 +94,34 @@ function locateTeacherPair(session, teacherUid) {
 }
 
 /**
+ * 教师 pair 上的逐学生金额映射 `fees`：`{ "<学生 pair uid>": { transport_fee, other_fee } }`。
+ * 钱由老师/管理员一格一格手填，系统只读不摊 —— 这一格存的就是「这位老师这一趟、这位学生那份」。
+ * 形状不合法（老数据没有这个键、或不是对象）一律当「没有」，回落到整趟一笔金额。
+ */
+function studentFeesOf(pair) {
+    const fees = pair && pair.fees;
+    return fees && typeof fees === 'object' && !Array.isArray(fees) ? fees : {};
+}
+
+/**
+ * 某位学生在某趟里的生效金额：有自己的条目就只认它，否则回落到整趟一笔。
+ * 与视图 v_session_pairs 的 transport_fee/other_fee 同口径，两处口径必须一致。
+ */
+function effectiveFeeOf(pair, studentUid) {
+    const entry = studentUid != null ? studentFeesOf(pair)[String(studentUid)] : null;
+    const src = entry && typeof entry === 'object' ? entry : (pair || {});
+    return { transport_fee: src.transport_fee ?? null, other_fee: src.other_fee ?? null };
+}
+
+/** 合并出写入用的 fees 映射：只替换这一位学生那份，别人填好的不动 */
+function withStudentFee(pair, studentUid, tFee, oFee) {
+    return {
+        ...studentFeesOf(pair),
+        [String(studentUid)]: { transport_fee: tFee, other_fee: oFee }
+    };
+}
+
+/**
  * 原地重建教师 pair 的若干键（费用 / 费用状态共用）。
  * 与状态路径同形：一条语句、按 uid 匹配、EXISTS 守卫、ORDER BY ord 保序，
  * 结构上改不到别的 pair、也改不到别的字段。
@@ -117,31 +145,73 @@ function buildPairPatchSql(keys) {
 const asJsonb = (v) => JSON.stringify(v === undefined ? null : v);
 
 /**
- * 在事务内更新单个教师 pair 的费用（必要时同步折叠费用报销状态）。
- * 费用是「一趟一笔」：挂在教师 pair 上，与本场学生人数无关 —— 旧实现按行累加，
- * 一位老师带 2 个学生的上门会被算两笔交通费，那个重复计费在新结构下从根上消失。
+ * 逐学生金额写入：一条 UPDATE 把这一格的钱写进 `teachers[i].fees[学生 uid]`，
+ * 同时把该教师 pair 的「整趟一笔」两个金额清空 —— 这一趟从「一笔钱盖全场学生」
+ * 转成「每人各填各的」，之后合计按学生逐份相加，不再按 (场次, 老师) 折叠。
+ * 学生 uid 走 `ARRAY['fees', $n]` 当参数传，不拼进 SQL 文本。
+ * 参数：$1 场次 id、$2 教师 uid、$3 费用状态（可空=不改）、$4 学生 uid、$5 该学生那份金额对象
+ */
+function buildStudentFeePatchSql() {
+    return `
+        UPDATE course_sessions cs
+           SET teachers = (
+                 SELECT jsonb_agg(
+                     CASE WHEN e->>'uid' = $2
+                          THEN jsonb_set(
+                                 jsonb_set(
+                                   jsonb_set(
+                                     jsonb_set(
+                                       e, '{fees}',
+                                       CASE WHEN jsonb_typeof(e -> 'fees') = 'object'
+                                            THEN e -> 'fees' ELSE '{}'::jsonb END),
+                                     ARRAY['fees', $4::text], $5::jsonb),
+                                   '{transport_fee}', 'null'::jsonb),
+                                 '{other_fee}', 'null'::jsonb)
+                          WHEN $3::text IS NULL THEN e
+                          ELSE jsonb_set(e, '{fee_status}', to_jsonb($3::text)) END
+                   ORDER BY ord)
+                   FROM jsonb_array_elements(cs.teachers) WITH ORDINALITY AS a(e, ord)),
+               updated_at = CURRENT_TIMESTAMP
+         WHERE cs.id = $1
+           AND EXISTS (SELECT 1 FROM jsonb_array_elements(cs.teachers) x WHERE x->>'uid' = $2)`;
+}
+
+/**
+ * 在事务内更新一格费用（必要时同步折叠费用报销状态）。
+ * 两种口径同一条语句：
+ * - 传 `studentUid` → 写「这位老师这一趟、这位学生那份」（`teachers[i].fees[学生 uid]`），
+ *   并把该 pair 的整趟一笔金额清空（这一趟转成逐学生）；
+ * - 不传 → 写整趟一笔金额（老口径，一笔钱盖全场学生）。
+ * 系统只读取、只落库，绝不做分摊：填多少就是多少。
  *
  * 性能契约：**单条 UPDATE 一次完成**。旧实现是「更新金额」+「autoSubmit 再单独
  * 更新 fee_status」两条语句（各一次远程往返 ≈250ms）；这里把 fee_status 并入同一
- * 条 buildPairPatchSql 的键集合，两条变一条。审计两行（金额 + 状态）随后并行落地，
+ * 条更新，两条变一条。审计两行（金额 + 状态）随后并行落地，
  * 失败只告警不阻断（与 recordAudit / writeStatusLogs 同口径）。
  *
- * @param {*} q 事务内查询函数（controller 传 client.query；无事务时传 db.query）
+ * @param {*} tx 事务内查询函数（controller 传 client.query；无事务时传 db.query）
  * @param {{sessionId:number, teacherUid:string}} target
- * @param {object} opt tFee/oFee 金额；targetStatus 非 null 时一并写入 fee_status
- *   （由调用方按 resolveAutoFeeStatus 决定；null = 保持原状态）
+ * @param {object} opt tFee/oFee 金额；studentUid 非空时按学生写；
+ *   targetStatus 非 null 时一并写入 fee_status（null = 保持原状态）
  */
 async function updateScheduleFeesInTx(tx, target, {
-    tFee, oFee, oldTFee, oldOFee, targetStatus, oldStatus, operatorId, operatorRole
+    tFee, oFee, studentUid, oldTFee, oldOFee, targetStatus, oldStatus, operatorId, operatorRole
 }) {
     const sessionId = typeof target === 'object' ? target.sessionId : target;
     const teacherUid = typeof target === 'object' ? target.teacherUid : null;
 
-    const keys = ['transport_fee', 'other_fee'];
-    if (targetStatus != null) keys.push('fee_status');
-    const params = [sessionId, String(teacherUid), asJsonb(tFee), asJsonb(oFee)];
-    if (targetStatus != null) params.push(asJsonb(targetStatus));
-    await tx(buildPairPatchSql(keys), params);
+    if (studentUid != null) {
+        await tx(buildStudentFeePatchSql(), [
+            sessionId, String(teacherUid), targetStatus == null ? null : String(targetStatus),
+            String(studentUid), asJsonb({ transport_fee: tFee, other_fee: oFee })
+        ]);
+    } else {
+        const keys = ['transport_fee', 'other_fee'];
+        if (targetStatus != null) keys.push('fee_status');
+        const params = [sessionId, String(teacherUid), asJsonb(tFee), asJsonb(oFee)];
+        if (targetStatus != null) params.push(asJsonb(targetStatus));
+        await tx(buildPairPatchSql(keys), params);
+    }
 
     // 金额审计与状态审计互不依赖，并发落地省一次往返；任一条失败只告警。
     await Promise.all([
@@ -149,10 +219,12 @@ async function updateScheduleFeesInTx(tx, target, {
             try {
                 await tx(
                     `INSERT INTO session_fee_audit_logs
-                     (session_id, teacher_uid, operator_id, operator_role,
+                     (session_id, teacher_uid, student_uid, operator_id, operator_role,
                       old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                    [sessionId, String(teacherUid), operatorId, operatorRole, oldTFee, tFee, oldOFee, oFee]
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                    [sessionId, String(teacherUid),
+                     studentUid == null ? null : String(studentUid),
+                     operatorId, operatorRole, oldTFee, tFee, oldOFee, oFee]
                 );
             } catch (e) {
                 logger.warn('[fee-service] 费用审计写入跳过:', e.message);
@@ -285,6 +357,8 @@ async function batchTransitionFeeStatus(tx, { targetIds, targets, target, note, 
 /**
  * 批量更新费用（事务内：解析 + 负数拒绝 + 范围授权 + 无变化跳过 + 写入 + 审计）。
  * 同样压成固定几步往返：一次批量读 → Node 内计算 → 一次批量写 → 一次批量审计。
+ * 每项更新可带 `student_uid`：带上就写这一位学生那份（并清掉该 pair 的整趟一笔金额），
+ * 不带则写整趟一笔 —— 与单条路径 updateScheduleFeesInTx 同一套口径。
  * autoSubmitActorType：对每条「本次填写了费用」的已授权 pair 执行「保存并提交」自动流转；
  *   留空 / 清除（金额置 null）的不改状态，避免批量弹窗里未填写的同学生课时被连带提交。
  * 返回 { changed, submitted }。
@@ -295,6 +369,7 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
     const norm = updates.map(u => ({
         sessionId: Number(u.session_id ?? u.id),
         teacherUid: u.teacher_uid || null,
+        studentUid: u.student_uid || null,
         tFee: parseFeeAmount(u.transport_fee),
         oFee: parseFeeAmount(u.other_fee)
     })).filter(u => Number.isFinite(u.sessionId));
@@ -330,7 +405,7 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
 
         let nextPair = { ...pair };
 
-        // 「保存并提交」自动流转：仅对本次填写了费用的 pair
+        // 「保存并提交」自动流转：仅对本次填写了费用的那一格
         if (autoSubmitActorType && hasFilledFee(u.tFee, u.oFee)) {
             const target = resolveAutoFeeStatus(autoSubmitActorType, pair.fee_status);
             if (target && validateFeeStatusTransition(autoSubmitActorType, pair.fee_status, target).ok) {
@@ -340,19 +415,31 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
             }
         }
 
+        // 本次改的那一格：逐学生就是该学生那份，整趟就是 pair 上的两个金额
+        const before = u.studentUid != null
+            ? effectiveFeeOf(pair, u.studentUid)
+            : { transport_fee: pair.transport_fee ?? null, other_fee: pair.other_fee ?? null };
+
         // null 安全对比：NULL 与 0 视为不同值（未填 vs 填 0）
-        const toNum = (v) => (v === null || v === undefined ? null : parseFloat(v));
-        const feeChanged = toNum(pair.transport_fee) !== u.tFee || toNum(pair.other_fee) !== u.oFee;
+        const toNum = (v) => (v === null || v === undefined || v === '' ? null : parseFloat(v));
+        const feeChanged = toNum(before.transport_fee) !== u.tFee || toNum(before.other_fee) !== u.oFee;
         if (feeChanged) {
             if (hasAuditTable) {
                 feeAudits.push({
-                    sessionId: u.sessionId, teacherUid: pair.uid,
-                    oldT: pair.transport_fee, newT: u.tFee,
-                    oldO: pair.other_fee, newO: u.oFee
+                    sessionId: u.sessionId, teacherUid: pair.uid, studentUid: u.studentUid,
+                    oldT: before.transport_fee, newT: u.tFee,
+                    oldO: before.other_fee, newO: u.oFee
                 });
             }
-            nextPair.transport_fee = u.tFee;
-            nextPair.other_fee = u.oFee;
+            if (u.studentUid != null) {
+                // 整趟一笔 → 逐学生：这一趟的钱改由每人一格，原来的整趟数就此作废
+                nextPair.fees = withStudentFee(nextPair, u.studentUid, u.tFee, u.oFee);
+                nextPair.transport_fee = null;
+                nextPair.other_fee = null;
+            } else {
+                nextPair.transport_fee = u.tFee;
+                nextPair.other_fee = u.oFee;
+            }
             changed++;
         }
 
@@ -384,15 +471,15 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
 
     if (feeAudits.length > 0) {
         const valueRows = feeAudits.map((_, i) => {
-            const b = i * 8;
-            return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8})`;
+            const b = i * 9;
+            return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9})`;
         });
         await tx(
             `INSERT INTO session_fee_audit_logs
-             (session_id, teacher_uid, operator_id, operator_role,
+             (session_id, teacher_uid, student_uid, operator_id, operator_role,
               old_transport_fee, new_transport_fee, old_other_fee, new_other_fee)
              VALUES ${valueRows.join(', ')}`,
-            feeAudits.flatMap(a => [a.sessionId, a.teacherUid, operatorId, 'teacher_batch', a.oldT, a.newT, a.oldO, a.newO])
+            feeAudits.flatMap(a => [a.sessionId, a.teacherUid, a.studentUid || null, operatorId, 'teacher_batch', a.oldT, a.newT, a.oldO, a.newO])
         );
     }
 
@@ -418,6 +505,10 @@ module.exports = {
     hasFilledFee,
     checkScheduleScope,
     locateTeacherPair,
+    studentFeesOf,
+    effectiveFeeOf,
+    withStudentFee,
+    buildStudentFeePatchSql,
     buildPairPatchSql,
     updateScheduleFeesInTx,
     transitionFeeStatus,

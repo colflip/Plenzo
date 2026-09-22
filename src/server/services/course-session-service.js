@@ -63,18 +63,44 @@ const HEADER_COLUMNS = ['class_date', 'start_time', 'end_time', 'location', 'not
  * 字段白名单：按身份裁剪 pair patch。交集之外的键一律丢弃并计数，
  * 由控制器把 rejectedFields 回给前端（验证清单第 4 条要看到它）。
  * 学生不在表里 —— 学生对排课只读，没有任何写入口。
+ *
+ * transport_fee / other_fee 一律不在表里（2026-09-22）：钱是「这一趟的这位学生」那一格，
+ * 只有 fee-service 那条路带 teacher_uid + student_uid、写 session_fee_audit_logs。
+ * 挂在排课编辑接口上会出现三个问题：金额按整趟写 → 一位学生的数落到全车人头上；
+ * 与逐学生格子并存 → 导出合计既算趟又算格；改钱不写审计。patchPair 现在对这两个键
+ * 直接抛 400（FEES_NOT_ON_SCHEDULE_PATCH），不再静默接受。
  */
 const PAIR_WRITE_WHITELIST = {
     admin: {
         // teacher_id / student_id / category 是 2026-09-08 补进来的：编辑弹窗里换老师、换学生、
         // 改类别（普通 ↔ 临时加课）三个入口此前前端根本没提交、服务端也不放行，
         // 于是「保存成功」的 toast 照弹，库里一行没动。
-        teacher: ['teacher_id', 'category', 'type_id', 'teacher_rating', 'teacher_comment', 'transport_fee', 'other_fee', 'fee_status'],
+        teacher: ['teacher_id', 'category', 'type_id', 'teacher_rating', 'teacher_comment', 'fee_status'],
         student: ['student_id', 'student_rating', 'student_comment', 'family_participants']
     },
-    headteacher: { teacher: ['transport_fee', 'other_fee', 'fee_status'], student: [] },
-    teacher: { teacher: ['transport_fee', 'other_fee', 'fee_status'], student: [] }
+    headteacher: { teacher: ['fee_status'], student: [] },
+    teacher: { teacher: ['fee_status'], student: [] }
 };
+
+/** 只能由费用接口写的键 —— 出现在 pair patch 里就是调用方用错了接口 */
+const FEE_ONLY_KEYS = ['transport_fee', 'other_fee'];
+
+/**
+ * 排课编辑路径上碰钱的统一拦截点。放在这里而不是只靠白名单丢弃：丢弃等于「保存成功但钱没动」，
+ * 正是这个仓库反复修过的那类静默失败。放行的接口（PATCH/PUT /schedules、/sessions 的 fees 之外那些）
+ * 一律 400，调用方必须改用费用接口（…\/fees，带 teacher_uid + student_uid，并写审计）。
+ */
+function assertNoFeeFields(patch) {
+    const hit = FEE_ONLY_KEYS.filter(k => patch && patch[k] !== undefined);
+    if (hit.length) {
+        const err = new SessionValidationError(
+            `${hit.join('、')} 不能随排课修改提交：费用属于「这一趟的这位学生」那一格，`
+            + '请改用费用接口（…/fees，需带 teacher_uid 与 student_uid）'
+        );
+        err.code = 'FEES_NOT_ON_SCHEDULE_PATCH';
+        throw err;
+    }
+}
 
 /** 编辑弹窗可直接改写的类别位；adjusted 是溯源属性，只有「作废+增补」流程能写 */
 const EDITABLE_CATEGORIES = ['normal', 'temp'];
@@ -596,6 +622,7 @@ const cancelPair = (id, uid, actor) => setTeacherStatus(id, uid, 'cancelled', ac
  * @returns {{ session, rejectedFields }}
  */
 async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
+    assertNoFeeFields(rawPatch);
     const { patch, rejectedFields } = applyPairPatch(kind, rawPatch, actor);
     if (Object.keys(patch).length === 0) {
         throw new SessionValidationError('没有可更新的字段', rejectedFields);
@@ -778,6 +805,13 @@ async function removePair(id, kind, uid, actor, version) {
  * 返回 { session, rejectedFields }；pair 定位失败抛 SessionValidationError。
  */
 async function updatePairsBatch(id, body, actor, version, prev) {
+    // 动手前先整体扫一遍钱键：下面逐 pair 发 UPDATE、没有外层事务，等走到第 N 个 pair
+    // 才让 patchPair 抛错的话，前 N-1 个已经写进库了。
+    // 只扫带 uid 的项 —— 不带 uid 是新增 pair（新的一趟），那时还不存在逐学生格子，允许带一笔整趟费用。
+    (Array.isArray(body && body.teachers) ? body.teachers : [])
+        .filter(item => item && item.uid != null)
+        .forEach(assertNoFeeFields);
+
     let session = prev || await getSessionById(id);
     if (!session) return { notFound: true };
     let cur = session;
@@ -798,8 +832,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
             if (item.type_id !== undefined) patch.type_id = item.type_id;
             if (item.teacher_rating !== undefined) patch.teacher_rating = item.teacher_rating;
             if (item.teacher_comment !== undefined) patch.teacher_comment = item.teacher_comment;
-            if (item.transport_fee !== undefined) patch.transport_fee = item.transport_fee;
-            if (item.other_fee !== undefined) patch.other_fee = item.other_fee;
+            // 费用键不在这里：改一趟里哪位学生的钱走费用接口（见文件头 PAIR_WRITE_WHITELIST）
             if (Object.keys(patch).length > 0) {
                 const r = await patchPair(id, 'teacher', uid, patch, actor, curVersion, cur);
                 if (r.notFound) throw new SessionValidationError('对不上库里的 teacher uid');
@@ -1178,6 +1211,7 @@ module.exports = {
     removeUserFromAllSessions,
     renameUserInAllSessions,
     // 供单测与控制器复用
+    assertNoFeeFields,
     applyPairPatch,
     buildTeacherPair,
     buildStudentPair,

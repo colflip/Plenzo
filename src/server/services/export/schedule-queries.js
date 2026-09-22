@@ -12,6 +12,7 @@ const { EXPORT_LIMITS } = require('./export-constants');
 const ExportUtils = require('../../utils/export-utils');
 const SchemaHelper = require('../../utils/schema-helper');
 const { formatDateTime } = require('../../utils/shared-utils');
+const { applyOwnerScope } = require('../../utils/admin-permissions');
 
 class AdvancedExportService {
     constructor() {
@@ -177,6 +178,7 @@ SELECT
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
+    ca.fee_scope,
     ca.fee_status,
     ca.family_participants,
     ca.teacher_rating,
@@ -188,7 +190,7 @@ LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN schedule_types st ON ca.type_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
-  AND ca.status <> 'deleted'`;
+  AND t.status = 1 AND s.status = 1`;
 
         const values = [startDate, endDate];
 
@@ -205,6 +207,8 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
             values.push(filters.student_ids);
             query += ` AND ca.student_id = ANY($${values.length}::int[]) `;
         }
+        // L3 操作员只能导出自己创建的数据，与费用页列表同口径
+        query = applyOwnerScope(query, values, filters.actor, 'ca');
 
         query += ` ORDER BY ${dateExpr} DESC, ca.start_time ASC`;
 
@@ -247,6 +251,7 @@ SELECT
     ca.created_by,
     ca.transport_fee,
     ca.other_fee,
+    ca.fee_scope,
     ca.fee_status,
     ca.status_category
 FROM v_session_pairs ca
@@ -254,7 +259,7 @@ LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN schedule_types st ON ca.type_id = st.id
 WHERE ${dateExpr}::date BETWEEN $1 AND $2
-  AND ca.status <> 'deleted'
+  AND t.status = 1 AND s.status = 1
         `;
 
         const values = [startDate, endDate];
@@ -263,6 +268,8 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
             values.push(filters.student_id);
             query += ` AND ca.student_id = $${values.length} `;
         }
+        // L3 操作员只能导出自己创建的数据，与费用页列表同口径
+        query = applyOwnerScope(query, values, filters.actor, 'ca');
 
         query += ` ORDER BY ${dateExpr} DESC, ca.start_time ASC`;
 

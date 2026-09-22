@@ -8,6 +8,7 @@
  */
 
 const { TYPE_PRIORITY, TYPE_DISPLAY_MAP, RICH_TEXT_COLORS, ROW_SEGMENT_SEPARATOR } = require('./export-constants');
+const { splitStatus } = require('../../utils/shared-utils');
 const ScheduleMarkerPolicy = require('../../../../public/js/utils/schedule-marker-policy');
 const TypeConversion = require('../../../../public/js/utils/type-conversion');
 
@@ -149,15 +150,20 @@ class RichTextFormatter {
         const items = sorted.map(s => {
             const dt = RichTextFormatter.getFoldedDisplayType(s);
             const isRecord = RichTextFormatter.isRecordType(s);
-            const marker = s.adjustment_type == 1 ? '+' : (s.adjustment_type == 2 ? '~' : '');
+            // 状态类别位：normal=计划内 / temp=临时加课 / adjusted=调整增补。
+            // pair 状态码是 `类别.生命周期` 两段，旧字段 adjustment_type 已被它取代。
+            const category = s.status_category || splitStatus(s.status_code || s.status).category;
+            const marker = category === 'temp' ? '+'
+                : (category === 'adjusted' || s.status === 'modified_away') ? '~'
+                : '';
             const isCancelledOrMoved = s.status === 'cancelled' || s.status === '已取消' ||
                                         s.status === 'modified_away' || s.status === '已调整' ||
                                         s.status === 0 || s.status === 2;
-            return { s, dt, isRecord, marker, isCancelledOrMoved };
+            return { s, dt, isRecord, marker, category, isCancelledOrMoved };
         });
 
-        // ── 计划列筛选：adj ∈ {0, null}（排除 adj=1 临时加课、adj=2 调整来的课）──
-        const planItems = items.filter(it => it.marker === '');
+        // ── 计划列筛选：类别位为 normal 才算计划内（排除 temp 临时加课、adjusted 调整增补）──
+        const planItems = items.filter(it => it.category === 'normal');
         // ── 实际列筛选：排除 cancelled / modified_away ──
         const actualItems = items.filter(it => !it.isCancelledOrMoved);
 
