@@ -43,7 +43,7 @@ class DataTransformer {
         }
         const num = parseFloat(val);
         if (isNaN(num) || num === 0) return '/';
-        return String(Math.ceil(num * 100) / 100);
+        return String(Math.round(num * 100) / 100);
     }
 
     /**

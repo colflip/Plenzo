@@ -346,7 +346,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
         const formatFee = (val) => {
             const num = Number(val) || 0;
             if (num === 0) return '';
-            return String(Math.ceil(num * 100) / 100);
+            return String(Math.round(num * 100) / 100);
         };
 
         let dailyFeeStr = '';
@@ -471,7 +471,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
 
         if (isSingleStudent) {
             weekSumStr = weekData.total > 0
-                ? String(Math.ceil(weekData.total * 100) / 100)
+                ? String(Math.round(weekData.total * 100) / 100)
                 : weekZeroValue;
         } else {
             // 全体学生模式：周汇总按学生展示
@@ -481,7 +481,7 @@ function transformToCalendarData(originalData, startDate, endDate, studentId, is
                 sNames.forEach(sn => {
                     const val = weekData.studentGroups[sn];
                     // 最终格式：张三：40
-                    weekPortions.push(`${sn}：${Math.ceil(val * 100) / 100}`);
+                    weekPortions.push(`${sn}：${Math.round(val * 100) / 100}`);
                 });
                 weekSumStr = weekPortions.join('\n');
             } else {
