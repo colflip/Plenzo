@@ -609,6 +609,7 @@ class UnifiedExportService {
         const {
             userType,
             userName,
+            userId,
             studentName,
             teacherName,
             startDate,
@@ -621,21 +622,22 @@ class UnifiedExportService {
         // 格式化日期范围 (YYYYMMDD_YYYYMMDD)
         const dateRange = `${startDate.replace(/-/g, '')}_${endDate.replace(/-/g, '')}`;
 
+        // 所有文件名统一在时间戳前携带 (导出用户id)，便于追溯实际导出人
         // 根据用户类型生成文件名
         if (userType === 'admin') {
             const student = sanitize(studentName || '全部学生');
             const teacher = sanitize(teacherName || '全部教师');
             const admin = sanitize(userName || 'admin');
-            return `排课记录[${student}][${teacher}][${dateRange}][${admin}]_${timestamp}.xlsx`;
+            return `排课记录[${student}][${teacher}][${dateRange}][${admin}](${userId})_${timestamp}.xlsx`;
         } else if (userType === 'teacher') {
             const name = sanitize(userName || '教师');
-            return `[${name}]授课记录[${dateRange}]_${timestamp}.xlsx`;
+            return `[${name}]授课记录[${dateRange}](${userId})_${timestamp}.xlsx`;
         } else if (userType === 'teacher_homeroom') {
             const name = sanitize(studentName || '学生');
-            return `[${name}]入户记录明细及统计[${dateRange}]_${timestamp}.xlsx`;
+            return `[${name}]入户记录明细及统计[${dateRange}](${userId})_${timestamp}.xlsx`;
         } else if (userType === 'student') {
             const name = sanitize(studentName || '学生');
-            return `[${name}]学习记录[${dateRange}]_${timestamp}.xlsx`;
+            return `[${name}]学习记录[${dateRange}](${userId})_${timestamp}.xlsx`;
         }
 
         // 默认文件名
