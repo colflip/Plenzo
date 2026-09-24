@@ -112,8 +112,9 @@
                 window.html2canvas &&
                 window.ExportManager &&
                 typeof window.ExportManager.transformExportData === 'function' &&
-                window.ScheduleMarkerPolicy &&
-                typeof window.ScheduleMarkerPolicy.tokenizeDisplayText === 'function'
+                window.ScheduleCalendarCore &&
+                typeof window.ScheduleCalendarCore.generateCalendarRows === 'function' &&
+                window.ScheduleMarkerPolicy
             ) {
                 return true;
             }
@@ -372,6 +373,12 @@
                 end_time: s.end_time,
                 status: s.status,
                 fee_status: s.fee_status,
+                // 趟费去重三件套：口径（student/pair）+ (场次, 教师 pair, 学生 pair) 粒度键。
+                // 少一个字段，transformToCalendarData 的合计就会回落成日粒度/默认 pair，
+                // 同日多场、多学生趟费口径都会和后端 Excel 路径算出不同的数。
+                fee_scope: s.fee_scope,
+                teacher_uid: s.teacher_uid,
+                student_uid: s.student_uid,
                 student_id: s.student_id,
                 student_name: dim === 'student'
                     ? (s.student_name || targetStudent.name)
@@ -596,42 +603,35 @@
         });
     }
 
-    function appendTextWithMarkerSuperscripts(parent, text, color, italic) {
-        const tokens = window.ScheduleMarkerPolicy.tokenizeDisplayText(text);
-        tokens.forEach(token => {
-            const element = document.createElement(token.isMarker ? 'sup' : 'span');
-            element.textContent = token.text;
-            element.style.color = color;
-            if (italic) element.style.fontStyle = 'italic';
-            if (token.isMarker) {
-                element.dataset.scheduleMarker = token.text;
-                element.style.fontSize = '7pt';
-                element.style.lineHeight = '0';
-                element.style.verticalAlign = 'super';
-                element.style.fontStyle = 'normal';
-            }
-            parent.appendChild(element);
-        });
-    }
-
+    // 渲染 canonical run（schedule-calendar-core 输出）：
+    // {text, colorType('red'|'blue'|'black'), dim, isSuperscript, startsLine}
+    // 与后端 Excel 写入器消费的是同一份 part 模型，标记 +/~ 已是独立上标 run，
+    // 无需再按文本猜测切分。
     function renderTextParts(td, parts) {
         const S = WEEKLY_VIEW_STYLE;
         td.style.color = S.defaultText;
         td.style.fontStyle = 'normal';
         parts.forEach((p, idx) => {
-            if (idx > 0) {
-                const sep = document.createElement('span');
-                sep.textContent = '；';
-                td.appendChild(sep);
+            if (idx > 0 && p.startsLine) {
+                td.appendChild(document.createElement('br'));
             }
             let color = S.defaultText;
-            let italic = false;
-            if (p.isCancelled) { color = S.cancelledText; italic = true; }
-            else if (p.isModifiedAway) { color = S.modifiedAwayText; italic = true; }
-            else if (p.isPlanDimmed) { italic = true; color = p.colorKind === 'blue' ? S.groupTextLight : (p.isRed ? S.reviewTextLight : S.cancelledText); }
-            else if (p.colorKind === 'red' || p.isRed) { color = S.reviewText; }
-            else if (p.colorKind === 'blue') { color = S.groupText; }
-            appendTextWithMarkerSuperscripts(td, p.text, color, italic);
+            if (p.colorType === 'red') color = p.dim ? S.reviewTextLight : S.reviewText;
+            else if (p.colorType === 'blue') color = p.dim ? S.groupTextLight : S.groupText;
+            else if (p.dim) color = S.cancelledText;
+
+            const element = document.createElement(p.isSuperscript ? 'sup' : 'span');
+            element.textContent = p.text;
+            element.style.color = color;
+            if (p.dim) element.style.fontStyle = 'italic';
+            if (p.isSuperscript) {
+                element.dataset.scheduleMarker = p.text;
+                element.style.fontSize = '7pt';
+                element.style.lineHeight = '0';
+                element.style.verticalAlign = 'super';
+                element.style.fontStyle = 'normal';
+            }
+            td.appendChild(element);
         });
     }
 
