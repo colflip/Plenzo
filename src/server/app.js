@@ -362,7 +362,9 @@ async function bootstrapDatabase() {
 
     try {
         await runDatabaseMigrations();
-        // 迁移成功后才启动清理：表存在是前提，否则每分钟刷一次 relation does not exist。
+        // 迁移成功后才启动清理：表存在是前提，否则清理会刷 relation does not exist。
+        // 注意它默认不自循环（原因见 ai-operation-store.js 里 SWEEP_INTERVAL_MS 的说明），
+        // 这里的调用只是为了保留排障时启回自循环的开关。
         aiOperationStore.startExpirySweeper();
     } catch (err) {
         logger.error('❌ 数据库迁移失败:', db.describeError(err));

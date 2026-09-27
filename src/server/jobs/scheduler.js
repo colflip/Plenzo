@@ -1,6 +1,7 @@
 const logger = require('../utils/logger.js');
 const cron = require('node-cron');
 const updateScheduleStatus = require('./update-schedule-status');
+const aiOperationStore = require('../services/ai-operation-store');
 
 /**
  * Initializes all background jobs.
@@ -17,6 +18,9 @@ function initScheduler() {
     // Schedule status update job: Daily at 23:30 (11:30 PM)
     cron.schedule('30 23 * * *', async () => {
         await updateScheduleStatus();
+        // 顺带清理过期的 AI 操作态：这一天本来就要唤醒数据库，不为清理单独制造唤醒
+        // （清理器为什么不再自循环，见 ai-operation-store.js 里 SWEEP_INTERVAL_MS 的说明）。
+        await aiOperationStore.sweepExpired();
     }, {
         scheduled: true,
         timezone: "Asia/Shanghai"

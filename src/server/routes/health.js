@@ -27,16 +27,25 @@ async function isDbHealthy() {
     }
 }
 
-router.get('/', async (req, res) => {
-    const healthy = await isDbHealthy();
+/**
+ * 探针语义（**额度敏感：别把查库加回默认路径**）
+ *
+ * 每次查库都会唤醒 Neon 计算，而一次唤醒至少要空转完一个休眠窗口（默认 5 分钟）
+ * 才重新睡着；免费版额度是 100 CU-小时/项目，被一个贴着休眠窗口周期的探针钉住
+ * 就再也睡不成。所以「不查库」的探针要占据默认路径：
+ *   /     、/live   进程存活 —— 平台健康检查、外部监控填这两个
+ *   /db   、/ready  数据库连通性 —— 会唤醒计算，仅给人工排查或低频监控
+ */
+router.get('/', (req, res) => {
     markProbe(res);
-    res.status(healthy ? 200 : 503).json({
-        status: healthy ? 'ok' : 'degraded',
-        checks: { database: healthy ? 'healthy' : 'unhealthy' },
+    res.status(200).json({
+        status: 'alive',
+        checks: { process: 'healthy' },
         timestamp: nowIso()
     });
 });
 
+// 会唤醒数据库计算：见文件顶部探针语义说明
 router.get('/db', async (req, res) => {
     const healthy = await isDbHealthy();
     markProbe(res);
@@ -57,6 +66,7 @@ router.get('/live', (req, res) => {
     });
 });
 
+// 会唤醒数据库计算：见文件顶部探针语义说明
 router.get('/ready', async (req, res) => {
     const healthy = await isDbHealthy();
     markProbe(res);
