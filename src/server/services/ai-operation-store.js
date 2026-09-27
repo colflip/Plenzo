@@ -196,22 +196,56 @@ async function deleteOperation(id) {
     }
 }
 
+// 过期行的清理节奏（额度敏感，改前先读这段）。
+//
+// 读路径自带 expire_at 过滤（见 getPreview / getOperation），多留几小时垃圾行不影响
+// 功能正确性；但原实现每 60 秒跑一次 DELETE，而 Neon 免费版按「计算醒着的时长」计费、
+// 一次唤醒至少要空转完一个休眠窗口（默认 5 分钟）才睡得着 —— 60s < 5min 意味着库
+// 永远等不到休眠，单这一条就能把一个月的 100 CU-小时额度烧穿。所以默认不再自循环，
+// 改由每日定时任务顺带清一次（jobs/scheduler.js 与 routes/cron.js 各挂一处，覆盖
+// 常驻进程与 Serverless 两个平台，且那两次唤醒本来就会发生）。
+//
+// 设 AI_SWEEP_INTERVAL_MS=60000 可回到旧的每分钟自循环（仅排障用）。
+const SWEEP_INTERVAL_MS = Math.max(0, parseInt(process.env.AI_SWEEP_INTERVAL_MS, 10) || 0);
+
+// db.query 在 pg Pool 下给 rowCount，在 Neon HTTP 下可能只有 rows（见 db.js 的
+// fullResults 约定）。只用于日志，两种都兜住。
+const countRows = (result) => {
+    if (!result) return 0;
+    if (typeof result.rowCount === 'number') return result.rowCount;
+    return Array.isArray(result.rows) ? result.rows.length : 0;
+};
+
 /**
- * 后台定时清理过期条目（由 app.js 启动时调用一次）
+ * 清理已过期的排课预览与待确认操作（幂等，可重复调用）。
+ * @returns {Promise<{ok: boolean, skipped?: boolean, deleted?: number, error?: string}>}
+ */
+async function sweepExpired() {
+    if (!dbAvailable) return { ok: false, skipped: true };
+    try {
+        const previews = await db.query(`DELETE FROM public.ai_schedule_previews WHERE expire_at <= CURRENT_TIMESTAMP`);
+        const operations = await db.query(`DELETE FROM public.ai_pending_operations WHERE expire_at <= CURRENT_TIMESTAMP`);
+        const deleted = countRows(previews) + countRows(operations);
+        if (deleted > 0) logger.log(`[ai-operation-store] 清理过期条目 ${deleted} 行`);
+        return { ok: true, deleted };
+    } catch (err) {
+        dbAvailable = false;
+        lastDbError = err.message;
+        logger.warn('[ai-operation-store] 清理过期条目失败:', err.message);
+        return { ok: false, error: err.message };
+    }
+}
+
+/**
+ * 启动自循环清理（**默认关闭**，原因见上方 SWEEP_INTERVAL_MS）。保留这个入口是为了
+ * 在不改 app.js 的前提下留一个排障用的回退开关。
+ * @returns {NodeJS.Timeout|null} 句柄；默认 null 表示未启动自循环
  */
 function startExpirySweeper() {
-    const interval = 60 * 1000; // 每分钟
-    setInterval(async () => {
-        if (!dbAvailable) return;
-        try {
-            await db.query(`DELETE FROM public.ai_schedule_previews WHERE expire_at <= CURRENT_TIMESTAMP`);
-            await db.query(`DELETE FROM public.ai_pending_operations WHERE expire_at <= CURRENT_TIMESTAMP`);
-        } catch (err) {
-            dbAvailable = false;
-            lastDbError = err.message;
-            logger.warn('[ai-operation-store] 清理过期条目失败:', err.message);
-        }
-    }, interval).unref?.();
+    if (SWEEP_INTERVAL_MS <= 0) return null;
+    const timer = setInterval(() => { void sweepExpired(); }, SWEEP_INTERVAL_MS);
+    timer.unref?.();
+    return timer;
 }
 
 module.exports = {
@@ -222,6 +256,7 @@ module.exports = {
     saveOperation,
     getOperation,
     deleteOperation,
+    sweepExpired,
     startExpirySweeper,
     // 测试用：直接读写内存兜底层
     _mem: { memPreviews, memOperations }
