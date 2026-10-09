@@ -279,16 +279,18 @@ const rewardCalc = require('./services/reward-calc');
 // 令牌提取与验签一律走 middleware/auth 的唯一实现：本文件原先自己抄了一份
 // jwt.verify，既不固定算法，也**不比对 TOKEN_EPOCH** —— 于是「用户 ID 重编后旧 token 全废」
 // 这个开关在本路由上根本不生效，而重编后旧 token 里的 id 可能已归属另一位教师。
-const { verifyToken, getTokenFromRequest } = require('./middleware/auth');
+const { verifySession, getTokenFromRequest } = require('./middleware/auth');
 
 app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res, next) => {
     const { start, end } = req.query;
     // 契约：未登录 / 非教师 / 数据失败一律明确拒绝，绝不回退空数据（防信息泄露与静默降级）
     let user;
     try {
-        user = verifyToken(getTokenFromRequest(req));
+        // 走 verifySession 而不是 verifyToken：本路由读出的是酬劳明细，被停用/删除的教师
+        // 不该仅凭一张还没过期的旧票继续读（同一条状态复核只有一份实现）。
+        user = await verifySession(getTokenFromRequest(req));
     } catch (err) {
-        return next(err);   // 401 + 具体 code（AUTH_EXPIRED / SESSION_EPOCH_MISMATCH…）
+        return next(err);   // 401 + 具体 code（AUTH_EXPIRED / SESSION_EPOCH_MISMATCH / SESSION_REVOKED…）
     }
     if (user.userType !== 'teacher') {
         return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '仅教师可访问本页面' }));

@@ -109,7 +109,7 @@ export function describeError(error, fallbackDetail = '') {
     let key = 'UNKNOWN';
     if (code === 'NETWORK_ERROR' || code === 'REQUEST_TIMEOUT') key = 'NETWORK';
     else if (code === 'RATE_LIMITED' || code === 'AI_UPSTREAM_RATE_LIMITED') key = 'RATE_LIMIT';
-    else if (code.startsWith('AUTH_') || code === 'SESSION_EPOCH_MISMATCH') key = 'AUTH';
+    else if (code.startsWith('AUTH_') || code === 'SESSION_EPOCH_MISMATCH' || code === 'SESSION_REVOKED') key = 'AUTH';
     else if (code === 'FORBIDDEN') key = 'PERMISSION';
     else if (code === 'RESOURCE_NOT_FOUND' || code === 'ROUTE_NOT_FOUND') key = 'NOT_FOUND';
     else if (code === 'CONFLICT' || code === 'SCHEDULE_VERSION_CONFLICT') key = 'CONFLICT';

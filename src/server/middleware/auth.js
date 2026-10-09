@@ -7,6 +7,7 @@ const logger = require('../utils/logger.js');
 
 const jwt = require('jsonwebtoken');
 const { AppError } = require('./error');
+const { checkAccount } = require('../utils/session-revocation');
 
 /**
  * 获取JWT密钥
@@ -112,24 +113,41 @@ function verifyToken(raw) {
 }
 
 /**
+ * 验签 + 账号状态复核：任何「拿令牌换身份」的地方都该走这一个函数。
+ *
+ * 分成两层是有原因的：verifyToken 是纯函数（可在测试里钉错误契约），verifySession 多了
+ * 一次账号状态读取。之前 app.js 的隐藏酬劳路由只用前者，于是被停用/删除的教师仍带着
+ * 旧票读得到酬劳明细 —— 状态检查必须在唯一入口上，不能各路由自己决定查不查。
+ * @param {string} raw 令牌原文
+ * @returns {Promise<object>} 解码后的载荷
+ */
+async function verifySession(raw) {
+    const decoded = verifyToken(raw);
+
+    // 验签只说明「这张票是我签的且没过期」，不说明账号还在用。
+    // 停用/删除后旧票原本会一直活到自然过期（审查报告 P1-4 的后半），这里补上状态判定。
+    const session = await checkAccount(decoded.userType, decoded.id);
+    if (!session.alive) {
+        throw new AppError({
+            code: 'SESSION_REVOKED',
+            statusCode: 401,
+            message: session.reason === 'gone'
+                ? '账号已被删除，请重新登录'
+                : '账号已被停用，请联系管理员'
+        });
+    }
+
+    return decoded;
+}
+
+/**
  * 认证中间件
  * @description 验证 JWT 令牌并注入真实用户身份
  * 令牌来源优先级：httpOnly Cookie（推荐，防 XSS 窃取）> Authorization 头（兼容旧客户端）
  */
 const authMiddleware = async (req, res, next) => {
     try {
-        let token = null;
-        const cookies = parseCookies(req);
-        if (cookies.token) {
-            token = cookies.token;
-        } else if (req.headers.authorization) {
-            const parts = req.headers.authorization.split(' ');
-            if (parts.length === 2 && /^[Bb]earer$/i.test(parts[0])) {
-                token = parts[1];
-            }
-        }
-
-        const decoded = verifyToken(token);
+        const decoded = await verifySession(getTokenFromRequest(req));
 
         req.user = {
             id: decoded.id,
@@ -175,5 +193,6 @@ module.exports = {
     getJwtSecret,
     getTokenEpoch,
     verifyToken,
+    verifySession,
     getTokenFromRequest
 };

@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../db/db');
 const { AppError } = require('../middleware/error');
 const { getTokenEpoch } = require('../middleware/auth');
+const { interpretAccount } = require('../utils/session-revocation');
 
 // 用户类型映射表
 const TABLE_MAP = {
@@ -108,9 +109,13 @@ class AuthService {
 
         const user = result.rows[0];
 
-        // 2. 检查账户状态
-        if (user.status !== undefined && Number(user.status) === -1) {
-            throw new AppError('账号已删除，无法登录', 403);
+        // 2. 检查账户状态（判定与 authMiddleware 的会话复核共用 interpretAccount）
+        const verdict = interpretAccount(user);
+        if (!verdict.alive) {
+            throw new AppError(
+                verdict.reason === 'gone' ? '账号已删除，无法登录' : '账号已停用，请联系管理员',
+                403
+            );
         }
 
         // 3. 验证密码
