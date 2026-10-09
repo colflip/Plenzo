@@ -935,21 +935,16 @@
             };
             // 费用列显示规则（空数据统一显示灰色「—」，不再混用「-」/「—」/「0」）：
             //   费用管理页每行均为「有课」记录；
-            //   显式 fee_status='draft'（待提交）→ 金额未提交不展示，三列均显示灰色「—」；
-            //   已提交 → 交通/其他按 feeDisplay 显示（未填写→「—」，显式填 0→¥0.00，正数→¥X.XX）；
-            //   总计：交通与其他均未填写 → 「—」（无合计可展示）；任一项有值 → ¥合计（合计 0 即显式 0 → ¥0.00）。
-            const isDraft = r.fee_status === 'draft';
+            //   交通/其他：未填写→「—」，显式填 0→¥0.00，正数→¥X.XX；
+            //   总计：交通与其他均未填写 → 「—」；任一项有值 → ¥合计（合计 0 即显式 0 → ¥0.00）。
+            // 不按 fee_status 隐藏金额：待提交正是要拿去报销的那批，藏起来等于把表清空；
+            // 而且汇总行一直把 draft 的金额计入，两行同表互相矛盾（导出侧同一口径见 schedule-calendar-core）。
             let tDisp, oDisp, totalDisp;
-            if (isDraft) {
-                const dash = { text: '—', cls: 'fm-fee-empty' };
-                tDisp = dash; oDisp = dash; totalDisp = dash;
-            } else {
-                tDisp = feeDisplay(r.transport_fee);
-                oDisp = feeDisplay(r.other_fee);
-                totalDisp = (isUnfilled(r.transport_fee) && isUnfilled(r.other_fee))
-                    ? { text: '—', cls: 'fm-fee-empty' }
-                    : { text: '¥' + money(total), cls: total === 0 ? 'fm-fee-zero' : 'fm-fee-set' };
-            }
+            tDisp = feeDisplay(r.transport_fee);
+            oDisp = feeDisplay(r.other_fee);
+            totalDisp = (isUnfilled(r.transport_fee) && isUnfilled(r.other_fee))
+                ? { text: '—', cls: 'fm-fee-empty' }
+                : { text: '¥' + money(total), cls: total === 0 ? 'fm-fee-zero' : 'fm-fee-set' };
             // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
             addCell('datetime', isDup ? '' : dtHtml);
             addCell('teacher', teacher);
