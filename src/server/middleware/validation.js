@@ -1,5 +1,17 @@
 const Joi = require('joi');
+const feeAmountUtil = require('../utils/fee-amount');
 const { FEE_STATUSES } = require('../utils/fee-status');
+// 生命周期枚举的唯一源在 shared-utils 的 LIFECYCLE_MAP：DB 的 CHECK、迁移里的校验函数、
+// 前端徽标判定都吃它，校验层再抄一份就是第五处漂移（改一个状态要同步五处，必漏）。
+const { LIFECYCLE_MAP } = require('../utils/shared-utils');
+/** 全部生命周期位（含 modified_away，只有「作废+增补」流程能写） */
+const LIFECYCLES = Object.keys(LIFECYCLE_MAP);
+/**
+ * 客户端可直接提交的生命周期位：**不含 modified_away**。
+ * 把它写成状态是「调整课程」这个动作的专属语义（走 adjustTeacherPair 的作废+增补），
+ * 从普通改状态接口塞进来只会造出没有增补 pair 的孤儿归档，所以这里有意窄一档。
+ */
+const LIFECYCLES_SETTABLE = LIFECYCLES.filter(l => l !== 'modified_away');
 
 // 标准化响应格式（单一来源见 utils/response.js）
 const { standardResponse } = require('../utils/response');
@@ -43,20 +55,8 @@ const FEE_KEY_FORBIDDEN = Joi.any().forbidden().messages({
 // 排课数据验证规则
 const scheduleValidation = {
     create: Joi.object({
-        // 统一使用 camelCase 字段，兼容并重命名 snake_case
-        // 旧形状（单师 + 学生列表）仍然放行，服务层会归一成 pair 数组；
-        // 新形状请用下方的 teachers / students。二者至少给一组（服务层校验并给出 400）。
-        teacherId: Joi.number().integer().positive()
-            .messages({
-                'number.base': '教师ID必须是数字',
-                'number.positive': '教师ID必须是正数'
-            }),
-        teacherIds: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
-        studentIds: Joi.array().items(Joi.number().integer().positive()).min(1)
-            .messages({
-                'array.base': '学生ID列表必须是数组',
-                'array.min': '至少需要选择一个学生'
-            }),
+        // 一场课 = 一条记录：教师与学生各是一个 pair 数组（1..N 位都是同一形状，一位也不例外）。
+        // 「单教师 + 学生ID列表」的旧形状已删除，服务层不再做归一。
         date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
             .messages({
                 'string.pattern.base': '日期格式不正确，应为YYYY-MM-DD',
@@ -80,12 +80,7 @@ const scheduleValidation = {
             .messages({
                 'string.max': '地点长度不能超过100个字符'
             }),
-        scheduleTypes: Joi.array().items(Joi.number().integer().positive()).min(1)
-            .messages({
-                'array.base': '课程类型ID列表必须是数组',
-                'array.min': '至少需要选择一个课程类型'
-            }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away').optional()
+        status: Joi.string().valid(...LIFECYCLES).optional()
             .messages({
                 'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
@@ -93,39 +88,41 @@ const scheduleValidation = {
             .messages({
                 'string.max': '备注长度不能超过500个字符'
             }),
-        // 允许前端传递冲突解决策略（merge/override），以免被stripUnknown过滤掉
-        resolve_strategy: Joi.string().valid('merge', 'override').optional(),
-        family_participants: Joi.number().integer().min(0).max(5).optional(),
-        // ---- 一场一行的新形状：教师 / 学生各一个 pair 数组 ----
+        // ---- 教师 / 学生 pair 名册（必填，一位也是数组）----
         // 服务端生成 uid、并从 actor.id 填每个 pair 的 created_by，
         // 所以这里**不放行** uid / created_by（旧的 is_temp、adjustment_type 两个键
         // 一并删除 —— 它们名字错位正是「新建时勾临时加课不生效」那个 bug 的温床）。
         teachers: Joi.array().items(Joi.object({
-            teacher_id: Joi.number().integer().positive().required(),
-            type_id: Joi.number().integer().positive().required(),
+            teacher_id: Joi.number().integer().positive().required()
+                .messages({ 'any.required': '教师 pair 里必须给 teacher_id' }),
+            type_id: Joi.number().integer().positive().required()
+                .messages({ 'any.required': '教师 pair 里必须给 type_id（这位教师在本场课里的课程类型）' }),
             // adjusted 不放行：类别位只有「作废+增补」流程能写
             category: Joi.string().valid('normal', 'temp').default('normal'),
-            lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'modified_away').default('pending'),
+            lifecycle: Joi.string().valid(...LIFECYCLES).default('pending'),
             teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
             teacher_comment: Joi.string().max(500).allow('', null),
             // 新建场次可以带一笔「整趟」费用：这一刻还不存在逐学生格子，谈不上串到别人头上；
             // 之后任何一位学生填过自己的格子，这一趟就转成逐学生档（见 fee-service）。
             transport_fee: Joi.number().min(0).allow(null),
             other_fee: Joi.number().min(0).allow(null)
-        })).min(1).optional(),
+        })).min(1).required().messages({
+            'array.min': '至少需要一位教师',
+            'any.required': '请提交 teachers（教师 pair 数组，只有一位教师也是数组）'
+        }),
         students: Joi.array().items(Joi.object({
             student_id: Joi.number().integer().positive().required(),
             family_participants: Joi.number().integer().min(0).max(5).default(4),
             student_rating: Joi.number().integer().min(1).max(5).allow(null),
             student_comment: Joi.string().max(500).allow('', null)
-        })).min(1).optional()
+        })).min(1).required().messages({
+            'array.min': '至少需要一位学生',
+            'any.required': '请提交 students（学生 pair 数组，只有一位学生也是数组）'
+        })
     })
         // 支持 snake_case 输入并重命名为 camelCase
-        .rename('teacher_id', 'teacherId', { override: true, ignoreUndefined: true })
-        .rename('student_ids', 'studentIds', { override: true, ignoreUndefined: true })
         .rename('start_time', 'startTime', { override: true, ignoreUndefined: true })
         .rename('end_time', 'endTime', { override: true, ignoreUndefined: true })
-        .rename('type_ids', 'scheduleTypes', { override: true, ignoreUndefined: true })
         .rename('time_slot', 'timeSlot', { override: true, ignoreUndefined: true }),
 
     update: Joi.object({
@@ -166,7 +163,7 @@ const scheduleValidation = {
             .messages({
                 'string.max': '备注长度不能超过500个字符'
             }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away')
+        status: Joi.string().valid(...LIFECYCLES)
             .messages({
                 'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
@@ -174,7 +171,7 @@ const scheduleValidation = {
         teacher_uid: Joi.string().max(32).optional(),
         student_uid: Joi.string().max(32).optional(),
         // 生命周期单独一个键（与 status 同义，二者取其一）
-        lifecycle: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away').optional(),
+        lifecycle: Joi.string().valid(...LIFECYCLES).optional(),
         type_id: Joi.number().integer().positive().optional(),
         // 换人 / 改类别：单 pair 提交路径（批量路径走 teachers[] / students[] 里的同名键）
         student_id: Joi.number().integer().positive().optional(),
@@ -199,7 +196,7 @@ const scheduleValidation = {
             teacher_id: Joi.number().integer().positive().optional(),
             type_id: Joi.number().integer().positive().optional(),
             category: Joi.string().valid('normal', 'temp').optional(),
-            lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'modified_away').optional(),
+            lifecycle: Joi.string().valid(...LIFECYCLES).optional(),
             teacher_rating: Joi.number().integer().min(1).max(5).allow(null),
             teacher_comment: Joi.string().max(500).allow('', null),
             transport_fee: FEE_KEY_FORBIDDEN,
@@ -253,7 +250,7 @@ const scheduleValidation = {
                 'number.base': '学生ID必须是数字',
                 'number.positive': '学生ID必须是正数'
             }),
-        status: Joi.string().valid('pending', 'confirmed', 'cancelled', 'completed', 'modified_away')
+        status: Joi.string().valid(...LIFECYCLES)
             .messages({
                 'any.only': '状态只能是pending、confirmed、cancelled、completed或modified_away'
             }),
@@ -262,7 +259,7 @@ const scheduleValidation = {
                 'number.base': '课程类型ID必须是数字',
                 'number.positive': '课程类型ID必须是正数'
             }),
-        fee_status: Joi.string().valid('draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned')
+        fee_status: Joi.string().valid(...FEE_STATUSES)
             .optional()
             .messages({
                 'any.only': '费用状态非法'
@@ -500,14 +497,15 @@ const studentProfileValidation = Joi.object({
         .messages({ 'string.max': '家庭地址长度不能超过200个字符' })
 });
 
-// 费用金额字段：容错 number / 数字字符串 / null / ''（空值=未填 NULL）；负数由控制器 parseFee + 负数检查拒。
-// 控制器对 transport_fee/other_fee 用 parseFloat 处理，schema 只需确保「非空非空串则可解析为数字」即可，不过度收紧以免破坏前端数字字符串。
+// 费用金额字段：唯一的解析出口在 utils/fee-amount（与服务层同一份规则）。
+// 这里负责**边界归一**：'1,000' → 1000（千分位属书写格式，不是数值运算）、' 250 ' → 250；
+// '100元' / '1.500' / 'Infinity' 一律 422 拒绝 —— 不让 parseFloat 把用户填的金额悄悄改掉。
 const feeAmount = Joi.any().custom((value, helpers) => {
-    if (value === null || value === undefined || value === '') return value;
-    const n = parseFloat(value);
-    if (Number.isNaN(n)) return helpers.error('any.invalid');
-    return value;
-}).optional();
+    const parsed = feeAmountUtil.parseFeeAmount(value);
+    if (!parsed.ok) return helpers.error('any.invalid');
+    return parsed.value;
+}).optional()
+    .messages({ 'any.invalid': '费用金额只能是不多于两位小数的数字' });
 
 // 费用更新（admin/teacher 共用 updateScheduleFees）：两个金额字段 + 定位键
 const feeUpdateValidation = Joi.object({
@@ -687,9 +685,9 @@ const teacherConfirmValidation = Joi.object({
  */
 const teacherPairStatusValidation = Joi.object({
     // status 与 lifecycle 同义（前端历史上传 status），二者取其一
-    status: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled').optional()
+    status: Joi.string().valid(...LIFECYCLES_SETTABLE).optional()
         .messages({ 'any.only': '非法的课程状态值' }),
-    lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled').optional()
+    lifecycle: Joi.string().valid(...LIFECYCLES_SETTABLE).optional()
         .messages({ 'any.only': '非法的课程状态值' }),
     teacher_uid: Joi.string().max(32).optional(),
     notes: Joi.string().allow('', null).max(500).optional()
@@ -704,7 +702,7 @@ const sessionAddPairValidation = Joi.object({
     teacher_id: Joi.number().integer().positive().optional(),
     type_id: Joi.number().integer().positive().optional(),
     category: Joi.string().valid('normal', 'temp').default('normal'),
-    lifecycle: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'modified_away').default('pending'),
+    lifecycle: Joi.string().valid(...LIFECYCLES).default('pending'),
     student_id: Joi.number().integer().positive().optional(),
     family_participants: Joi.number().integer().min(0).max(5).default(4),
     transport_fee: Joi.number().min(0).allow(null),
@@ -880,6 +878,50 @@ const studentAvailabilityDeleteValidation = Joi.object({
     ranges: Joi.array().items(Joi.object({ start_time: Joi.any().optional() }).unknown(true)).optional()
 }).unknown(true);
 
+/**
+ * 班主任更新关联学生（PUT /api/teacher/associated-students/:id）。
+ *
+ * 过去这条路由没挂任何校验，服务层又把六个字段无条件写库：
+ * 请求里没给的字段会被 pg 绑成 NULL → 会址/联系方式/专业被清空。
+ * 现在全部可选，但至少要给一个（否则这次 PUT 什么也不做，属调用方 bug）。
+ */
+const associatedStudentUpdateValidation = Joi.object({
+    name: Joi.string().trim().min(1).max(100).optional(),
+    profession: Joi.string().trim().max(100).allow('', null).optional(),
+    contact: Joi.string().trim().max(100).allow('', null).optional(),
+    visit_location: Joi.string().trim().max(500).allow('', null).optional(),
+    home_address: Joi.string().trim().max(500).allow('', null).optional(),
+    status: Joi.number().integer().valid(-1, 0, 1).optional()
+}).min(1).messages({
+    'object.min': '没有需要更新的字段'
+});
+
+/**
+ * 统一导出（POST /api/export/schedule，四端共用）。
+ *
+ * exportType 此前完全不校验：控制器只在客户端「没给」时填默认值，给了就原样采纳，
+ * 于是教师可传 student_schedule 走到「无学生范围 = 不加谓词」的查询分支。
+ * 这里只做形状与取值约束，**角色归属**由控制器按 req.user.userType 强制覆盖
+ * （与前端 export-dialog.js 的类型可见性过滤同一份契约）。
+ */
+const exportScheduleValidation = Joi.object({
+    startDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+        .messages({
+            'any.required': '缺少开始日期',
+            'string.pattern.base': '开始日期格式应为 YYYY-MM-DD'
+        }),
+    endDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required()
+        .messages({
+            'any.required': '缺少结束日期',
+            'string.pattern.base': '结束日期格式应为 YYYY-MM-DD'
+        }),
+    exportType: Joi.string()
+        .valid('teacher_schedule', 'teacher_homeroom', 'student_schedule', 'schedule_data')
+        .optional(),
+    teacherId: Joi.number().integer().positive().optional().allow(null, ''),
+    studentId: Joi.number().integer().positive().optional().allow(null, '')
+}).unknown(true);
+
 module.exports = {
     validate,
     standardResponse,
@@ -905,6 +947,8 @@ module.exports = {
     sessionAddPairValidation,
     aiConfigUpdateValidation,
     aiConfigTestValidation,
+    exportScheduleValidation,
+    associatedStudentUpdateValidation,
     aiUserModelValidation,
     aiEndpointCreateValidation,
     aiEndpointUpdateValidation,

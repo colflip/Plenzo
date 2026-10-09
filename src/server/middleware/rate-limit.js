@@ -7,6 +7,43 @@
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { errorResponse } = require('../utils/response');
+// 一律走 middleware/auth 的唯一验签入口：固定算法 + 比对 TOKEN_EPOCH + 拒绝 refresh token。
+// 自己再写一份 jwt.verify 的话，这三条里任何一条改了都会悄悄分叉（P2-13）。
+const { verifyToken } = require('./auth');
+
+/**
+ * 从 Authorization 头取出**已验签**的身份，用于限流分桶；无效/缺失返回 null。
+ * 只解签名、不查库，开销与一次 JWT 校验同级；authMiddleware 随后仍做完整校验。
+ * 用 `userType:id` 而非令牌哈希：同一用户跨 IP 共享一个桶，而伪造的头拿不到桶。
+ */
+/**
+ * 限流参数读环境变量（文档一直在写这几个键，但过去代码里**一处都没读**，
+ * 改 .env 完全不生效 —— 运维以为把登录爆破阈值调小了，其实没有）。
+ * 默认值保持与原来硬编码的数字一致，不配置 = 行为不变。
+ */
+function envInt(name, fallback) {
+    const n = parseInt(process.env[name], 10);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+function envMs(name, fallback) {
+    const n = parseInt(process.env[name], 10);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+function verifiedTokenIdentity(req) {
+    const header = req.headers && req.headers.authorization;
+    if (!header) return null;
+    const parts = header.split(' ');
+    if (parts.length !== 2 || !/^[Bb]earer$/.test(parts[0])) return null;
+    try {
+        const decoded = verifyToken(parts[1]);
+        if (!decoded || decoded.id === undefined) return null;
+        return `id:${decoded.userType || 'u'}:${decoded.id}`;
+    } catch (_) {
+        return null;   // 验不过就退回 IP 桶，不给匿名者更宽的额度
+    }
+}
 
 /**
  * 限流命中时的统一信封出口。express-rate-limit 在触发时会调用本 handler，
@@ -49,12 +86,12 @@ const createRateLimitHandler = (_max) => {
  * 15分钟内最多5次尝试
  */
 const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
+    windowMs: envMs('LOGIN_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
+    max: envInt('LOGIN_RATE_LIMIT_MAX', 5),
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
-    handler: createRateLimitHandler(5)
+    handler: createRateLimitHandler(envInt('LOGIN_RATE_LIMIT_MAX', 5))
 });
 
 /**
@@ -62,21 +99,24 @@ const loginLimiter = rateLimit({
  * 每分钟最多100次请求
  */
 const apiLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 100,
+    windowMs: envMs('RATE_LIMIT_WINDOW_MS', 60 * 1000),
+    max: envInt('RATE_LIMIT_MAX', 100),
     standardHeaders: true,
     legacyHeaders: false,
     validate: false,
     handler: createRateLimitHandler(100),
     keyGenerator: (req) => {
-        const clientIp = req['i' + 'p'] || (req.socket && req.socket.remoteAddress) || 'unknown';
-        // 已登录：用令牌哈希作 key，避免明文令牌落入限流存储/日志，且同一用户跨 IP 仍被正确限流
-        const token = req.headers.authorization;
-        if (token) {
-            const tokenHash = crypto.createHash('sha256').update(token).digest('base64').slice(0, 24);
-            return `t:${tokenHash}`;
-        }
-        // 未登录：IP + UA 指纹，降低共享 NAT/代理下的互误伤，也削弱伪造 XFF 绕过限流的可能
+        /**
+         * 身份键必须来自**验签通过**的令牌。原实现只要存在 Authorization 头就按
+         * `sha256(header)` 分桶，而该头不需要合法 —— 随便塞一个值、或每次重新登录，
+         * 都会拿到一个全新的桶，`max:100/min` 对肯动手的客户端等于不存在
+         * （`/api/health/db`、`/ready` 这类会真查库的无鉴权端点正在它保护之下）。
+         */
+        const identity = verifiedTokenIdentity(req);
+        if (identity) return identity;
+
+        const clientIp = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+        // 未登录（或令牌无效）：IP + UA 指纹，降低共享 NAT/代理下的互误伤
         const ua = req.headers['user-agent'] || 'no-ua';
         const uaHash = crypto.createHash('sha256').update(ua).digest('base64').slice(0, 16);
         return `ip:${clientIp}:${uaHash}`;
@@ -102,5 +142,7 @@ module.exports = {
     loginLimiter,
     apiLimiter,
     strictLimiter,
-    createRateLimitHandler
+    createRateLimitHandler,
+    // 供测试：限流分桶身份是否真的要求验签
+    verifiedTokenIdentity
 };

@@ -29,24 +29,35 @@ let warnedNoKey = false;
 
 /**
  * 解析返回 32 字节密钥；未配置则返回 null（调用方据此降级为明文）。
+ *
+ * 派生结果按「原始口令」缓存：AI 热路径上 listEndpoints/mapRow 会对每一行调用
+ * decrypt()，而 scryptSync 默认 N=16384 一次要几毫秒 —— 每请求重算是纯浪费
+ * （审查报告 P2-15）。缓存键用口令本身，轮换环境变量后自然失效。
  */
+let _keyCache = { raw: null, key: null };
 function resolveKey() {
     const raw = process.env.AI_CONFIG_ENCRYPTION_KEY || process.env.AI_ENCRYPTION_KEY;
     if (!raw) return null;
+    if (_keyCache.raw === raw) return _keyCache.key;
 
     // (a) 64 位十六进制
     if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-        return Buffer.from(raw, 'hex');
+        _keyCache = { raw, key: Buffer.from(raw, 'hex') };
+        return _keyCache.key;
     }
     // (b) 44 字符 base64（标准编码，含一个 '=' 填充）
     if (raw.length === 44 && /^[A-Za-z0-9+/=]+$/.test(raw)) {
         try {
             const buf = Buffer.from(raw, 'base64');
-            if (buf.length === KEY_BYTES) return buf;
+            if (buf.length === KEY_BYTES) {
+                _keyCache = { raw, key: buf };
+                return buf;
+            }
         } catch (_) { /* fall through */ }
     }
     // (c) 任意口令：scrypt 派生（确定性，跨实例一致）
-    return crypto.scryptSync(raw, SALT, KEY_BYTES);
+    _keyCache = { raw, key: crypto.scryptSync(raw, SALT, KEY_BYTES) };
+    return _keyCache.key;
 }
 
 /**
@@ -58,6 +69,16 @@ function encrypt(plain) {
     if (plain === undefined || plain === null || plain === '') return plain === undefined ? '' : plain;
     const key = resolveKey();
     if (!key) {
+        // 生产环境**失败关闭**：API Key 明文进数据库后，事后补上密钥也救不回
+        // 已经躺在那里的明文行（decrypt() 对无 enc: 前缀的值原样返回），
+        // 而这条降级路径过去只在日志里说一次，等于无声。
+        // JWT_SECRET 用的是同一姿态（app.js 启动即 process.exit(1)）。
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error(
+                '生产环境必须配置 AI_CONFIG_ENCRYPTION_KEY：拒绝把 AI 密钥明文写入数据库。' +
+                '请设置 32 字节密钥（hex/base64）或任意口令后重试。'
+            );
+        }
         if (!warnedNoKey) {
             logger.warn(
                 '[AIConfigCrypto] 未配置 AI_CONFIG_ENCRYPTION_KEY，API Key 将以明文写入数据库。' +

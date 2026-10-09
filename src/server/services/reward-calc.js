@@ -7,7 +7,9 @@
 const db = require('../db/db');
 const logger = require('../utils/logger');
 // 类型别名与折算的唯一实现（与浏览页统计、Excel 导出共用同一份规则）
-const TypeConversion = require('../../../public/js/utils/type-conversion');
+const TypeConversion = require('../domain/type-conversion');
+// 「在职 pair」的 SQL 谓词唯一出口（口径与 isActive 一致）
+const { sqlActivePair } = require('./course-session-service');
 
 // 未识别类型告警去重
 const reportedUnknownTypes = new Set();
@@ -101,7 +103,7 @@ async function getRewardPayload({ userId, name, start, end }) {
         JOIN schedule_types sty ON vp.type_id = sty.id
         WHERE vp.teacher_id = $1
           AND vp.class_date BETWEEN $2 AND $3
-          AND vp.status NOT IN ('cancelled', 'modified_away')
+          AND ${sqlActivePair('vp')}
         GROUP BY COALESCE(sty.description, sty.name)
         ORDER BY count DESC
     `, [userId, start, end]);

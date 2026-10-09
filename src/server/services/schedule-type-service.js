@@ -72,19 +72,40 @@ async function deleteScheduleType(id, req) {
     if (!Number.isInteger(typeId) || typeId <= 0) {
         throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '课程类型不存在' });
     }
-    const refCheck = await db.query(
-        `SELECT COUNT(*)::int AS count
-           FROM course_sessions cs, jsonb_array_elements(cs.teachers) e
-          WHERE (e->>'type_id')::int = $1`,
+    /**
+     * 「查引用」与「删除」必须是同一条语句。
+     *
+     * 原来分两条发：两条之间新建的排课可以把这个类型引用上，于是类型被删掉、
+     * 而那场的 type_id 成了孤儿 —— 所有读路径都以 INNER JOIN 接类型名
+     * （schedule-service.js 的网格/统计都是 `JOIN schedule_types st ON vp.type_id = st.id`），
+     * 结果这场课从周视图与统计里**整场消失**，却仍在占用时段与冲突检测（审查报告 P2-7）。
+     * JSONB 元素挂不上外键，所以这里用「删除以引用数为条件」把时间窗压成零。
+     */
+    const result = await db.query(
+        `WITH ref AS (
+             SELECT COUNT(*)::int AS count
+               FROM course_sessions cs, jsonb_array_elements(cs.teachers) e
+              WHERE (e->>'type_id')::int = $1
+         ), del AS (
+             DELETE FROM schedule_types
+              WHERE id = $1
+                AND NOT EXISTS (SELECT 1 FROM ref WHERE count > 0)
+              RETURNING id
+         )
+         SELECT COALESCE((SELECT count FROM ref), 0)::int AS ref_count,
+                (SELECT id FROM del) AS deleted_id`,
         [typeId]
     );
-    const count = Number(refCheck.rows[0].count);
-    if (count > 0) {
-        throw new AppError({ code: 'CONFLICT', statusCode: 409, message: `该类型已被引用 ${count} 次，无法删除` });
-    }
+    const row = result.rows[0] || {};
+    const refCount = Number(row.ref_count || 0);
 
-    const result = await db.query('DELETE FROM schedule_types WHERE id = $1 RETURNING id', [id]);
-    if (result.rows.length === 0) {
+    if (row.deleted_id === null || row.deleted_id === undefined) {
+        if (refCount > 0) {
+            throw new AppError({
+                code: 'CONFLICT', statusCode: 409,
+                message: `该类型已被引用 ${refCount} 次，无法删除`
+            });
+        }
         throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '课程类型不存在' });
     }
 

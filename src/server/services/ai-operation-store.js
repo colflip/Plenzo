@@ -82,16 +82,33 @@ async function savePreview(id, data) {
  * @param {string} id
  * @returns {object|null}
  */
-async function getPreview(id) {
+/**
+ * @param {string} id
+ * @param {number|string} [ownerId] 传入时只认这一位创建者的预览。
+ *   过去确认动作只按 id 取，同实例内任一管理员（含 L3）都能确认别人挂起的排课
+ *   —— 预览 id 还是 `Date.now()+Math.random()` 这种可猜测的形状（审查报告 P2-16）。
+ * @returns {object|null}
+ */
+async function getPreview(id, ownerId = null) {
     const mem = memGet(memPreviews, id);
-    if (mem) return { previewId: id, groups: mem.groups };
+    if (mem) {
+        const memOwner = mem.created_by === undefined ? null : mem.created_by;
+        if (ownerId !== null && String(memOwner) !== String(ownerId)) return null;
+        return { previewId: id, created_by: memOwner, groups: mem.groups };
+    }
     if (!dbAvailable) return null;
     try {
+        const params = [id];
+        let ownerClause = '';
+        if (ownerId !== null) {
+            params.push(ownerId);
+            ownerClause = ` AND created_by = $${params.length}`;
+        }
         const r = await db.query(
             `SELECT id, created_by, groups, expire_at
              FROM public.ai_schedule_previews
-             WHERE id = $1 AND expire_at > CURRENT_TIMESTAMP`,
-            [id]
+             WHERE id = $1 AND expire_at > CURRENT_TIMESTAMP${ownerClause}`,
+            params
         );
         if (r.rows.length === 0) return null;
         const row = r.rows[0];
@@ -158,16 +175,26 @@ async function saveOperation(id, data) {
  * @param {string} id
  * @returns {object|null}
  */
-async function getOperation(id) {
+async function getOperation(id, ownerId = null) {
     const mem = memGet(memOperations, id);
-    if (mem) return { id, ...mem };
+    if (mem) {
+        const memOwner = mem.created_by === undefined ? null : mem.created_by;
+        if (ownerId !== null && String(memOwner) !== String(ownerId)) return null;
+        return { id, ...mem };
+    }
     if (!dbAvailable) return null;
     try {
+        const params = [id];
+        let ownerClause = '';
+        if (ownerId !== null) {
+            params.push(ownerId);
+            ownerClause = ` AND created_by = $${params.length}`;
+        }
         const r = await db.query(
             `SELECT id, type, created_by, payload
              FROM public.ai_pending_operations
-             WHERE id = $1 AND expire_at > CURRENT_TIMESTAMP`,
-            [id]
+             WHERE id = $1 AND expire_at > CURRENT_TIMESTAMP${ownerClause}`,
+            params
         );
         if (r.rows.length === 0) return null;
         const row = r.rows[0];

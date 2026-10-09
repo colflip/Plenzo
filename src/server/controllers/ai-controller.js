@@ -24,18 +24,25 @@ const path = require('path');
 const getStatus = (req, res) => {
     // 暴露 LLM 护栏指标，便于线上判断「谁/哪个 provider 在吃配额、是否被限流」
     const metrics = aiService.llmMetrics ? aiService.llmMetrics.snapshot() : null;
+    // lastError 只对管理员可见：里面是失败的上游状态码/错误码，属运维诊断而非用户信息，
+    // 而本端点对所有登录角色开放（AI 助手用它做可用性判断）。
+    const isAdmin = req.user && req.user.userType === 'admin';
+    const safeMetrics = metrics && !isAdmin
+        ? { ...metrics, lastError: null }
+        : metrics;
     res.json(successResponse({
         enabled: aiService.isAvailable(),
         provider: aiService.getAIConfig().provider,
         role: req.user?.userType,
-        llmMetrics: metrics
+        llmMetrics: safeMetrics
     }, { requestId: req.requestId }));
 };
 
 /**
  * 状态的中英文映射（统一使用 sharedUtils.STATUS_MAP 作为权威来源）
  */
-const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus, splitStatus } = require('../utils/shared-utils');
+const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus, splitStatus,
+    toDateKey, normTime, slotKeyOf } = require('../utils/shared-utils');
 const { requiresOwnDataScope, canTouchRecord } = require('../utils/admin-permissions');
 const aiOperationStore = require('../services/ai-operation-store');
 
@@ -72,6 +79,276 @@ function loadCourseTypeMapping() {
 async function translateCourseType(type) {
     const mapping = await loadCourseTypeMapping();
     return mapping[type] || type;
+}
+
+/**
+ * 「记录」类课程（评审记录 / 咨询记录 及其线上变体）。
+ * 判定同时看 slug 与中文名：库里有 slug 记作 review_record，也有记作中文名的历史行。
+ */
+function isRecordCourseType(type) {
+    const name = String((type && type.name) || '');
+    const desc = String((type && type.description) || '');
+    return /(^|_)record(_|$)/.test(name) || desc.includes('记录');
+}
+
+/** 同一场课的教师合并成一段显示：普通教师在前，记录教师在后并标「（记录）」 */
+function formatTeacherDisplay(teachers) {
+    const regular = teachers.filter(t => !t.is_record).map(t => t.teacher_name);
+    const record = teachers.filter(t => t.is_record).map(t => `${t.teacher_name}（记录）`);
+    return [...regular, ...record].join('、');
+}
+
+/**
+ * v_session_pairs 的交叉积（教师 pair × 学生 pair）折回「一场课一条」。
+ * 一场课是一个整体：日期/时间/地点在头部，教师与学生各是带 uid 的名册，
+ * 列表与预览都按这一条呈现，不再按教师或学生拆成多行。
+ */
+function collapsePairsToSessions(rows) {
+    const byId = new Map();
+    for (const r of rows || []) {
+        const id = Number(r.session_id != null ? r.session_id : r.id);
+        let session = byId.get(id);
+        if (!session) {
+            session = {
+                id,
+                class_date: r.class_date,
+                start_time: r.start_time,
+                end_time: r.end_time,
+                location: r.location,
+                notes: r.notes,
+                created_by: r.created_by,
+                transport_fee: r.transport_fee,
+                other_fee: r.other_fee,
+                teachers: [],
+                students: []
+            };
+            byId.set(id, session);
+        }
+        const tUid = String(r.teacher_uid);
+        if (!session.teachers.some(t => t.uid === tUid)) {
+            session.teachers.push({
+                uid: tUid,
+                teacher_id: r.teacher_id,
+                teacher_name: r.teacher_name,
+                course_type: r.course_type,
+                course_type_cn: r.course_type_cn,
+                course_type_id: r.course_type_id,
+                status: r.status,
+                status_code: r.status_code,
+                is_record: isRecordCourseType({ name: r.course_type, description: r.course_type_cn })
+            });
+        }
+        const sUid = String(r.student_uid);
+        if (!session.students.some(s => s.uid === sUid)) {
+            session.students.push({
+                uid: sUid,
+                student_id: r.student_id,
+                student_name: r.student_name,
+                family_participants: r.family_participants
+            });
+        }
+    }
+    return [...byId.values()].map(session => ({
+        ...session,
+        teacher_uids: session.teachers.map(t => t.uid),
+        teacher_display: formatTeacherDisplay(session.teachers),
+        student_display: session.students.map(s => s.student_name).join('、'),
+        course_type_cn: [...new Set(session.teachers.map(t => t.course_type_cn))].join('、'),
+        active_teachers: session.teachers.filter(t => courseSessionService.isActive(t.status_code))
+    }));
+}
+
+/**
+ * 教师名册的生效值（预览与确认共用同一套口径）。
+ * - 给了 fields.teachers：整场替换，uid 命中的沿用、没带 uid 的是新增、原名册里没出现的将被移出。
+ * - 只给了 fields.courseType：改类型，命中 teacherUid 就改那一位，没命中就是本场全部在职教师。
+ * - 两者都没给：名册原样。
+ */
+function effectiveTeacherRoster(session, fields, refs) {
+    const current = session.teachers;
+    const onlyUid = fields.teacherUid != null ? String(fields.teacherUid) : null;
+
+    if (Array.isArray(fields.teachers)) {
+        return fields.teachers.map(entry => {
+            const keep = entry && entry.teacherUid != null
+                ? current.find(t => String(t.uid) === String(entry.teacherUid)) : null;
+            const typeName = (entry && entry.courseType) || (keep && keep.course_type);
+            if (!typeName) {
+                throw new AppError({ code: 'BAD_REQUEST', message: `新增教师 ${entry && entry.teacherId} 缺少课程类型` });
+            }
+            const type = refs.typeByName[typeName];
+            if (!type) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${typeName} 不存在` });
+            const person = refs.teacherById[entry.teacherId] || (keep && { name: keep.teacher_name });
+            if (!person) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${entry.teacherId} 不存在` });
+            return {
+                uid: keep ? keep.uid : null,
+                teacher_id: Number(entry.teacherId),
+                teacher_name: person.name,
+                course_type: type.name,
+                course_type_id: type.id,
+                course_type_cn: type.description || type.name,
+                is_record: isRecordCourseType(type),
+                status_code: keep ? keep.status_code : 'normal.confirmed'
+            };
+        });
+    }
+
+    if (fields.courseType) {
+        const type = refs.typeByName[fields.courseType];
+        if (!type) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${fields.courseType} 不存在` });
+        return current.map(t => {
+            const hit = !onlyUid || (String(t.uid) === onlyUid && courseSessionService.isActive(t.status_code));
+            return hit
+                ? { ...t, course_type: type.name, course_type_id: type.id, course_type_cn: type.description || type.name, is_record: isRecordCourseType(type) }
+                : t;
+        });
+    }
+
+    return current;
+}
+
+/** 学生名册的生效值，规则与 effectiveTeacherRoster 一致（家长人数可整场或只改指名那位） */
+function effectiveStudentRoster(session, fields, refs) {
+    const current = session.students;
+    const onlyUid = fields.studentUid != null ? String(fields.studentUid) : null;
+
+    if (Array.isArray(fields.students)) {
+        return fields.students.map(entry => {
+            const keep = entry && entry.studentUid != null
+                ? current.find(s => String(s.uid) === String(entry.studentUid)) : null;
+            const person = refs.studentById[entry.studentId] || (keep && { name: keep.student_name });
+            if (!person) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${entry.studentId} 不存在` });
+            const fam = entry.familyParticipants != null ? entry.familyParticipants
+                : (keep ? keep.family_participants : null);
+            return {
+                uid: keep ? keep.uid : null,
+                student_id: Number(entry.studentId),
+                student_name: person.name,
+                family_participants: fam != null ? Number(fam) : null
+            };
+        });
+    }
+
+    if (fields.familyParticipants !== undefined) {
+        return current.map(s => {
+            const hit = !onlyUid || String(s.uid) === onlyUid;
+            return hit ? { ...s, family_participants: Number(fields.familyParticipants) } : s;
+        });
+    }
+
+    return current;
+}
+
+/**
+ * 一批预览内部的相互冲突（同一位教师或同一位学生在这批里被排进两个重叠时段）。
+ * findConflictsBatch 只比对库里已有的场次，批内互撞要在这里单独抓 ——
+ * 用户一口气写九行，两行如果解析成同一个时段，就该在这里被拦住。
+ * 时段归一与键的算法复用 schedule-service 那一份，不在这里再写一遍。
+ * @returns {Array<{keys:string[], text:string}>} keys 是涉及的时段键（shared-utils 的 slotKeyOf）
+ */
+function collectSelfConflicts(groups = []) {
+    const flat = [];
+    groups.forEach(g => (g.slots || []).forEach(slot => flat.push({
+        key: slotKeyOf(slot.date, slot.startTime, slot.endTime),
+        date: String(slot.date).slice(0, 10),
+        startTime: normTime(slot.startTime),
+        endTime: normTime(slot.endTime),
+        teacherIds: (g.teachers || []).map(t => Number(t.teacher_id)),
+        teacherNames: (g.teachers || []).map(t => t.teacher_name || t.teacher_id),
+        studentIds: (g.students || []).map(s => Number(s.student_id)),
+        studentNames: (g.students || []).map(s => s.student_name || s.student_id)
+    })));
+
+    const found = [];
+    for (let a = 0; a < flat.length; a++) {
+        for (let b = a + 1; b < flat.length; b++) {
+            const A = flat[a], B = flat[b];
+            if (A.date !== B.date) continue;
+            if (!(A.startTime < B.endTime && B.startTime < A.endTime)) continue;
+            const sharedTeacher = A.teacherIds.filter(id => B.teacherIds.includes(id))[0];
+            const sharedStudent = A.studentIds.filter(id => B.studentIds.includes(id))[0];
+            if (sharedTeacher != null) {
+                const name = A.teacherNames[A.teacherIds.indexOf(sharedTeacher)];
+                found.push({
+                    keys: [A.key, B.key],
+                    text: `本批内部：教师${name} 在 ${A.date} 被排进两个重叠时段（${A.startTime}-${A.endTime} 与 ${B.startTime}-${B.endTime}）`
+                });
+            }
+            if (sharedStudent != null) {
+                const name = A.studentNames[A.studentIds.indexOf(sharedStudent)];
+                found.push({
+                    keys: [A.key, B.key],
+                    text: `本批内部：学生${name} 在 ${A.date} 被排进两个重叠时段（${A.startTime}-${A.endTime} 与 ${B.startTime}-${B.endTime}）`
+                });
+            }
+        }
+    }
+    // 同一对时段可能既撞教师又撞学生，文案各留一条；但同一组 (keys,text) 重复出现要去掉
+    const seen = new Set();
+    return found.filter(f => {
+        const sig = `${f.keys.join('+')}|${f.text}`;
+        if (seen.has(sig)) return false;
+        seen.add(sig);
+        return true;
+    });
+}
+
+/**
+ * 时段冲突 → 标在预览行上（新建预览与编辑预览共用这一份文案与分组口径，不各写一套）。
+ *
+ * 只标不拦：同一位教师/学生出现在时间重叠的两节课里是合法业务，写入照过，
+ * 这里负责让人（和模型）在点确认之前看见撞了谁、被哪一场占着。
+ * @param {Array<Object>} rows 预览行，就地写入 row.conflicts
+ * @param {Array} conflicts findConflictsBatch 的结果
+ * @param {(kind:string,id:number)=>string} nameOf 人名解析
+ * @param {Array<{keys:string[],text:string}>} [selfConflicts] 批内互撞
+ * @param {(row:Object)=>string} [keyOf] 行 → 时段键；默认用行自己的 class_date/start_time/end_time，
+ *        编辑预览要传「改完之后」的时段，否则标不到行上。
+ * @returns {number} 去重后的冲突条数
+ */
+function markRowConflicts(rows, conflicts, nameOf, selfConflicts = [], keyOf = null) {
+    const bySlot = new Map();
+    const push = (key, text) => {
+        if (!bySlot.has(key)) bySlot.set(key, []);
+        bySlot.get(key).push(text);
+    };
+    for (const c of conflicts || []) {
+        // 文案唯一实现在 schedule-service（describeConflicts 也走它），这里只提供内存里已有的名字
+        push(slotKeyOf(c.date, c.startTime, c.endTime), scheduleService.formatConflictLine(c, nameOf));
+    }
+    for (const f of selfConflicts || []) f.keys.forEach(key => push(key, f.text));
+
+    const rowKey = keyOf || ((row) => slotKeyOf(row.class_date, row.start_time, row.end_time));
+    (rows || []).forEach(row => {
+        row.conflicts = bySlot.get(rowKey(row)) || [];
+    });
+    return new Set((rows || []).flatMap(r => r.conflicts)).size;
+}
+
+/**
+ * 预览/列表用的一行：一场课一条记录，教师与学生按整场名册合并显示。
+ * 保留 teacher_name / student_name / course_type_cn 这些旧键名，前端表格因此不必改读取方式。
+ */
+function toMergedDisplayRow(session, teachers, students) {
+    const active = teachers.filter(t => courseSessionService.isActive(t.status_code));
+    const chosen = active.length ? active : teachers;
+    const lifecycles = [...new Set(chosen.map(t => splitStatus(t.status_code || 'normal.pending').lifecycle))];
+    // 一场课的状态就是这一场：各位教师状态一致就照实写，不一致时不替用户挑一位（那会显示成
+    // 「已确认」而实际还有人待确认），如实标成多种状态。
+    const status = lifecycles.length === 1 ? lifecycles[0] : (lifecycles.length > 1 ? 'mixed' : null);
+    return {
+        ...session,
+        session_id: session.id,
+        day_of_week: getDayOfWeek(session.class_date),
+        teachers, students,
+        teacher_ids: teachers.map(t => t.teacher_id),
+        student_ids: students.map(s => s.student_id),
+        teacher_name: formatTeacherDisplay(teachers),
+        student_name: students.map(s => s.student_name).join('、'),
+        course_type_cn: [...new Set(teachers.map(t => t.course_type_cn))].join('、'),
+        status,
+        status_cn: status ? (status === 'mixed' ? '多种状态' : translateStatus(status)) : ''
+    };
 }
 
 /**
@@ -335,7 +612,10 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'query_schedules',
-                description: '查询排课列表，支持按教师、学生、日期范围、状态筛选',
+                description: '查询排课列表，支持按教师、学生、日期范围、状态筛选。' +
+                    '返回**一场课一行**：teachers[] / students[] 是本场全部参与者，每位带自己的 uid 与课程类型' +
+                    '（一位教师一行记录 = 一个 pair，多位教师同上一场课时他们都在同一行的 teachers[] 里）。' +
+                    '改课/删课要针对某一位参与者时，用 teachers[].uid / students[].uid 作为 teacherUid / studentUid 传入。',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -432,43 +712,50 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'create_schedule_preview',
-                description: '根据可用时段生成排课预览方案。支持两种模式：\n' +
-                    '1. 单组模式：传 teacherId+studentId+courseType+slots\n' +
-                    '2. 批量模式：传 groups 数组（多教师多课程一次性预览，表格自动排序）\n' +
-                    '同一时间地点学生课程类型的多位教师应合并为一个 group（用 teacherIds 数组），而非多个独立 group',
+                description: '生成排课预览。**一场课 = 一个 group = 一条记录**：group 的 teachers[] 与 students[] ' +
+                    '就是这一场课的教师与学生，各 1..N 位都合法（只有一位也是同一个结构，没有单教师写法）。' +
+                    '多位教师共同参加同一节课时必须写进同一个 group 的 teachers[]，绝不能按教师拆成多个 group。' +
+                    '返回的预览行带 conflicts[]（与现有排课的时段冲突）与 conflictCount，有冲突要如实告知用户。',
                 parameters: {
                     type: 'object',
                     properties: {
-                        teacherId: { type: 'integer', description: '教师ID（单组模式）' },
-                        studentId: { type: 'integer', description: '学生ID（单组模式）' },
-                        courseType: { type: 'string', description: '课程类型名称（单组模式）' },
-                        location: { type: 'string', description: '上课地点（单组模式）' },
-                        slots: {
-                            type: 'array',
-                            description: '时段列表（单组模式）',
-                            items: {
-                                type: 'object',
-                                properties: {
-                                    date: { type: 'string', description: 'YYYY-MM-DD' },
-                                    startTime: { type: 'string', description: 'HH:MM:SS' },
-                                    endTime: { type: 'string', description: 'HH:MM:SS' }
-                                },
-                                required: ['date', 'startTime', 'endTime']
-                            }
-                        },
                         groups: {
                             type: 'array',
-                            description: '批量排课分组。同一时间地点学生课程类型的多位教师应合并为一个 group（用 teacherIds 数组）',
+                            description: '批量排课分组，一行输入对应一个 group',
                             items: {
                                 type: 'object',
                                 properties: {
-                                    teacherId: { type: 'integer', description: '教师ID（单教师，向后兼容）' },
-                                    teacherIds: { type: 'array', items: { type: 'integer' }, description: '教师ID数组（多教师合并为一个课程）' },
-                                    studentId: { type: 'integer', description: '学生ID' },
-                                    courseType: { type: 'string', description: '课程类型name字段（如 visit/review/review_record 等）' },
+                                    teachers: {
+                                        type: 'array',
+                                        minItems: 1,
+                                        description: '参加这节课的教师（1..N 位）。每位教师带自己的课程类型，' +
+                                            '同一场课里可以不同（例如三位评审 + 一位评审记录），这仍是一场课',
+                                        items: {
+                                            type: 'object',
+                                            properties: {
+                                                teacherId: { type: 'integer', description: '教师ID' },
+                                                courseType: { type: 'string', description: '这位教师在本场课里的课程类型 name 字段' }
+                                            },
+                                            required: ['teacherId', 'courseType']
+                                        }
+                                    },
+                                    students: {
+                                        type: 'array',
+                                        minItems: 1,
+                                        description: '本场课的学生（1..N 位）',
+                                        items: {
+                                            type: 'object',
+                                            properties: {
+                                                studentId: { type: 'integer', description: '学生ID' },
+                                                familyParticipants: { type: 'integer', description: '家长参与人数，默认4' }
+                                            },
+                                            required: ['studentId']
+                                        }
+                                    },
                                     location: { type: 'string', description: '上课地点' },
                                     slots: {
                                         type: 'array',
+                                        description: '同一 group 的多个时段，每个时段一条记录',
                                         items: {
                                             type: 'object',
                                             properties: {
@@ -481,10 +768,11 @@ const DATA_TOOLS = {
                                         }
                                     }
                                 },
-                                required: ['studentId', 'courseType', 'slots']
+                                required: ['teachers', 'students', 'slots']
                             }
                         }
-                    }
+                    },
+                    required: ['groups']
                 }
             }
         },
@@ -506,7 +794,9 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'preview_schedule_update',
-                description: '【第1步】预览排课修改：查看修改前后的对比，生成操作ID供确认。',
+                description: '【第1步】预览排课修改。一场课是一条记录，里面可以有 1..N 位教师与 1..N 位学生：' +
+                    '整场改时间/地点用头部字段；改参与者用 teachers / students 名册（整场替换）；' +
+                    '只改某一位教师的那一条用 teacherUid 指名，不指名就是本场全部在职教师。',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -519,17 +809,44 @@ const DATA_TOOLS = {
                             type: 'object',
                             description: '要修改的字段（只需提供要修改的字段）',
                             properties: {
-                                teacherId: { type: 'integer', description: '新教师ID' },
-                                studentId: { type: 'integer', description: '新学生ID' },
-                                classDate: { type: 'string', description: '新日期 YYYY-MM-DD' },
-                                startTime: { type: 'string', description: '新开始时间 HH:MM:SS' },
-                                endTime: { type: 'string', description: '新结束时间 HH:MM:SS' },
-                                status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed', 'modified_away'], description: '新状态' },
-                                courseType: { type: 'string', description: '新课程类型名称（name字段）：visit/half_visit/review/review_record/consultation/consultation_record/trial/group_activity等' },
-                                location: { type: 'string', description: '新地点（如：新课堂、老课堂等）' },
-                                familyParticipants: { type: 'integer', description: '家长参与人数' },
+                                teacherUid: { type: 'string', description: '教师 pair 的 uid（形如 "t1"）：只改这一位教师；省略=本场全部在职教师' },
+                                studentUid: { type: 'string', description: '学生 pair 的 uid（形如 "s1"）：只改这一位学生；省略=本场全部学生' },
+                                teachers: {
+                                    type: 'array',
+                                    description: '整场教师名册（替换语义：带 teacherUid 的沿用并修改，不带的是新增教师，' +
+                                        '名册里没有的现有教师将被移出本场）',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            teacherUid: { type: 'string', description: '现有教师 pair 的 uid；新增教师不要带' },
+                                            teacherId: { type: 'integer', description: '教师ID' },
+                                            courseType: { type: 'string', description: '这位教师在本场课里的课程类型 name 字段' }
+                                        },
+                                        required: ['teacherId']
+                                    }
+                                },
+                                students: {
+                                    type: 'array',
+                                    description: '整场学生名册（替换语义，同 teachers）',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            studentUid: { type: 'string', description: '现有学生 pair 的 uid；新增学生不要带' },
+                                            studentId: { type: 'integer', description: '学生ID' },
+                                            familyParticipants: { type: 'integer', description: '家长参与人数' }
+                                        },
+                                        required: ['studentId']
+                                    }
+                                },
+                                classDate: { type: 'string', description: '新日期 YYYY-MM-DD（整场生效）' },
+                                startTime: { type: 'string', description: '新开始时间 HH:MM:SS（整场生效）' },
+                                endTime: { type: 'string', description: '新结束时间 HH:MM:SS（整场生效）' },
+                                status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed', 'modified_away'], description: '新状态（作用于指定的 pair；未指名就是本场全部在职 pair）' },
+                                courseType: { type: 'string', description: '新课程类型名称（schedule_types.name，如 visit/half_visit/review/review_record/advisory/advisory_record/trial/group_activity）' },
+                                familyParticipants: { type: 'integer', description: '家长参与人数（整场或指名那位学生）' },
                                 transportFee: { type: 'number', description: '交通费（这趟课只有一位学生时才能改；多位学生同上一趟课时金额要说得清属于谁，请让用户去费用报销页逐位填写）' },
-                                otherFee: { type: 'number', description: '其他费用（同 transportFee：多学生场次不支持）' }
+                                otherFee: { type: 'number', description: '其他费用（同 transportFee：多学生场次不支持）' },
+                                location: { type: 'string', description: '新地点（如：新课堂、老课堂等，整场生效）' }
                             }
                         }
                     },
@@ -541,7 +858,8 @@ const DATA_TOOLS = {
             type: 'function',
             function: {
                 name: 'preview_schedule_deletion',
-                description: '【第1步】预览排课删除：查看要删除的排课详情，生成操作ID供确认。',
+                description: '【第1步】预览排课删除：查看要删除的排课详情，生成操作ID供确认。' +
+                    '不给 teacherUids/studentUids 就是删除整场课；给了就是把这些教师/学生从本场移出（移出最后一位时整场消失）。',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -549,6 +867,16 @@ const DATA_TOOLS = {
                             type: 'array',
                             items: { type: 'integer' },
                             description: '要删除的排课ID列表（可以是一个或多个）'
+                        },
+                        teacherUids: {
+                            type: 'array',
+                            items: { type: 'string' },
+                            description: '只把这些教师 pair（形如 "t1"）移出本场；省略=删除整场'
+                        },
+                        studentUids: {
+                            type: 'array',
+                            items: { type: 'string' },
+                            description: '只把这些学生 pair（形如 "s1"）移出本场；省略=删除整场'
                         },
                         reason: { type: 'string', description: '删除原因（可选）' }
                     },
@@ -700,55 +1028,102 @@ async function executeDataTool(toolName, args, req) {
         case 'query_schedules': {
             if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
 
-            let query = 'SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status, ' +
-                       't.name as teacher_name, s.name as student_name, st.name as course_type ' +
-                       'FROM v_session_pairs ca ' +
+            // 一场课一条记录：把 v_session_pairs 的交叉积折回场次，
+            // 教师与学生各是带 uid 的名册 —— 改/删要用 uid 指名本场里的哪一位。
+            const fromClause = 'FROM v_session_pairs ca ' +
                        'JOIN teachers t ON ca.teacher_id=t.id ' +
                        'JOIN students s ON ca.student_id=s.id ' +
-                       'JOIN schedule_types st ON ca.type_id=st.id WHERE 1=1';
+                       'JOIN schedule_types st ON ca.type_id=st.id';
+            let whereClause = ' WHERE 1=1';
             const params = [];
             let paramCount = 1;
 
             if (args.teacherId) {
-                query += ` AND ca.teacher_id=$${paramCount++}`;
+                whereClause += ` AND ca.teacher_id=$${paramCount++}`;
                 params.push(args.teacherId);
             }
             if (args.studentId) {
-                query += ` AND ca.student_id=$${paramCount++}`;
+                whereClause += ` AND ca.student_id=$${paramCount++}`;
                 params.push(args.studentId);
             }
             if (args.startDate) {
-                query += ` AND ca.class_date>=$${paramCount++}`;
+                whereClause += ` AND ca.class_date>=$${paramCount++}`;
                 params.push(args.startDate);
             }
             if (args.endDate) {
-                query += ` AND ca.class_date<=$${paramCount++}`;
+                whereClause += ` AND ca.class_date<=$${paramCount++}`;
                 params.push(args.endDate);
             }
             if (args.status) {
-                query += ` AND ca.status=$${paramCount++}`;
+                whereClause += ` AND ca.status=$${paramCount++}`;
                 params.push(args.status);
             }
             // 权限落地：L3 仅见自己创建 + 无主存量
             if (selfScoped) {
-                query += ` AND (ca.created_by=$${paramCount++} OR ca.created_by IS NULL)`;
+                whereClause += ` AND (ca.created_by=$${paramCount++} OR ca.created_by IS NULL)`;
                 params.push(userId);
             }
 
-            query += ' ORDER BY ca.class_date DESC, ca.start_time DESC LIMIT 50';
-            const result = await db.query(query, params);
+            // 先按「场」分页取最多 50 个 session_id，再回取这些场的全部 pair。
+            // 以前 LIMIT 直接挂在这条交叉积查询上：一场 4 位教师 × 1 位学生就占 4 行，
+            // 50 行折完只剩约 12 场，模型据此判断「这门课不存在」—— 静默少返回。
+            const pageRows = await db.query(
+                `SELECT ca.session_id ${fromClause}${whereClause} ` +
+                `GROUP BY ca.session_id ` +
+                `ORDER BY max(ca.class_date) DESC, max(ca.start_time) DESC LIMIT 50`,
+                params
+            );
+            const pageSessionIds = pageRows.rows.map(r => r.session_id);
+            if (!pageSessionIds.length) {
+                return { type: 'schedule_list', title: '排课列表', data: [] };
+            }
 
-            // 翻译课程类型和状态为中文
-            const translatedData = await Promise.all(result.rows.map(async row => ({
-                ...row,
-                course_type_cn: await translateCourseType(row.course_type),
-                status_cn: translateStatus(row.status)
-            })));
+            let query = 'SELECT ca.session_id, ca.class_date, ca.start_time, ca.end_time, ' +
+                       'ca.location, ca.status, ca.status_code, ca.teacher_uid, ca.student_uid, ' +
+                       'ca.teacher_id, ca.student_id, ca.type_id AS course_type_id, ' +
+                       'ca.transport_fee, ca.other_fee, ca.fee_status, ca.family_participants, ' +
+                       't.name as teacher_name, s.name as student_name, ' +
+                       'st.name as course_type, st.description as course_type_cn ' +
+                       `${fromClause}${whereClause}` +
+                       ` AND ca.session_id = ANY($${paramCount++}::int[])` +
+                       ' ORDER BY ca.class_date DESC, ca.start_time DESC';
 
+            // 不把 id 清单 push 回 params：分页那条查询已经把同一个数组交出去了，
+            // 事后追加会让这条查询多带一个参数（也让断言看到脏的调用记录）
+            const result = await db.query(query, [...params, pageSessionIds]);
+            const sessions = collapsePairsToSessions(result.rows);
+
+            // 一场课一行：教师/学生名册原样带出（含 uid），状态取本场在职 pair
             return {
                 type: 'schedule_list',
                 title: '排课列表',
-                data: translatedData
+                data: sessions.map(session => {
+                    const row = toMergedDisplayRow(session, session.teachers, session.students);
+                    return {
+                        id: row.id,
+                        session_id: row.id,
+                        class_date: row.class_date,
+                        day_of_week: row.day_of_week,
+                        start_time: row.start_time,
+                        end_time: row.end_time,
+                        location: row.location,
+                        teacher_name: row.teacher_name,
+                        student_name: row.student_name,
+                        course_type_cn: row.course_type_cn,
+                        status: row.status,
+                        status_cn: row.status_cn,
+                        teacher_uids: session.teachers.map(t => t.uid),
+                        student_uids: session.students.map(s => s.uid),
+                        teachers: session.teachers.map(t => ({
+                            uid: t.uid, teacher_id: t.teacher_id, teacher_name: t.teacher_name,
+                            course_type: t.course_type, course_type_cn: t.course_type_cn, status: t.status
+                        })),
+                        students: session.students.map(s => ({
+                            uid: s.uid, student_id: s.student_id, student_name: s.student_name,
+                            family_participants: s.family_participants
+                        }))
+                    };
+                })
             };
         }
 
@@ -1031,7 +1406,7 @@ async function executeDataTool(toolName, args, req) {
                      FROM v_session_pairs
                      WHERE (teacher_id=$1 OR student_id=$2)
                      AND class_date BETWEEN $3 AND $4
-                     AND status != 'cancelled'
+                     AND ${courseSessionService.sqlActivePair(null)}
                      ORDER BY class_date, start_time`,
                     [teacherId, studentId, startDate, endDate]
                 )
@@ -1041,8 +1416,9 @@ async function executeDataTool(toolName, args, req) {
             if (student.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${studentId} 不存在或已禁用` });
 
             // 生成日期范围
-            const start = new Date(startDate);
-            const end = new Date(endDate);
+            // 两端都按本地日历日构造与比较（ISO 日期字符串天然有序）。以前用 new Date('2026-10-11')
+            // 会被当成 UTC 零点，在 +08:00 上与本地 getDay()/toISOString() 混用，星期和日期各错位一次。
+            const dayCursor = new Date(`${startDate}T00:00:00`);
             const availableSlots = [];
 
             // 工作时间段定义（可配置）
@@ -1052,8 +1428,8 @@ async function executeDataTool(toolName, args, req) {
                 { start: '19:00:00', end: '22:00:00' }
             ];
 
-            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                const dateStr = d.toISOString().split('T')[0];
+            for (let d = dayCursor; toDateKey(d) <= String(endDate).slice(0, 10); d.setDate(d.getDate() + 1)) {
+                const dateStr = toDateKey(d);
                 const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay(); // 转换为 1-7
 
                 // 如果指定了偏好星期，跳过非偏好日期
@@ -1063,7 +1439,7 @@ async function executeDataTool(toolName, args, req) {
 
                 // 该日期的已有排课
                 const daySchedules = existingSchedules.rows.filter(s =>
-                    s.class_date.toISOString().split('T')[0] === dateStr
+                    toDateKey(s.class_date) === dateStr
                 );
 
                 // 检查每个工作时间段
@@ -1106,32 +1482,27 @@ async function executeDataTool(toolName, args, req) {
             if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可创建排课' });
 
             const { groups } = args;
-            const isBatch = Array.isArray(groups) && groups.length > 0;
+            if (!Array.isArray(groups) || groups.length === 0) {
+                throw new AppError({ code: 'BAD_REQUEST', message: '请提供 groups（一行输入对应一个 group）' });
+            }
 
-            // 统一为 groups 格式，teacherId/teacherIds 统一为 teacherIds 数组
-            const rawGroups = isBatch ? groups : [{
-                teacherId: args.teacherId,
-                teacherIds: args.teacherIds,
-                studentId: args.studentId,
-                courseType: args.courseType,
-                location: args.location,
-                slots: args.slots
-            }];
-            const normalizedGroups = rawGroups.map(g => ({
-                ...g,
-                teacherIds: Array.isArray(g.teacherIds) && g.teacherIds.length > 0
-                    ? g.teacherIds
-                    : (g.teacherId ? [g.teacherId] : [])
+            // 一场课 = 一个 group = 一行：teachers/students 都是 pair 数组，1..N 位同一形状，
+            // 只有一位教师或一位学生也走这个结构，没有单数写法。
+            const normalizedGroups = groups.map(g => ({
+                teachers: Array.isArray(g && g.teachers) ? g.teachers : [],
+                students: Array.isArray(g && g.students) ? g.students : [],
+                location: (g && g.location) || null,
+                slots: (g && Array.isArray(g.slots)) ? g.slots : []
             }));
 
             // 收集所有唯一ID，批量预加载（避免 N+1 查询）
-            const allTeacherIds = [...new Set(normalizedGroups.flatMap(g => g.teacherIds).filter(Boolean))];
-            const studentIds = [...new Set(normalizedGroups.map(g => g.studentId).filter(Boolean))];
-            const courseTypeNames = [...new Set(normalizedGroups.map(g => g.courseType).filter(Boolean))];
+            const allTeacherIds = [...new Set(normalizedGroups.flatMap(g => g.teachers.map(t => t.teacherId)))];
+            const allStudentIds = [...new Set(normalizedGroups.flatMap(g => g.students.map(s => s.studentId)))];
+            const courseTypeNames = [...new Set(normalizedGroups.flatMap(g => g.teachers.map(t => t.courseType)))];
 
             const [teachersResult, studentsResult, courseTypesResult] = await Promise.all([
                 allTeacherIds.length ? db.query('SELECT id, name FROM teachers WHERE id=ANY($1) AND status=1', [allTeacherIds]) : { rows: [] },
-                studentIds.length ? db.query('SELECT id, name FROM students WHERE id=ANY($1) AND status=1', [studentIds]) : { rows: [] },
+                allStudentIds.length ? db.query('SELECT id, name FROM students WHERE id=ANY($1) AND status=1', [allStudentIds]) : { rows: [] },
                 courseTypeNames.length ? db.query('SELECT id, name, description FROM schedule_types WHERE name=ANY($1)', [courseTypeNames]) : { rows: [] }
             ]);
 
@@ -1143,48 +1514,75 @@ async function executeDataTool(toolName, args, req) {
             const allSchedules = [];
             const previewGroups = [];
 
-            for (const group of normalizedGroups) {
-                const { teacherIds: tIds, studentId, courseType, location, slots } = group;
-                if (!tIds.length || !studentId || !courseType || !slots?.length) continue;
-
-                const student = studentMap[studentId];
-                if (!student) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${studentId} 不存在或已禁用` });
-
-                const courseTypeRow = courseTypeMap[courseType];
-                if (!courseTypeRow) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${courseType} 不存在` });
-
-                const courseId = courseTypeRow.id;
-                const courseTypeCn = courseTypeRow.description || courseType;
-
-                // 校验所有教师存在
-                const teachers = [];
-                for (const tid of tIds) {
-                    const t = teacherMap[tid];
-                    if (!t) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${tid} 不存在或已禁用` });
-                    teachers.push(t);
+            for (const [index, group] of normalizedGroups.entries()) {
+                const { teachers: teacherIn, students: studentIn, location, slots } = group;
+                // 漏一项就明确报错，不能静默跳过 —— 用户的每一行都必须有着落（R5 忠实执行）
+                if (!teacherIn.length) {
+                    throw new AppError({ code: 'BAD_REQUEST', message: `第 ${index + 1} 场课缺少 teachers（每位教师给 teacherId + courseType）` });
+                }
+                if (!studentIn.length) {
+                    throw new AppError({ code: 'BAD_REQUEST', message: `第 ${index + 1} 场课缺少 students` });
+                }
+                if (!slots.length) {
+                    throw new AppError({ code: 'BAD_REQUEST', message: `第 ${index + 1} 场课缺少 slots` });
                 }
 
-                previewGroups.push({
-                    teacherIds: tIds, studentId, courseId,
-                    teacherNames: teachers.map(t => t.name),
-                    studentName: student.name,
-                    courseTypeCn, location: location || null,
-                    slots: slots.map(s => ({ date: s.date, startTime: s.startTime, endTime: s.endTime, status: s.status }))
-                });
+                for (const s of studentIn) {
+                    if (!s || s.studentId == null) {
+                        throw new AppError({ code: 'BAD_REQUEST', message: `第 ${index + 1} 场课的学生条目缺少 studentId` });
+                    }
+                    if (!studentMap[s.studentId]) {
+                        throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${s.studentId} 不存在或已禁用` });
+                    }
+                }
+                for (const t of teacherIn) {
+                    if (!t || t.teacherId == null || !t.courseType) {
+                        throw new AppError({
+                            code: 'BAD_REQUEST',
+                            message: `第 ${index + 1} 场课的教师条目不完整（每位教师都要给 teacherId 与 courseType）`
+                        });
+                    }
+                    if (!teacherMap[t.teacherId]) {
+                        throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${t.teacherId} 不存在或已禁用` });
+                    }
+                    if (!courseTypeMap[t.courseType]) {
+                        throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${t.courseType} 不存在` });
+                    }
+                }
 
-                // 一个 group+slot 生成一行预览，教师名合并显示
-                const mergedTeacherName = teachers.map(t => t.name).join('、');
+                // 每位教师带自己的课程类型：一场课里「评审 + 评审记录」共存，仍然是一条记录
+                const teachers = teacherIn.map(t => {
+                    const type = courseTypeMap[t.courseType];
+                    return {
+                        teacher_id: t.teacherId,
+                        teacher_name: teacherMap[t.teacherId].name,
+                        course_type_id: type.id,
+                        course_type_cn: type.description || type.name,
+                        is_record: isRecordCourseType(type)
+                    };
+                });
+                const students = studentIn.map(s => ({
+                    student_id: s.studentId,
+                    student_name: studentMap[s.studentId].name,
+                    family_participants: s.familyParticipants != null ? s.familyParticipants : null
+                }));
+
+                previewGroups.push({ teachers, students, location, slots });
+
+                // 一个 group+slot 一行预览：整场课的全部教师/学生合并显示
                 for (const slot of slots) {
                     allSchedules.push({
                         class_date: slot.date,
                         day_of_week: getDayOfWeek(slot.date),
                         start_time: slot.startTime,
                         end_time: slot.endTime,
-                        teacher_ids: tIds,
-                        teacher_name: mergedTeacherName,
-                        student_name: student.name,
-                        course_type_cn: courseTypeCn,
                         location: location || null,
+                        teachers, students,
+                        teacher_ids: teachers.map(t => t.teacher_id),
+                        student_ids: students.map(s => s.student_id),
+                        teacher_display: formatTeacherDisplay(teachers),
+                        student_display: students.map(s => s.student_name).join('、'),
+                        course_type_cn: [...new Set(teachers.map(t => t.course_type_cn))].join('、'),
                         status: slot.status || 'confirmed',
                         status_cn: slot.status === 'pending' ? '待确认' : '已确认'
                     });
@@ -1198,9 +1596,25 @@ async function executeDataTool(toolName, args, req) {
             const previewId = `preview_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
             await aiOperationStore.savePreview(previewId, { created_by: userId, groups: previewGroups });
 
-            const uniqueTeachers = [...new Set(previewGroups.flatMap(g => g.teacherNames))];
-            const uniqueStudents = [...new Set(previewGroups.map(g => g.studentName))];
-            const uniqueCourses = [...new Set(previewGroups.map(g => g.courseTypeCn))];
+            // 时段冲突一次查完（一条语句，不是逐「教师×学生」各发一条），标在预览行上：
+            // 用户点确认前就看得见撞了谁，模型也能在同一份工具结果里读到并改时段。
+            // per-slot 名单让「A 行的教师」只跟「A 行的时段」比，多行批量不会互相误报。
+            const conflictList = await scheduleService.findConflictsBatch({
+                slots: previewGroups.flatMap(g => (g.slots || []).map(slot => ({
+                    date: slot.date, startTime: slot.startTime, endTime: slot.endTime,
+                    teacherIds: g.teachers.map(t => t.teacher_id),
+                    studentIds: g.students.map(s => s.student_id)
+                })))
+            });
+            const personName = (kind, id) => (kind === 'teacher'
+                ? (teacherMap[id] && teacherMap[id].name)
+                : (studentMap[id] && studentMap[id].name)) || `ID ${id}`;
+            const conflictCount = markRowConflicts(allSchedules, conflictList, personName,
+                collectSelfConflicts(previewGroups));
+
+            const uniqueTeachers = [...new Set(previewGroups.flatMap(g => g.teachers.map(t => t.teacher_name)))];
+            const uniqueStudents = [...new Set(previewGroups.flatMap(g => g.students.map(s => s.student_name)))];
+            const uniqueCourses = [...new Set(previewGroups.flatMap(g => g.teachers.map(t => t.course_type_cn)))];
 
             return {
                 type: 'schedule_preview',
@@ -1211,6 +1625,7 @@ async function executeDataTool(toolName, args, req) {
                     student: uniqueStudents.join('、'),
                     courseType: uniqueCourses.join('、'),
                     totalCount: allSchedules.length,
+                    conflictCount,
                     schedules: allSchedules
                 }
             };
@@ -1221,54 +1636,82 @@ async function executeDataTool(toolName, args, req) {
 
             const { previewId } = args;
 
-            // 从存储中获取预览数据（跨实例持久化）
-            const previewData = await aiOperationStore.getPreview(previewId);
+            // 从存储中获取预览数据（跨实例持久化）。
+            // 带上 created_by：预览是「某人生成的待执行方案」，只该由本人确认；
+            // 只按 id 取的话，同实例内任何管理员都能确认别人的排课（审查报告 P2-16）。
+            const previewData = await aiOperationStore.getPreview(previewId, userId);
             if (!previewData) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '预览方案不存在或已过期，请重新生成' });
             }
 
-            // 兼容批量模式（groups）和旧单组模式
-            const groups = previewData.groups || [{
-                teacherId: previewData.teacherId,
-                studentId: previewData.studentId,
-                courseId: previewData.courseId,
-                location: previewData.location,
-                slots: previewData.slots
-            }];
+            const groups = previewData.groups || [];
 
-            // 批量插入排课：一场课一行，交给服务层的批量入口（uid 生成、pair 的 created_by、
-            // 引用完整性校验、校验函数都在那一层统一处理）。
-            // 权限落地（Phase 1.5）：头部 created_by 记录创建者归属（L3 后续可见自己创建的数据）
+            // 批量插入排课：一个 group 的一个时段 = 一行 course_sessions，
+            // group 内的每位教师按自己的课程类型成为一个 pair，每位学生成为一个学生 pair。
+            // uid 生成、pair 的 created_by、引用完整性校验、校验函数都在服务层统一处理。
             // 往返固定 3 次而不是 3 × 时段数 —— 逐个建 10 个时段要 30 条语句、约 7.5 秒。
-            const payloads = groups.flatMap(({ teacherIds, teacherId, studentId, courseId, location, slots }) => {
-                const tIds = (Array.isArray(teacherIds) && teacherIds.length > 0) ? teacherIds : (teacherId ? [teacherId] : []);
-                return (slots || []).map(slot => ({
+            const payloads = groups.flatMap(({ teachers = [], students = [], location, slots = [] }) =>
+                slots.map(slot => ({
                     class_date: slot.date,
                     start_time: slot.startTime,
                     end_time: slot.endTime,
                     location: location || null,
-                    teachers: tIds.map(tid => ({ teacher_id: tid, type_id: courseId, lifecycle: slot.status || 'confirmed' })),
-                    students: [{ student_id: studentId }]
-                }));
-            });
+                    teachers: teachers.map(t => ({
+                        teacher_id: t.teacher_id,
+                        type_id: t.course_type_id,
+                        lifecycle: slot.status || 'confirmed'
+                    })),
+                    students: students.map(s => ({
+                        student_id: s.student_id,
+                        family_participants: s.family_participants
+                    }))
+                })));
             const createdSessions = await courseSessionService.createSessions(payloads, { id: userId, actorType: 'admin' });
             const insertedIds = createdSessions.map(x => x.id);
+
+            // 时段重叠不拦创建（业务上允许一位教师/学生出现在时间重叠的两节课里），
+            // 但要把话讲清楚：预览行标过 ⚠，写完再在同一份文案里回提示，模型和用户都看得见。
+            // 名字用预览里已有的那份，不再回库查（describeConflicts 那两条批量 SELECT 是白花往返）。
+            const nameById = {
+                teacher: Object.fromEntries(groups.flatMap(g => (g.teachers || [])
+                    .map(t => [Number(t.teacher_id), t.teacher_name || `ID ${t.teacher_id}`]))),
+                student: Object.fromEntries(groups.flatMap(g => (g.students || [])
+                    .map(s => [Number(s.student_id), s.student_name || `ID ${s.student_id}`])))
+            };
+            const createdConflicts = await scheduleService.findConflictsBatch({
+                slots: payloads.map(p => ({
+                    date: p.class_date, startTime: p.start_time, endTime: p.end_time,
+                    teacherIds: p.teachers.map(t => t.teacher_id),
+                    studentIds: p.students.map(s => s.student_id)
+                })),
+                excludeSessionIds: insertedIds   // 刚写进去的自己不算冲突
+            });
+            const conflictWarnings = [
+                ...createdConflicts.map(c => scheduleService.formatConflictLine(c,
+                    (kind, id) => nameById[kind][Number(id)] || `ID ${id}`)),
+                ...collectSelfConflicts(groups).map(f => f.text)
+            ];
 
             // 删除预览数据
             await aiOperationStore.deletePreview(previewId);
 
-            const uniqueTeachers = [...new Set(groups.flatMap(g => Array.isArray(g.teacherNames) ? g.teacherNames : (g.teacherName ? [g.teacherName] : [])))];
-            const uniqueStudents = [...new Set(groups.map(g => g.studentName).filter(Boolean))];
+            const uniqueTeachers = [...new Set(groups.flatMap(g => (g.teachers || []).map(t => t.teacher_name)))];
+            const uniqueStudents = [...new Set(groups.flatMap(g => (g.students || []).map(s => s.student_name)))];
+            const uniqueCourses = [...new Set(groups.flatMap(g => (g.teachers || []).map(t => t.course_type_cn)))];
 
             return {
                 type: 'text',
                 title: '排课创建成功',
                 data: {
-                    message: `成功创建 ${insertedIds.length} 条排课记录`,
+                    message: `成功创建 ${insertedIds.length} 条排课记录`
+                        + (conflictWarnings.length
+                            ? `（注意：${conflictWarnings.length} 处时段与现有排课重叠 —— ${conflictWarnings.join('；')}）`
+                            : ''),
                     scheduleIds: insertedIds,
+                    conflictWarnings,
                     teacher: uniqueTeachers.join('、'),
                     student: uniqueStudents.join('、'),
-                    courseType: groups.map(g => g.courseTypeCn).filter(Boolean).join('、')
+                    courseType: uniqueCourses.join('、')
                 }
             };
         }
@@ -1286,101 +1729,163 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '请提供要修改的字段' });
             }
 
-            // 检查排课是否存在并获取详细信息（含 created_by 归属）
-            const existingSchedules = await db.query(
-                `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
-                        ca.location, ca.family_participants, ca.transport_fee, ca.other_fee,
-                        ca.created_by,
-                        t.name as teacher_name, t.id as teacher_id,
-                        s.name as student_name, s.id as student_id,
+            // 一场课一条记录：交叉积折回场次，教师/学生名册各带 uid 供指名
+            const pairRows = await db.query(
+                `SELECT ca.session_id, ca.class_date, ca.start_time, ca.end_time,
+                        ca.location, ca.notes, ca.status_code, ca.family_participants,
+                        ca.transport_fee, ca.other_fee, ca.created_by,
+                        ca.teacher_uid, ca.student_uid, ca.teacher_id, ca.student_id,
+                        ca.type_id AS course_type_id,
+                        t.name as teacher_name, s.name as student_name,
                         st.name as course_type, st.description as course_type_cn
                  FROM v_session_pairs ca
                  JOIN teachers t ON ca.teacher_id = t.id
                  JOIN students s ON ca.student_id = s.id
                  JOIN schedule_types st ON ca.type_id = st.id
-                 WHERE ca.id = ANY($1)`,
+                 WHERE ca.session_id = ANY($1)`,
                 [scheduleIds]
             );
 
-            if (existingSchedules.rows.length === 0) {
+            if (pairRows.rows.length === 0) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '未找到指定的排课' });
             }
-
-            if (existingSchedules.rows.length < scheduleIds.length) {
-                const foundIds = existingSchedules.rows.map(r => r.id);
-                const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
+            const sessions = collapsePairsToSessions(pairRows.rows);
+            const foundIds = sessions.map(s => s.id);
+            const missingIds = scheduleIds.filter(id => !foundIds.includes(Number(id)));
+            if (missingIds.length) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ID ${missingIds.join(', ')} 不存在` });
             }
 
             // 权限落地（Phase 1.5）：L3 只能修改自己创建或无主的排课，任一越权则整批拒绝
-            if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
+            if (sessions.some(s => !canTouchRecord(s.created_by, req.user))) {
                 throw new AppError({ code: 'FORBIDDEN', message: '所选排课包含您无权操作的记录' });
             }
 
-            // 验证新值的合法性
-            let newTeacherName, newStudentName, newCourseTypeCn, newCourseTypeId;
+            // 指名的 pair 必须在这些场次里存在。不指名 = 整场（全部在职 pair），不再是「取第一位」
+            const targetTeacherUid = fields.teacherUid != null ? String(fields.teacherUid) : null;
+            const targetStudentUid = fields.studentUid != null ? String(fields.studentUid) : null;
+            for (const s of sessions) {
+                if (targetTeacherUid && !s.teachers.some(t => t.uid === targetTeacherUid)) {
+                    throw new AppError({
+                        code: 'BAD_REQUEST',
+                        message: `排课 ${s.id} 没有 uid 为 ${targetTeacherUid} 的教师（本场教师 uid：${s.teacher_uids.join('、')}）`
+                    });
+                }
+                if (targetStudentUid && !s.students.some(x => x.uid === targetStudentUid)) {
+                    throw new AppError({
+                        code: 'BAD_REQUEST',
+                        message: `排课 ${s.id} 没有 uid 为 ${targetStudentUid} 的学生（本场学生 uid：${s.students.map(x => x.uid).join('、')}）`
+                    });
+                }
+            }
 
-            // 三个校验只依赖入参 fields，彼此无关 —— 并发发出，最多省两次往返（每条约 250ms）。
-            // 报错顺序仍是「教师 → 学生 → 课程类型」，与逐条校验时代一致。
-            const [teacherCheck, studentCheck, courseTypeResult] = await Promise.all([
-                fields.teacherId
-                    ? db.query('SELECT id, name, status FROM teachers WHERE id=$1', [fields.teacherId])
-                    : null,
-                fields.studentId
-                    ? db.query('SELECT id, name, status FROM students WHERE id=$1', [fields.studentId])
-                    : null,
-                fields.courseType
-                    ? db.query('SELECT id, name, description FROM schedule_types WHERE name=$1', [fields.courseType])
-                    : null
+            // 验证新值：名册里的教师/学生/涉及的课程类型各批量查一次（三条语句，不逐条往返）
+            const rosterTeachers = Array.isArray(fields.teachers) ? fields.teachers : [];
+            const rosterStudents = Array.isArray(fields.students) ? fields.students : [];
+            const rosterTeacherIds = [...new Set(rosterTeachers.map(t => t && t.teacherId).filter(v => v != null))];
+            const rosterStudentIds = [...new Set(rosterStudents.map(s => s && s.studentId).filter(v => v != null))];
+            // 名册里「带 teacherUid 但不给类型」的条目沿用该 pair 原有类型（见 effectiveTeacherRoster
+            // 的 keep.course_type 回退），所以那些类型名也必须进这一批查询 —— 漏了的话
+            // refs.typeByName 里根本没有这个键，同一场课里别位教师恰好同名时才侥幸通过。
+            const keepTypeNames = rosterTeachers
+                .filter(t => t && t.teacherUid != null && !t.courseType)
+                .flatMap(t => sessions.flatMap(s => (s.teachers || [])
+                    .filter(p => String(p.uid) === String(t.teacherUid) && p.course_type)
+                    .map(p => p.course_type)));
+            const typeNames = [...new Set([
+                ...rosterTeachers.map(t => t && t.courseType).filter(Boolean),
+                ...keepTypeNames,
+                ...(fields.courseType ? [fields.courseType] : [])
+            ])];
+
+            const [teacherRows, studentRows, typeRows] = await Promise.all([
+                rosterTeacherIds.length ? db.query('SELECT id, name, status FROM teachers WHERE id=ANY($1)', [rosterTeacherIds]) : { rows: [] },
+                rosterStudentIds.length ? db.query('SELECT id, name, status FROM students WHERE id=ANY($1)', [rosterStudentIds]) : { rows: [] },
+                typeNames.length ? db.query('SELECT id, name, description FROM schedule_types WHERE name=ANY($1)', [typeNames]) : { rows: [] }
             ]);
 
-            if (teacherCheck) {
-                if (teacherCheck.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${fields.teacherId} 不存在` });
-                if (teacherCheck.rows[0].status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `教师 ${teacherCheck.rows[0].name} 已被禁用` });
-                newTeacherName = teacherCheck.rows[0].name;
+            const refs = {
+                teacherById: Object.fromEntries(teacherRows.rows.map(r => [r.id, r])),
+                studentById: Object.fromEntries(studentRows.rows.map(r => [r.id, r])),
+                typeByName: Object.fromEntries(typeRows.rows.map(r => [r.name, r]))
+            };
+
+            for (const t of rosterTeachers) {
+                const person = refs.teacherById[t.teacherId];
+                if (!person) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `教师 ID ${t.teacherId} 不存在` });
+                if (person.status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `教师 ${person.name} 已被禁用` });
+            }
+            for (const s of rosterStudents) {
+                const person = refs.studentById[s.studentId];
+                if (!person) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${s.studentId} 不存在` });
+                if (person.status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `学生 ${person.name} 已被禁用` });
             }
 
-            if (studentCheck) {
-                if (studentCheck.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `学生 ID ${fields.studentId} 不存在` });
-                if (studentCheck.rows[0].status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `学生 ${studentCheck.rows[0].name} 已被禁用` });
-                newStudentName = studentCheck.rows[0].name;
-            }
+            // 每场的生效名册只算一次，预览与确认存的是同一口径
+            const resolved = sessions.map(session => ({
+                session,
+                teachers: effectiveTeacherRoster(session, fields, refs),
+                students: effectiveStudentRoster(session, fields, refs)
+            }));
 
-            if (courseTypeResult) {
-                if (courseTypeResult.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${fields.courseType} 不存在` });
-                newCourseTypeCn = courseTypeResult.rows[0].description;
-                newCourseTypeId = courseTypeResult.rows[0].id;
-            }
-
-            // 调整课程：status=modified_away → 原记录归档 + 按新条件新建
+            // 调整课程：status=modified_away → 本场在职教师全部归档 + 按新条件另起一场完整课
             const isAdjust = fields.status === 'modified_away';
-            let newSchedulesPreview = null;
-            if (isAdjust) {
-                newSchedulesPreview = existingSchedules.rows.map(row => ({
-                    originalId: row.id,
-                    teacherId: fields.teacherId ?? row.teacher_id,
-                    studentId: fields.studentId ?? row.student_id,
-                    teacherName: fields.teacherId ? newTeacherName : row.teacher_name,
-                    studentName: fields.studentId ? newStudentName : row.student_name,
-                    courseId: newCourseTypeId ?? row.course_id,
-                    courseTypeCn: fields.courseType ? newCourseTypeCn : row.course_type_cn,
-                    classDate: fields.classDate ?? row.class_date,
-                    startTime: fields.startTime ?? row.start_time,
-                    endTime: fields.endTime ?? row.end_time,
-                    location: fields.location !== undefined ? fields.location : row.location,
-                    familyParticipants: fields.familyParticipants !== undefined ? fields.familyParticipants : row.family_participants,
-                    status: 'confirmed',
-                    adjustmentType: 2
-                }));
+            const newSchedulesPreview = isAdjust ? resolved.map(({ session, teachers, students }) => ({
+                originalId: session.id,
+                teachers, students,
+                teacherName: formatTeacherDisplay(teachers),
+                studentName: students.map(s => s.student_name).join('、'),
+                courseTypeCn: [...new Set(teachers.map(t => t.course_type_cn))].join('、'),
+                classDate: fields.classDate ?? session.class_date,
+                startTime: fields.startTime ?? session.start_time,
+                endTime: fields.endTime ?? session.end_time,
+                location: fields.location !== undefined ? fields.location : session.location,
+                status: 'confirmed',
+                adjustmentType: 2
+            })) : null;
+
+            // 预览表格：一场课一行（教师/学生都是整场名册，记录教师带「（记录）」）
+            const displayRows = resolved.map(({ session, teachers, students }) => toMergedDisplayRow(session, teachers, students));
+
+            // 编辑也要提示时段重叠（与新建预览同一份文案、同样只提示不拦）：
+            // 查的是「改完之后」的时段与名册，并排除被编辑的这些场次自己 —— 挪走不是撞车。
+            // 没挪时间、没动名册就一条查询都不发。
+            const slotTouched = fields.classDate || fields.startTime || fields.endTime;
+            const rosterTouched = Array.isArray(fields.teachers) || Array.isArray(fields.students);
+            let editConflictCount = 0;
+            if (slotTouched || rosterTouched) {
+                const found = await scheduleService.findConflictsBatch({
+                    slots: resolved.map(({ session, teachers, students }) => ({
+                        date: toDateKey(fields.classDate ?? session.class_date),
+                        startTime: normTime(fields.startTime ?? session.start_time),
+                        endTime: normTime(fields.endTime ?? session.end_time),
+                        teacherIds: teachers.map(t => Number(t.teacher_id)),
+                        studentIds: students.map(s => Number(s.student_id))
+                    })),
+                    excludeSessionIds: resolved.map(r => Number(r.session.id))
+                });
+                const nameOf = (kind, id) => (kind === 'teacher'
+                    ? (refs.teacherById[id] && refs.teacherById[id].name)
+                    : (refs.studentById[id] && refs.studentById[id].name)) || `ID ${id}`;
+                editConflictCount = markRowConflicts(displayRows, found, nameOf, [],
+                    (row) => slotKeyOf(
+                        fields.classDate ?? row.class_date,
+                        fields.startTime ?? row.start_time,
+                        fields.endTime ?? row.end_time
+                    ));
+                // 调整预览另有「调整后新建」那张表：它才是新时段的承载行，不标就会出现
+                // 「头部说 N 处重叠、表里一行都没有」的自相矛盾
+                if (newSchedulesPreview) {
+                    markRowConflicts(newSchedulesPreview, found, nameOf, [],
+                        (row) => slotKeyOf(row.classDate, row.startTime, row.endTime));
+                }
             }
 
             // 生成操作ID
             const operationId = `update_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-            // 构建变更对比
+            // 构建变更对比：名册单独列出；uid 没指名就是整场生效，这一点要写在预览里
             const fieldNames = {
-                teacherId: '教师',
-                studentId: '学生',
                 classDate: '日期',
                 startTime: '开始时间',
                 endTime: '结束时间',
@@ -1391,37 +1896,81 @@ async function executeDataTool(toolName, args, req) {
                 transportFee: '交通费',
                 otherFee: '其他费用'
             };
+            const scopeLabel = targetTeacherUid ? `（仅教师 pair ${targetTeacherUid}）`
+                : (targetStudentUid ? `（仅学生 pair ${targetStudentUid}）` : '（整场）');
 
             const changes = [];
+            if (Array.isArray(fields.teachers)) {
+                changes.push({
+                    field: '教师名册',
+                    newValue: [...new Set(resolved.map(r => formatTeacherDisplay(r.teachers)))].join(' / ')
+                });
+            }
+            if (Array.isArray(fields.students)) {
+                changes.push({
+                    field: '学生名册',
+                    newValue: [...new Set(resolved.map(r => r.students.map(s => s.student_name).join('、')))].join(' / ')
+                });
+            }
             Object.keys(fields).forEach(key => {
-                const fieldLabel = fieldNames[key] || key;
+                if (key === 'teachers' || key === 'students' || key === 'teacherUid' || key === 'studentUid') return;
                 let newValue = fields[key];
-
-                // 转换显示值
-                if (key === 'teacherId') newValue = `${newTeacherName} (ID: ${fields[key]})`;
-                else if (key === 'studentId') newValue = `${newStudentName} (ID: ${fields[key]})`;
-                else if (key === 'courseType') newValue = `${newCourseTypeCn} (${fields[key]})`;
-                else if (key === 'status') newValue = translateStatus(fields[key]);
-
-                changes.push({ field: fieldLabel, newValue });
+                if (key === 'courseType') {
+                    const type = refs.typeByName[fields.courseType];
+                    // 查不到就是查不到：以前这里直接 type.description 取值 → TypeError → 500，
+                    // 用户看到的是一句「服务器错误」而不是「这个课程类型不存在」
+                    if (!type) {
+                        throw new AppError({
+                            code: 'RESOURCE_NOT_FOUND',
+                            message: `课程类型 ${fields.courseType || '(空)'} 不存在`
+                        });
+                    }
+                    newValue = `${type.description || type.name}（${fields.courseType}）${scopeLabel}`;
+                } else if (key === 'status') {
+                    newValue = translateStatus(fields[key]);
+                } else if (key === 'familyParticipants') {
+                    newValue = `${newValue}${scopeLabel}`;
+                }
+                changes.push({ field: fieldNames[key] || key, newValue });
             });
 
             // 调整课程：在变更对比里追加“原记录归档+新建”说明
             if (isAdjust) {
-                changes.push({ field: '原记录', newValue: '归档为已调整 (modified_away, adjustment_type=0)' });
-                changes.push({ field: '新课程', newValue: '按新条件新建 (adjustment_type=2, status=confirmed)' });
+                const partial = targetTeacherUid
+                    && resolved.some(r => r.session.active_teachers.length > 1);
+                changes.push({ field: '原记录', newValue: '本场在职教师归档为已调整 (modified_away)' });
+                changes.push({
+                    field: '新课',
+                    newValue: partial
+                        ? '指名的教师另起一场新课；其余教师留在原时段（原场次不会跟着搬）'
+                        : '整场调整就在这一行内增补：改了时段就把整场 header 搬过去、旧时段随即释放（不再另起一行）'
+                });
             }
 
-            // 存储待确认操作（跨实例持久化）
+            // 存储待确认操作（跨实例持久化）：确认时按这份生效名册写库，不再回退到「取第一位」。
+            // teacherUids / studentUids 是这一场要落 pair 级改动的清单 —— 不指名就是本场全部在职 pair，
+            // 在执行时按当场读回的名册复核，避免预览与确认之间有人被改动过。
             await aiOperationStore.saveOperation(operationId, {
+                // created_by 必须记：确认动作要按创建者校验（P2-16）。
+                // 过去这里不写，ai_pending_operations.created_by 落库就是 NULL，
+                // 于是「谁挂起的操作」在服务端根本没有事实来源。
+                created_by: userId,
                 type: 'update',
                 scheduleIds,
                 fields,
-                schedules: existingSchedules.rows,
+                targetTeacherUid,
+                targetStudentUid,
+                rosters: resolved.map(({ session, teachers, students }) => ({
+                    sessionId: session.id,
+                    teachers, students,
+                    teacherUids: (targetTeacherUid ? [targetTeacherUid]
+                        : session.teachers.filter(t => courseSessionService.isActive(t.status_code)).map(t => t.uid)),
+                    studentUids: targetStudentUid ? [targetStudentUid] : students.map(s => s.uid)
+                })),
+                schedules: displayRows,
                 changes,
                 isAdjust,
                 newSchedulesPreview,
-                newCourseTypeId,
                 createdAt: Date.now()
             });
 
@@ -1431,13 +1980,14 @@ async function executeDataTool(toolName, args, req) {
                 data: {
                     operationId,
                     operationType: isAdjust ? 'adjust' : 'update',
-                    affectedCount: scheduleIds.length,
-                    schedules: existingSchedules.rows,
+                    affectedCount: sessions.length,
+                    conflictCount: editConflictCount,
+                    schedules: displayRows,
                     changes,
                     newSchedules: newSchedulesPreview,
                     message: isAdjust
-                        ? `将调整 ${scheduleIds.length} 条排课（原记录归档为已调整，并按新条件新建课程）`
-                        : `将修改 ${scheduleIds.length} 条排课的${changes.map(c => c.field).join('、')}`
+                        ? `将调整 ${sessions.length} 场课（原记录归档为已调整，并按新条件新建课程）`
+                        : `将修改 ${sessions.length} 场课的${changes.map(c => c.field).join('、')}`
                 }
             };
         }
@@ -1445,50 +1995,82 @@ async function executeDataTool(toolName, args, req) {
         case 'preview_schedule_deletion': {
             if (userType !== 'admin') throw new AppError({ code: 'FORBIDDEN', message: '仅管理员可删除排课' });
 
-            const { scheduleIds, reason } = args;
+            const { scheduleIds, teacherUids, studentUids, reason } = args;
 
             if (!scheduleIds || scheduleIds.length === 0) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '请提供要删除的排课ID' });
             }
 
-            // 检查排课是否存在并获取详细信息（含 created_by 归属）
-            const existingSchedules = await db.query(
-                `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
-                        ca.created_by,
+            // 不给 pair uid = 删除整场课；给了 = 只把这些教师/学生移出本场
+            const isPairRemoval = (Array.isArray(teacherUids) && teacherUids.length > 0)
+                || (Array.isArray(studentUids) && studentUids.length > 0);
+            const wantedTeacherUids = (Array.isArray(teacherUids) ? teacherUids : []).map(String);
+            const wantedStudentUids = (Array.isArray(studentUids) ? studentUids : []).map(String);
+
+            const pairRows = await db.query(
+                `SELECT ca.session_id, ca.class_date, ca.start_time, ca.end_time,
+                        ca.location, ca.notes, ca.status_code, ca.family_participants,
+                        ca.transport_fee, ca.other_fee, ca.created_by,
+                        ca.teacher_uid, ca.student_uid, ca.teacher_id, ca.student_id,
+                        ca.type_id AS course_type_id,
                         t.name as teacher_name, s.name as student_name,
                         st.name as course_type, st.description as course_type_cn
                  FROM v_session_pairs ca
                  JOIN teachers t ON ca.teacher_id = t.id
                  JOIN students s ON ca.student_id = s.id
                  JOIN schedule_types st ON ca.type_id = st.id
-                 WHERE ca.id = ANY($1)`,
+                 WHERE ca.session_id = ANY($1)`,
                 [scheduleIds]
             );
 
-            if (existingSchedules.rows.length === 0) {
+            if (pairRows.rows.length === 0) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: '未找到指定的排课' });
             }
-
-            if (existingSchedules.rows.length < scheduleIds.length) {
-                const foundIds = existingSchedules.rows.map(r => r.id);
-                const missingIds = scheduleIds.filter(id => !foundIds.includes(id));
+            const sessions = collapsePairsToSessions(pairRows.rows);
+            const foundIds = sessions.map(s => s.id);
+            const missingIds = scheduleIds.filter(id => !foundIds.includes(Number(id)));
+            if (missingIds.length) {
                 throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ID ${missingIds.join(', ')} 不存在` });
             }
 
             // 权限落地（Phase 1.5）：L3 只能删除自己创建或无主的排课，任一越权则整批拒绝
-            if (existingSchedules.rows.some(row => !canTouchRecord(row.created_by, req.user))) {
+            if (sessions.some(s => !canTouchRecord(s.created_by, req.user))) {
                 throw new AppError({ code: 'FORBIDDEN', message: '所选排课包含您无权操作的记录' });
+            }
+
+            let removals = null;
+            if (isPairRemoval) {
+                removals = [];
+                for (const s of sessions) {
+                    const hitTeacherUids = wantedTeacherUids.filter(uid => s.teachers.some(t => t.uid === uid));
+                    const hitStudentUids = wantedStudentUids.filter(uid => s.students.some(x => x.uid === uid));
+                    if (!hitTeacherUids.length && !hitStudentUids.length) continue;
+                    // 清空一名参与者就等于删除整场，那是另一个动作，不该伪装成「移出」
+                    if (hitTeacherUids.length === s.teachers.length || hitStudentUids.length === s.students.length) {
+                        throw new AppError({
+                            code: 'BAD_REQUEST',
+                            message: `排课 ${s.id} 要移出的是本场全部${hitTeacherUids.length === s.teachers.length ? '教师' : '学生'}，请改用「删除整场」（不要传 teacherUids/studentUids）`
+                        });
+                    }
+                    removals.push({ sessionId: s.id, teacherUids: hitTeacherUids, studentUids: hitStudentUids });
+                }
+                if (!removals.length) {
+                    throw new AppError({ code: 'BAD_REQUEST', message: '指定的 teacherUids/studentUids 在这些排课里都不存在' });
+                }
             }
 
             // 生成操作ID
             const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            const displayRows = sessions.map(s => toMergedDisplayRow(s, s.teachers, s.students));
 
             // 存储待确认操作（跨实例持久化）
             await aiOperationStore.saveOperation(operationId, {
+                created_by: userId,   // 同上：确认时按创建者校验（P2-16）
                 type: 'delete',
                 scheduleIds,
                 reason,
-                schedules: existingSchedules.rows,
+                removals,
+                schedules: displayRows,
                 createdAt: Date.now()
             });
 
@@ -1498,10 +2080,12 @@ async function executeDataTool(toolName, args, req) {
                 data: {
                     operationId,
                     operationType: 'delete',
-                    affectedCount: scheduleIds.length,
-                    schedules: existingSchedules.rows,
+                    affectedCount: sessions.length,
+                    schedules: displayRows,
                     reason: reason || '未提供',
-                    message: `即将删除 ${scheduleIds.length} 条排课`
+                    message: isPairRemoval
+                        ? `即将把指定的教师/学生移出 ${removals.length} 场课（其余参与者保留）`
+                        : `即将删除 ${sessions.length} 场课（含本场全部教师与学生）`
                 }
             };
         }
@@ -1515,8 +2099,8 @@ async function executeDataTool(toolName, args, req) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '请提供操作ID' });
             }
 
-            // 从临时存储中获取操作信息（跨实例持久化）
-            const operation = await aiOperationStore.getOperation(operationId);
+            // 同 confirm_schedule_creation：只认本人创建的待确认操作（P2-16）
+            const operation = await aiOperationStore.getOperation(operationId, userId);
 
             if (!operation) {
                 throw new AppError({ code: 'BAD_REQUEST', message: '操作ID无效或已过期（5分钟有效期），请重新预览' });
@@ -1540,97 +2124,185 @@ async function executeDataTool(toolName, args, req) {
                 // 执行修改操作
                 const { scheduleIds, fields } = operation;
 
-                // 调整课程：status=modified_away → 原记录归档 + 按新条件新建课程
+                // 调整课程：整场调整就在**同一行内**作废+增补，改了时段就把整场的 header 一起搬过去
+                // —— 不再另起一行，否则旧时段还被归档的那条 pair 占着（日历两格、统计多算一场）。
+                // 只调某几位教师又要换时段时，那几位 detach 出去新建一场，其余教师留在原时段。
                 if (operation.isAdjust) {
-                    // 预校验：调整操作用到的 type_id 是整批统一的（来自 operation.newCourseTypeId），
-                    // 在循环外一次性校验存在性，循环内跳过每 sid 的 assertReferences —— 每个 sid 再省 1 条 SQL
-                    if (operation.newCourseTypeId) {
-                        await courseSessionService.assertReferences(
-                            { typeIds: [operation.newCourseTypeId] }
-                        );
-                    }
-                    const newIds = await db.runInTransaction(async (client, usePool) => {
+                    const actor = { id: req.user.id, actorType: 'admin' };
+                    const rosters = operation.rosters || [];
+                    const typeIds = [...new Set(rosters.flatMap(r => (r.teachers || []).map(t => t.course_type_id)))];
+                    // 涉及的课程类型在循环外一次校验，循环内 skipTypeAssert 跳过逐条查询
+                    if (typeIds.length) await courseSessionService.assertReferences({ typeIds });
+
+                    const activePair = (p) => {
+                        const { category, lifecycle } = splitStatus(p.status);
+                        return lifecycle !== 'modified_away' && category !== 'adjusted';
+                    };
+
+                    const result = await db.runInTransaction(async (client, usePool) => {
                         const q = usePool ? db.query.bind(db) : client.query.bind(client);
-                        const created = [];
-                        for (const sid of scheduleIds) {
-                            // 读原场次（行级锁，防并发）
-                            const curRes = await q(
-                                `SELECT id, class_date, start_time, end_time, location, notes,
-                                        teachers, students, version, created_by
-                                 FROM course_sessions WHERE id = $1 FOR UPDATE`,
-                                [sid]
-                            );
-                            if (curRes.rows.length === 0) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
-                            const session = curRes.rows[0];
+                        const sessionIds = [];
+                        const newSessionIds = [];
+                        const slotsToCheck = [];   // 改完之后的时段，事务提交后一次批量查冲突（只提示）
 
-                            // 定位要调整的教师 pair：显式 uid 优先，否则本场唯一教师
-                            const uid = operation.teacherUid
-                                || ((session.teachers || []).length === 1 ? session.teachers[0].uid : null);
-                            const pair = (session.teachers || []).find(x => String(x.uid) === String(uid));
-                            if (!pair) throw new AppError({ code: 'BAD_REQUEST', message: `排课 ${sid} 有多位教师，请指明 teacher_uid` });
-                            const { category, lifecycle } = splitStatus(pair.status);
-                            if (lifecycle === 'modified_away') throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 已被调整过，不能再次调整` });
-                            if (category === 'adjusted') throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 是增补记录，不能再次被调整` });
+                        // 一次把本次要动的行全部锁回来（按 id 升序 → 并发会话拿行锁的顺序一致，
+                        // 不会互夹死锁；行锁 + 后面的写都在同一个事务客户端上，中途报错整批回滚）
+                        const sidList = rosters.map(r => Number(r.sessionId));
+                        const locked = await q(
+                            `SELECT id, class_date, start_time, end_time, location, notes,
+                                    teachers, students, version, created_by
+                               FROM course_sessions WHERE id = ANY($1::int[]) ORDER BY id FOR UPDATE`,
+                            [sidList]
+                        );
+                        const byId = new Map((locked.rows || []).map(r => [Number(r.id), r]));
 
-                            // 生效值：新条件覆盖，其余沿用原场次
-                            const effTeacherId = fields.teacherId ?? pair.teacher_id;
-                            const effStudentId = fields.studentId ?? (session.students || [])[0]?.student_id;
-                            const effCourseId = operation.newCourseTypeId ?? pair.type_id;
-                            const effDate = fields.classDate ?? session.class_date;
-                            const effStart = fields.startTime ?? session.start_time;
-                            const effEnd = fields.endTime ?? session.end_time;
-                            const effLocation = fields.location !== undefined ? (fields.location || null) : session.location;
-                            const effFamily = fields.familyParticipants !== undefined
-                                ? Number(fields.familyParticipants) : ((session.students || [])[0]?.family_participants ?? 4);
+                        for (const roster of rosters) {
+                            const sid = Number(roster.sessionId);
+                            const origin = byId.get(sid);
+                            if (!origin) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
+                            let session = origin;
+                            let version = Number(session.version);
 
-                            // 1. 作废+增补：原 pair 标 *.modified_away，同一条 UPDATE 追加 adjusted.pending 新 pair
-                            //    （类别位由服务层写，前端/AI 都不能手指定 adjusted）
-                            //    prev 传入跳过内部第二次读取；skipTypeAssert 跳过已预校验的类型存在性查询
-                            const adjusted = await courseSessionService.adjustTeacherPair(
-                                sid, pair.uid, { type_id: effCourseId },
-                                { id: req.user.id, actorType: 'admin' }, Number(session.version), session,
-                                { skipTypeAssert: true }
-                            );
-                            if (adjusted.notFound) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
-
-                            // 2. 冲突检测（原 pair 已 modified_away，不会自冲突）
-                            const conflict = await scheduleService.checkConflicts(
-                                effTeacherId, effStudentId, effDate, null, effStart, effEnd,
-                                usePool ? null : client
-                            );
-                            if (conflict.hasConflicts) {
-                                // 抛错 → 事务回滚 → 原 pair 的标记一并撤销
-                                throw new AppError({ code: 'CONFLICT', message: `新课程与现有排课冲突：${conflict.message}` });
+                            const allActive = (origin.teachers || []).filter(activePair);
+                            // 归档对象：teacherUid 指名的那一位，否则本场全部在职教师
+                            const targets = operation.targetTeacherUid
+                                ? allActive.filter(p => String(p.uid) === String(operation.targetTeacherUid))
+                                : allActive;
+                            if (!targets.length) {
+                                throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 没有可调整的在职教师记录（可能已被调整过）` });
                             }
 
-                            // 3. 时间/地点/教师/学生有变化时，另起一场新课承载（头部字段是整场共享的）
-                            const headerMoved = String(effDate).slice(0, 10) !== String(session.class_date).slice(0, 10)
-                                || effStart !== session.start_time || effEnd !== session.end_time
-                                || Number(effTeacherId) !== Number(pair.teacher_id)
-                                || Number(effStudentId) !== Number((session.students || [])[0]?.student_id);
-                            if (headerMoved) {
+                            const effTeachers = roster.teachers || [];
+                            const effStudents = roster.students || [];
+                            const effDate = fields.classDate ?? origin.class_date;
+                            const effStart = fields.startTime ?? origin.start_time;
+                            const effEnd = fields.endTime ?? origin.end_time;
+                            const effLocation = fields.location !== undefined ? (fields.location || null) : origin.location;
+                            const headerMoved = toDateKey(effDate) !== toDateKey(origin.class_date)
+                                || effStart !== origin.start_time || effEnd !== origin.end_time
+                                || (effLocation || null) !== (origin.location || null);
+                            // 只挪走部分教师 + 换了 header 字段（时段**或地点**都在 header 上，
+                            // 一位教师改地点原行也放不下）→ 这几位得去另一行，原行的 header 不能跟着动
+                            const partialMove = headerMoved && targets.length < allActive.length;
+
+                            // 时段重叠只提示不拦，所以不必在事务里逐场查（那是每场 2 次往返、
+                            // 还全程持锁）。这里只记下「改完之后」的时段与名单，事务提交后一次批量查完。
+                            const teachersToCheck = partialMove
+                                ? effTeachers.filter(t => targets.some(p => String(p.uid) === String(t.uid)))
+                                : effTeachers;
+                            slotsToCheck.push({
+                                date: toDateKey(effDate),
+                                startTime: effStart,
+                                endTime: effEnd,
+                                teacherIds: teachersToCheck.map(t => Number(t.teacher_id)),
+                                studentIds: effStudents.map(s => Number(s.student_id))
+                            });
+
+                            // 2. 逐个 pair 作废+增补：换人/换类型写进增补 pair；
+                            //    被移出本场的教师（名册里不再有他）与 partialMove 只归档不追加。
+                            const movedOut = [];
+                            for (const pair of targets) {
+                                const eff = effTeachers.find(t => String(t.uid) === String(pair.uid))
+                                    || effTeachers.find(t => Number(t.teacher_id) === Number(pair.teacher_id));
+                                const dropped = Array.isArray(fields.teachers) && !eff;
+                                const adjusted = await courseSessionService.adjustTeacherPair(
+                                    sid, pair.uid,
+                                    {
+                                        teacher_id: eff ? eff.teacher_id : undefined,
+                                        type_id: (eff && eff.course_type_id) ?? pair.type_id
+                                    },
+                                    actor, version, session,
+                                    { skipTypeAssert: true, detach: dropped || partialMove, tx: q }
+                                );
+                                if (adjusted.notFound) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
+                                session = adjusted.session;
+                                version = Number(session.version);
+                                if (adjusted.detached) movedOut.push(adjusted.detached);
+                            }
+
+                            if (partialMove) {
+                                // 3a. 被挪走的教师另起一场（含本场全部学生），原行只留归档痕迹
                                 const fresh = await courseSessionService.createSession({
                                     class_date: effDate, start_time: effStart, end_time: effEnd,
-                                    location: effLocation,
-                                    teachers: [{ teacher_id: effTeacherId, type_id: effCourseId, lifecycle: 'confirmed' }],
-                                    students: [{ student_id: effStudentId, family_participants: effFamily }]
-                                }, { id: req.user.id, actorType: 'admin' });
-                                created.push(fresh.id);
+                                    location: effLocation, notes: origin.notes,
+                                    teachers: movedOut.map(t => ({ teacher_id: t.teacher_id, type_id: t.type_id, lifecycle: 'confirmed' })),
+                                    students: effStudents.map(s => ({ student_id: s.student_id, family_participants: s.family_participants }))
+                                }, actor, q);
+                                sessionIds.push(fresh.id);
+                                newSessionIds.push(fresh.id);
                             } else {
-                                created.push(sid);
+                                // 3b. 名册里新增的教师补进本场（他不是"调整出来的增补"，就是新加一位参与者）
+                                if (Array.isArray(fields.teachers)) {
+                                    const present = new Set((session.teachers || []).filter(activePair).map(p => Number(p.teacher_id)));
+                                    for (const t of effTeachers.filter(x => !x.uid)) {
+                                        if (present.has(Number(t.teacher_id))) continue;
+                                        const r = await courseSessionService.addPair(sid, 'teacher', {
+                                            teacher_id: t.teacher_id, type_id: t.course_type_id, lifecycle: 'confirmed'
+                                        }, actor, version, q);
+                                        if (r.session) { session = r.session; version = Number(session.version); }
+                                        present.add(Number(t.teacher_id));
+                                    }
+                                }
+
+                                // 4. 学生名册有变就在本场做增删改（教师侧已由上面作废+增补承担）
+                                if (Array.isArray(fields.students)) {
+                                    const keepUids = new Set(effStudents.filter(s => s.uid).map(s => String(s.uid)));
+                                    for (const s of effStudents) {
+                                        if (s.uid) {
+                                            const r = await courseSessionService.patchPair(sid, 'student', s.uid, {
+                                                student_id: s.student_id, family_participants: s.family_participants
+                                            }, actor, version, session, q);
+                                            if (r.session) { session = r.session; version = Number(session.version); }
+                                        } else {
+                                            const r = await courseSessionService.addPair(sid, 'student', {
+                                                student_id: s.student_id, family_participants: s.family_participants
+                                            }, actor, version, q);
+                                            if (r.session) { session = r.session; version = Number(session.version); }
+                                        }
+                                    }
+                                    for (const pair of (session.students || []).filter(p => !keepUids.has(String(p.uid)))) {
+                                        const r = await courseSessionService.removePair(sid, 'student', pair.uid, actor, version, q);
+                                        if (r.session) { session = r.session; version = Number(session.version); }
+                                    }
+                                }
+
+                                // 5. 整场换时段/换地点：直接在原行搬 header，旧时段就此释放
+                                if (headerMoved) {
+                                    const r = await courseSessionService.updateSessionHeader(sid, {
+                                        class_date: effDate, start_time: effStart, end_time: effEnd, location: effLocation
+                                    }, actor, version, session, q);
+                                    if (r) { session = r; version = Number(session.version); }
+                                }
+                                sessionIds.push(sid);
                             }
                         }
-                        return created;
-                    });   // 不降级：整批 sid 的归档 + 新建必须同生共死，否则会留下「原记录已归档但新课没建」的空洞
+                        return { sessionIds, newSessionIds, slotsToCheck };
+                    });   // 不降级：整批 sid 的归档 + 增补/搬移必须同生共死，否则会留下「原记录已归档但新课没建」的空洞
+
+                    // 提交之后再一次批量查重叠：一条语句覆盖全部新时段（原来是每场 2 次往返、还都在持锁期间），
+                    // 报的是「改完之后确实和谁重叠」，只提示不拦
+                    const adjustConflicts = result.slotsToCheck.length
+                        ? await scheduleService.conflictLines({
+                            slots: result.slotsToCheck,
+                            excludeSessionIds: [...result.sessionIds, ...result.newSessionIds]
+                        })
+                        : [];
 
                     await aiOperationStore.deleteOperation(operationId);
                     return {
                         type: 'text',
                         title: '调整成功',
                         data: {
-                            message: `已调整 ${scheduleIds.length} 条排课（原记录归档为已调整，新建 ${newIds.length} 条课程）`,
+                            message: (result.newSessionIds.length
+                                ? `已调整 ${result.sessionIds.length} 场课，其中换时段的教师另起了 ${result.newSessionIds.length} 场新课（原记录归档为已调整）`
+                                : `已调整 ${result.sessionIds.length} 场课（原记录归档为已调整，新课时就在原场次上生效）`)
+                                + (adjustConflicts.length
+                                    ? `（注意：${adjustConflicts.length} 处时段与现有排课重叠 —— ${adjustConflicts.join('；')}）`
+                                    : ''),
                             originalIds: scheduleIds,
-                            newIds
+                            newIds: result.sessionIds,
+                            newSessionIds: result.newSessionIds,
+                            conflictWarnings: adjustConflicts
                         }
                     };
                 }
@@ -1639,11 +2311,9 @@ async function executeDataTool(toolName, args, req) {
                 // （一条 UPDATE 拼所有列的写法在新结构下不成立：头部是整场共享的，
                 //   类型/费用/评分挂在教师 pair 上，家属人数挂在学生 pair 上）
                 const actor = { id: req.user.id, actorType: 'admin' };
-                let typeId = null;
-                if (fields.courseType) {
-                    const r = await db.query('SELECT id FROM schedule_types WHERE name=$1', [fields.courseType]);
-                    typeId = r.rows[0] && r.rows[0].id;
-                }
+                const rosterBySession = new Map(
+                    (operation.rosters || []).map(r => [Number(r.sessionId), r])
+                );
 
                 // 循环外一次把涉及的场次全部读回来：原来每个 sid 先读一次，再让
                 // updateSessionHeader / patchPair / setTeacherStatus 各自又读一次同一行
@@ -1653,6 +2323,16 @@ async function executeDataTool(toolName, args, req) {
                     [scheduleIds]
                 );
                 const sessionById = new Map((sessionRows.rows || []).map(r => [Number(r.id), r]));
+
+                // 只改了某一位教师的课程类型（没给名册）时，把类型名换成 id
+                let singleTypeId = null;
+                if (fields.courseType && !Array.isArray(fields.teachers)) {
+                    const r = await db.query('SELECT id FROM schedule_types WHERE name=$1', [fields.courseType]);
+                    singleTypeId = r.rows[0] && r.rows[0].id;
+                    if (!singleTypeId) {
+                        throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `课程类型 ${fields.courseType} 不存在` });
+                    }
+                }
 
                 // 钱不落在这条批量 patchPair 上：AI 的「改交通费」以前写进 teachers[0] 的整趟标量，
                 // 同场别的学生也跟着拿到这个数，而且一行费用审计都没有。现在由费用那层写：
@@ -1672,68 +2352,201 @@ async function executeDataTool(toolName, args, req) {
                         throw new AppError({
                             code: 'AI_FEE_NEEDS_STUDENT',
                             statusCode: 400,
-                            message: `有 ${shared.length} 条排课是多位学生同上一趟课，交通费/其他费用要按学生分别填写，请到费用报销页逐位学生录入。`
+                            message: `有 ${shared.length} 场课是多位学生同上一趟课，交通费/其他费用要按学生分别填写，请到费用报销页逐位学生录入。`
+                        });
+                    }
+                    // 同一趟课里多位教师时，「这笔钱是谁的」也必须指名 —— 不能替用户猜
+                    const multiTeacher = scheduleIds
+                        .map(sid => sessionById.get(Number(sid)))
+                        .filter(s => s && !operation.targetTeacherUid
+                            && (s.teachers || []).filter(p => courseSessionService.isActive(p.status)).length > 1);
+                    if (multiTeacher.length) {
+                        throw new AppError({
+                            code: 'AI_FEE_NEEDS_TEACHER',
+                            statusCode: 400,
+                            message: `有 ${multiTeacher.length} 场课是多位教师同上一趟课，交通费/其他费用挂在这位教师头上，请用 teacherUid 指明是哪一位。`
                         });
                     }
                 }
 
-                for (const sid of scheduleIds) {
-                    let current = sessionById.get(Number(sid));
-                    if (!current) continue;
-                    let version = Number(current.version);
+                // 整批改课放进同一个事务（头部 + 名册 + 单 pair 状态 + 钱是几条彼此独立的
+                // UPDATE）：中途报错整批回滚，不会出现「前 3 场改完了、第 4 场失败」的半截结果。
+                // 注意这里**不取日期锁**，也没有 FOR UPDATE：两个会话把不同的课挪进同一格时
+                // 仍可能都写成功，冲突只作为提交后的提示返回（本项目口径：时段重叠提示而不拦写）。
+                const updateConflicts = [];
+                const pendingConflictChecks = [];
+                await db.runInTransaction(async (client, usePool) => {
+                    const q = usePool ? db.query.bind(db) : client.query.bind(client);
+                    for (const sid of scheduleIds) {
+                        let current = sessionById.get(Number(sid));
+                        if (!current) continue;
+                        let version = Number(current.version);
+                        const roster = rosterBySession.get(Number(sid));
 
-                    const headerPatch = {};
-                    if (fields.classDate) headerPatch.class_date = fields.classDate;
-                    if (fields.startTime) headerPatch.start_time = fields.startTime;
-                    if (fields.endTime) headerPatch.end_time = fields.endTime;
-                    if (fields.location !== undefined) headerPatch.location = fields.location;
-                    if (Object.keys(headerPatch).length) {
-                        current = await courseSessionService.updateSessionHeader(sid, headerPatch, actor, version, current);
-                        version = Number(current.version);
-                    }
-
-                    const uid = (current.teachers || [])[0] && current.teachers[0].uid;
-                    if (uid) {
-                        const pairPatch = {};
-                        if (typeId) pairPatch.type_id = typeId;
-                        // 费用键不进 pairPatch：patchPair 现在对它直接 400（钱只走费用那条路）
-                        if (Object.keys(pairPatch).length) {
-                            const r = await courseSessionService.patchPair(sid, 'teacher', uid, pairPatch, actor, version, current);
-                            if (!r.notFound) { current = r.session; version = Number(current.version); }
+                        const headerPatch = {};
+                        if (fields.classDate) headerPatch.class_date = fields.classDate;
+                        if (fields.startTime) headerPatch.start_time = fields.startTime;
+                        if (fields.endTime) headerPatch.end_time = fields.endTime;
+                        if (fields.location !== undefined) headerPatch.location = fields.location;
+                        // 改期只提示不拦（排除被改的这场自己；只改地点/状态不必查）。
+                        // 事务体内只记「提交后要查什么」，不发查询：conflictLines 不接 tx，
+                        // 在这里执行等于再向池要一条连接（serverless 下 POOL_MAX=2），
+                        // 事务等连接、连接等事务释放 —— 就是 course-session-service 里
+                        // pickQ 注释警告过的同一类挂死。
+                        if (headerPatch.class_date || headerPatch.start_time || headerPatch.end_time) {
+                            pendingConflictChecks.push({
+                                slots: [{
+                                    date: headerPatch.class_date ?? current.class_date,
+                                    startTime: headerPatch.start_time ?? current.start_time,
+                                    endTime: headerPatch.end_time ?? current.end_time
+                                }],
+                                teacherIds: (roster?.teachers || current.teachers || [])
+                                    .filter(p => courseSessionService.isActive(p.status ?? p.status_code))
+                                    .map(t => Number(t.teacher_id)),
+                                studentIds: (roster?.students || current.students || []).map(s => Number(s.student_id)),
+                                excludeSessionIds: [Number(sid)]
+                            });
                         }
-                        if (fields.status) {
-                            const r = await courseSessionService.setTeacherStatus(sid, uid, fields.status, actor, undefined, current);
-                            if (r.session) { current = r.session; version = Number(current.version); }
+                        if (Object.keys(headerPatch).length) {
+                            current = await courseSessionService.updateSessionHeader(sid, headerPatch, actor, version, current, q);
+                            version = Number(current.version);
+                        }
+
+                        // 教师名册整场替换：先补齐新增与修改，再移出没被点名的 —— 顺序反了会撞
+                        // 「这是本场最后一位教师」（数组不允许为空）。
+                        if (roster && Array.isArray(fields.teachers)) {
+                            const keptUids = new Set();
+                            for (const entry of roster.teachers) {
+                                const payload = {
+                                    teacher_id: entry.teacher_id,
+                                    type_id: entry.course_type_id,
+                                    lifecycle: 'confirmed'
+                                };
+                                if (entry.uid) {
+                                    keptUids.add(String(entry.uid));
+                                    const r = await courseSessionService.patchPair(
+                                        sid, 'teacher', entry.uid,
+                                        { teacher_id: payload.teacher_id, type_id: payload.type_id },
+                                        actor, version, current, q
+                                    );
+                                    if (r.session) { current = r.session; version = Number(current.version); }
+                                } else {
+                                    const r = await courseSessionService.addPair(sid, 'teacher', payload, actor, version, q);
+                                    if (r.session) {
+                                        current = r.session;
+                                        version = Number(current.version);
+                                        keptUids.add(String(r.uid));
+                                    }
+                                }
+                            }
+                            const leaving = (current.teachers || [])
+                                .filter(p => courseSessionService.isActive(p.status) && !keptUids.has(String(p.uid)));
+                            for (const pair of leaving) {
+                                const r = await courseSessionService.removePair(sid, 'teacher', pair.uid, actor, version, q);
+                                if (r.session) { current = r.session; version = Number(current.version); }
+                            }
+                        } else {
+                            // 不替换名册时，教师级改动落在预览时定下的 uid 清单上（不指名就是本场全部在职教师）；
+                            // 预览与确认之间有人被移出本场，这里按当场读回的名册过滤掉，不会写到别人头上。
+                            const activeUids = (current.teachers || [])
+                                .filter(p => courseSessionService.isActive(p.status))
+                                .map(p => String(p.uid));
+                            // roster 可能整个缺席（发布前留下的 5 分钟内 pending 操作就没有 rosters）
+                            const wantedUids = Array.isArray(roster?.teacherUids) && roster.teacherUids.length
+                                ? roster.teacherUids.map(String) : activeUids;
+                            const teacherUids = wantedUids.filter(uid => activeUids.includes(uid));
+
+                            for (const uid of teacherUids) {
+                                if (singleTypeId) {
+                                    const r = await courseSessionService.patchPair(
+                                        sid, 'teacher', uid, { type_id: singleTypeId }, actor, version, current, q
+                                    );
+                                    if (r.session) { current = r.session; version = Number(current.version); }
+                                }
+                                if (fields.status) {
+                                    const r = await courseSessionService.setTeacherStatus(sid, uid, fields.status, actor, undefined, current, q);
+                                    if (r.session) { current = r.session; version = Number(current.version); }
+                                }
+                            }
+                        }
+
+                        // 学生名册：与教师同一套替换语义；只改家长人数时落在指名学生或全场学生
+                        if (roster && Array.isArray(fields.students)) {
+                            const keptStudentUids = new Set();
+                            for (const entry of roster.students) {
+                                const payload = {
+                                    student_id: entry.student_id,
+                                    family_participants: entry.family_participants
+                                };
+                                if (entry.uid) {
+                                    keptStudentUids.add(String(entry.uid));
+                                    const r = await courseSessionService.patchPair(
+                                        sid, 'student', entry.uid,
+                                        { student_id: payload.student_id, family_participants: payload.family_participants },
+                                        actor, version, current, q
+                                    );
+                                    if (r.session) { current = r.session; version = Number(current.version); }
+                                } else {
+                                    const r = await courseSessionService.addPair(sid, 'student', payload, actor, version, q);
+                                    if (r.session) {
+                                        current = r.session;
+                                        version = Number(current.version);
+                                        keptStudentUids.add(String(r.uid));
+                                    }
+                                }
+                            }
+                            const leaving = (current.students || [])
+                                .filter(p => !keptStudentUids.has(String(p.uid)));
+                            for (const pair of leaving) {
+                                const r = await courseSessionService.removePair(sid, 'student', pair.uid, actor, version, q);
+                                if (r.session) { current = r.session; version = Number(current.version); }
+                            }
+                        } else if (fields.familyParticipants !== undefined) {
+                            const allStudentUids = (current.students || []).map(p => String(p.uid));
+                            const wantedStudentUids = Array.isArray(roster?.studentUids) && roster.studentUids.length
+                                ? roster.studentUids.map(String) : allStudentUids;
+                            for (const uid of wantedStudentUids.filter(u => allStudentUids.includes(u))) {
+                                const r = await courseSessionService.patchPair(
+                                    sid, 'student', uid, { family_participants: Number(fields.familyParticipants) },
+                                    actor, version, current, q
+                                );
+                                if (r.session) { current = r.session; version = Number(current.version); }
+                            }
+                        }
+
+                        // 费用放在最后：上面几步会把 teachers / students 整列回写，先写钱会被抹掉。
+                        if (wantsFee) {
+                            // 走到这里要么是指名的那一位，要么本场只有一位在职教师（前面已拦下多位教师不指名的情况）
+                            const uid = (Array.isArray(roster?.teacherUids) && roster.teacherUids.length
+                                ? String(roster.teacherUids[0])
+                                : ((current.teachers || []).find(p => courseSessionService.isActive(p.status)) || {}).uid);
+                            if (uid) {
+                                const pair = (current.teachers || []).find(p => String(p.uid) === String(uid)) || {};
+                                const studentUid = ((current.students || [])[0] || {}).uid || null;
+                                const before = FeeService.effectiveFeeOf(pair, studentUid);
+                                // AI 一句话通常只提一项，另一项按原值回填：费用页是两项一起提交的，
+                                // 这里把缺省那项当 null 写回去，等于顺手把别人的其他费用清了。
+                                const tFee = fields.transportFee !== undefined
+                                    ? FeeService.parseFeeAmount(fields.transportFee) : before.transport_fee;
+                                const oFee = fields.otherFee !== undefined
+                                    ? FeeService.parseFeeAmount(fields.otherFee) : before.other_fee;
+                                const targetStatus = FeeService.hasFilledFee(tFee, oFee)
+                                    ? resolveAutoFeeStatus('admin', pair.fee_status) : null;
+                                await FeeService.updateScheduleFeesInTx(q, { sessionId: sid, teacherUid: uid }, {
+                                    tFee, oFee, studentUid,
+                                    oldTFee: before.transport_fee, oldOFee: before.other_fee,
+                                    targetStatus, oldStatus: pair.fee_status,
+                                    operatorId: req.user.id, operatorRole: 'admin'
+                                });
+                            }
                         }
                     }
+                });
 
-                    const sUid = (current.students || [])[0] && current.students[0].uid;
-                    if (sUid && fields.familyParticipants !== undefined) {
-                        await courseSessionService.patchPair(
-                            sid, 'student', sUid, { family_participants: fields.familyParticipants }, actor, version, current
-                        );
-                    }
-
-                    // 费用放在最后：上面几步会把 teachers / students 整列回写，先写钱会被抹掉。
-                    if (wantsFee && uid) {
-                        const pair = (current.teachers || []).find(p => String(p.uid) === String(uid)) || {};
-                        const studentUid = ((current.students || [])[0] || {}).uid || null;
-                        const before = FeeService.effectiveFeeOf(pair, studentUid);
-                        // AI 一句话通常只提一项，另一项按原值回填：费用页是两项一起提交的，
-                        // 这里把缺省那项当 null 写回去，等于顺手把别人的其他费用清了。
-                        const tFee = fields.transportFee !== undefined
-                            ? FeeService.parseFeeAmount(fields.transportFee) : before.transport_fee;
-                        const oFee = fields.otherFee !== undefined
-                            ? FeeService.parseFeeAmount(fields.otherFee) : before.other_fee;
-                        const targetStatus = FeeService.hasFilledFee(tFee, oFee)
-                            ? resolveAutoFeeStatus('admin', pair.fee_status) : null;
-                        await FeeService.updateScheduleFeesInTx(db.query, { sessionId: sid, teacherUid: uid }, {
-                            tFee, oFee, studentUid,
-                            oldTFee: before.transport_fee, oldOFee: before.other_fee,
-                            targetStatus, oldStatus: pair.fee_status,
-                            operatorId: req.user.id, operatorRole: 'admin'
-                        });
-                    }
+                // 提交之后再查冲突：不再持有事务连接，读到的也是已落库的新时段。
+                // 逐场串行，峰值只占一条连接（POOL_MAX 在 serverless 下是 2）。
+                for (const plan of pendingConflictChecks) {
+                    updateConflicts.push(...await scheduleService.conflictLines(plan));
                 }
 
                 // 删除已执行的操作
@@ -1743,8 +2556,12 @@ async function executeDataTool(toolName, args, req) {
                     type: 'text',
                     title: '修改成功',
                     data: {
-                        message: `已成功修改 ${scheduleIds.length} 条排课`,
+                        message: `已成功修改 ${scheduleIds.length} 场课`
+                            + (updateConflicts.length
+                                ? `（注意：${updateConflicts.length} 处时段与现有排课重叠 —— ${updateConflicts.join('；')}）`
+                                : ''),
                         scheduleIds,
+                        conflictWarnings: updateConflicts,
                         changedFields: operation.changes.map(c => c.field).join('、')
                     }
                 };
@@ -1752,23 +2569,46 @@ async function executeDataTool(toolName, args, req) {
             } else if (operation.type === 'delete') {
                 // 执行删除操作
                 const { scheduleIds, reason } = operation;
+                const isPairRemoval = Array.isArray(operation.removals) && operation.removals.length > 0;
 
-                // 删除整场（前三张审计表随 ON DELETE CASCADE 清理；
+                // removals 有值 = 只把指名的教师/学生移出本场，其余参与者保留；
+                // 没有 = 删除整场（前三张审计表随 ON DELETE CASCADE 清理；
                 // session_change_logs 无外键，会留下这次删除的整场快照）
-                await courseSessionService.deleteSessions(scheduleIds, { id: req.user.id, actorType: 'admin' });
+                const removedSessions = [];
+                if (Array.isArray(operation.removals) && operation.removals.length) {
+                    const actor = { id: req.user.id, actorType: 'admin' };
+                    for (const item of operation.removals) {
+                        let current = await courseSessionService.getSessionById(item.sessionId);
+                        if (!current) continue;
+                        let version = Number(current.version);
+                        const uidLists = [['teacher', item.teacherUids || []], ['student', item.studentUids || []]];
+                        for (const [kind, uids] of uidLists) {
+                            for (const uid of uids) {
+                                const r = await courseSessionService.removePair(item.sessionId, kind, uid, actor, version);
+                                if (r.session) { current = r.session; version = Number(current.version); }
+                            }
+                        }
+                        removedSessions.push(item.sessionId);
+                    }
+                } else {
+                    await courseSessionService.deleteSessions(scheduleIds, { id: req.user.id, actorType: 'admin' });
+                }
 
                 // 删除已执行的操作
                 await aiOperationStore.deleteOperation(operationId);
 
+
                 const deletedList = operation.schedules.map(row => {
-                    return `${row.class_date.toISOString().split('T')[0]} ${row.start_time} ${row.teacher_name}-${row.student_name} ${row.course_type_cn}`;
+                    return `${toDateKey(row.class_date)} ${row.start_time} ${row.teacher_name}-${row.student_name} ${row.course_type_cn}`;
                 });
 
                 return {
                     type: 'text',
-                    title: '删除成功',
+                    title: isPairRemoval ? '移出成功' : '删除成功',
                     data: {
-                        message: `已成功删除 ${scheduleIds.length} 条排课`,
+                        message: isPairRemoval
+                            ? `已把指定教师/学生移出 ${removedSessions.length} 场课（其余参与者保留）`
+                            : `已成功删除 ${scheduleIds.length} 场课（含本场全部教师与学生）`,
                         scheduleIds,
                         deletedSchedules: deletedList.slice(0, 5),
                         reason: reason || '未提供'
@@ -1997,7 +2837,9 @@ const query = asyncHandler(async (req, res) => {
           `# 2. 铁律（违反会导致错误，务必遵守）\n` +
           `============================\n` +
           `R1. 【日期时间】绝不自己心算日期。凡涉及"周几/下周/晚上/几点"等表述，一律调用 resolve_datetime(text:"原始表述") 让系统算出精确 date/startTime/endTime，再使用其返回值。\n` +
-          `R2. 【人员ID】排课/改课前，必须先用 query_students / query_teachers 查到真实 ID。查不到就停下来询问用户，禁止编造 ID 或姓名。\n` +
+          `R2. 【人员ID】排课/改课前，必须先用 query_students / query_teachers 查到真实 ID。姓名以 # 4 名单为准：` +
+          `输入里写成"周老师/侯老师"这类称呼时，先在名单里找同姓的实名再查，不要拿称呼原样去查（查不到就是不存在）。` +
+          `查不到就停下来询问用户，禁止编造 ID 或姓名。\n` +
           `R3. 【课程类型】只能使用下方课程类型清单里的 name 字段，必须精确匹配，禁止臆造近似名（如清单里是"半次入户"，就不要写成"半程入户"）。\n` +
           `R4. 【写操作两步走】创建/修改/删除必须先生成预览，由用户点击确认按钮执行。你只负责生成预览；不要在文本里要求用户"回复确认"，确认由界面按钮完成。\n` +
           `R5. 【忠实执行】严格按用户输入排课，不擅自优化、增减、合并或跳过任何一条。信息缺失就询问，不猜测。\n` +
@@ -2024,40 +2866,65 @@ const query = asyncHandler(async (req, res) => {
           `============================\n` +
           `输入格式A 单条："下周四，19-22，[地点]，[学生]，[教师]，[课程类型]"\n` +
           `输入格式B 批量（每行一条，括号内补充）："周一晚上 [学生]入户（[教师]，[地点]）"\n` +
+          `括号里的内容顺序是任意的，按语义识别，不要按位置猜：\n` +
+          `· 出现在 # 4 教师名单里的姓名 → 教师（一行里可以有几位，逗号/「和」/顿号分隔都算）\n` +
+          `· 教师姓名后紧跟"记录"二字（如"周耀华记录"）→ 这位教师在本场课里的类型是评审记录/咨询记录\n` +
+          `· 不在教师名单里的词（如"新课堂""老课堂"）→ 地点\n` +
+          `· 形如"13-15点""一点到三点""14:00-17:00"→ 时间。调用 resolve_datetime 时把括号内外两处时间合在一起传（如"周日下午13-15点"），只传"周日下午"会得到系统默认的 14:00-17:00 而不是你要的时段\n` +
           `处理步骤：\n` +
-          `(1) 逐条拆分输入（批量时每行一条，不合并不跳过）。\n` +
+          `(1) 逐条拆分输入：一行 = 一场课 = 一个 group，不合并不跳过。\n` +
           `(2) 对每条的时间表述调用 resolve_datetime 得到精确日期时间。\n` +
           `(3) 用 query_students / query_teachers 把昵称/姓名换成真实 ID。\n` +
-          `(4) 合并规则：同一行中括号内有多个教师（如"图帕尔和周耀华"）且学生、课程类型、时间、地点相同 → 合并为一个 group，teacherIds 数组包含所有教师ID。不同行的课程不合并。\n` +
+          `(4) 组装 group：本场全部教师写进 teachers[]，每位教师一个 courseType；全部学生写进 students[]。\n` +
+          `    多位教师共同参加同一节课 → 同一个 group 的 teachers[] 里的多个条目，**绝不按教师拆成多个 group**。\n` +
+          `    "××记录"只改变那一位教师的 courseType，不新增一条课：评审与评审记录可以在同一场课里共存。\n` +
           `(5) 把所有条目组装成 groups 数组，一次性调用 create_schedule_preview(groups:[...])。\n` +
-          `(6) 系统返回预览表格，交由用户点击"确认创建排课"按钮执行。\n` +
+          `(6) 系统返回预览表格（一场课一行），交由用户点击"确认创建排课"按钮执行。\n` +
+          `    预览结果里每行可能带 conflicts[]（与现有排课的时段冲突）与 conflictCount：有冲突就用一句话如实点出来` +
+          `（谁、哪天几点到几点已被哪场课占着），提示用户可以改时段；**不要**自己替用户改时段、换教师或删掉那一条。\n` +
           `状态判定："待定/看情况/可能"→pending，其余→confirmed。\n` +
-          `\n【正例】输入"下周一晚上 浩浩入户（周老师，新课堂）"：\n` +
-          `  → resolve_datetime("下周一晚上") 得 date=下周一, 19:00:00-21:30:00\n` +
-          `  → query_students(nickname:"浩浩") 得 studentId；query_teachers(name:"周老师") 得 teacherId\n` +
-          `  → create_schedule_preview(groups:[{teacherIds:[teacherId], studentId, courseType:"visit", location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
-          `【正例·多教师合并】输入"下周一晚上 浩浩入户（图帕尔和周耀华，新课堂）"：\n` +
-          `  → query_teachers 得 teacherId1(图帕尔)、teacherId2(周耀华)\n` +
-          `  → 合并为一个 group：create_schedule_preview(groups:[{teacherIds:[teacherId1,teacherId2], studentId, courseType:"visit", location:"新课堂", slots:[...]}])\n` +
+          `\n【正例】输入"周日下午 浩浩评审（新课堂，侯老师，高渊，金博，周耀华记录，13-15点）"：\n` +
+          `  → resolve_datetime("周日下午13-15点") 得 date=周日, 13:00:00-15:00:00\n` +
+          `  → query_students(nickname:"浩浩")；query_teachers 逐一取到 侯老师/高渊/金博/周耀华 的真实 ID\n` +
+          `  → 一个 group、四位教师：create_schedule_preview(groups:[{teachers:[\n` +
+          `      {teacherId:侯老师ID,courseType:"review"},{teacherId:高渊ID,courseType:"review"},\n` +
+          `      {teacherId:金博ID,courseType:"review"},{teacherId:周耀华ID,courseType:"review_record"}],\n` +
+          `      students:[{studentId:浩浩ID}], location:"新课堂", slots:[{date,startTime,endTime}]}])\n` +
+          `  → 结果是「一场评审课、四位老师参加（其中周耀华是评审记录）」，不是四场课。\n` +
+          `【正例·单师】输入"下周一晚上 浩浩入户（周耀华，新课堂）"：teachers 一个条目 courseType:"visit"。\n` +
+          `【正例·同行两师】输入"下周一晚上 浩浩入户（图帕尔和周耀华，新课堂）"：\n` +
+          `  → 同一个 group 的 teachers:[{teacherId:图帕尔ID,courseType:"visit"},{teacherId:周耀华ID,courseType:"visit"}]，仍是一场课。\n` +
           `【反例】不要直接写 create_schedule_preview 而跳过 resolve_datetime 或 query_students —— 会导致日期错、学生错。\n` +
+          `【反例】不要因为某位教师是"记录"就为同一时段多开一场课；同一行的教师都属于同一场课。\n` +
           `\n============================\n` +
-          `# 7. 评审/咨询课程（多教师，同时间同地点各生成一条记录）\n` +
+          `# 7. 一场课与 pair（增删改查共用同一套结构）\n` +
           `============================\n` +
-          `规则：教师名后紧跟"记录"二字 → 该教师课程类型为"评审记录"/"咨询记录"（review_record/consultation_record），且不再额外生成普通评审；其余参与教师各生成一条普通"评审"/"咨询"。\n` +
-          `【正例】输入"浩浩评审（周老师记录，高老师参加，金老师尽量去，下午一点到三点，新课堂）"：\n` +
-          `  → resolve_datetime("下午一点到三点") 得 13:00:00-15:00:00\n` +
-          `  → 生成三条 group，同日期同时间同地点：①周老师+review_record ②高老师+review ③金老师+review\n` +
-          `【反例】不要给"周老师记录"既生成 review 又生成 review_record（重复）。\n` +
+          `一场课 = 一条记录 = 一个 group，里面有 1..N 位教师与 1..M 位学生；每位参与者是一个 pair，pair 有自己的 uid\n` +
+          `（教师 t1、t2…；学生 s1、s2…），教师 pair 还各自带着自己的课程类型。\n` +
+          `· 只有一位教师或一位学生也是这个结构，没有"单教师/单学生"的另一种写法。\n` +
+          `· query_schedules 返回的就是这种合并行：teacher_name 是本场全部教师（记录教师标「（记录）」），\n` +
+          `  teachers[] / students[] 里能取到每位参与者的 uid。\n` +
+          `· 改课/删课要落到某一位参与者时，用它的 uid 传 teacherUid / studentUid（或删除时的 teacherUids / studentUids）；\n` +
+          `  不传就是对整场课生效（本场全部在职 pair），系统不会替你猜某一位。\n` +
+          `· 增删本场的参与者用 fields.teachers / fields.students 名册（替换语义：带 uid 的沿用、不带 uid 的新增、名册里没写的被移出）。\n` +
           `\n============================\n` +
           `# 8. 调整课程流程（改期/换教师/换地点，保留原记录归档）\n` +
           `============================\n` +
           `定义：「调整课程」= 将原课程记录标记为「已调整」状态(status=modified_away)，同时按新条件新建一门课程；原课程的教师、教室、学生、时间段等所有未被显式修改的属性保持不变，复制到新课程。\n` +
-          `与普通改课的区别：普通改课（不传 status）直接覆盖原记录字段；调整课程（传 status=modified_away）把原记录归档(adjustment_type=0)，另起一条新记录(adjustment_type=2)承载新条件。原记录不再占时段、不计入统计，但可在「全部安排/报销单」视图回看。\n` +
+          `与普通改课的区别：普通改课（不带 status）直接覆盖原记录字段；调整课程（fields.status="modified_away"）` +
+          `把本场在职教师逐个归档为 modified_away，并在**同一行内**追加 adjusted 增补 pair 承载新条件；` +
+          `原记录不再占时段、不再计入统计，但可在「全部安排/报销单」视图回看。\n` +
           `后端处理逻辑（系统自动完成，你无需手写 SQL）：\n` +
-          `1. 将原课程 status 置为 modified_away、adjustment_type 置为 0；\n` +
-          `2. 以「新条件覆盖、其余沿用原课程」生成新课程，adjustment_type=2，status 默认 confirmed（可指定 pending）；\n` +
-          `3. 操作原子完成：若新条件与其它有效排课冲突则整体回滚，原记录保持不变。\n` +
+          `1. 原 pair 类别位保留、生命周期位置为 modified_away；同一行追加 adjusted.pending；\n` +
+          `2. 改了时段就把整场 header 搬到新时段（不另起一行，旧时段随即释放）；只有指名某一位教师且换时段，` +
+          `那一位才另起新场次，其余教师留在原时段；\n` +
+          `3. 归档、增补、搬移在同一个事务里，中途出错整批回滚，不会留下「原记录已归档但增补没写」的空洞；\n` +
+          `4. 时段与其它课重叠**不会拦**：业务上允许一位教师/学生出现在重叠的两节课里，` +
+          `预览行会标 ⚠，你如实提示用户即可，不要因为它而自行改时段或换教师。\n` +
           `何时使用（默认规则·关键）：只要对已有课程的【内容属性】做任何修改——改日期/改时间/换教师/换学生/换地点/换课程类型——一律走本「调整课程」，fields 必须带 status:"modified_away"。这是修改课程的默认方式，无需用户特意要求"保留痕迹"。\n` +
+          `作用范围：调整默认对**整场课**生效 —— 本场全部在职教师归档，增补就在同一行内完成；` +
+          `改了时段就把整场搬到新时段、旧时段随即释放（不会另起一条课，也不会两处都占着）。` +
+          `只调某一位教师时传 teacherUid 指名那一位：时段也变的话，只有他另起新场次，其余教师留在原时段。\n` +
           `例外：仅当用户只修改【状态】本身（如 pending→confirmed、标记 completed/cancelled）且没有改任何内容属性时，才用 # 9 普通改课（不传 status，直接覆盖原记录）。\n` +
           `操作步骤：\n` +
           `(1) query_schedules 查到目标排课 ID。\n` +
@@ -2073,9 +2940,13 @@ const query = asyncHandler(async (req, res) => {
           `# 9. 改课 / 删课流程\n` +
           `============================\n` +
           `改课：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
-          `改费用：交通费/其他费用只有「这趟课只有一位学生」时才改得了；多位学生同上一趟课时一个数说不清属于谁，` +
+          `  · 整场改（时间/地点/状态/全部教师的类型）不给 teacherUid；只改本场某一位教师时用 query_schedules 里该教师的 uid 传 teacherUid。\n` +
+          `  · 加/减参与者用 fields.teachers / fields.students 名册（替换语义），不要把一个人的名册当成整场名册提交。\n` +
+          `改费用：交通费/其他费用只有「这一趟只有一位学生」时才改得了；多位学生同上一趟课时一个数说不清属于谁，` +
           `请直接告诉用户去费用报销页逐位学生填写，不要重试。\n` +
+          `  同场多位教师时也必须用 teacherUid 指明这笔钱记在哪位教师头上。\n` +
           `删课：query_schedules 查到目标 → preview_schedule_deletion(scheduleIds) → 用户按钮确认。\n` +
+          `  · 只想把某一位教师或某一位学生从本场移出去（其余人保留）时，传 teacherUids / studentUids；不传就是删除整场课。\n` +
           `\n============================\n` +
           `# 10. 回复格式\n` +
           `============================\n` +
@@ -2393,6 +3264,7 @@ const query = asyncHandler(async (req, res) => {
             let totalTeacher = '';
             let totalStudent = '';
             let totalCourseType = '';
+            let totalConflicts = 0;
 
             for (const pr of previewResults) {
                 const d = pr.result.data;
@@ -2401,6 +3273,11 @@ const query = asyncHandler(async (req, res) => {
                 if (d.teacher) totalTeacher = d.teacher;
                 if (d.student) totalStudent = d.student;
                 if (d.courseType) totalCourseType = d.courseType;
+                // 一次回合里模型分好几次建预览时，头部的「N 处重叠」必须跟着合并，
+                // 否则行内 ⚠ 还在、横幅却消失了。单份结果没给计数就按行自己数。
+                const own = Number(d.conflictCount);
+                totalConflicts += Number.isFinite(own) ? own
+                    : (d.schedules || []).filter(s => Array.isArray(s.conflicts) && s.conflicts.length > 0).length;
             }
 
             structuredData = {
@@ -2408,6 +3285,7 @@ const query = asyncHandler(async (req, res) => {
                 teacher: totalTeacher,
                 student: totalStudent,
                 courseType: totalCourseType,
+                conflictCount: totalConflicts,
                 totalCount: allSchedules.length,
                 schedules: allSchedules
             };

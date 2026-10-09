@@ -64,21 +64,6 @@ function getJwtExpiresIn(rememberMe = false) {
 }
 
 /**
- * 获取 Refresh Token 过期时间
- * @param {boolean} rememberMe
- * @returns {string}
- * @private
- */
-function getRefreshTokenExpiresIn(rememberMe = false) {
-    if (rememberMe) {
-        // 勾选记住我时：30天
-        return process.env.REFRESH_TOKEN_REMEMBER_EXPIRES_IN || '30d';
-    }
-    // 未勾选记住我：7天
-    return process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
-}
-
-/**
  * 验证密码格式 (Bcrypt)
  * @param {string} val 
  * @returns {boolean}
@@ -168,17 +153,10 @@ class AuthService {
             { expiresIn: getJwtExpiresIn(rememberMe) }
         );
 
-        // 5.1 生成 Refresh Token (可选)
-        const refreshToken = jwt.sign(
-            {
-                id: user.id,
-                userType,
-                type: 'refresh',
-                tv: getTokenEpoch()
-            },
-            getJwtSecret(),
-            { expiresIn: getRefreshTokenExpiresIn(rememberMe) }
-        );
+        // 不再签发 refresh token：全库没有 /refresh 端点、前端也不读它，
+        // 但它是**同一密钥、同一载荷**的 7–30 天长票，出现在登录响应体里就是纯粹的
+        // 攻击面（XSS / 日志 / DevTools 任一途径拿到即可长期复用）。
+        // authMiddleware 也已显式拒绝 type==='refresh' 的令牌走业务路由。
 
         // 6. 返回结果 (去除敏感信息)
         const safeUser = { ...user };
@@ -189,7 +167,6 @@ class AuthService {
 
         return {
             token,
-            refreshToken,
             expiresIn: getJwtExpiresIn(rememberMe),
             rememberMe,
             user: {
@@ -201,60 +178,6 @@ class AuthService {
                 ...safeUser
             }
         };
-    }
-
-    /**
-     * 用户注册
-     * @param {object} params
-     * @param {string} params.username
-     * @param {string} params.password
-     * @param {string} params.name
-     * @param {string} params.userType
-     * @param {object} [params.additionalInfo]
-     * @returns {Promise<object>} 新创建的用户信息
-     */
-    async register({ username, password, name, userType, additionalInfo }) {
-        const table = getTable(userType);
-
-        // 1. 检查是否存在
-        const existCheck = await db.query(`SELECT id FROM ${table} WHERE username = $1`, [username]);
-        if (existCheck.rows.length > 0) {
-            throw new AppError('用户名已存在', 400);
-        }
-
-        // 2. 加密密码
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(password, salt);
-
-        // 3. 构建插入语句
-        let columns = ['username', 'password_hash', 'name'];
-        let values = [username, passwordHash, name];
-        let placeholderIdx = 4;
-
-        if (additionalInfo) {
-            // 白名单校验列名，防止 SQL 注入
-            const ALLOWED_COLUMNS = ['phone', 'email', 'contact', 'home_address', 'gender', 'grade', 'notes', 'permission_level', 'nickname'];
-            for (const [key, value] of Object.entries(additionalInfo)) {
-                if (!ALLOWED_COLUMNS.includes(key)) {
-                    logger.warn(`[AuthService] 忽略不在白名单中的列名: ${key}`);
-                    continue;
-                }
-                columns.push(key);
-                values.push(value);
-            }
-        }
-
-        // 生成 $1, $2, ... 占位符
-        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
-
-        const query = `
-            INSERT INTO ${table} (${columns.join(', ')})
-            VALUES (${placeholders})
-            RETURNING id, username, name
-        `;
-
-        const result = await db.query(query, values);
-        return result.rows[0];
     }
 
     /**

@@ -13,7 +13,7 @@
  */
 
 const { RICH_TEXT_COLORS } = require('./export-constants');
-const Core = require('../../../../public/js/utils/schedule-calendar-core.js');
+const Core = require('../../domain/schedule-calendar-core');
 
 const RichTextFormatter = Object.assign({}, Core.RichText);
 

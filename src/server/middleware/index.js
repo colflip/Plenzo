@@ -4,7 +4,7 @@
  * @module middleware
  */
 
-const { authMiddleware, checkPermissionLevel, getJwtSecret } = require('./auth');
+const { authMiddleware, getJwtSecret } = require('./auth');
 const {
     ROLES,
     PERMISSION_LEVELS,
@@ -49,7 +49,6 @@ const { responseEnvelope } = require('./response-envelope');
 module.exports = {
     // 认证
     authMiddleware,
-    checkPermissionLevel,
     getJwtSecret,
 
     // 角色权限

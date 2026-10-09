@@ -7,7 +7,7 @@ const DataTransformer = require('./data-transformer');
 const PermissionFilter = require('./permission-filter');
 const logger = require('../../utils/logger');
 // 折算唯一实现（与浏览页统计、教师酬劳共用同一份规则）
-const TypeConversion = require('../../../../public/js/utils/type-conversion');
+const TypeConversion = require('../../domain/type-conversion');
 
 // 规范类型键 → 本模块统计对象的列名
 const TOKEN_TO_STAT_LABEL = {

@@ -19,7 +19,8 @@
  *   AI_MODEL     可选，覆盖默认模型名
  *   AI_TIMEOUT   可选，单次请求超时(毫秒)，默认 30000
  *   AI_MAX_TOKENS 可选，回复最大 token 数；仅在数据库无持久化配置时作为兜底
- *   AI_REQUEST_DEADLINE_MS 可选，整次 chat（含多轮工具）的硬截止，默认 900000
+ *   AI_REQUEST_DEADLINE_MS 可选，整次 chat（含多轮工具）的硬截止，默认 240000
+ *     （必须 < 平台函数上限：Vercel Hobby 是 300s，超过就轮不到本应用中断）
  *
  *   以下三项用于控制「服务端主动施加的上下文限制」，**未配置 / 0 一律表示不限制**：
  *   AI_HISTORY_TURNS        保留最近 N 轮历史（见 ai-controller）
@@ -78,10 +79,6 @@ function isAvailable() {
  * 将 LLM HTTP 错误归一化为 AppError
  */
 function normalizeLLMError(err, statusCode) {
-    // 提取 LLM API 返回的详细错误信息
-    const apiDetail = err.response?.data?.error?.message
-        || err.response?.data?.detail
-        || err.response?.data?.message;
     const retryAfterValue = err.response?.headers?.['retry-after'];
     const retryAfterSeconds = Number.isInteger(Number(retryAfterValue))
         ? Number(retryAfterValue)
@@ -135,7 +132,10 @@ function normalizeLLMError(err, statusCode) {
     }
     return new AppError({
         code: 'AI_UPSTREAM_BAD_RESPONSE',
-        message: apiDetail || 'AI 服务返回了无效响应',
+        // 不把上游响应体原文回显给客户端：`error.js` 对 `AI_UPSTREAM_*` 免清洗，
+        // 一旦 baseUrl 被指向内网服务，这就是一个可读的 SSRF 回显通道。
+        // 原文只进日志（下方 detail 字段），客户端一律拿到固定文案。
+        message: 'AI 服务返回了无效响应',
         cause: err
     });
 }
@@ -348,10 +348,16 @@ async function chat(messages, options = {}) {
     let headers;
     let body;
 
-    // 单次 query 的全局截止时间：工具多轮 + 长回复会显著拉长单次请求，
-    // 这里给一个足够宽松的默认上限（可用 AI_REQUEST_DEADLINE_MS 覆盖），
-    // 只在真正「上游挂着不返回」时才兜底中断，避免连接/信号量被长时间占死。
-    const overallDeadlineMs = parseInt(process.env.AI_REQUEST_DEADLINE_MS, 10) || 900000;
+    /**
+     * 单次 query 的全局截止时间（可用 AI_REQUEST_DEADLINE_MS 覆盖）。
+     *
+     * 默认从 900s 降到 240s：平台侧真正的上限是 Vercel **Hobby 的 300s**（官方
+     * Duration limits：Hobby default/maximum 都是 300s），900s 的应用内截止永远到不了
+     * —— 请求会先被 Vercel 掐断，而 Cloudflare 入口把「超时」当失败去回退备源，
+     * 于是同一次 AI 调用在两处各跑一半（配合写工具就是重复写入风险）。
+     * 留 60s 余量给响应回传与序列化；Render 常驻侧同样受益（信号量最多被占 4 分钟）。
+     */
+    const overallDeadlineMs = parseInt(process.env.AI_REQUEST_DEADLINE_MS, 10) || 240000;
     const overallController = new AbortController();
     const overallTimer = setTimeout(() => overallController.abort(), overallDeadlineMs);
 
@@ -421,7 +427,10 @@ async function chat(messages, options = {}) {
                     keepAliveMsecs: 30000,
                     timeout: cfg.timeout
                 });
-                const instance = axios.create({ httpsAgent: agent, proxy: false });
+                // maxRedirects: 0 —— 出站地址护栏只在发起前对**第一个** URL 生效。
+                // 跟随重定向等于把「谁真正收到请求」交回给远端：合法公网域名可以
+                // 302 到 169.254.169.254，护栏一行都不会再跑。
+                const instance = axios.create({ httpsAgent: agent, proxy: false, maxRedirects: 0 });
                 const startedAt = Date.now();
                 const r = await instance({
                     method: 'POST',
@@ -454,6 +463,17 @@ async function chat(messages, options = {}) {
         // 上层已是 AppError（normalizeLLMError 产出）则直接抛出；否则归一化。
         if (err instanceof AppError) throw err;
         const status = err?.response?.status;
+        /**
+         * 上游响应原文**只落日志**，不进客户端 message：`error.js` 对 `AI_UPSTREAM_*`
+         * 免清洗，一旦 baseUrl 被指向内网服务，回显原文就成了可读的 SSRF 通道。
+         * 原文截断到 500 字符，避免把整份上游页面灌进日志。
+         */
+        const upstreamDetail = err?.response?.data?.error?.message
+            || err?.response?.data?.detail
+            || err?.response?.data?.message;
+        if (upstreamDetail) {
+            logger.warn(`[AI] 上游响应原文(status=${status}): ${String(upstreamDetail).slice(0, 500)}`);
+        }
         throw normalizeLLMError(err, status);
     }
     clearTimeout(overallTimer);
@@ -468,40 +488,6 @@ async function chat(messages, options = {}) {
 
     // 翻译回 OpenAI 形状
     return cfg.protocol === 'messages' ? fromAnthropicResponse(raw) : raw;
-}
-
-/**
- * 强制返回 JSON 的对话调用
- * 在 messages 末尾追加 "只返回合法 JSON" 指令，并解析首条回复为对象。
- * @returns {Promise<Object>} 解析后的 JSON 对象
- */
-async function chatJSON(messages, options = {}) {
-    const finalMessages = [...messages];
-    // 追加 JSON 输出约束（不覆盖用户已有 system 消息）
-    finalMessages.push({
-        role: 'system',
-        content: '请严格以合法 JSON 对象响应，不要包含 ```json 代码块标记、注释或任何额外文字。如果无法回答，返回 {"error": "原因"}。'
-    });
-
-    const data = await chat(finalMessages, { ...options, temperature: options.temperature ?? 0 });
-    const content = data?.choices?.[0]?.message?.content || '';
-
-    let cleaned = content.trim();
-    // 去掉可能的 ```json ... ``` 包裹
-    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenceMatch) {
-        cleaned = fenceMatch[1].trim();
-    }
-
-    try {
-        return JSON.parse(cleaned);
-    } catch (err) {
-        throw new AppError({
-            code: 'AI_UPSTREAM_BAD_RESPONSE',
-            message: 'AI 返回内容无法解析为 JSON',
-            cause: err
-        });
-    }
 }
 
 /**
@@ -523,7 +509,6 @@ module.exports = {
     getAIConfig,
     isAvailable,
     chat,
-    chatJSON,
     extractText,
     extractToolCalls,
     buildEndpoint,

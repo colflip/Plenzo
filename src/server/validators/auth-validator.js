@@ -74,7 +74,14 @@ const registerSchema = Joi.object({
             'any.only': '用户类型只能是 admin、teacher 或 student',
             'any.required': '用户类型是必填项'
         }),
+    // administrators.email 是 NOT NULL + UNIQUE + 格式 CHECK（生产实测），且只有管理员表有这列；
+    // 所以注册管理员时它是必填，teacher/student 保持可选（服务层只给 admin 落这一列）。
     email: Joi.string().email().max(100).optional()
+        .when('userType', {
+            is: 'admin',
+            then: Joi.string().email().max(100).required()
+                .messages({ 'any.required': '管理员必须提供 email' })
+        })
         .messages({
             'string.email': '邮箱格式不正确',
             'string.max': '邮箱长度不能超过100个字符'
@@ -113,56 +120,10 @@ const changePasswordSchema = Joi.object({
     .rename('old_password', 'oldPassword', { override: true, ignoreUndefined: true })
     .rename('new_password', 'newPassword', { override: true, ignoreUndefined: true });
 
-const refreshTokenSchema = Joi.object({
-    refreshToken: Joi.string().required()
-        .messages({
-            'any.required': '刷新令牌不能为空'
-        })
-})
-    .rename('refresh_token', 'refreshToken', { override: true, ignoreUndefined: true });
-
-const validatePassword = (password) => {
-    const result = {
-        valid: true,
-        errors: [],
-        strength: 0
-    };
-
-    if (!password || password.length < 8) {
-        result.valid = false;
-        result.errors.push('密码长度至少8个字符');
-        return result;
-    }
-
-    if (password.length >= 12) result.strength += 1;
-    if (password.length >= 16) result.strength += 1;
-    if (/[a-z]/.test(password)) result.strength += 1;
-    if (/[A-Z]/.test(password)) result.strength += 1;
-    if (/\d/.test(password)) result.strength += 1;
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) result.strength += 2;
-
-    if (!/[a-z]/.test(password)) {
-        result.valid = false;
-        result.errors.push('密码必须包含小写字母');
-    }
-    if (!/[A-Z]/.test(password)) {
-        result.valid = false;
-        result.errors.push('密码必须包含大写字母');
-    }
-    if (!/\d/.test(password)) {
-        result.valid = false;
-        result.errors.push('密码必须包含数字');
-    }
-
-    return result;
-};
-
 module.exports = {
     loginSchema,
     registerSchema,
     changePasswordSchema,
-    refreshTokenSchema,
-    validatePassword,
     strongPasswordSchema,
     weakPasswordSchema
 };

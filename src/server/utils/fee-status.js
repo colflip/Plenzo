@@ -2,6 +2,7 @@
 // 与前端 public/js/components/fee-manager.js 的 FEE_STATUS 展示名保持一致。
 
 const SchemaHelper = require('../utils/schema-helper');
+const logger = require('./logger');
 
 const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
 
@@ -74,7 +75,12 @@ function validateFeeStatusTransition(role, from, to) {
 }
 
 // 在事务内写入费用状态流转审计（q 为事务 query 或 db.query，均接受 (text, params)）
-async function writeFeeStatusLog(q, { sessionId, teacherUid, oldStatus, newStatus, operatorId, actorType, note }) {
+//
+// inTx 默认 true：现有调用方全部来自 fee-service 的事务路径。事务内**必须原样抛出** ——
+// 吞掉只会让事务进入 aborted，之后的 COMMIT 被 Postgres 变成回滚且不报错，
+// 接口于是返回「费用状态已更新」而库里一行没写（审查报告 P1-14，
+// 同一规则见 course-session-service.js 的 writePairStatusLog 注释）。
+async function writeFeeStatusLog(q, { sessionId, teacherUid, oldStatus, newStatus, operatorId, actorType, note }, { inTx = true } = {}) {
     try {
         // 审计按 (session_id, teacher_uid) 记账：费用挂在教师 pair 上，一趟一笔
         if (!(await SchemaHelper.hasTable('session_fee_status_logs'))) return;
@@ -84,15 +90,16 @@ async function writeFeeStatusLog(q, { sessionId, teacherUid, oldStatus, newStatu
              VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
             [sessionId, teacherUid, normalizeStatus(oldStatus), newStatus, operatorId, actorType || 'admin', note || null]
         );
-    } catch (_) {
-        // 审计失败不阻断主流程
+    } catch (err) {
+        if (inTx) throw err;
+        logger.warn('[fee-status] 审计写入失败（非事务，已忽略）:', err && err.message);
     }
 }
 
 // 批量写入费用状态流转审计：单条多值 INSERT 替代逐条写入。
 // Neon HTTP 驱动下每次查询都是一次网络往返，批量场景逐条写审计会显著拖慢响应。
-// 审计失败不阻断主流程（与 writeFeeStatusLog 一致）。
-async function writeBatchFeeStatusLogs(q, { items, newStatus, operatorId, actorType, note }) {
+// inTx 语义与 writeFeeStatusLog 一致：事务内失败必须抛出。
+async function writeBatchFeeStatusLogs(q, { items, newStatus, operatorId, actorType, note }, { inTx = true } = {}) {
     try {
         if (!Array.isArray(items) || items.length === 0) return;
         if (!(await SchemaHelper.hasTable('session_fee_status_logs'))) return;
@@ -109,8 +116,9 @@ async function writeBatchFeeStatusLogs(q, { items, newStatus, operatorId, actorT
              VALUES ${valueRows.join(', ')}`,
             params
         );
-    } catch (_) {
-        // 审计失败不阻断主流程
+    } catch (err) {
+        if (inTx) throw err;
+        logger.warn('[fee-status] 批量审计写入失败（非事务，已忽略）:', err && err.message);
     }
 }
 

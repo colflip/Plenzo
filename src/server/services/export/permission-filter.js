@@ -4,46 +4,11 @@
  */
 
 class PermissionFilter {
-    /**
-     * 过滤学生端列（移除敏感信息）
-     * @param {Array} data - 数据数组
-     * @param {string} userType - 用户类型
-     * @returns {Array} 过滤后的数据
-     */
-    static filterStudentColumns(data, userType) {
-        if (userType !== 'student') return data;
-
-        return data.map(row => {
-            const newRow = { ...row };
-            // 学生端隐藏：学生名称、交通费、其他费用
-            delete newRow['学生名称'];
-            delete newRow['交通费'];
-            delete newRow['其他费用'];
-            delete newRow['费用'];
-            delete newRow['周汇总'];
-            return newRow;
-        });
-    }
-
-    /**
-     * 过滤交通费（根据权限）
-     * @param {*} transportFee - 交通费原始值
-     * @param {string} userType - 用户类型
-     * @param {number} userId - 用户ID
-     * @param {number} teacherId - 教师ID（课程的）
-     * @returns {string} 过滤后的交通费显示值
-     */
-    static filterTransportFee(transportFee, userType, userId, teacherId) {
-        // 学生端完全隐藏交通费
-        if (userType === 'student') {
-            return '/';
-        }
-
-        // 管理员、教师、班主任：显示所有交通费（无过滤）
-        // 这里保持原有逻辑，不做额外的教师权限过滤
-        return transportFee;
-    }
-
+    // filterStudentColumns / filterTransportFee 曾在这里，各自有 13 条测试，
+    // 但生产代码一次都没调用过（审查报告 P3-9）：真正生效的费用遮蔽是下面这条
+    // removeFeeColumns（calendar-generator.js:38 调）与 filterEmptyColumns
+    // （sheet-builder / stats-aggregator 调）。留着两份「看起来在用」的平行实现，
+    // 下次改费用遮蔽的人会改错地方。
     /**
      * 移除学生端的费用相关列
      * @param {Array} data - 日历数据

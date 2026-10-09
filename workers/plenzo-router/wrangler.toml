@@ -1,25 +1,31 @@
 # Cloudflare Worker 配置：plenzo-router
 #
-# ⛔ 当前**不可部署**（2026-09-18 实测确认）：
-#    Cloudflare 已收紧策略，个人 / 普通商业账号**不能再把子域添加为 zone**。
-#    `POST /zones` 传 `plenzo.l.cd` 会返回：
-#      400 {"code":1116,"message":"Please ensure you are providing the root domain
-#           and not any subdomains (e.g., example.com, not subdomain.example.com)"}
-#    本项目现有域名（plenzo.l.cd / hangzhou.l.cd）都是 DNSHE 给的子域，且用户不拥有
-#    其父域 l.cd，因此**没有可用的 zone 可绑**。Worker 只能在「拥有一个能整体托管到
-#    Cloudflare 的根域名」之后使用。详见 docs/cloudflare-routing.md。
+# 入口域名 plenzo.cc.cd 是一个 **active 的 full zone**（NS: elly/vicente.ns.cloudflare.com）。
+# 「DNSHE 子域无法建 zone（API 1116）」对它不成立：`cc.cd` 已登记进公共后缀表（PSL），
+# 所以 `plenzo.cc.cd` 本身就是注册域；`l.cd` 没登记，`plenzo.l.cd` 才会被 1116 拒。
 #
-#    代码本身是好的：回退逻辑已在本地用两个模拟 origin 验证 7/7 通过，可直接复用。
+# ⚠ 本文件只对 wrangler 有效，而 wrangler 需要 **API Token**（Bearer 认证）：
+#   .env.deploy 里的 CLOUDFLARE_API_TOKEN 实际存的是 Global API Key（`cfk_` 前缀），
+#   只能用 X-Auth-Email / X-Auth-Key 头调 REST，喂给 wrangler 会报 9109 Invalid access token。
+#   要用命令行（deploy / tail）就去控制台建一个 API Token，权限至少
+#   Workers Scripts: Edit + Zone Zone DNS: Read + Workers Routes: Edit。
+#   没有 Token 时走 REST 直接部署与绑定，步骤见 docs/cloudflare-routing.md 第 5 节
+#   （注意：docs/ 被 .gitignore 排除，那份手记只在这台机器上，干净检出里看不到这个文件）。
 #
-# 部署方式二选一：
-#   A. 控制台粘贴：把 src/index.js 的内容贴进 Workers 在线编辑器（不需要本文件）
-#   B. 命令行：cd workers/plenzo-router && npx wrangler deploy
-#
-# 走 B 之前需要先 `npx wrangler login`（浏览器里授权一次）。
+# 走命令行之前需要先 `npx wrangler login`（浏览器里授权一次），或
+#   CLOUDFLARE_API_TOKEN=<api-token> CLOUDFLARE_ACCOUNT_ID=<acct> npx wrangler deploy
 
 name = "plenzo-router"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+
+# 只让 Custom Domain 这一个入口对外。workers.dev 默认是开的，等于把这套带
+# Cookie / Authorization 原样透传的转发能力再发布到一个可被扫描的公开域名；
+# 在那个域名上浏览器 Origin 与 Host 同源，主站的同源判定（security.js:107 按 Host 判）
+# 会认为这是同源请求，从而跳过白名单校验。预览 URL 同理，也不需要公开。
+# 关掉它们不影响已绑定的 Custom Domain（两套机制互不相干）。
+workers_dev = false
+preview_urls = false
 
 # 两个 origin 主机名，不要带协议和路径。
 # 换成你自己的：Render Dashboard → 服务 → Settings 顶部的 URL；Vercel → 项目 → Domains。
@@ -31,10 +37,11 @@ FALLBACK_ORIGIN = "plenzo.vercel.app"
 [observability]
 enabled = true
 
-# 路由绑定：**等域名在 Cloudflare 里变成 Active 之后再取消注释**，
-# 否则 deploy 会因为找不到 zone 而失败。也可以直接在控制台
-# Workers → plenzo-router → Settings → Domains & Routes 里加，效果一样。
+# 入口域名当前是以 **Custom Domain** 方式绑到 Worker 上的（控制台 Workers →
+# plenzo-router → Settings → Domains & Routes，或 REST PUT /accounts/{acct}/workers/domains）。
+# Custom Domain 由 Cloudflare 自己建 DNS 记录与证书，**不需要**下面这段 routes，
+# 而且 routes 与 custom domain 是两套机制、互不覆盖 —— 别两边同时绑，会看不出请求走的哪条。
 #
 # routes = [
-#   { pattern = "plenzo.i.cd/*", zone_name = "plenzo.i.cd" }
+#   { pattern = "plenzo.cc.cd/*", zone_name = "plenzo.cc.cd" }
 # ]

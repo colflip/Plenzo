@@ -7,6 +7,9 @@
  */
 
 const ExcelJS = require('exceljs');
+const fs = require('fs');
+const path = require('path');
+const logger = require('../../utils/logger.js');
 const { RICH_TEXT_COLORS, EXPORT_FONTS } = require('./export-constants');
 const RichTextFormatter = require('./rich-text-formatter');
 
@@ -23,6 +26,21 @@ const STYLE_BORDER = {
 const STYLE_ALIGN_RICHTEXT = { wrapText: true, vertical: 'top', horizontal: 'left' };
 const STYLE_ALIGN_DEFAULT = { vertical: 'middle', wrapText: true, horizontal: 'center' };
 const STYLE_FILL_SUNDAY = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+
+// 日期列背景水印：Excel 单元格做不到「文字沉在内容之下」的叠底效果，
+// 用透明 PNG 浮层钉在日期合并区右下角，几何仿报销视图
+// （bottom:-4px / right:2px、字号约为日期文本的 2.5 倍、-15° 旋转已烧进素材）。
+// 素材为 3x 渲染，运行时按 1x 尺寸缩放放置。
+const WATERMARK_ASSETS = {
+    '调': 'tiao.png',
+    '加': 'jia.png',
+    '原': 'yuan.png',
+    '调/加': 'tiaojia.png'
+};
+const WATERMARK_RENDER_SCALE = 3;
+const EMU_PER_PX = 9525;
+const DATE_COL_PX = 89;                      // 日期列固定宽 12 字符 ≈ 12*7+5 px
+const WATERMARK_RIGHT_INSET_PX = 2;          // 视图 right:2px
 
 class ExcelWriter {
     // ============================================================
@@ -307,6 +325,8 @@ class ExcelWriter {
                 // 上一个区域的结束行 = i + 1（i-1 对应的行号）
                 const mergeEndRow = i + 1;
 
+                this.placeDateWatermark(worksheet, data, mergeStartRow);
+
                 // 只有当合并区域大于1行时才执行合并
                 if (mergeEndRow > mergeStartRow) {
                     // 合并日期列
@@ -339,6 +359,7 @@ class ExcelWriter {
 
         // 处理最后一个日期区域
         const lastMergeEndRow = data.length + 1;
+        this.placeDateWatermark(worksheet, data, mergeStartRow);
         if (lastMergeEndRow > mergeStartRow) {
             // 合并日期列
             worksheet.mergeCells(mergeStartRow, dateColIdx, lastMergeEndRow, dateColIdx);
@@ -361,6 +382,71 @@ class ExcelWriter {
                 wrapText: false
             };
         }
+    }
+
+    loadWatermarkAsset(file) {
+        if (!this._watermarkAssets) this._watermarkAssets = new Map();
+        if (!this._watermarkAssets.has(file)) {
+            let asset = null;
+            try {
+                const buffer = fs.readFileSync(path.join(__dirname, 'assets', 'watermark', file));
+                asset = {
+                    buffer,
+                    widthPx: buffer.readUInt32BE(16) / WATERMARK_RENDER_SCALE,
+                    heightPx: buffer.readUInt32BE(20) / WATERMARK_RENDER_SCALE
+                };
+            } catch (err) {
+                // 缺图或不是合法 PNG：只丢掉这一种水印，导出继续。一次导出要打几十个日期块，
+                // 不值得让一处装饰性资源把整份报销单变成 500。失败结果同样进缓存，避免逐块重读盘。
+                logger.warn(`[export] 水印资源不可用，跳过 ${file}: ${err.message}`);
+            }
+            this._watermarkAssets.set(file, asset);
+        }
+        return this._watermarkAssets.get(file);
+    }
+
+    /**
+     * 在日期合并区右上角放置背景水印浮层（调/加/原，规则由 schedule-calendar-core 计算）。
+     * 锚点只依赖行索引（块首行的顶边）与我们自己写死的列宽，不依赖任何行的最终高度。
+     */
+    placeDateWatermark(worksheet, data, startRow) {
+        const anchor = data[startRow - 2];
+        const text = anchor && anchor._watermark;
+        const file = text && WATERMARK_ASSETS[text];
+        if (!file) return;
+
+        const asset = this.loadWatermarkAsset(file);
+        if (!asset) return;
+        const { widthPx: W, heightPx: H } = asset;
+
+        const workbook = worksheet.workbook;
+        if (!workbook._plenzoWatermarkImages) {
+            workbook._plenzoWatermarkImages = new Map();
+        }
+        const images = workbook._plenzoWatermarkImages;
+        if (!images.has(file)) {
+            images.set(file, workbook.addImage({ buffer: asset.buffer, extension: 'png' }));
+        }
+
+        // 为什么贴右上，而不是视图里那个「右下悬垂 4px」：导出**故意不设 row.height** ——
+        // 一设 ExcelJS 就写 customHeight="1"，等于关掉该行自动适配，而计划/实际两列宽 60 +
+        // wrapText，内容比估算高就会被裁字（实测：不设高度的 <row> 连 ht 属性都没有，
+        // 最终行高是 Excel 打开时才算的，写入侧读不到）。按 20px 回推右下沿的结果是
+        // 内容撑高的块里水印落在块中部。块首行的顶边是纯行索引，与内容高度无关，位置因此确定；
+        // 横向仍贴右边，用的是我们显式写死的列宽（列宽不会自动变）。
+        const nativeRow = startRow - 1;   // 0 基；数据从第 2 行起，天然不会盖到表头
+        const colOffPx = Math.max(0, DATE_COL_PX - WATERMARK_RIGHT_INSET_PX - W);
+
+        worksheet.addImage(images.get(file), {
+            tl: {
+                nativeCol: 0,
+                nativeColOff: Math.round(colOffPx * EMU_PER_PX),
+                nativeRow,
+                nativeRowOff: 0
+            },
+            ext: { width: W, height: H },
+            editAs: 'oneCell'
+        });
     }
 
     /**

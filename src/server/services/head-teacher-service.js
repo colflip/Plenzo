@@ -148,23 +148,41 @@ class HeadTeacherService {
             throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无权修改该学生信息' });
         }
 
-        let sets = ['name = $1', 'profession = $2', 'contact = $3', 'visit_location = $4', 'home_address = $5'];
-        let values = [name, profession, contact, visit_location, home_address];
-        let vi = 6;
-        if (typeof status !== 'undefined') {
-            const s = Number(status);
-            if (![-1, 0, 1].includes(s)) {
-                throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '非法状态值' });
+        /**
+         * 只更新请求里**真的给了**的字段。pg 把 undefined 绑成 NULL，
+         * 而这里过去无条件写六列 —— 调用方漏传（或以后新增一个只改单字段的入口）
+         * 就会把会址 / 上门地址 / 联系方式 / 专业一起清空。
+         */
+        const provided = { name, profession, contact, visit_location, home_address, status };
+        const sets = [];
+        const values = [];
+        for (const [key, value] of Object.entries(provided)) {
+            if (value === undefined) continue;
+            if (key === 'status') {
+                const num = Number(value);
+                if (![-1, 0, 1].includes(num)) {
+                    throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '非法状态值' });
+                }
+                values.push(num);
+            } else {
+                values.push(value);
             }
-            sets.push(`status = $${vi++}`);
-            values.push(s);
+            sets.push(`${key} = $${values.length}`);
+        }
+        if (sets.length === 0) {
+            throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '没有需要更新的字段' });
+        }
+        // students.name 是 NOT NULL：显式给了空串等于要清空姓名，明确拒绝而不是让库报错
+        // （只看 name 本身是否为 undefined —— 解构后 provided 恒有全部键，用 in 判会误判）
+        if (name !== undefined && !String(name).trim()) {
+            throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '学生姓名不能为空' });
         }
         values.push(parseInt(studentId));
 
         const result = await db.query(
             `UPDATE students
             SET ${sets.join(', ')}
-            WHERE id = $${vi}
+            WHERE id = $${values.length}
             RETURNING id, username, name, profession, contact, visit_location, home_address, status`,
             values
         );

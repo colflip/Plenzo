@@ -434,7 +434,21 @@ const runInTransaction = async function (workFn, options = {}) {
     clientLocal = await getClient();
     await clientLocal.query('BEGIN');
     const result = await workFn(clientLocal, false);
-    await clientLocal.query('COMMIT');
+    /**
+     * 必须验 COMMIT 的返回标签。
+     *
+     * PostgreSQL 在事务已经 aborted 的情况下把 COMMIT 当回滚执行，命令标签返回
+     * ROLLBACK，而 node-postgres **不把它当错误**。于是「事务体内某处把失败吞掉了」
+     * 会变成：什么都没写、接口却返回成功（本项目里最常见的来源就是审计写入的
+     * catch 吞错，见 utils/fee-status.js 与 services/user-service.js）。
+     */
+    const commit = await clientLocal.query('COMMIT');
+    if (commit && commit.command && commit.command !== 'COMMIT') {
+        throw new Error(
+            `事务未能提交：COMMIT 返回 ${commit.command}，本次写入已全部回滚` +
+            '（通常是事务体内有语句失败后被吞掉，导致事务进入 aborted 状态）'
+        );
+    }
     return result;
   } catch (err) {
     if (clientLocal) {

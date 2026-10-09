@@ -31,24 +31,6 @@ function getTimestamp() {
 }
 
 /**
- * 判断错误是否为 Neon 超时/连接错误（可重试）
- * @param {Error} error
- * @returns {boolean}
- */
-function isNeonTimeout(error) {
-    const code = error?.sourceError?.code || error?.code;
-    const msg = String(error?.message || '');
-    return code === 'UND_ERR_CONNECT_TIMEOUT' ||
-        code === 'ECONNRESET' ||
-        code === 'ETIMEDOUT' ||
-        msg.includes('fetch failed') ||
-        msg.includes('ETIMEDOUT') ||
-        msg.includes('socket disconnected') ||
-        msg.includes('connection reset') ||
-        msg.includes('timeout');
-}
-
-/**
  * 用户类型到数据库表名映射
  * @param {string} userType
  * @returns {string}
@@ -107,6 +89,22 @@ const CATEGORY_MAP = {
 /** 生命周期位为这两个值的 pair 视为不活跃：不占教师活跃名额、不参与冲突与统计 */
 const INACTIVE_LIFECYCLES = ['cancelled', 'modified_away'];
 
+/**
+ * session_change_logs.action 的取值：唯一源放这儿，因为写方（course-session-service）
+ * 与约束方（迁移里的 chk_scl_action CHECK）都要吃它 —— 以前各抄一份，加一个动作就得记着改两处。
+ * 值的**声明顺序**就是下发给 CHECK 的顺序，动它等于动 DDL 文本。
+ */
+const CHANGE_ACTIONS = Object.freeze({
+    CREATE: 'create',
+    HEADER: 'header',
+    PAIR_PATCH: 'pair_patch',
+    PAIR_ADD: 'pair_add',
+    PAIR_REMOVE: 'pair_remove',
+    DELETE: 'delete',
+    USER_CLEANUP: 'user_cleanup',
+    USER_ID_MIGRATED: 'user_id_migrated'
+});
+
 /** 兼容名：历史调用点把生命周期映射叫 STATUS_MAP */
 const STATUS_MAP = LIFECYCLE_MAP;
 
@@ -130,15 +128,6 @@ function getStatusLabel(status) {
 }
 
 /**
- * 获取类别徽标文本（普通课返回空串）。全仓禁止手写 status.split('.')，统一走这里。
- * @param {string} status
- * @returns {string}
- */
-function getStatusBadge(status) {
-    return CATEGORY_MAP[splitStatus(status).category] || '';
-}
-
-/**
  * 格式化日期时间为 zh-CN 本地格式（YYYY-MM-DD HH:mm:ss）
  * @param {string|Date} datetime
  * @returns {string}
@@ -153,18 +142,111 @@ function formatDateTime(datetime) {
     }
 }
 
+/**
+ * DATE → 日历日 'YYYY-MM-DD'，按**本地**分量取。
+ * node-pg 把 DATE 解析成本地零点的 Date：在 UTC+8 机器上 `toISOString()` 会回退一天，
+ * 周日课被算成周六（星期错位的同类坑，getDayOfWeek 已经踩过一次）。
+ */
+function toDateKey(value) {
+    if (value instanceof Date) {
+        const p = (n) => String(n).padStart(2, '0');
+        return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}`;
+    }
+    return String(value == null ? '' : value).slice(0, 10);
+}
+
+/** TIME → 'HH:MM:SS'。REST 表单给 'HH:MM'、库里给 'HH:MM:SS'，直接字符串比较会造出假重叠 */
+function normTime(value) {
+    // 逐位补零：validation 的时间 pattern 允许 '9:00' 这种单位数小时，只补秒不补时/分的话
+    // '9:00:00' 字典序会大于 '09:30:00'，重叠判定与 slotKeyOf 同时失效（冲突提示静默消失）。
+    const parts = String(value || '').slice(0, 8).split(':');
+    if (parts.length < 2) return String(value || '');
+    const p = (n) => String(n).padStart(2, '0');
+    return [p(parts[0]), p(parts[1]), p(parts[2] ?? '00')].join(':');
+}
+
+/** 时段键（本地日历日|起|止）：冲突结果靠它挂回到具体的某一行 */
+function slotKeyOf(date, startTime, endTime) {
+    return `${toDateKey(date)}|${normTime(startTime)}|${normTime(endTime)}`;
+}
+
+/**
+ * 北京时区（UTC+8）的业务日历工具。
+ *
+ * 为什么必须有：服务跑在 UTC（Vercel 默认、db.js 也把会话时区钉在 UTC），
+ * 而排课的「今天/本周/本月」按北京日历定义。用 `now.getMonth()` / `toISOString()`
+ * 这类 UTC 组件算出来的窗口，在北京时间每天 00:00–08:00 与每月 1 号 00:00–08:00
+ * 会整体错一天 / 错到上一月（审查报告 P1-17 的实测复现：北京 11-01 00:30 时
+ * 「本月」= 2026-10-01…10-31）。
+ *
+ * 做法是先按 Asia/Shanghai 取出**日历三元组**，再用 Date.UTC 构造做加减法，
+ * 全程不依赖宿主时区，也不会再踩「UTC 组件 + 上海渲染」混用同一天里的两个日期。
+ */
+function beijingCalendarParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date);
+    const pick = (t) => Number(parts.find(p => p.type === t).value);
+    return { year: pick('year'), month: pick('month'), day: pick('day') };
+}
+
+/**
+ * 北京日历日 YYYY-MM-DD（接受 Date / 类日期字符串）。
+ * 不设默认值：缺日期必须返回空串，不能被悄悄当成「今天」而错挂到当前窗口。
+ */
+function toBeijingDateKey(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const { year, month, day } = beijingCalendarParts(value);
+        const p = (n) => String(n).padStart(2, '0');
+        return `${year}-${p(month)}-${p(day)}`;
+    }
+    // 字符串形态：库里取出的 date 已是 YYYY-MM-DD（业务日本身），截前 10 位即可
+    return String(value == null ? '' : value).slice(0, 10);
+}
+
+/** 本自然月首末日（北京日历），返回 { startDate, endDate } */
+function beijingMonthWindow(now = new Date()) {
+    const { year, month } = beijingCalendarParts(now);
+    const first = new Date(Date.UTC(year, month - 1, 1));
+    const last = new Date(Date.UTC(year, month, 0));
+    return {
+        startDate: first.toISOString().slice(0, 10),
+        endDate: last.toISOString().slice(0, 10)
+    };
+}
+
+/** 本周一~周日（北京日历，周一为一周起点），返回 { startDate, endDate } */
+function beijingWeekWindow(now = new Date()) {
+    const { year, month, day } = beijingCalendarParts(now);
+    const anchor = new Date(Date.UTC(year, month - 1, day, 12));
+    const dow = anchor.getUTCDay() || 7;              // 周一=1 … 周日=7
+    const monday = new Date(Date.UTC(year, month - 1, day - dow + 1));
+    const sunday = new Date(Date.UTC(year, month - 1, day - dow + 7));
+    return {
+        startDate: monday.toISOString().slice(0, 10),
+        endDate: sunday.toISOString().slice(0, 10)
+    };
+}
+
 module.exports = {
     validateDateFormat,
     getTimestamp,
-    isNeonTimeout,
     resolveTableName,
     resolveUserName,
     STATUS_MAP,
     LIFECYCLE_MAP,
     CATEGORY_MAP,
     INACTIVE_LIFECYCLES,
+    CHANGE_ACTIONS,
     splitStatus,
     getStatusLabel,
-    getStatusBadge,
-    formatDateTime
+    formatDateTime,
+    toDateKey,
+    toBeijingDateKey,
+    beijingCalendarParts,
+    beijingMonthWindow,
+    beijingWeekWindow,
+    normTime,
+    slotKeyOf
 };

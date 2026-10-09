@@ -8,7 +8,9 @@ const { successResponse } = require('../utils/response');
 const { AppError } = require('../middleware/error');
 
 // 获取所有用户或根据类型过滤用户（仅管理员）
-router.get('/', authMiddleware, adminOnly, async (req, res) => {
+// 处理函数必须接住 next：本文件在 catch 与非法 type 分支里都调用它，
+// 少了这个形参会抛 ReferenceError，而 async handler 无人 catch → 未处理拒绝打死实例。
+router.get('/', authMiddleware, adminOnly, async (req, res, next) => {
     try {
         const { type } = req.query;
         
@@ -37,12 +39,19 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
             res.json(successResponse({ users: allUsers }));
         } else if (type === 'teacher') {
             // 只获取教师用户
-            const result = await db.query('SELECT id, name, username, email, phone, subject FROM teachers');
+            // teachers 没有 email/phone/subject 列（见 db/schema.sql），
+            // 原查询必然 22P02 → catch → next 未定义 → 实例级崩溃
+            const result = await db.query(
+                "SELECT id, name, username, profession, contact, 'teacher' as type FROM teachers WHERE status != -1"
+            );
 
             res.json(successResponse({ users: result.rows }));
         } else if (type === 'student') {
             // 只获取学生用户
-            const result = await db.query('SELECT id, name, username, email, phone, grade FROM students');
+            // students 也没有 email/phone/grade 列
+            const result = await db.query(
+                "SELECT id, name, username, profession, contact, 'student' as type FROM students WHERE status != -1"
+            );
 
             res.json(successResponse({ users: result.rows }));
         } else {

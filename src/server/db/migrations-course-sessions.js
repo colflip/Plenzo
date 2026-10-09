@@ -18,21 +18,31 @@
 const db = require('./db');
 const logger = require('../utils/logger.js');
 const { tableExists } = require('./table-utils');
+// 「哪些生命周期位算不活跃」的唯一源在 shared-utils，这里只是把它拼成 SQL 字面量。
+// 以前 JS 侧、迁移 DDL、导出常量各抄了一份，加一个归档态就会漏改（漏了导出的那份，
+// 已归档的课还会被计进报销单）。生命周期/类别的**全量枚举**同样取自那一处：
+// LIFECYCLE_MAP / CATEGORY_MAP 的键顺序与原来手抄的这两行逐位相同，派生不改动要下发的 DDL 文本
+// （由 pair-status-vocabulary.test.js 钉住）。
+const { INACTIVE_LIFECYCLES, LIFECYCLE_MAP, CATEGORY_MAP,
+    CHANGE_ACTIONS: CHANGE_ACTIONS_MAP } = require('../utils/shared-utils');
+const { FEE_STATUSES: FEE_STATUSES_SHARED } = require('../utils/fee-status');
 
 /** 生命周期位：沿用旧表字面量（含 modified_away），前端 16 处判定与 3 条 CSS 规则因此无需改动 */
-const LIFECYCLES = ['pending', 'confirmed', 'completed', 'cancelled', 'modified_away'];
+const LIFECYCLES = Object.keys(LIFECYCLE_MAP);
 /** 类别位：normal 普通 / adjusted 调整增补（仅作废+增补流程可写）/ temp 临时加课 */
-const CATEGORIES = ['normal', 'adjusted', 'temp'];
-/** 费用报销 6 状态，与 course_arrangement.chk_ca_fee_status 完全一致 */
-const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
+const CATEGORIES = Object.keys(CATEGORY_MAP);
+/** 费用报销 6 状态：唯一源在 utils/fee-status.js（写方与前端展示都吃它），这里只是拼 CHECK 文本 */
+const FEE_STATUSES = FEE_STATUSES_SHARED;
 /**
- * session_change_logs.action 的取值。与 course-session-service.js 的 CHANGE_ACTIONS 必须一致
- * —— 那边是写入方，这边是 CHECK 约束；加动作时两处一起改（约束靠 ALTER 重建，见 migrateCourseSessions）。
+ * session_change_logs.action 的取值：唯一源在 shared-utils（course-session-service 是写入方，
+ * 这里是 CHECK 约束），加动作只改那一处。约束本身先删后建，见 migrateCourseSessions。
  */
-const CHANGE_ACTIONS = ['create', 'header', 'pair_patch', 'pair_add', 'pair_remove', 'delete', 'user_cleanup', 'user_id_migrated'];
+const CHANGE_ACTIONS = Object.values(CHANGE_ACTIONS_MAP);
 
 
 const sqlArray = (values) => values.map(v => `'${v}'`).join(',');
+/** 逗号后带空格：与已部署的函数体逐字节一致，改派生方式不该让 DDL 文本漂移 */
+const sqlInList = (values) => values.map(v => `'${v}'`).join(', ');
 
 const FN_PAIR_IDS = `
 CREATE OR REPLACE FUNCTION jsonb_pair_ids(arr jsonb, key text)
@@ -101,7 +111,7 @@ BEGIN
 
         -- 活跃 pair 内 teacher_id 不得重复；作废（cancelled）与已调整（modified_away）
         -- 不占用活跃名额 —— 这正是「作废+增补」里同一位老师能有两个 pair 的依据。
-        IF life NOT IN ('cancelled', 'modified_away') THEN
+        IF life NOT IN (${sqlInList(INACTIVE_LIFECYCLES)}) THEN
             IF (e->>'teacher_id')::int = ANY(active_ids) THEN RETURN false; END IF;
             active_ids := active_ids || (e->>'teacher_id')::int;
         END IF;
@@ -323,8 +333,11 @@ const VIEW_COMMENT = `COMMENT ON VIEW public.v_session_pairs IS
  */
 
 /** 版本标记：改本文件的 DDL 就把尾号 +1（v2 起启用标记短路）
- *  v4 = 教师 pair 增加逐学生费用 fees 映射 + 视图生效费用/fee_scope + 费用审计带 student_uid */
-const SCHEMA_KEY = 'course_sessions@v4';
+ *  v4 = 教师 pair 增加逐学生费用 fees 映射 + 视图生效费用/fee_scope + 费用审计带 student_uid
+ *  v5 = 视图改为「先试 CREATE OR REPLACE，仅 42P16 才删建」；不 +1 的话这条修复在
+ *       已标记 v4 的库（生产就是，实测 schema_migrations 里有 course_sessions@v4）上永不执行。
+ *       代价：下一次启动会重跑这一整批 DDL（24 条，约 6-9 秒，期间 jsonb_pair_ids 那条会取锁）。*/
+const SCHEMA_KEY = 'course_sessions@v5';
 
 /**
  * 版本标记是否已写入。schema_migrations 不存在时顺手建出来并返回 false。
@@ -386,7 +399,19 @@ async function migrateCourseSessions() {
     await db.query(`ALTER TABLE public.session_change_logs DROP CONSTRAINT IF EXISTS chk_scl_action`);
     await db.query(`ALTER TABLE public.session_change_logs ADD CONSTRAINT chk_scl_action CHECK (action IN (${sqlArray(CHANGE_ACTIONS)}))`);
 
-    await db.query(VIEW_PAIRS);
+    // 视图：先按正常路径 CREATE OR REPLACE。v4 把 fee_scope 插在 other_fee 与 fee_status
+    // 之间，这种「中间插列」会报 42P16 cannot change name of view column —— 以前是无条件
+    // 先 DROP 再建，结果视图本来就对时也要在 course_sessions 上白挨一次 ACCESS EXCLUSIVE，
+    // 而且 DROP 与 CREATE 是两条 autocommit 语句，中间那段时间 30 处读 v_session_pairs 的
+    // 查询全部报 undefined_object。现在只在真的对不上时才删建，且两步之间不再留窗口。
+    try {
+        await db.query(VIEW_PAIRS);
+    } catch (err) {
+        if (!err || err.code !== '42P16') throw err;
+        logger.warn('[migration] v_session_pairs 列序与定义对不上，删掉重建（42P16）');
+        await db.query(`DROP VIEW IF EXISTS public.v_session_pairs`);
+        await db.query(VIEW_PAIRS);
+    }
     await db.query(VIEW_COMMENT);
 
     // 标记放在最后：中途失败则不写标记，下次启动重跑（DDL 本身全部幂等）
@@ -397,5 +422,7 @@ async function migrateCourseSessions() {
 
 module.exports = {
     migrateCourseSessions, LIFECYCLES, CATEGORIES, FEE_STATUSES, CHANGE_ACTIONS,
-    SCHEMA_KEY, isApplied, markApplied
+    SCHEMA_KEY, isApplied, markApplied,
+    // 导出 DDL 文本只为测试用：断言「不活跃清单」确实由 shared-utils 那一份派生（见 pair-status-vocabulary.test.js）
+    FN_VALIDATE_TEACHERS
 };

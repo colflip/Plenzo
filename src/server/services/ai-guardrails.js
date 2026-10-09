@@ -218,7 +218,12 @@ const llmMetrics = (() => {
                 avgLatencyMs: avgLatency
             },
             semaphore: defaultSemaphore.snapshot(),
-            lastError
+            // 不把 lastError.message 带出去：axios/Node 的原文形如
+            // `connect ECONNREFUSED 127.0.0.1:8080`、`getaddrinfo ENOTFOUND …`，
+            // 而 /api/ai/status 对所有登录角色开放 —— 配上可写的 baseUrl 就是内网探测回显。
+            lastError: lastError
+                ? { status: lastError.status, code: lastError.code, at: lastError.at }
+                : null
         };
     }
     return { recordSuccess, recordFailure, snapshot };

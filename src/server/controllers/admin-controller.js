@@ -643,7 +643,7 @@ const adminController = {
                          FROM course_sessions cs, jsonb_array_elements(cs.teachers) e
                         WHERE cs.class_date = $1
                           AND (cs.start_time, cs.end_time) OVERLAPS ($2::time, $3::time)
-                          AND split_part(e->>'status', '.', 2) NOT IN ('cancelled', 'modified_away')`;
+                          AND ${courseSessionService.sqlActivePairJsonb('e')}`;
             const ps = [date, startTime, endTime];
             if (excludeScheduleId) { sql += ` AND cs.id != $4`; ps.push(excludeScheduleId); }
             // 冲突查询与可用时段查询互不依赖，并发省一次往返（约 250ms）

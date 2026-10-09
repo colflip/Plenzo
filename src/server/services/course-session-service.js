@@ -33,7 +33,8 @@
 
 const db = require('./../db/db');
 const logger = require('../utils/logger');
-const { LIFECYCLE_MAP, CATEGORY_MAP, INACTIVE_LIFECYCLES, splitStatus } = require('../utils/shared-utils');
+// CHANGE_ACTIONS 的唯一源也在 shared-utils：写方（这里）与约束方（迁移的 chk_scl_action CHECK）吃同一份
+const { LIFECYCLE_MAP, CATEGORY_MAP, INACTIVE_LIFECYCLES, CHANGE_ACTIONS, splitStatus } = require('../utils/shared-utils');
 
 const LIFECYCLES = Object.keys(LIFECYCLE_MAP);
 const CATEGORIES = Object.keys(CATEGORY_MAP);
@@ -75,15 +76,33 @@ const PAIR_WRITE_WHITELIST = {
         // teacher_id / student_id / category 是 2026-09-08 补进来的：编辑弹窗里换老师、换学生、
         // 改类别（普通 ↔ 临时加课）三个入口此前前端根本没提交、服务端也不放行，
         // 于是「保存成功」的 toast 照弹，库里一行没动。
-        teacher: ['teacher_id', 'category', 'type_id', 'teacher_rating', 'teacher_comment', 'fee_status'],
+        // fee_status 不在此列：报销状态是**财务状态**，必须走费用接口
+        // （/…/fee-status），那里才有状态机校验 validateFeeStatusTransition 与
+        // session_fee_status_logs 审计。放进排课 patch 白名单 = 保存课表就能把
+        // draft 直接写成 reimbursed，且只在 session_change_logs 留一条 PAIR_PATCH
+        //（审查报告 P2-2）。
+        teacher: ['teacher_id', 'category', 'type_id', 'teacher_rating', 'teacher_comment'],
         student: ['student_id', 'student_rating', 'student_comment', 'family_participants']
     },
-    headteacher: { teacher: ['fee_status'], student: [] },
-    teacher: { teacher: ['fee_status'], student: [] }
+    headteacher: { teacher: [], student: [] },
+    teacher: { teacher: [], student: [] }
 };
 
-/** 只能由费用接口写的键 —— 出现在 pair patch 里就是调用方用错了接口 */
+/**
+ * 只能由费用接口写的键 —— 出现在 pair patch 里就是调用方用错了接口。
+ */
 const FEE_ONLY_KEYS = ['transport_fee', 'other_fee'];
+
+/**
+ * fee_status 只能由费用接口写 —— 但**只在更新路径**拦（见 patchPair）：
+ * 它过去同时挂在 PAIR_WRITE_WHITELIST 里，于是「保存课表」能把 draft 直接写成
+ * reimbursed，既不过状态机（validateFeeStatusTransition），也不写
+ * session_fee_status_logs 财务审计（只在 session_change_logs 留一条 PAIR_PATCH）。
+ * 新建 pair 允许带初始报销状态（那一趟还没有可流转的状态，updatePairsBatch 的
+ * 既有语义也依赖这一点），所以不放进 FEE_ONLY_KEYS 以免一刀切到创建路径。
+ * 见审查报告 P2-2。
+ */
+const PATCH_ONLY_FEE_KEYS = ['fee_status'];
 
 /**
  * 排课编辑路径上碰钱的统一拦截点。放在这里而不是只靠白名单丢弃：丢弃等于「保存成功但钱没动」，
@@ -140,6 +159,51 @@ function statusPathPredicate(codes, guard) {
 
 const isActive = (status) => !INACTIVE_LIFECYCLES.includes(splitStatus(status).lifecycle);
 
+/** 「不活跃」的 SQL 字面量清单，与 isActive 共用同一份 INACTIVE_LIFECYCLES */
+const INACTIVE_SQL = `(${INACTIVE_LIFECYCLES.map(l => `'${l}'`).join(', ')})`;
+
+/**
+ * 「在职 pair」的 SQL 谓词唯一出口，口径 = isActive()。
+ * view 形态用于 `v_session_pairs`（该视图已把 status_code 拆成 status=生命周期位、status_category=类别位），
+ * jsonb 形态用于直接展开 `course_sessions.teachers` / `.students`（status 还是 '类别.生命周期' 一个串）。
+ * 两者必须由调用方选对：写错列名不会报错，只会静默把已取消的课算成在职。
+ * @param {string|null} [alias] 表别名；传 null 取裸列名（单表 subselect 里用）
+ */
+const pairCol = (alias, name) => (alias ? `${alias}.${name}` : name);
+const sqlActivePair = (alias = 'ca') => `${pairCol(alias, 'status')} NOT IN ${INACTIVE_SQL}`;
+const sqlActivePairJsonb = (elem = 'e') => `split_part(${elem}->>'status', '.', 2) NOT IN ${INACTIVE_SQL}`;
+
+/** 指定教师在本场里仍是职 pair（jsonb 形态，用于「这个人有没有课」） */
+const sqlActiveTeacherPairJsonb = (teacherIdSql, elem = 'e') =>
+    `(${elem}->>'teacher_id')::int = ${teacherIdSql} AND ${sqlActivePairJsonb(elem)}`;
+
+/**
+ * 统计/列表里的「隐藏被调走的原课程」口径 —— 与 sqlActivePair **不等价**，别混用：
+ * 它只排除「normal 类别 + 生命周期 modified_away」这一批（作废后已有增补 pair 顶上，
+ * 原记录不该再计一场课），而 cancelled 要留给调用方自己按需要的口径统计，
+ * `adjusted.*` / `temp.*` 下的 modified_away 也要保留（那是增补 pair 自身，不是被调走的原课）。
+ */
+const sqlNotMovedAway = (alias = 'ca') =>
+    `NOT (${pairCol(alias, 'status')} = 'modified_away' AND ${pairCol(alias, 'status_category')} = 'normal')`;
+
+/**
+ * 「本行学生 pair 确实改属过（跨学生调整）」—— v_session_pairs 形态，报销视图与 Excel
+ * 计划列置空的判定共用这一份口径（以前同一段 EXISTS 手抄了 5 份，加一个条件就得记着改 5 处）。
+ *
+ * 匹配收紧到 uid + 当前 student_id 双条件：nextUid 取的是「未占用的最小序号」、removePair
+ * 又是物理删元素，所以 uid 会被复用 —— 只按 uid 匹配的话，上一位学生的改属补丁会挂到后来
+ * 复用同号的那位学生身上，计划列被静默整行抹掉（钱不算错，但报销单少一行）。
+ * 号段重编写的是 user_id_migrated 而不是 pair_patch，天然不进这里。
+ */
+const sqlStudentSwapped = (alias = 'ca') => `EXISTS (
+    SELECT 1 FROM session_change_logs sw
+    WHERE sw.session_id = ${alias}.session_id
+      AND sw.action = 'pair_patch' AND sw.pair_kind = 'student'
+      AND sw.pair_uid = ${alias}.student_uid
+      AND (sw.changes->'student_id'->>'to') = ${alias}.student_id::text
+      AND (sw.changes->'student_id'->>'from') IS DISTINCT FROM (sw.changes->'student_id'->>'to')
+)`;
+
 /** 场次内下一个可用 uid：取当前数组里未占用的最小序号，避免复用刚删掉的编号 */
 function nextUid(pairs, prefix) {
     const used = new Set((pairs || []).map(p => String(p.uid)));
@@ -162,27 +226,101 @@ const intOrNull = (v) => {
  * 引用完整性校验：JSONB 里的 id 拿不到外键，写入前一次性查库确认。
  * 三张表并发查（原来是循环里串行发，白等两次往返；远程库每条约 250ms）；
  * 报错顺序仍按「教师 → 学生 → 课程类型」，与串行时代一致。
+ *
+ * 顺手把「账号必须正常」也放在这里：status 与 id 在同一条 SELECT 里取回，**不多花一次往返**。
+ * 守卫落在服务层而不是某个调用方，AI 批量创建、REST 新建、加参与者、调整课程都自动受保护 ——
+ * 以前只有 adminCreateSchedule 查禁用，AI 那条路能把禁用教师写进课。
  */
 async function assertReferences({ teacherIds = [], studentIds = [], typeIds = [] }, tx) {
     const q = tx || db.query;
     const checks = [
-        [teacherIds, 'teachers', '教师'],
-        [studentIds, 'students', '学生'],
-        [typeIds, 'schedule_types', '课程类型']
-    ].map(([ids, table, label]) => ({
-        uniq: [...new Set(ids.map(Number).filter(Number.isFinite))], table, label
+        { ids: teacherIds, table: 'teachers', label: '教师', mustBeActive: true },
+        { ids: studentIds, table: 'students', label: '学生', mustBeActive: true },
+        { ids: typeIds, table: 'schedule_types', label: '课程类型', mustBeActive: false }
+    ].map(({ ids, table, label, mustBeActive }) => ({
+        uniq: [...new Set(ids.map(Number).filter(Number.isFinite))],
+        table, label, mustBeActive
     }));
 
     const results = await Promise.all(checks.map(c => (c.uniq.length === 0
         ? null
-        : q(`SELECT id FROM ${c.table} WHERE id = ANY($1::int[])`, [c.uniq]))));
+        : q(
+            c.mustBeActive
+                ? `SELECT id, name, status FROM ${c.table} WHERE id = ANY($1::int[])`
+                : `SELECT id, name FROM ${c.table} WHERE id = ANY($1::int[])`,
+            [c.uniq]
+        ))));
 
     for (let i = 0; i < checks.length; i++) {
+        const check = checks[i];
         if (!results[i]) continue;
-        const found = new Set((results[i].rows || []).map(x => Number(x.id)));
-        const missing = checks[i].uniq.filter(id => !found.has(id));
-        if (missing.length) throw new SessionValidationError(`${checks[i].label} ID 不存在: ${missing.join(', ')}`);
+        const rows = results[i].rows || [];
+        const found = new Set(rows.map(x => Number(x.id)));
+        const missing = check.uniq.filter(id => !found.has(id));
+        if (missing.length) throw new SessionValidationError(`${check.label} ID 不存在: ${missing.join(', ')}`);
+        if (check.mustBeActive) {
+            const disabled = rows.filter(x => Number(x.status) !== 1);
+            if (disabled.length) {
+                throw new SessionValidationError(
+                    `${check.label}已被禁用，无法参与排课: ${disabled.map(x => x.name).join('、')}`
+                );
+            }
+        }
     }
+}
+
+/**
+ * 审计归属列（created_by / updated_by）的唯一解析出口。
+ *
+ * 规则（业务裁定）：归属人只放行**管理员或班主任**，普通教师与学生一律写 NULL。
+ * 号段互不相交且长度可辨（生产实测 administrators 100–102、teachers 2000–2014、
+ * students 3000–3005），所以单凭 id 就能判定归属人出自哪张表，不需要再加 actor 列。
+ *
+ * 但生产库上 course_sessions.created_by/updated_by 至今仍挂着
+ *   FOREIGN KEY … REFERENCES administrators(id)（2026-10-09 只读实测：两个约束还在，
+ *   schema_migrations 里也还没有 legacy_migrations@v5）—— 班主任 id 写进去就是 23503，
+ *   还会被上层翻译成误导性的 400。v5 去掉这两个外键，代码却可能先于迁移落到旧库上，
+ *   所以非管理员归属 fail closed：启动时探测 v5 是否已应用，未知/未应用一律按 NULL。
+ *
+ * @param {{id?: number|string, actorType?: string}|null} actor
+ * @returns {number|null}
+ */
+const AUDIT_ADMIN_ACTOR_TYPES = new Set(['admin']);
+const AUDIT_NON_ADMIN_ACTOR_TYPES = new Set(['headteacher']);
+const AUDIT_FK_DROP_KEY = 'legacy_migrations@v5';
+
+/** 由 bootstrapDatabase() 在迁移之后置位；默认 false = 只认管理员 */
+let nonAdminAttributionAllowed = false;
+
+/**
+ * 探测归属外键是否已去掉（legacy_migrations@v5 是否已应用）。
+ * 失败/表不存在都按「未去掉」处理 —— 宁可少记归属，不可把写入打成 400。
+ * @returns {Promise<boolean>}
+ */
+async function primeAuditAttributionCapability() {
+    try {
+        const r = await db.query(
+            `SELECT 1 FROM public.schema_migrations WHERE key = $1`, [AUDIT_FK_DROP_KEY]
+        );
+        nonAdminAttributionAllowed = (r.rows || []).length > 0;
+    } catch {
+        nonAdminAttributionAllowed = false;   // 表不存在、连接失败、熔断打开都按「外键还在」处理
+    }
+    return nonAdminAttributionAllowed;
+}
+
+function resolveAuditActorId(actor) {
+    if (!actor) return null;
+    const actorType = String(actor.actorType || '');
+    if (AUDIT_ADMIN_ACTOR_TYPES.has(actorType)) {
+        // fallthrough：管理员 id 由外键保证存在
+    } else if (AUDIT_NON_ADMIN_ACTOR_TYPES.has(actorType)) {
+        if (!nonAdminAttributionAllowed) return null;
+    } else {
+        return null;   // teacher / student / 未知身份
+    }
+    const n = Number(actor.id);
+    return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** 服务端组装教师 pair：uid 与 created_by 由服务端决定，请求传入的同名键一律忽略 */
@@ -282,13 +420,18 @@ async function writeStatusLogs(tx, entries) {
         return `($${n - 6}, $${n - 5}, $${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, $${n})`;
     });
     try {
-        await (tx || db.query)(
+        await pickQ(tx)(
             `INSERT INTO session_status_logs
              (session_id, teacher_uid, old_status, new_status, operator_id, actor_type, note)
              VALUES ${tuples.join(', ')}`,
             params
         );
     } catch (e) {
+        // 独立调用（tx 为空）：审计失败只告警，不挡业务。
+        // 事务内必须原样抛出：这张表的 session_id 有外键指向 course_sessions，而事务正锁着那一行，
+        // 换一条连接补记会等自己的行锁（被等的一方 idle-in-transaction，死锁检测器看不见环）；
+        // 且 PG 里语句一旦出错事务就进 aborted，吞掉只会让后面每条语句都报「current transaction is aborted」。
+        if (tx) throw e;
         logger.warn('[course-session] 状态审计写入跳过:', e.message);
     }
 }
@@ -296,19 +439,9 @@ async function writeStatusLogs(tx, entries) {
 const writeStatusLog = (tx, entry) => writeStatusLogs(tx, [entry]);
 
 /**
- * session_change_logs.action 的取值，与 migrations-course-sessions.js 的 CHANGE_ACTIONS
- * 及 chk_scl_action 约束一一对应。加动作要两处一起改。
+ * session_change_logs.action 的取值。唯一源在 shared-utils（迁移里的 chk_scl_action CHECK 吃同一份），
+ * 上面 import 进来后仍由本模块导出，消费者不必改导入路径。
  */
-const CHANGE_ACTIONS = Object.freeze({
-    CREATE: 'create',
-    HEADER: 'header',
-    PAIR_PATCH: 'pair_patch',
-    PAIR_ADD: 'pair_add',
-    PAIR_REMOVE: 'pair_remove',
-    DELETE: 'delete',
-    USER_CLEANUP: 'user_cleanup',
-    USER_ID_MIGRATED: 'user_id_migrated'
-});
 
 /**
  * 审计载荷里的取值归一。
@@ -361,13 +494,15 @@ async function writeChangeLogs(tx, entries) {
         return `($${n - 7}, $${n - 6}, $${n - 5}, $${n - 4}, $${n - 3}::jsonb, $${n - 2}, $${n - 1}, $${n})`;
     });
     try {
-        await (tx || db.query)(
+        await pickQ(tx)(
             `INSERT INTO session_change_logs
              (session_id, action, pair_kind, pair_uid, changes, operator_id, actor_type, note)
              VALUES ${tuples.join(', ')}`,
             params
         );
     } catch (e) {
+        // 与 writeStatusLogs 同一规则：事务内不吞错（吞了也拦不住已经 aborted 的事务），独立调用才只告警。
+        if (tx) throw e;
         logger.warn('[course-session] 变更审计写入跳过:', e.message);
     }
 }
@@ -381,8 +516,17 @@ const writeChangeLog = (tx, entry) => writeChangeLogs(tx, [entry]);
  * 「临时加课」落在状态码的类别位上，不再经 is_temp / adjustment_type 两个名字来回错位
  * （旧路径新建时勾选不生效的那个 bug 随之消失）。
  */
-async function createSession(payload, actor) {
+/**
+ * 写语句走哪个连接：tx 是事务里的查询函数（runInTransaction 交给 work 的那个 q），
+ * 也可能是裸 client（.query）；不传就是 db.query 自提自交。
+ * 事务内调用一定要传，否则语句在别的连接上先行提交 —— 外层回滚回滚不掉它，
+ * 而且它会等自己外层持有的行锁（自我死锁）。
+ */
+const pickQ = (tx) => (typeof tx === 'function' ? tx : (tx ? tx.query.bind(tx) : db.query));
+
+async function createSession(payload, actor, tx = null) {
     const actorId = actor && actor.id ? Number(actor.id) : null;
+    const q = pickQ(tx);
     const teachersIn = Array.isArray(payload.teachers) ? payload.teachers : [];
     const studentsIn = Array.isArray(payload.students) ? payload.students : [];
     if (teachersIn.length === 0) throw new SessionValidationError('至少需要一位教师');
@@ -395,9 +539,9 @@ async function createSession(payload, actor) {
         teacherIds: teachers.map(t => t.teacher_id),
         studentIds: students.map(s => s.student_id),
         typeIds: teachers.map(t => t.type_id)
-    });
+    }, q);
 
-    const r = await db.query(
+    const r = await q(
         `INSERT INTO course_sessions
          (class_date, start_time, end_time, location, notes, teachers, students, created_by, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $8)
@@ -407,7 +551,7 @@ async function createSession(payload, actor) {
             JSON.stringify(teachers), JSON.stringify(students), actorId]
     );
     const created = r.rows[0];
-    await writeChangeLog(null, {
+    await writeChangeLog(tx, {
         sessionId: created.id,
         action: CHANGE_ACTIONS.CREATE,
         changes: {
@@ -504,7 +648,8 @@ async function createSessions(payloads, actor) {
 }
 
 /** 改头部：日期/时段/地点/备注，天然整场生效，不再需要「找同组其他行一起改」的补偿逻辑 */
-async function updateSessionHeader(id, patch, actor, version, prev) {
+async function updateSessionHeader(id, patch, actor, version, prev, tx = null) {
+    const q = pickQ(tx);
     const sets = [];
     const params = [];
     for (const col of HEADER_COLUMNS) {
@@ -516,13 +661,13 @@ async function updateSessionHeader(id, patch, actor, version, prev) {
     if (sets.length === 0) throw new SessionValidationError('没有可更新的字段');
     // 审计要记原值。调用方（如 adminUpdateSchedule）通常刚读过这一场，
     // 传进来就能省一次往返；没传才自己读。写入安全仍由 version 乐观锁保证。
-    const before = prev || await getSessionById(id);
+    const before = prev || await getSessionById(id, q);
     params.push(actor && actor.id ? Number(actor.id) : null);
     const byIdx = params.length;
     params.push(id);
     const idIdx = params.length;
     params.push(version);
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions
             SET ${sets.join(', ')}, version = version + 1,
                 updated_at = CURRENT_TIMESTAMP, updated_by = $${byIdx}
@@ -531,7 +676,7 @@ async function updateSessionHeader(id, patch, actor, version, prev) {
         params
     );
     if (r.rowCount === 0) throw new VersionConflictError();
-    await writeChangeLog(null, {
+    await writeChangeLog(tx, {
         sessionId: id,
         action: CHANGE_ACTIONS.HEADER,
         changes: fieldChanges(before, patch),
@@ -548,16 +693,17 @@ async function updateSessionHeader(id, patch, actor, version, prev) {
  * split_part(...,'.',1) || '.' || $3 表示**只换后缀，类别前缀原样保留** ——
  * 类别是溯源属性，不该被状态切换顺手改掉（temp 的课取消后仍是 temp.cancelled）。
  */
-async function setTeacherStatus(id, uid, lifecycle, actor, note, prev) {
+async function setTeacherStatus(id, uid, lifecycle, actor, note, prev, tx = null) {
     if (!LIFECYCLES.includes(lifecycle)) throw new SessionValidationError(`未知生命周期 ${lifecycle}`);
+    const q = pickQ(tx);
     // prev 只用于取审计的旧状态；真正的写是 SQL 内原地重建（读的是 cs.teachers 最新值），
     // 所以即使 prev 稍旧也不影响写入正确性。
-    const before = prev || await getSessionById(id);
+    const before = prev || await getSessionById(id, q);
     if (!before) return { updated: false, notFound: true };
     const pair = findPair(before.teachers, uid);
     if (!pair) return { updated: false, notFound: true };
 
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions cs
             SET teachers = (
                   SELECT jsonb_agg(
@@ -573,12 +719,12 @@ async function setTeacherStatus(id, uid, lifecycle, actor, note, prev) {
           RETURNING ${SESSION_COLUMNS}`,
         // updated_by FK 引用 administrators(id)：教师/班主任 actor 的 id 落在不相交的编号段，
         // 原样写入会触发 23503，因此非 admin 一律写 NULL。
-        [id, String(uid), lifecycle, (actor && actor.actorType === 'admin' && actor.id) ? Number(actor.id) : null]
+        [id, String(uid), lifecycle, resolveAuditActorId(actor)]
     );
     if (r.rowCount === 0) return { updated: false, notFound: true };
 
     const after = findPair(r.rows[0].teachers, uid);
-    await writeStatusLog(null, {
+    await writeStatusLog(tx, {
         sessionId: id, teacherUid: uid, oldStatus: pair.status, newStatus: after.status,
         operatorId: actor && actor.id, actorType: actor && actor.actorType, note
     });
@@ -603,7 +749,7 @@ async function cancelSession(id, actor) {
           RETURNING ${SESSION_COLUMNS}`,
         // 与 setTeacherStatus 同一条 FK 规则：updated_by 引用 administrators(id)，
         // 教师/班主任 id 号段不相交，原样写入会触发 23503。
-        [id, (actor && actor.actorType === 'admin' && actor.id) ? Number(actor.id) : null]
+        [id, resolveAuditActorId(actor)]
     );
     if (r.rowCount === 0) return { updated: false, notFound: true };
     await writeStatusLogs(null, (before.teachers || []).map(p => ({
@@ -614,22 +760,28 @@ async function cancelSession(id, actor) {
     return { updated: true, session: r.rows[0] };
 }
 
-/** 取消单个教师 pair —— 与 setTeacherStatus 同形，后缀固定 cancelled */
-const cancelPair = (id, uid, actor) => setTeacherStatus(id, uid, 'cancelled', actor, '取消该教师');
-
 /**
  * 管理员改 pair 内容（类型/评分/评价/家属人数/费用）：白名单裁剪后整列写回，带 version。
  * @returns {{ session, rejectedFields }}
  */
-async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
+async function patchPair(id, kind, uid, rawPatch, actor, version, prev, tx = null) {
+    const q = pickQ(tx);
     assertNoFeeFields(rawPatch);
+    // 报销状态变更必须走费用接口：那里有状态机与 session_fee_status_logs 审计
+    const feeStateHit = PATCH_ONLY_FEE_KEYS.filter(k => rawPatch && rawPatch[k] !== undefined);
+    if (feeStateHit.length) {
+        throw new SessionValidationError(
+            `${feeStateHit.join('、')} 不能随排课修改提交：报销状态流转请改用费用接口` +
+            '（…/fee-status，会校验合法流转并写审计）'
+        );
+    }
     const { patch, rejectedFields } = applyPairPatch(kind, rawPatch, actor);
     if (Object.keys(patch).length === 0) {
         throw new SessionValidationError('没有可更新的字段', rejectedFields);
     }
     const normalized = normalizePairPatch(kind, patch);
     // 调用方刚读过就直接用（省一次往返）；写回仍带 version，传了过期的 session 只会 409
-    const session = prev || await getSessionById(id);
+    const session = prev || await getSessionById(id, q);
     if (!session) return { notFound: true, rejectedFields };
 
     const column = kind === 'teacher' ? 'teachers' : 'students';
@@ -674,10 +826,10 @@ async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
     if (normalized.type_id !== undefined) refs.typeIds = [normalized.type_id];
     if (normalized.teacher_id !== undefined) refs.teacherIds = [normalized.teacher_id];
     if (normalized.student_id !== undefined) refs.studentIds = [normalized.student_id];
-    if (Object.keys(refs).length > 0) await assertReferences(refs);
+    if (Object.keys(refs).length > 0) await assertReferences(refs, q);
 
     const next = arr.map(p => (String(p.uid) === String(uid) ? { ...p, ...normalized } : p));
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions
             SET ${column} = $1::jsonb, version = version + 1,
                 updated_at = CURRENT_TIMESTAMP, updated_by = $2
@@ -686,7 +838,7 @@ async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
         [JSON.stringify(next), actor && actor.id ? Number(actor.id) : null, id, version]
     );
     if (r.rowCount === 0) throw new VersionConflictError();
-    await writeChangeLog(null, {
+    await writeChangeLog(tx, {
         sessionId: id,
         action: CHANGE_ACTIONS.PAIR_PATCH,
         pairKind: kind,
@@ -699,8 +851,10 @@ async function patchPair(id, kind, uid, rawPatch, actor, version, prev) {
 }
 
 /** 加一位老师或学生：只写一列（不再有「两列键集合必须一致」的联动），带 version */
-async function addPair(id, kind, payload, actor, version) {
-    const session = await getSessionById(id);
+async function addPair(id, kind, payload, actor, version, tx = null, prev = null) {
+    const q = pickQ(tx);
+    // 调用方刚读过这一场就传进来（adminAddPair 与 updatePairsBatch 都是），省一次「写前读整场」
+    const session = prev || await getSessionById(id, q);
     if (!session) return { notFound: true };
     const actorId = actor && actor.id ? Number(actor.id) : null;
     const column = kind === 'teacher' ? 'teachers' : 'students';
@@ -723,9 +877,9 @@ async function addPair(id, kind, payload, actor, version) {
 
     await assertReferences(kind === 'teacher'
         ? { teacherIds: [pair.teacher_id], typeIds: [pair.type_id] }
-        : { studentIds: [pair.student_id] });
+        : { studentIds: [pair.student_id] }, q);
 
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions
             SET ${column} = $1::jsonb, version = version + 1,
                 updated_at = CURRENT_TIMESTAMP, updated_by = $2
@@ -734,7 +888,7 @@ async function addPair(id, kind, payload, actor, version) {
         [JSON.stringify([...arr, pair]), actorId, id, version]
     );
     if (r.rowCount === 0) throw new VersionConflictError();
-    await writeChangeLog(null, {
+    await writeChangeLog(tx, {
         sessionId: id,
         action: CHANGE_ACTIONS.PAIR_ADD,
         pairKind: kind,
@@ -751,8 +905,9 @@ async function addPair(id, kind, payload, actor, version) {
  * 删到最后一个时拒绝 —— validate_session_* 要求两个数组都非空；
  * 「整场删除」是另一个动作（deleteSession），由调用方按提示改走那条路。
  */
-async function removePair(id, kind, uid, actor, version) {
-    const session = await getSessionById(id);
+async function removePair(id, kind, uid, actor, version, tx = null) {
+    const q = pickQ(tx);
+    const session = await getSessionById(id, q);
     if (!session) return { notFound: true };
     const column = kind === 'teacher' ? 'teachers' : 'students';
     const arr = session[column] || [];
@@ -763,7 +918,7 @@ async function removePair(id, kind, uid, actor, version) {
         );
     }
     const next = arr.filter(p => String(p.uid) !== String(uid));
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions
             SET ${column} = $1::jsonb, version = version + 1,
                 updated_at = CURRENT_TIMESTAMP, updated_by = $2
@@ -773,7 +928,7 @@ async function removePair(id, kind, uid, actor, version) {
     );
     if (r.rowCount === 0) throw new VersionConflictError();
     // 移除后 pair 就不在表里了，这条审计是它存在过的唯一记录
-    await writeChangeLog(null, {
+    await writeChangeLog(tx, {
         sessionId: id,
         action: CHANGE_ACTIONS.PAIR_REMOVE,
         pairKind: kind,
@@ -804,15 +959,16 @@ async function removePair(id, kind, uid, actor, version) {
  * - 白名单裁剪照旧（applyPairPatch / buildTeacherPair）。
  * 返回 { session, rejectedFields }；pair 定位失败抛 SessionValidationError。
  */
-async function updatePairsBatch(id, body, actor, version, prev) {
-    // 动手前先整体扫一遍钱键：下面逐 pair 发 UPDATE、没有外层事务，等走到第 N 个 pair
-    // 才让 patchPair 抛错的话，前 N-1 个已经写进库了。
+async function updatePairsBatch(id, body, actor, version, prev, tx = null) {
+    const q = pickQ(tx);
+    // 动手前先整体扫一遍钱键：下面逐 pair 发 UPDATE，非事务调用时没有「整批同生共死」，
+    // 等走到第 N 个 pair 才让 patchPair 抛错的话，前 N-1 个已经写进库了。
     // 只扫带 uid 的项 —— 不带 uid 是新增 pair（新的一趟），那时还不存在逐学生格子，允许带一笔整趟费用。
     (Array.isArray(body && body.teachers) ? body.teachers : [])
         .filter(item => item && item.uid != null)
         .forEach(assertNoFeeFields);
 
-    let session = prev || await getSessionById(id);
+    let session = prev || await getSessionById(id, q);
     if (!session) return { notFound: true };
     let cur = session;
     let curVersion = version !== undefined ? Number(version) : Number(session.version);
@@ -834,7 +990,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
             if (item.teacher_comment !== undefined) patch.teacher_comment = item.teacher_comment;
             // 费用键不在这里：改一趟里哪位学生的钱走费用接口（见文件头 PAIR_WRITE_WHITELIST）
             if (Object.keys(patch).length > 0) {
-                const r = await patchPair(id, 'teacher', uid, patch, actor, curVersion, cur);
+                const r = await patchPair(id, 'teacher', uid, patch, actor, curVersion, cur, q);
                 if (r.notFound) throw new SessionValidationError('对不上库里的 teacher uid');
                 rejectedFields.push(...(r.rejectedFields || []));
                 cur = r.session;
@@ -844,12 +1000,12 @@ async function updatePairsBatch(id, body, actor, version, prev) {
                 const pair = cur.teachers.find(p => String(p.uid) === String(uid));
                 const wasAdjusted = pair && pair.status.startsWith('adjusted.');
                 if (item.lifecycle === 'modified_away' && pair && !pair.status.endsWith('.modified_away') && !wasAdjusted) {
-                    const r = await adjustTeacherPair(id, uid, { type_id: item.type_id }, actor, curVersion, cur);
+                    const r = await adjustTeacherPair(id, uid, { type_id: item.type_id }, actor, curVersion, cur, { tx: q });
                     if (r.notFound) throw new SessionValidationError('对不上库里的 teacher uid');
                     cur = r.session;
                     curVersion = Number(cur.version);
                 } else {
-                    const r = await setTeacherStatus(id, uid, item.lifecycle, actor, null, cur);
+                    const r = await setTeacherStatus(id, uid, item.lifecycle, actor, null, cur, q);
                     if (!r.updated) throw new SessionValidationError('对不上库里的 teacher uid');
                     cur = r.session;
                     curVersion = Number(cur.version);
@@ -857,7 +1013,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
             }
             return;
         }
-        const r = await addPair(id, 'teacher', item, actor, curVersion);
+        const r = await addPair(id, 'teacher', item, actor, curVersion, q, cur);
         if (r.notFound) throw new SessionValidationError('对不上场次');
         cur = r.session;
         curVersion = Number(cur.version);
@@ -872,7 +1028,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
             if (item.student_rating !== undefined) patch.student_rating = item.student_rating;
             if (item.student_comment !== undefined) patch.student_comment = item.student_comment;
             if (Object.keys(patch).length > 0) {
-                const r = await patchPair(id, 'student', uid, patch, actor, curVersion, cur);
+                const r = await patchPair(id, 'student', uid, patch, actor, curVersion, cur, q);
                 if (r.notFound) throw new SessionValidationError('对不上库里的 student uid');
                 rejectedFields.push(...(r.rejectedFields || []));
                 cur = r.session;
@@ -880,7 +1036,7 @@ async function updatePairsBatch(id, body, actor, version, prev) {
             }
             return;
         }
-        const r = await addPair(id, 'student', item, actor, curVersion);
+        const r = await addPair(id, 'student', item, actor, curVersion, q, cur);
         if (r.notFound) throw new SessionValidationError('对不上场次');
         cur = r.session;
         curVersion = Number(cur.version);
@@ -945,28 +1101,43 @@ const deleteLogEntry = (row, actor) => ({
  * adjusted 这个类别位**只有这条路径能写**，它替代旧表的 adjustment_type=2 溯源标记。
  * 追加后数组里出现同一 teacher_id 的两个 pair —— 合法，因为活跃唯一性只看活跃 pair，
  * 原 pair 已是 modified_away（现网那 4 组历史数据正是这个形状）。
+ *
+ * `detach: true` 时只归档、**不追加**：用于「只把某一位教师挪到另一个时段」——
+ * 增补记录由调用方建到新场次，原场次里不再留一条活跃 pair，
+ * 否则同一位教师会同时占着旧时段和新时段（日历两格、统计多算一场）。
+ * 第二参数还可以带 `teacher_id`：调整时换人（增补 pair 记在新教师名下）。
  */
-async function adjustTeacherPair(id, uid, { type_id }, actor, version, prev, { skipTypeAssert = false } = {}) {
-    const session = prev || await getSessionById(id);
+async function adjustTeacherPair(id, uid, { type_id, teacher_id }, actor, version, prev, { skipTypeAssert = false, detach = false, tx = null } = {}) {
+    const q = pickQ(tx);
+    const session = prev || await getSessionById(id, q);
     if (!session) return { notFound: true };
     const arr = session.teachers || [];
     const origin = findPair(arr, uid);
     if (!origin) return { notFound: true };
     const newTypeId = intOrNull(type_id) ?? origin.type_id;
-    // 调用方已批量校验过 type_id 存在性时可跳过（confirm_operation 循环内多次调用同一 type_id）
-    if (!skipTypeAssert) await assertReferences({ typeIds: [newTypeId] });
+    const newTeacherId = intOrNull(teacher_id) ?? origin.teacher_id;
+    // 调用方已批量校验过存在性时可跳过（confirm_operation 循环内多次调用同一批 id）
+    if (!skipTypeAssert) {
+        // 只有真的换人才需要复查教师；单纯改课程类型不必把原教师再查一遍（少一次往返）
+        await assertReferences(teacher_id != null
+            ? { teacherIds: [newTeacherId], typeIds: [newTypeId] }
+            : { typeIds: [newTypeId] }, q);
+    }
 
     const actorId = actor && actor.id ? Number(actor.id) : null;
     const movedAway = `${splitStatus(origin.status).category}.modified_away`;
     const next = arr.map(p => (String(p.uid) === String(uid) ? { ...p, status: movedAway } : p));
-    const added = buildTeacherPair(
-        { teacher_id: origin.teacher_id, type_id: newTypeId, lifecycle: 'pending' },
-        nextUid(next, 't'), actorId
-    );
-    added.status = 'adjusted.pending';
-    next.push(added);
+    let added = null;
+    if (!detach) {
+        added = buildTeacherPair(
+            { teacher_id: newTeacherId, type_id: newTypeId, lifecycle: 'pending' },
+            nextUid(next, 't'), actorId
+        );
+        added.status = 'adjusted.pending';
+        next.push(added);
+    }
 
-    const r = await db.query(
+    const r = await q(
         `UPDATE course_sessions
             SET teachers = $1::jsonb, version = version + 1,
                 updated_at = CURRENT_TIMESTAMP, updated_by = $2
@@ -976,29 +1147,39 @@ async function adjustTeacherPair(id, uid, { type_id }, actor, version, prev, { s
     );
     if (r.rowCount === 0) throw new VersionConflictError();
 
-    await writeStatusLogs(null, [
+    await writeStatusLogs(tx, [
         {
             sessionId: id, teacherUid: uid, oldStatus: origin.status, newStatus: movedAway,
-            operatorId: actorId, actorType: actor && actor.actorType, note: '作废+增补：原课调走'
+            operatorId: actorId, actorType: actor && actor.actorType,
+            note: detach ? '作废+挪场：原课调走' : '作废+增补：原课调走'
         },
-        {
+        ...(added ? [{
             sessionId: id, teacherUid: added.uid, oldStatus: null, newStatus: added.status,
             operatorId: actorId, actorType: actor && actor.actorType, note: '作废+增补：新增增补课'
-        }
+        }] : [])
     ]);
     // 这条流程会往数组里加一个 pair，所以结构变更同样进 change_logs，
     // 让「这一场的 pair 是怎么变成今天这样的」在一张表里读得完整。
-    await writeChangeLog(null, {
+    // detach 时没有新增 pair，只留一条「这一对被归档」的痕迹（增补落在哪个新场次由那一场自己的审计记）。
+    await writeChangeLog(tx, {
         sessionId: id,
-        action: CHANGE_ACTIONS.PAIR_ADD,
+        action: added ? CHANGE_ACTIONS.PAIR_ADD : CHANGE_ACTIONS.PAIR_PATCH,
         pairKind: 'teacher',
-        pairUid: added.uid,
-        changes: { added: pairDigest(added), moved_away: pairDigest({ ...origin, status: movedAway }) },
+        pairUid: uid,
+        changes: added
+            ? { added: pairDigest(added), moved_away: pairDigest({ ...origin, status: movedAway }) }
+            : { status: { from: origin.status, to: movedAway }, moved_to_new_session: true },
         operatorId: actorId,
         actorType: actor && actor.actorType,
-        note: '作废+增补'
+        note: detach ? '作废+挪场' : '作废+增补'
     });
-    return { session: r.rows[0], movedUid: uid, addedUid: added.uid };
+    return {
+        session: r.rows[0],
+        movedUid: uid,
+        addedUid: added ? added.uid : null,
+        // 挪场时调用方要用它建新场次（教师与类型都在这条 pair 上，只是换个时段上课）
+        detached: detach ? { teacher_id: newTeacherId, type_id: newTypeId } : null
+    };
 }
 
 /**
@@ -1009,14 +1190,19 @@ async function adjustTeacherPair(id, uid, { type_id }, actor, version, prev, { s
  * @param {'teacher'|'student'} kind
  * @returns {{ affectedSessions:number, deletedSessions:number }} 供删除确认弹窗如实提示 N/M
  */
-async function removeUserFromAllSessions(userId, kind, actor) {
+async function removeUserFromAllSessions(userId, kind, actor, tx = null) {
+    // 这个清理要在 user-service 的「删用户」事务里跑：读、批量 UPDATE、DELETE、审计四条语句必须
+    // 落在同一个连接上，否则外层回滚时课程里的引用已经被清掉、用户却还在（原来就是这个洞）
+    const q = pickQ(tx);
     const uid = Number(userId);
     const column = kind === 'teacher' ? 'teachers' : 'students';
     const idsColumn = kind === 'teacher' ? 'teacher_ids' : 'student_ids';
     const idKey = kind === 'teacher' ? 'teacher_id' : 'student_id';
 
-    const r = await db.query(
-        `SELECT id, ${column} AS pairs FROM course_sessions WHERE ${idsColumn} @> ARRAY[$1::int]`,
+    const r = await q(
+        // FOR UPDATE + ORDER BY id：整列写是读-改-写，不锁住就会覆盖同时发生的另一位编辑
+        // （审查报告 P1-13 的同族问题，P3-6）；固定加锁顺序避免两个清理互相死锁。
+        `SELECT id, ${column} AS pairs FROM course_sessions WHERE ${idsColumn} @> ARRAY[$1::int] ORDER BY id FOR UPDATE`,
         [uid]
     );
     const rows = r.rows || [];
@@ -1053,7 +1239,7 @@ async function removeUserFromAllSessions(userId, kind, actor) {
             const n = params.length;
             return `($${n - 1}::int, $${n}::jsonb)`;
         });
-        await db.query(
+        await q(
             `UPDATE course_sessions cs
                 SET ${column} = v.pairs, version = cs.version + 1, updated_at = CURRENT_TIMESTAMP
                FROM (VALUES ${valueRows.join(', ')}) AS v(id, pairs)
@@ -1062,10 +1248,10 @@ async function removeUserFromAllSessions(userId, kind, actor) {
         );
     }
     if (toDelete.length) {
-        await db.query('DELETE FROM course_sessions WHERE id = ANY($1::int[])', [toDelete]);
+        await q('DELETE FROM course_sessions WHERE id = ANY($1::int[])', [toDelete]);
     }
     // 一次多行插入：批量清理只多付一次往返，不随场次数线性增长
-    await writeChangeLogs(null, logs);
+    await writeChangeLogs(tx, logs);
     return { affectedSessions: affected, deletedSessions: toDelete.length };
 }
 
@@ -1074,9 +1260,18 @@ async function countUserImpact(userId, kind) {
     const uid = Number(userId);
     const column = kind === 'teacher' ? 'teachers' : 'students';
     const idsColumn = kind === 'teacher' ? 'teacher_ids' : 'student_ids';
+    const idKey = kind === 'teacher' ? 'teacher_id' : 'student_id';
+
+    // 「整场会被删除」的判据必须与 removeUserFromAllSessions 的 `next.length === 0` 同源。
+    // 以前这里写的是 `jsonb_array_length(column) = 1`（审查报告 P3-4）：同一场里同一个人
+    // 出现两次（例如一位老师带两个不同类型 pair）时长度是 2，确认框说「只移除不删场」，
+    // 实际删除时两个 pair 都被滤掉 → 整场消失。现在按「滤掉这个人的 pair 之后还剩几个」数。
     const r = await db.query(
         `SELECT count(*)::int AS total,
-                count(*) FILTER (WHERE jsonb_array_length(${column}) = 1)::int AS whole
+                count(*) FILTER (WHERE (
+                    SELECT count(*) FROM jsonb_array_elements(${column}) e
+                     WHERE (e->>'${idKey}')::int IS DISTINCT FROM $1
+                ) = 0)::int AS whole
            FROM course_sessions WHERE ${idsColumn} @> ARRAY[$1::int]`,
         [uid]
     );
@@ -1117,14 +1312,15 @@ async function renameUserInAllSessions(userId, newId, kind, tx = null) {
         const r = await q(
             `SELECT id, teachers, students FROM course_sessions
               WHERE jsonb_path_exists(teachers, $1, $2::jsonb)
-                 OR jsonb_path_exists(students, $1, $2::jsonb)`,
+                 OR jsonb_path_exists(students, $1, $2::jsonb)
+              ORDER BY id FOR UPDATE`,
             [ADMIN_CREATED_BY_PATH, JSON.stringify({ n: uid, s: String(uid) })]
         );
         rows = r.rows || [];
     } else {
         const idsColumn = kind === 'teacher' ? 'teacher_ids' : 'student_ids';
         const r = await q(
-            `SELECT id, teachers, students FROM course_sessions WHERE ${idsColumn} @> ARRAY[$1::int]`,
+            `SELECT id, teachers, students FROM course_sessions WHERE ${idsColumn} @> ARRAY[$1::int] ORDER BY id FOR UPDATE`,
             [uid]
         );
         rows = r.rows || [];
@@ -1191,6 +1387,12 @@ module.exports = {
     lifecyclePathPredicate,
     statusPathPredicate,
     isActive,
+    // SQL 片段生成器（禁止各处手写 status 谓词；两种口径不等价）
+    sqlActivePair,
+    sqlActivePairJsonb,
+    sqlActiveTeacherPairJsonb,
+    sqlNotMovedAway,
+    sqlStudentSwapped,
     // 读
     getSessionById,
     countUserImpact,
@@ -1201,7 +1403,6 @@ module.exports = {
     updatePairsBatch,
     setTeacherStatus,
     cancelSession,
-    cancelPair,
     patchPair,
     addPair,
     removePair,
@@ -1212,6 +1413,8 @@ module.exports = {
     renameUserInAllSessions,
     // 供单测与控制器复用
     assertNoFeeFields,
+    resolveAuditActorId,
+    primeAuditAttributionCapability,
     applyPairPatch,
     buildTeacherPair,
     buildStudentPair,

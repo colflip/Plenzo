@@ -16,6 +16,7 @@ const { handleExportError, ExportError } = require('../middleware/export-error-h
 const { standardResponse } = require('../middleware/validation');
 const { validateDateFormat, getTimestamp, resolveUserName } = require('../utils/shared-utils');
 const ExportUtils = require('../utils/export-utils');
+const { EXPORT_LIMITS } = require('../services/export/export-constants');
 
 const exportController = {
     /**
@@ -51,20 +52,57 @@ const exportController = {
             if (!validateDateFormat(startDate) || !validateDateFormat(endDate)) {
                 throw new ExportError('日期格式无效，请使用 YYYY-MM-DD 格式', 400, 'EXPORT_INVALID_DATE');
             }
+            /**
+             * 跨度上限必须在查询之前判。sheet-builder 只限制**输入行数**（20000），
+             * 不限制「按天铺开的日历行数」，而导出查询本身没有 LIMIT：
+             * 一条数据 + 200 年跨度 ≈ 7.3 万个明细对象 + 全量缓冲的工作簿。
+             * 这条规则原先写在 ExportUtils.validateDateRange 里，但那个包装没有调用者。
+             */
+            try {
+                ExportUtils.validateDateRange(startDate, endDate, EXPORT_LIMITS.MAX_DATE_RANGE_DAYS);
+            } catch (rangeErr) {
+                throw new ExportError(rangeErr.message, 400, 'EXPORT_INVALID_DATE');
+            }
 
             // ===== 3. 角色权限收敛 =====
             let teacherId = null;
             let studentId = null;
             let studentIds = null;   // 班主任导出：绑定学生 ID 范围
             let logUserType = userType;
-            let exportType = reqExportType;
+
+            /**
+             * exportType 决定走哪一条查询分支，因此它**不能由请求体决定「能看到谁的数据」**。
+             * 原实现只在客户端「没给」时填默认值（`if (!exportType) …`），给了就原样采纳，
+             * 于是教师传 exportType=student_schedule 且不传 studentId 时，会落到
+             * queryStudentSchedule 的「student_id 为空 → 不加任何归属谓词」分支，
+             * 而 applyOwnerScope 对非管理员是空操作 → 拿到全系统学生的课表与费用。
+             * 允许集合与前端 export-dialog.js 的类型可见性过滤（:943-952）保持一致。
+             */
+            const EXPORT_TYPES_BY_ROLE = {
+                admin: ['teacher_schedule', 'teacher_homeroom', 'student_schedule', 'schedule_data'],
+                teacher: ['teacher_schedule', 'teacher_homeroom'],
+                student: ['student_schedule']
+            };
+            const allowedExportTypes = EXPORT_TYPES_BY_ROLE[userType] || [];
+            if (reqExportType && !allowedExportTypes.includes(reqExportType)) {
+                throw new ExportError(
+                    `当前角色无权导出 ${reqExportType} 类型的数据`,
+                    403,
+                    'EXPORT_TYPE_FORBIDDEN'
+                );
+            }
+            // 缺省：学生只能拿自己的，其余按教师自身授课记录；管理员沿用原默认
+            const DEFAULT_EXPORT_TYPE = {
+                admin: 'teacher_schedule',
+                teacher: 'teacher_schedule',
+                student: 'student_schedule'
+            };
+            const exportType = reqExportType || DEFAULT_EXPORT_TYPE[userType] || 'teacher_schedule';
 
             switch (userType) {
                 case 'admin':
                     teacherId = reqTeacherId ? parseInt(reqTeacherId) : null;
                     studentId = reqStudentId ? parseInt(reqStudentId) : null;
-                    // admin 默认导出 teacher_schedule
-                    if (!exportType) exportType = 'teacher_schedule';
                     break;
 
                 case 'teacher':
@@ -98,13 +136,11 @@ const exportController = {
                             // 教师可导出与其有排课记录的任意学生（不限于绑定列表）
                             studentId = parseInt(reqStudentId);
                         }
-                        if (!exportType) exportType = 'teacher_schedule';
                     }
                     break;
 
                 case 'student':
                     studentId = userId;
-                    if (!exportType) exportType = 'student_schedule';
                     break;
 
                 default:

@@ -77,7 +77,12 @@ async function updateFeedback(id, payload, req) {
     }
     const row = cur.rows[0];
     const isAdmin = user.userType === 'admin';
-    const isOwner = row.submitter_id && user.id && row.submitter_id === user.id;
+    // 归属判定必须同时看 id 与角色：号段互不相交只是**约定**（100-999 / 2000-2999 / 3000-3999），
+    // 而存量数据允许号段外的历史 id（user-service 的 assertValidId 注释即如此），
+    // 单靠 id 相等就可能让教师的反馈被同号的学生改掉（审查报告 P3-5）。
+    const isOwner = !!(row.submitter_id && user.id
+        && row.submitter_id === user.id
+        && row.submitter_role === user.userType);
     if (!isAdmin && !isOwner) {
         throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无权修改该反馈' });
     }
@@ -106,13 +111,16 @@ async function updateFeedback(id, payload, req) {
  */
 async function deleteFeedback(id, req) {
     const user = (req && req.user) || {};
-    const cur = await db.query('SELECT submitter_id FROM feedbacks WHERE id = $1', [id]);
+    const cur = await db.query('SELECT submitter_id, submitter_role FROM feedbacks WHERE id = $1', [id]);
     if (!cur.rows.length) {
         throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '反馈不存在' });
     }
-    const ownerId = cur.rows[0].submitter_id;
+    const row = cur.rows[0];
     const isAdmin = user.userType === 'admin';
-    const isOwner = ownerId && user.id && ownerId === user.id;
+    // 与 updateFeedback 同一条归属判据：id 相等还不够，角色也要一致（号段只是约定，存量有号段外 id）
+    const isOwner = !!(row.submitter_id && user.id
+        && row.submitter_id === user.id
+        && row.submitter_role === user.userType);
     if (!isAdmin && !isOwner) {
         throw new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '无权删除该反馈' });
     }

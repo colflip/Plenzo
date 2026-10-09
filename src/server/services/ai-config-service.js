@@ -55,30 +55,39 @@ class AIConfigService {
 
     /**
      * 更新 AI 配置（PUT /api/ai/config，持久化到数据库跨实例生效）
+     *
+     * 这里必须与 `/check`、`/test` 用同一套解析（`_buildProbeConfig`）：
+     * 带 `presetId` 时 provider/protocol/apiKey/baseUrl **整套取环境预设**，
+     * 客户端 `baseUrl` 一律忽略。否则任何调用者都能「只换密钥不换地址」，
+     * 把一把真实凭证指向自己的公网主机 —— 等于把密钥送出去，出站护栏挡不住
+     * 这种「地址本身合法」的外传。不带 preset 时（本机自定义端点）地址过护栏。
      */
     async updateConfig(req) {
-        const { provider, protocol, apiKey, baseUrl, model, timeout, maxTokens, presetId } = req.body;
+        const { timeout, maxTokens } = req.body || {};
+        const probe = this._buildProbeConfig({
+            ...req.body,
+            timeout: timeout || 30000,
+            maxTokens: maxTokens || undefined
+        });
 
-        // 如果是预设模型切换，从环境变量获取真实的 API Key
-        let realApiKey = apiKey;
-        if (presetId) {
-            const presets = getPresetModels(true); // 包含真实 API Key
-            const preset = presets.find(p => p.id === presetId);
-            if (preset) {
-                realApiKey = preset.apiKey;
-            }
+        if (!probe.config) {
+            throw new AppError(probe.error || '缺少必要的配置参数', 400);
         }
 
-        if (!provider || !realApiKey || !baseUrl || !model) {
-            throw new AppError('缺少必要的配置参数', 400);
+        if (!probe.fromPreset) {
+            await assertSafeBaseUrl(probe.config.baseUrl).catch(err => {
+                throw new AppError(err.message, err.status || 400);
+            });
         }
+
+        const { provider, protocol, apiKey, baseUrl, model } = probe.config;
 
         // 使用配置管理器更新配置（持久化到数据库，跨实例立即生效，无需重启）
         try {
             await aiConfigManager.updateAIConfig({
                 provider,
-                protocol: protocol || 'openai',
-                apiKey: realApiKey,
+                protocol,
+                apiKey,
                 baseUrl,
                 model,
                 timeout: timeout || 30000,

@@ -34,6 +34,7 @@ const db = require('./db/db');
 const { successResponse } = require('./utils/response');
 const { auditScheduleTypes } = require('./utils/schedule-type-audit');
 const aiOperationStore = require('./services/ai-operation-store');
+const { primeAuditAttributionCapability } = require('./services/course-session-service');
 const { AppError } = require('./middleware/error');
 
 const app = express();
@@ -48,7 +49,6 @@ app.set('trust proxy', 1);
 app.set('etag', false);
 
 const isProduction = process.env.NODE_ENV === 'production';
-const isDevelopment = process.env.NODE_ENV === 'development';
 
 // P0 安全检查：生产环境拒绝使用默认/缺失 JWT 密钥。
 // 直接复用 auth.js 的单一来源校验（getJwtSecret 在生产环境弱/缺失密钥时抛出）。
@@ -82,8 +82,9 @@ if (process.env.NODE_ENV !== 'test') {
     const morganFormat = isProduction ? 'combined' : 'dev';
     app.use(morgan(morganFormat, {
         skip: (req, res) => {
-            // 跳过健康检查
-            if (req.path === '/api/health' && res.statusCode === 200) return true;
+            // 跳过健康检查。注意路由是 /api/health/、/api/health/live、/api/health/db，
+            // 原来写成 === '/api/health' 一次也匹配不上，探针照常进访问日志（P3-13）
+            if (req.path.startsWith('/api/health') && res.statusCode === 200) return true;
             // 开发环境跳过静态资源请求（css/js/svg/png/jpg/fonts/well-known）
             if (!isProduction) {
                 const p = req.path;
@@ -111,12 +112,40 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 // 而不向前端吐出无法识别的畸形 JSON。必须先于限流与路由装载。
 app.use(responseEnvelope);
 
+/*
+ * 登录页与 404 页也走版本化注入。
+ * 它们原本只由 express.static 直接发出：HTML 里的 <script src="/js/…"> 拿不到 ?v=，
+ * 而静态目录的 maxAge:'1d' 会让「部署后首页仍跑旧模块」；三个仪表盘都由下面的
+ * sendVersionedDashboard 处理，只剩这两个例外（审查报告 P2-20）。
+ */
+const PUBLIC_VERSIONED_PAGES = {
+    '/': path.join(__dirname, '../../public/index.html'),
+    '/index.html': path.join(__dirname, '../../public/index.html'),
+    '/404.html': path.join(__dirname, '../../public/404.html')
+};
+for (const [routePath, filePath] of Object.entries(PUBLIC_VERSIONED_PAGES)) {
+    app.get(routePath, async (req, res, next) => {
+        try {
+            await sendVersionedDashboard(res, filePath);
+        } catch (err) {
+            logger.error('[static] 版本化服务失败，回退静态文件:', err && err.message);
+            next();
+        }
+    });
+}
+
+
 app.use(express.static(path.join(__dirname, '../../public'), {
     maxAge: isProduction ? '1d' : '0',
     etag: true,
     setHeaders(res, filePath) {
         // 仪表盘 HTML 与其 CSS/JS 都使用 ETag 重验证，避免生产环境一天强缓存
         // 让部署后的按钮样式和 ESM 子模块继续停留在旧版本。
+        //
+        // 这条必须与 vercel.json 里 /js/(.*)、/css/(.*) 的 Cache-Control 保持一致：
+        // Vercel 上静态文件走的是它的改写规则、不经过这里，两边一旦不一致就由
+        // Vercel 的 24h 胜出 —— 那时唯一还生效的刷新手段就只剩 entry.js 里手钉的
+        // ?v=…（而那串不会随部署变化）。统一为 no-cache 后，?v= 只是第二道保险。
         if (/\.(?:html|css|js)$/i.test(filePath)) {
             res.setHeader('Cache-Control', 'no-cache');
         }
@@ -246,41 +275,20 @@ app.get(['/teacher/dashboard', '/teacher/dashboard.html', '/teacher/'], (req, re
 // 隐藏酬劳彩蛋：点击"数据统计"标题 5 次后跳转的 JSON 页（直接返回 JSON，无 HTML）。
 // 同站直接导航会自动携带 httpOnly Cookie 中的 JWT，故不再接受 URL 中的 token，
 // 避免 token 经 Referer / 访问日志泄露（P2 调试路由修复）。无有效 token 时优雅降级为空数据 JSON。
-const jwt = require('jsonwebtoken');
 const rewardCalc = require('./services/reward-calc');
-
-/**
- * 从请求中提取 JWT：优先 httpOnly Cookie（同站导航自动携带），兜底 Authorization 头。
- */
-function getTokenFromRequest(req) {
-    const cookieHeader = req.headers.cookie;
-    if (cookieHeader) {
-        const pair = cookieHeader.split(';').map(s => s.trim()).find(s => s.startsWith('token='));
-        if (pair) {
-            try { return decodeURIComponent(pair.slice('token='.length)); } catch (_) { /* ignore */ }
-        }
-    }
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-        const parts = authHeader.split(' ');
-        if (parts.length === 2 && /^[Bb]earer$/i.test(parts[0])) return parts[1];
-    }
-    return null;
-}
+// 令牌提取与验签一律走 middleware/auth 的唯一实现：本文件原先自己抄了一份
+// jwt.verify，既不固定算法，也**不比对 TOKEN_EPOCH** —— 于是「用户 ID 重编后旧 token 全废」
+// 这个开关在本路由上根本不生效，而重编后旧 token 里的 id 可能已归属另一位教师。
+const { verifyToken, getTokenFromRequest } = require('./middleware/auth');
 
 app.get('/teacher/dashboard/teaching-display/goodluck', async (req, res, next) => {
     const { start, end } = req.query;
-    const raw = getTokenFromRequest(req);
-    let user = null;
-    if (raw) {
-        try {
-            const secret = process.env.JWT_SECRET || (isDevelopment ? 'dev-insecure-secret' : null);
-            if (secret) user = jwt.verify(raw, secret);
-        } catch (_) { user = null; }
-    }
     // 契约：未登录 / 非教师 / 数据失败一律明确拒绝，绝不回退空数据（防信息泄露与静默降级）
-    if (!user) {
-        return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '需要登录后访问' }));
+    let user;
+    try {
+        user = verifyToken(getTokenFromRequest(req));
+    } catch (err) {
+        return next(err);   // 401 + 具体 code（AUTH_EXPIRED / SESSION_EPOCH_MISMATCH…）
     }
     if (user.userType !== 'teacher') {
         return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '仅教师可访问本页面' }));
@@ -362,6 +370,10 @@ async function bootstrapDatabase() {
 
     try {
         await runDatabaseMigrations();
+        // 迁移之后再探测「班主任归属 id 能不能写」：v5 去掉那两个只认 administrators 的
+        // 外键之前，resolveAuditActorId 对非管理员一律返回 NULL（fail closed）。
+        // 放在这里而不是每次写入查一遍，是为了让请求路径不碰 schema_migrations。
+        await primeAuditAttributionCapability();
         // 迁移成功后才启动清理：表存在是前提，否则清理会刷 relation does not exist。
         // 注意它默认不自循环（原因见 ai-operation-store.js 里 SWEEP_INTERVAL_MS 的说明），
         // 这里的调用只是为了保留排障时启回自循环的开关。

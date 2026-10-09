@@ -32,6 +32,9 @@ const CAPABILITIES = {
     'settings:schedule-types:read': PERMISSION_LEVELS.OPERATOR,
     'settings:schedule-types:write': PERMISSION_LEVELS.SUPER_ADMIN,
     'settings:holidays:write': PERMISSION_LEVELS.SUPER_ADMIN,
+    // AI 全局配置（provider/baseUrl/key）是**全系统共用**的单行配置：
+    // 写入即改变所有用户 AI 请求的目标地址与所带凭证，故按系统设置写对待，仅 L1。
+    'settings:ai:write': PERMISSION_LEVELS.SUPER_ADMIN,
     // 反馈：提交不设门禁（任何登录用户）；修改/删除/状态变更仅 L1
     'feedback:update': PERMISSION_LEVELS.SUPER_ADMIN,
     // 手动触发定时任务
@@ -68,7 +71,15 @@ const SENSITIVITY_MAX_LEVEL = {
     sensitive: PERMISSION_LEVELS.SUPER_ADMIN
 };
 
-/** 归一化操作者权限级别（缺省视为最低档 L3，安全取向） */
+/**
+ * 归一化操作者权限级别（缺省视为最低档 L3，安全取向）。
+ *
+ * P3-7：这不是 bug 的修法，只是读侧兜底。真正的成因在注册路径 —— 它以前会把
+ * `permission_level` 整个丢掉，于是新建的管理员落到 NULL，再被这里折成 L3，
+ * 表现为「明明是管理员却用不了账号管理与系统设置」。现在注册显式写级别
+ * （见 `auth-controller.register` → `user-service.createUser`），这里的兜底只服务
+ * 历史存量行与缺列的异常载荷。
+ */
 function getActorLevel(user) {
     const lvl = parseInt(user && user.permissionLevel, 10);
     return Number.isInteger(lvl) && lvl >= 1 && lvl <= 3 ? lvl : PERMISSION_LEVELS.OPERATOR;
