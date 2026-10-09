@@ -9,6 +9,8 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOrAdmin, anyAuthenticated, adminOnly } = require('../middleware/role');
+const { requireCapability } = require('../utils/admin-permissions');
+const { createRateLimitHandler } = require('../middleware/rate-limit');
 const aiController = require('../controllers/ai-controller');
 const {
     validate,
@@ -22,29 +24,29 @@ const {
 /**
  * AI 专用速率限制
  */
+// 必须走 createRateLimitHandler：它输出统一信封。
+// 原来这里塞的是裸对象 { success:false, message } —— 非信封载荷会撞上
+// middleware/response-envelope.js 的护栏（它对流出的 JSON 做 isEnvelope 校验并抛错），
+// 于是限流命中回的是 500，而 docs/api.md:45 承诺的是 429（审查报告 P2-14）。
+const AI_QUERY_MAX = parseInt(process.env.AI_RATE_LIMIT_MAX, 10) || 100;
 const aiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 100,  // 不考虑成本，放宽限流
+    max: AI_QUERY_MAX,
     standardHeaders: true,
     legacyHeaders: false,
     validate: false,
-    message: {
-        success: false,
-        message: 'AI 请求过于频繁，请稍后再试'
-    }
+    handler: createRateLimitHandler(AI_QUERY_MAX)
 });
 
 // 状态检测专用限流：避免单客户端并发轰 provider 触发上游 429
+const AI_CHECK_MAX = parseInt(process.env.AI_CHECK_RATE_LIMIT_MAX, 10) || 30;
 const aiCheckLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 30,
+    max: AI_CHECK_MAX,
     standardHeaders: true,
     legacyHeaders: false,
     validate: false,
-    message: {
-        success: false,
-        message: 'AI 状态检测请求过于频繁，请稍后再试'
-    }
+    handler: createRateLimitHandler(AI_CHECK_MAX)
 });
 
 // AI 状态检查
@@ -56,8 +58,10 @@ router.get('/config', authMiddleware, teacherOrAdmin, aiController.getConfig);
 // 获取预设 AI 模型列表
 router.get('/presets', authMiddleware, teacherOrAdmin, aiController.getPresets);
 
-// 更新 AI 配置
-router.put('/config', authMiddleware, teacherOrAdmin, validate(aiConfigUpdateValidation), aiController.updateConfig);
+// 更新 AI 配置：写的是**全系统共用**的单行配置（provider/baseUrl/密钥），
+// 教师身份可写 = 可把平台真实凭证指向任意主机。收口到 L1 超级管理员。
+// 调用方只有管理端 ai-models-manager.js，教师/学生各自走 /my-model 系列。
+router.put('/config', authMiddleware, adminOnly, requireCapability('settings:ai:write'), validate(aiConfigUpdateValidation), aiController.updateConfig);
 
 // 检测 AI 模型状态（快速检测，只验证连接性）
 router.post('/check', authMiddleware, teacherOrAdmin, aiCheckLimiter, validate(aiConfigTestValidation), aiController.checkModel);

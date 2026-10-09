@@ -10,73 +10,11 @@ class ExportLogService {
         this.db = db;
     }
 
-    /**
-     * 确保表结构包含所需字段
-     * 兼容旧表结构，添加新字段
-     * 使用 Promise 缓存避免并发重复执行
-     */
-    async ensureSchema() {
-        // 使用类级别的 Promise 缓存，避免并发执行
-        if (!ExportLogService._schemaCheckPromise) {
-            ExportLogService._schemaCheckPromise = this._doEnsureSchema();
-        }
-        return ExportLogService._schemaCheckPromise;
-    }
+    // 表结构与扩展列的建表/加列语句已移到 db/migrations.js 的 legacy_migrations@v4 批次，
+    // 启动时执行一次。原来它们挂在 logExportStart 上、还与取数查询并发发出 ——
+    // 于是每个 serverless 实例的第一次导出都会对生产库施 DDL 并占着这个请求
+    // （11 个条件 ALTER + 2 个 CREATE INDEX，审查报告 P2-18）。
 
-    async _doEnsureSchema() {
-        try {
-            // 合并所有列检查为单次查询，减少 DB 往返（11 次 → 1 次）
-            await this.db.query(`
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'user_type') THEN
-                        ALTER TABLE export_logs ADD COLUMN user_type VARCHAR(50);
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'user_id') THEN
-                        ALTER TABLE export_logs ADD COLUMN user_id INTEGER;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'start_date') THEN
-                        ALTER TABLE export_logs ADD COLUMN start_date DATE;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'end_date') THEN
-                        ALTER TABLE export_logs ADD COLUMN end_date DATE;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'record_count') THEN
-                        ALTER TABLE export_logs ADD COLUMN record_count INTEGER;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'file_size') THEN
-                        ALTER TABLE export_logs ADD COLUMN file_size BIGINT;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'duration_ms') THEN
-                        ALTER TABLE export_logs ADD COLUMN duration_ms INTEGER;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'error_message') THEN
-                        ALTER TABLE export_logs ADD COLUMN error_message TEXT;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'student_id') THEN
-                        ALTER TABLE export_logs ADD COLUMN student_id INTEGER;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'teacher_id') THEN
-                        ALTER TABLE export_logs ADD COLUMN teacher_id INTEGER;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'export_logs' AND column_name = 'file_name') THEN
-                        ALTER TABLE export_logs ADD COLUMN file_name VARCHAR(255);
-                    END IF;
-                END $$;
-
-                CREATE INDEX IF NOT EXISTS idx_export_logs_user ON export_logs(user_id, user_type);
-                CREATE INDEX IF NOT EXISTS idx_export_logs_exported_at ON export_logs(exported_at);
-            `);
-
-        } catch (error) {
-            logger.warn('扩展导出日志表结构失败（非致命错误）:', error.message);
-        }
-    }
-
-    /**
-     * 记录导出开始
-     * @returns {number|null} logId - 日志ID，用于后续更新
-     */
     async logExportStart(details) {
         const {
             userId,
@@ -89,9 +27,6 @@ class ExportLogService {
         } = details;
 
         try {
-            // 确保表结构（使用类级别的 Promise 缓存）
-            await this.ensureSchema();
-
             const result = await this.db.query(`
                 INSERT INTO export_logs (
                     exported_by,

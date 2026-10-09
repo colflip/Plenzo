@@ -45,11 +45,11 @@ const scheduleController = {
 
     /**
      * @route POST /api/schedule/create
-     * @description 创建课程安排 (支持批量)
+     * @description 创建排课（与管理员端同一实现：一场课一行，教师/学生各是 pair 名册）
      */
     createSchedule: asyncHandler(async (req, res) => {
         // req.body 已通过 Joi 验证
-        const result = await scheduleService.createSchedule(req.body, req.user.id);
+        const result = await scheduleService.adminCreateSchedule(req);
         res.status(201).json(successResponse(result, { requestId: req.requestId }));
     }),
 
@@ -64,24 +64,35 @@ const scheduleController = {
 
     /**
      * @route POST /api/schedule/:id/confirm/teacher
-     * @description 教师确认课程
+     * @description 教师（含班主任代确认）确认课程
+     *
+     * 走的是教师端确认那一份实现。以前这里另写了一条「只有本人任课或管理员可确认」的判断，
+     * 于是同一个动作从两个入口进来权限不一样：班主任走 /api/teacher 能确认，走这条被 403。
      */
     confirmTeacher: asyncHandler(async (req, res) => {
-        const { id } = req.params;
-        const { teacher_uid: teacherUid } = req.body || {};
-        const result = await scheduleService.confirmSchedule(id, teacherUid, req.user.id, false);
-        res.json(successResponse({ message: '课程已确认', status: result.status }, { requestId: req.requestId }));
+        const result = await scheduleService.teacherUpdateScheduleStatus({
+            ...req,
+            body: { ...(req.body || {}), lifecycle: 'confirmed' }
+        });
+        res.json(successResponse({
+            message: '课程已确认',
+            status: result.schedule.status_code
+        }, { requestId: req.requestId }));
     }),
 
     /**
      * @route POST /api/schedule/:id/confirm/admin
-     * @description 管理员确认课程
+     * @description 管理员确认课程（与 /api/admin/schedules/:id/confirm 同一实现）
      */
     confirmAdmin: asyncHandler(async (req, res) => {
-        const { id } = req.params;
-        const { teacher_uid: teacherUid } = req.body || {};
-        const result = await scheduleService.confirmSchedule(id, teacherUid, req.user.id, true);
-        res.json(successResponse({ message: '课程已确认', status: result.status }, { requestId: req.requestId }));
+        const result = await scheduleService.adminConfirmSchedule({
+            ...req,
+            body: { ...(req.body || {}), adminConfirmed: true }
+        });
+        res.json(successResponse({
+            message: '课程已确认',
+            ...(result.schedule ? { status: result.schedule.status_code } : {})
+        }, { requestId: req.requestId }));
     })
 };
 

@@ -22,15 +22,16 @@ const HOLIDAY_COLUMNS = ['year', 'type', 'label', 'start_date', 'end_date'];
  * 远程库每条语句约 250ms，三年节假日 100-300 条，逐条写要 25-75 秒；
  * 合成一条后是一次往返。items 已由调用方过滤过必填字段。
  */
-async function insertHolidaysBatch(items) {
+async function insertHolidaysBatch(items, q = null) {
     if (items.length === 0) return;
+    const run = q || ((text, params) => db.query(text, params));
     const params = [];
     const tuples = items.map((it) => {
         params.push(it.year, it.type, it.label, it.start_date, it.end_date);
         const n = params.length;
         return `($${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, $${n})`;
     });
-    await db.query(
+    await run(
         `INSERT INTO holidays (year, type, label, start_date, end_date) VALUES ${tuples.join(', ')}`,
         params
     );
@@ -111,17 +112,31 @@ async function batchUpsertHolidays(items, req) {
     }
 
     const years = [...new Set(items.map((i) => i.year).filter(Boolean))];
-    if (years.length > 0) {
-        await db.query('DELETE FROM holidays WHERE year = ANY($1::int[])', [years]);
-    }
 
     const valid = items.filter(
         (it) => it.year && it.type && it.label && it.start_date && it.end_date
     );
-    await insertHolidaysBatch(valid);
+    if (valid.length === 0) {
+        throw new AppError({ code: 'BAD_REQUEST', statusCode: 400, message: '没有合法的节假日数据可写入' });
+    }
 
-    await recordAudit(req, { op: 'batch_sync_holidays', details: { years, count: items.length } });
-    return { count: items.length, years };
+    /**
+     * 先清空该年份、再写入 —— 两条必须在同一事务里。
+     * 分开跑时中途任何一次失败（脏行、连接被熔断打断）都会留下「那一年一条节假日都没有」
+     * 的库状态：排课页的节假日提醒就此静默失效，比不改还糟（审查报告 P2-4）。
+     * 不降级：allowDegraded 等于把原子性又还回去。
+     */
+    await db.runInTransaction(async (client, usePool) => {
+        const q = usePool ? db.query : client.query.bind(client);
+        if (years.length > 0) {
+            await q('DELETE FROM holidays WHERE year = ANY($1::int[])', [years]);
+        }
+        await insertHolidaysBatch(valid, q);
+    });
+
+    await recordAudit(req, { op: 'batch_sync_holidays', details: { years, count: valid.length } });
+    // 返回真实写入条数：报 items.length 会让界面把被丢弃的脏行也算成「已同步」
+    return { count: valid.length, years };
 }
 
 /**
@@ -190,8 +205,12 @@ async function syncHolidaysFromAPI(yearsInput, req, { fetcher = fetch } = {}) {
     }
 
     const syncedYears = [...new Set(items.map((i) => i.year))];
-    await db.query('DELETE FROM holidays WHERE year = ANY($1::int[])', [syncedYears]);
-    await insertHolidaysBatch(items);
+    // 与 batchUpsertHolidays 同理：清空与写入同事务，否则失败年份会连把旧数据一起丢掉
+    await db.runInTransaction(async (client, usePool) => {
+        const q = usePool ? db.query : client.query.bind(client);
+        await q('DELETE FROM holidays WHERE year = ANY($1::int[])', [syncedYears]);
+        await insertHolidaysBatch(items, q);
+    });
 
     await recordAudit(req, { op: 'sync_holidays_from_api', details: { years: syncedYears, count: items.length } });
 

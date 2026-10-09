@@ -311,9 +311,12 @@ async function createUser(payload, req) {
             delete rows[0].password;
         }
         createdUser = rows[0];
-        try {
-            await recordAudit(req, { op: 'create', entityType: userType, entityId: rows[0] && rows[0].id, details: { username, name, email, custom_id: id } });
-        } catch (_) { /* 审计失败不阻断 */ }
+        // 事务内：审计走同一条连接（q），失败原样上抛让事务回滚
+        await recordAudit(
+            req,
+            { op: 'create', entityType: userType, entityId: rows[0] && rows[0].id, details: { username, name, email, custom_id: id } },
+            q
+        );
     }, { allowDegraded: true });
 
     return createdUser;
@@ -609,16 +612,14 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
             const impact = await courseSessionService.countUserImpact(id, userType);
             await db.runInTransaction(async (client, usePool) => {
                 const q = usePool ? db.query : client.query.bind(client);
-                await courseSessionService.removeUserFromAllSessions(id, userType, { id: req.user && req.user.id, actorType: 'admin' });
+                await courseSessionService.removeUserFromAllSessions(id, userType, { id: req.user && req.user.id, actorType: 'admin' }, q);
                 await q(`DELETE FROM ${table} WHERE id = $1`, [id]);
                 // AI 模型偏好没有外键（user_id 是多态的），不手动清就会留下孤儿行
                 await aiUserModelStore.purgeUserModel(userType, id, q);
-                try {
-                    await recordAudit(req, {
-                        op: 'delete_cascade', entityType: userType, entityId: Number(id),
-                        details: { affectedSessions: impact.affectedSessions, deletedSessions: impact.deletedSessions }
-                    });
-                } catch (_) { /* 审计失败不阻断 */ }
+                await recordAudit(req, {
+                    op: 'delete_cascade', entityType: userType, entityId: Number(id),
+                    details: { affectedSessions: impact.affectedSessions, deletedSessions: impact.deletedSessions }
+                }, q);   // 同连接 + 不吞错：见 middleware/audit.js
             });   // 不降级：先剥离场次再删用户，半途中止会留下「课没了、人还在」的不一致状态
             return {
                 affectedSessions: impact.affectedSessions,

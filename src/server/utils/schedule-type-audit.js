@@ -12,7 +12,7 @@
 
 const db = require('../db/db');
 const logger = require('./logger');
-const TypeConversion = require('../../../public/js/utils/type-conversion');
+const TypeConversion = require('../domain/type-conversion');
 
 async function auditScheduleTypes() {
     const result = await db.query('SELECT id, name, description FROM schedule_types ORDER BY id');

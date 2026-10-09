@@ -3,6 +3,9 @@ const logger = require('../utils/logger.js');
 const db = require('./db');
 const { tableExists } = require('./table-utils');
 const { migrateCourseSessions, isApplied, markApplied } = require('./migrations-course-sessions');
+// 费用报销状态的唯一源在 utils/fee-status（写方、校验层、导出都吃它），这里只是拼 CHECK 文本
+const { FEE_STATUSES } = require('../utils/fee-status');
+const SQL_LIST = (values) => values.map(v => `'${v}'`).join(',');
 
 /**
  * 历史迁移批次的版本标记。**一个批次一个 key，批次一旦部署过就不要再往里追加语句**：
@@ -131,6 +134,135 @@ async function migrateAiStateTables() {
     }
 }
 
+/**
+ * 第四批：审计与导出日志两张表。
+ *
+ * 为什么单独成批：
+ * - `operation_logs` 生产实测（2026-10-08）**根本不存在**，而 `middleware/audit.js`
+ *   是「表不存在就静默忽略」—— 于是所有管理员写操作的审计都在空转，且没人知道。
+ *   建表之后 recordAudit 才真正有落点。
+ * - `export_logs` 的建表/加列语句原本在 `utils/export-log-service.js` 里，
+ *   跟着每一次导出请求执行（还和取数查询并发发出）：每个 serverless 实例的
+ *   **第一次导出都会对 Neon 施 DDL 并占着请求**（审查报告 P2-18）。挪到这里后
+ *   请求路径只 INSERT。
+ */
+const AUDIT_LOGS_SCHEMA_KEY = 'legacy_migrations@v4';
+
+async function migrateAuditAndExportLogs() {
+    try {
+        if (await isApplied(AUDIT_LOGS_SCHEMA_KEY)) return;
+
+        // operation_logs：列形状与 middleware/audit.js 顶部文档一致（它按这五列写入）
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.operation_logs (
+                id SERIAL PRIMARY KEY,
+                op VARCHAR(50),
+                entity_type VARCHAR(50),
+                entity_id INTEGER,
+                actor_id INTEGER,
+                details JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON public.operation_logs(created_at)`);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_operation_logs_actor ON public.operation_logs(actor_id, op)`);
+
+        // export_logs：建表 + 11 个可空扩展列（原样从 export-log-service 的请求路径搬来）
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.export_logs (
+                id SERIAL PRIMARY KEY,
+                exported_by INTEGER,
+                user_id INTEGER,
+                user_type VARCHAR(50),
+                export_type VARCHAR(50),
+                start_date DATE,
+                end_date DATE,
+                record_count INTEGER,
+                file_size BIGINT,
+                duration_ms INTEGER,
+                status VARCHAR(20) DEFAULT 'started',
+                error_message TEXT,
+                file_name VARCHAR(255),
+                student_id INTEGER,
+                teacher_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                exported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        // 2026-10-09 只读实测：生产那张表是**老 DDL** 建的（admin_id/admin_name/export_format/
+        // ip_address/user_agent 都在），但缺 exported_by 与 exported_at —— 而
+        // export-log-service.logExportStart 的 INSERT 同时写这两列，于是每条导出日志都在
+        // catch 里被 warn 掉（返回 null，后续 UPDATE 直接 no-op）。补列清单必须包含它们，
+        // 否则 CREATE TABLE IF NOT EXISTS 对已存在的表是空操作，审计会一直静默失败。
+        const EXPORT_LOG_COLUMNS = [
+            ['exported_by', 'INTEGER'], ['exported_at', 'TIMESTAMP'],
+            ['user_type', 'VARCHAR(50)'], ['user_id', 'INTEGER'], ['start_date', 'DATE'],
+            ['end_date', 'DATE'], ['record_count', 'INTEGER'], ['file_size', 'BIGINT'],
+            ['duration_ms', 'INTEGER'], ['error_message', 'TEXT'], ['student_id', 'INTEGER'],
+            ['teacher_id', 'INTEGER'], ['file_name', 'VARCHAR(255)']
+        ];
+        for (const [col, type] of EXPORT_LOG_COLUMNS) {
+            // IF NOT EXISTS 语义由 ADD COLUMN IF NOT EXISTS 保证，可安全重跑
+            await db.query(`ALTER TABLE public.export_logs ADD COLUMN IF NOT EXISTS ${col} ${type}`);
+        }
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_export_logs_user ON public.export_logs(user_id, user_type)`);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_export_logs_exported_at ON public.export_logs(exported_at)`);
+
+        await markApplied(AUDIT_LOGS_SCHEMA_KEY);
+        logger.log(`数据库迁移完成：${AUDIT_LOGS_SCHEMA_KEY}（operation_logs / export_logs）`);
+    } catch (error) {
+        logger.error('审计与导出日志表迁移失败:', db.describeError(error));
+    }
+}
+
+/**
+ * 第五批：去掉 course_sessions.created_by / updated_by 上只认 administrators 的外键。
+ *
+ * 前提与理由：审计归属放行**管理员或班主任**（`resolveAuditActorId`，普通教师与学生仍写 NULL），
+ * 而生产实测这两个列上挂着
+ *   course_sessions_created_by_fkey / course_sessions_updated_by_fkey
+ *     FOREIGN KEY (…) REFERENCES administrators(id) ON UPDATE CASCADE
+ * —— 教师 id（2000+）写进去就是 23503，被上层翻译成误导性的 400「外键约束冲突」。
+ * 三类账号 id 号段互不相交且长度可辨（实测 100–102 / 2000–2014 / 3000–3005），
+ * 单凭 id 即可判定归属人属于哪张表，因此不需要用外键来保证「指向谁」；
+ * 真正需要保证的是「这个人还存在」——教师/学生删除时本就会走
+ * removeUserFromAllSessions 清理 pair 引用，头部两列由 FK 保护的收益早已不存在。
+ */
+const AUDIT_FK_DROP_KEY = 'legacy_migrations@v5';
+
+async function dropSessionAuditForeignKeys() {
+    try {
+        if (await isApplied(AUDIT_FK_DROP_KEY)) return;
+
+        // 按实际存在的约束名删（不同环境可能是 _fkey 或 fk_ 前缀），不猜名字。
+        // 用显式 JOIN 取「约束覆盖的列名」—— conkey 是多列数组，不要拿子查询去拼它。
+        const found = await db.query(`
+            SELECT DISTINCT con.conname AS conname
+              FROM pg_constraint con
+              JOIN pg_attribute att
+                ON att.attrelid = con.conrelid
+               AND att.attnum = ANY(con.conkey)
+             WHERE con.conrelid = 'public.course_sessions'::regclass
+               AND con.contype = 'f'
+               AND con.confrelid = 'public.administrators'::regclass
+               AND att.attname IN ('created_by', 'updated_by')
+        `).catch(() => ({ rows: [] }));
+
+        const names = (found.rows || []).map(r => r.conname);
+        for (const name of names) {
+            const quoted = '"' + String(name).replace(/"/g, '') + '"';
+            await db.query(`ALTER TABLE public.course_sessions DROP CONSTRAINT IF EXISTS ${quoted}`);
+            logger.log(`[Migration] 已去掉 course_sessions.${name}（审计归属放行班主任）`);
+        }
+
+        await markApplied(AUDIT_FK_DROP_KEY);
+        logger.log(`数据库迁移完成：${AUDIT_FK_DROP_KEY}（去掉 ${names.length} 个归属外键）`);
+    } catch (error) {
+        logger.error('归属外键迁移失败:', db.describeError(error));
+    }
+}
+
 async function runDatabaseMigrations() {
     // course_sessions 先跑，并独占一个 try/catch。
     // 下面那一批历史迁移共用一个「记日志但不中断启动」的 catch，任何一条语句报错都会
@@ -149,6 +281,8 @@ async function runDatabaseMigrations() {
     await migrateLegacySchema();
     await migrateAiStateTables();
     await migrateAiUserModelScope();
+    await migrateAuditAndExportLogs();
+    await dropSessionAuditForeignKeys();
 }
 
 async function migrateLegacySchema() {
@@ -253,6 +387,10 @@ async function migrateLegacySchema() {
                 await db.query(`ALTER TABLE course_arrangement ALTER COLUMN other_fee DROP DEFAULT`);
                 logger.log('数据库迁移完成：transport_fee/other_fee 移除默认值（NULL=未填写，0=已填0）');
             }
+
+            // is_temp / family_participants 曾由 scripts/migrate.js 手工补过。生产实测
+            // （2026-10-08）course_arrangement 表已不存在、活代码除本块外无人引用它，
+            // 因此不再在此追加 DDL：整个 hasLegacyArrangement 块属待清理死码。
 
             // 检查是否需要添加 fee_audit_logs 表（schedule_id 外键指向 course_arrangement，
             // 所以它与旧表同生共死；新表的对应审计表是 session_fee_audit_logs）
@@ -403,7 +541,7 @@ async function migrateLegacySchema() {
             }
             // 确保 CHECK 约束覆盖最新枚举（先删后建，幂等；兼容已部署旧约束）
             await db.query(`ALTER TABLE course_arrangement DROP CONSTRAINT IF EXISTS chk_ca_fee_status`);
-            await db.query(`ALTER TABLE course_arrangement ADD CONSTRAINT chk_ca_fee_status CHECK (fee_status IN ('draft','teacher_submitted','admin_submitted','reimbursed','returned','reimbursement_returned'))`);
+            await db.query(`ALTER TABLE course_arrangement ADD CONSTRAINT chk_ca_fee_status CHECK (fee_status IN (${SQL_LIST(FEE_STATUSES)}))`);
 
             // 修复历史列宽不足：'reimbursement_returned' 共 22 字符，早期 VARCHAR(20) 会导致
             // 退回报销 UPDATE 直接报错、审计写入静默失败。加宽到 32（幂等，仅对旧库生效）。

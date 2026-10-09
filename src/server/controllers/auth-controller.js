@@ -5,6 +5,7 @@
  */
 
 const authService = require('../services/auth-service');
+const userService = require('../services/user-service');
 const { asyncHandler } = require('../middleware');
 const { successResponse } = require('../utils/response');
 const { AppError } = require('../middleware/error');
@@ -46,12 +47,24 @@ const authController = {
 
     /**
      * @route POST /api/auth/register
-     * @description 用户注册 (仅限管理员)
+     * @description 用户注册 (仅限管理员，且仅 L1 —— 由 UserService.createUser 内部断言)
+     *
+     * 以前这里走 AuthService.register 那份独立实现：它只解构
+     * `{username, password, name, userType, additionalInfo}`，而**没有任何调用方传过
+     * additionalInfo** —— 于是校验器允许的 email / permission_level / contact / nickname /
+     * status 全部在 INSERT 前被丢掉。生产库 `administrators.email` 与 `permission_level`
+     * 都是 NOT NULL 且无默认值（2026-10-09 实测），所以「注册一个管理员」这条路径
+     * 从来就没成功过，只会撞 23502。现在统一到 user-service.createUser 那一条已有路径：
+     * L1 门禁、不能创建比自己更高的档位、按角色白名单落列、用户名/ID 冲突 409、写审计。
      */
     register: asyncHandler(async (req, res) => {
-        // req.body 由 Joi 验证器清洗和验证
-        const result = await authService.register(req.body);
-        res.status(201).json(successResponse(result));
+        // registerSchema 把入站 permission_level 归一成了 camelCase，服务层按列名取值
+        const { permissionLevel, ...rest } = req.body || {};
+        const payload = { ...rest };
+        if (permissionLevel !== undefined) payload.permission_level = permissionLevel;
+
+        const data = await userService.createUser(payload, req);
+        res.status(201).json(successResponse(data, { requestId: req.requestId }));
     }),
 
     /**

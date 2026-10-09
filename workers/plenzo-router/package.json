@@ -5,6 +5,7 @@
   "description": "Plenzo 统一入口 Worker：一个域名 → Render（主）/ Vercel（备），主源连不上时自动回退",
   "type": "module",
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "dev": "npx wrangler dev",
     "deploy": "npx wrangler deploy",
     "tail": "npx wrangler tail"

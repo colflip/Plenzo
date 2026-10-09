@@ -64,6 +64,54 @@ function getTokenEpoch() {
 }
 
 /**
+ * 唯一的令牌验签入口。
+ *
+ * 此前全库有三处各自实现校验（本文件的 authMiddleware、app.js 的 goodluck 路由、
+ * auth-service 的密钥策略），彼此不一致：`app.js` 既不固定算法，也**不比对 TOKEN_EPOCH**，
+ * 于是「用户 ID 重编后让所有旧 token 失效」这个开关在该路由上根本不生效 —— 而旧 token 里的
+ * `id` 重编后可能已归属另一位教师，等于跨用户读出酬劳明细。
+ *
+ * 三件事必须同时做：固定算法、比对纪元、拒绝把 refresh token 当 access token 用。
+ * @param {string} raw 令牌原文
+ * @returns {object} 解码后的载荷；校验不过时抛 AppError（401）
+ */
+function verifyToken(raw) {
+    if (!raw) {
+        throw new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '未提供认证令牌' });
+    }
+
+    let decoded;
+    try {
+        decoded = jwt.verify(raw, getJwtSecret(), { algorithms: ['HS256'] });
+    } catch (error) {
+        const expired = error && error.name === 'TokenExpiredError';
+        throw new AppError({
+            code: expired ? 'AUTH_EXPIRED' : 'AUTH_INVALID',
+            statusCode: 401,
+            message: expired ? '认证令牌已过期' : '无效的认证令牌'
+        });
+    }
+
+    // 纪元不匹配 = 该 token 签发于上一次「用户 ID 变更」之前，身份已不可信。
+    // 带固定 code 供前端识别；message 会被 api-client 直接展示。
+    if (decoded.tv !== getTokenEpoch()) {
+        throw new AppError({
+            code: 'SESSION_EPOCH_MISMATCH',
+            statusCode: 401,
+            message: '账号信息已变更，请重新登录'
+        });
+    }
+
+    // refresh token 是另一张同密钥、同载荷的票；没有 /refresh 端点之前，
+    // 绝不能让它直接当访问凭证用（否则 30 天的长效票绕过了所有短周期语义）。
+    if (decoded.type === 'refresh') {
+        throw new AppError({ code: 'AUTH_INVALID', statusCode: 401, message: '无效的认证令牌' });
+    }
+
+    return decoded;
+}
+
+/**
  * 认证中间件
  * @description 验证 JWT 令牌并注入真实用户身份
  * 令牌来源优先级：httpOnly Cookie（推荐，防 XSS 窃取）> Authorization 头（兼容旧客户端）
@@ -81,21 +129,7 @@ const authMiddleware = async (req, res, next) => {
             }
         }
 
-        if (!token) {
-            return next(new AppError({ code: 'AUTH_REQUIRED', statusCode: 401, message: '未提供认证令牌' }));
-        }
-
-        const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
-
-        // 纪元不匹配 = 该 token 签发于上一次「用户 ID 变更」之前，身份已不可信。
-        // 带固定 code 供前端识别；message 会被 api-client 直接展示。
-        if (decoded.tv !== getTokenEpoch()) {
-            return next(new AppError({
-                code: 'SESSION_EPOCH_MISMATCH',
-                statusCode: 401,
-                message: '账号信息已变更，请重新登录'
-            }));
-        }
+        const decoded = verifyToken(token);
 
         req.user = {
             id: decoded.id,
@@ -105,36 +139,41 @@ const authMiddleware = async (req, res, next) => {
 
         next();
     } catch (error) {
-        const code = (error && error.name === 'TokenExpiredError') ? 'AUTH_EXPIRED' : 'AUTH_INVALID';
-        const message = (error && error.name === 'TokenExpiredError') ? '认证令牌已过期' : '无效的认证令牌';
-        return next(new AppError({ code, statusCode: 401, message }));
+        return next(error);
     }
 };
 
-/**
- * 权限级别检查
- * @description 检查用户权限级别是否满足要求
- * @param {number} level - 所需权限级别
+/*
+ * 这里曾经有一个 checkPermissionLevel(level)：全库零调用，且在 permissionLevel 为
+ * null 时 `null > level` 为 false —— 会**放行**。权限判定只保留 role.js 的
+ * requirePermissionLevel（缺失按 L3 最小权限处理），避免留下一个看着能用、
+ * 实际方向相反的中间件（审查报告 P2-11 / P3-7）。
  */
-const checkPermissionLevel = (level) => {
-    return (req, res, next) => {
-        if (req.user.userType !== 'admin') {
-            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '需要管理员权限' }));
-        }
-        if (req.user.permissionLevel > level) {
-            return next(new AppError({ code: 'FORBIDDEN', statusCode: 403, message: '权限不足' }));
-        }
-        next();
-    };
-};
-
 // adminOnly 统一从 role.js 导出，确保所有路由使用同一个实现
 const { adminOnly } = require('./role');
+
+/**
+ * 从请求里取令牌原文：httpOnly Cookie 优先（同站导航自动携带，不会被 XSS 读到），
+ * 兼容 Authorization: Bearer 头。此前 app.js 自己抄了一份同样逻辑，现已合并到此处。
+ * @param {object} req
+ * @returns {string|null}
+ */
+function getTokenFromRequest(req) {
+    const cookies = parseCookies(req);
+    if (cookies.token) return cookies.token;
+    const authHeader = req.headers && req.headers.authorization;
+    if (authHeader) {
+        const parts = authHeader.split(' ');
+        if (parts.length === 2 && /^[Bb]earer$/i.test(parts[0])) return parts[1];
+    }
+    return null;
+}
 
 module.exports = {
     authMiddleware,
     adminOnly,
-    checkPermissionLevel,
     getJwtSecret,
-    getTokenEpoch
+    getTokenEpoch,
+    verifyToken,
+    getTokenFromRequest
 };

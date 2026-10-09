@@ -3,6 +3,11 @@
  * 集中管理导出功能相关的常量和配置
  */
 
+// 状态与「不可计数」清单的唯一源在 shared-utils：以前这里、data-transformer、迁移 DDL
+// 各抄了一份 ['cancelled','modified_away']，加一个归档态就会漏改（漏了导出的那份，
+// 已归档的课仍会被计进报销单）。
+const { LIFECYCLE_MAP, INACTIVE_LIFECYCLES } = require('../../utils/shared-utils');
+
 // 类型优先级排序（用于课程排序，按中文基础类型）
 const TYPE_PRIORITY = {
     '咨询': 1,
@@ -20,14 +25,8 @@ const ROW_SEGMENT_SEPARATOR = '；';
 // 星期映射
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-// 状态映射
-const STATUS_MAP = {
-    'pending': '待确认',
-    'confirmed': '已确认',
-    'cancelled': '已取消',
-    'completed': '已完成',
-    'modified_away': '已调整'
-};
+// 状态映射：与 shared-utils 的 LIFECYCLE_MAP 同一份（sheet-builder 从这里取，别在这里另标）
+const STATUS_MAP = { ...LIFECYCLE_MAP };
 
 // 家庭参与人员映射
 const FAMILY_MAP = {
@@ -144,13 +143,17 @@ const EXPORT_FONTS = {
     SIZE_SUPERSCRIPT: 7             // 上标标记（原/调/加）
 };
 
-// 不可计数的状态
-const NON_COUNTABLE_STATUSES = ['cancelled', 'modified_away'];
+// 不可计数的状态：就是「不活跃的生命周期位」，源在 shared-utils
+const NON_COUNTABLE_STATUSES = [...INACTIVE_LIFECYCLES];
 
 // 导出记录限制
 const EXPORT_LIMITS = {
     DEFAULT: 5000,    // 默认限制
-    MAX: 20000        // 最大限制（分批处理）
+    MAX: 20000,       // 最大限制（分批处理）
+    // 起止日期最大跨度（天）。规则过去只存在于 schedule-queries.validateDateRange
+    // 这个包装里，而它在全库没有任何调用者 = 等于没有上限：一条数据配上
+    // 1900→2100 的跨度就能让日历按天铺出约 7.3 万个明细对象（审查报告 P1-21）。
+    MAX_DATE_RANGE_DAYS: 365
 };
 
 // 分批处理配置

@@ -13,6 +13,8 @@ const ExportUtils = require('../../utils/export-utils');
 const SchemaHelper = require('../../utils/schema-helper');
 const { formatDateTime } = require('../../utils/shared-utils');
 const { applyOwnerScope } = require('../../utils/admin-permissions');
+// 「本行学生 pair 改属过」的 SQL 谓词唯一出口（与浏览页/报销视图同一口径）
+const { sqlStudentSwapped } = require('../course-session-service');
 
 class AdvancedExportService {
     constructor() {
@@ -184,7 +186,10 @@ SELECT
     ca.teacher_rating,
     ca.student_rating,
     ca.student_comment,
-    ca.status_category
+    ca.status_category,
+    -- 本行学生 pair 是否真的改属过（跨学生调整）。口径唯一源在
+    -- course-session-service.sqlStudentSwapped；计划列置空判定在 schedule-calendar-core 用。
+    ${sqlStudentSwapped('ca')} AS student_swapped
 FROM v_session_pairs ca
 LEFT JOIN teachers t ON ca.teacher_id = t.id
 LEFT JOIN students s ON ca.student_id = s.id
@@ -193,6 +198,19 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
   AND t.status = 1 AND s.status = 1`;
 
         const values = [startDate, endDate];
+
+        // 与 queryStudentSchedule 同一条兜底：非管理员必须至少有一个范围谓词
+        // （本人 teacher_id / 单个 student_id / 绑定学生 student_ids），否则就是全库。
+        const teacherActorType = filters && filters.actor && filters.actor.userType;
+        const hasTeacherScope = filters.teacher_id
+            || filters.student_id
+            || (Array.isArray(filters.student_ids) && filters.student_ids.length > 0);
+        if (!hasTeacherScope && teacherActorType && teacherActorType !== 'admin') {
+            throw new Error(
+                `queryTeacherSchedule 缺少归属范围（actor=${teacherActorType}）：` +
+                '非管理员导出必须限定 teacher_id 或学生范围'
+            );
+        }
 
         // 应用过滤器
         if (filters.teacher_id) {
@@ -253,7 +271,9 @@ SELECT
     ca.other_fee,
     ca.fee_scope,
     ca.fee_status,
-    ca.status_category
+    ca.status_category,
+    -- 学生 pair 改属标志：口径唯一源在 course-session-service.sqlStudentSwapped
+    ${sqlStudentSwapped('ca')} AS student_swapped
 FROM v_session_pairs ca
 LEFT JOIN students s ON ca.student_id = s.id
 LEFT JOIN teachers t ON ca.teacher_id = t.id
@@ -263,6 +283,20 @@ WHERE ${dateExpr}::date BETWEEN $1 AND $2
         `;
 
         const values = [startDate, endDate];
+
+        /**
+         * 归属兜底（纵深防御）：本查询在 `student_id` 缺省时**不追加任何学生谓词**，
+         * 而 `applyOwnerScope` 只对 L3 管理员生效（对教师/学生原样返回 SQL）。
+         * 因此「不带范围」对非管理员等于「全部学生」。调用方必须显式给范围，
+         * 拿不到就抛错，而不是静默返回全系统数据。
+         */
+        const actorType = filters && filters.actor && filters.actor.userType;
+        if (!filters.student_id && actorType && actorType !== 'admin') {
+            throw new Error(
+                `queryStudentSchedule 缺少 student_id 范围（actor=${actorType}）：` +
+                '非管理员导出必须限定单个/一组学生'
+            );
+        }
 
         if (filters.student_id) {
             values.push(filters.student_id);

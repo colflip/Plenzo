@@ -83,16 +83,49 @@ function isBlockedIpv6(address) {
     const groups = expandIpv6(lower);
     if (!groups) return true;
 
+    /**
+     * 十六进制分组形式同样能藏一个 v4 地址，而点分尾巴的正则抓不到它们。
+     * 实测修复前全部放行：`[::ffff:7f00:1]`(=127.0.0.1)、`[::7f00:1]`、
+     * `[::ffff:a9fe:a9fe]`(=169.254.169.254 云元数据)、`[2002:7f00:1::]`(6to4 环回)。
+     * 先把这些形态还原成 v4，再走同一套 v4 保留段判定。
+     */
+    const embedded = embeddedIpv4FromGroups(groups);
+    if (embedded) return isBlockedAddress(embedded);
+
     const first = groups[0];
     if ((first & 0xffc0) === 0xfe80) return true;        // fe80::/10 链路本地
     if ((first & 0xfe00) === 0xfc00) return true;        // fc00::/7 唯一本地
     if ((first & 0xff00) === 0xff00) return true;        // ff00::/8 组播
     if (groups.every(g => g === 0)) return true;         // :: 未指定
+    // 2001:0000::/32 Teredo 隧道（注意不是整个 2001::/32：2001:4860::… 等公网段必须放行）
+    if (first === 0x2001 && groups[1] === 0x0000) return true;
 
     // ::1 环回
     if (groups.slice(0, 7).every(g => g === 0) && groups[7] === 1) return true;
 
     return false;
+}
+
+/**
+ * 从 8 组 16 位里还原被封装的 IPv4 目标；不是这些封装形态时返回 null。
+ * 只认「低 32 位或 group1-2 直接就是 v4」的确定性前缀，避免把普通全球单播误判。
+ */
+function embeddedIpv4FromGroups(groups) {
+    // 相邻两个 16 位组 → 点分 IPv4（高组在前）
+    const fromPair = (hi, lo) => `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+    const head5 = groups.slice(0, 5).every(g => g === 0);
+    const head6 = head5 && groups[5] === 0;
+
+    // ::ffff:X:Y —— IPv4-mapped（groups[5]=0xffff，v4 在 groups[6..7]）
+    if (head5 && groups[5] === 0xffff) return fromPair(groups[6], groups[7]);
+    // ::X:Y —— 已废弃但部分栈仍可路由的 IPv4-compatible（v4 同样在 groups[6..7]）
+    if (head6 && (groups[6] !== 0 || groups[7] !== 0)) return fromPair(groups[6], groups[7]);
+    // 2002:X:Y:: —— 6to4，v4 在 groups[1..2]
+    if (groups[0] === 0x2002) return fromPair(groups[1], groups[2]);
+    // 64:ff9b::X:Y —— NAT64，v4 在 groups[6..7]
+    if (groups[0] === 0x0064 && groups[1] === 0xff9b) return fromPair(groups[6], groups[7]);
+
+    return null;
 }
 
 /**

@@ -9,7 +9,7 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const { teacherOnly, anyAuthenticated } = require('../middleware/role');
 const { strictLimiter } = require('../middleware/rate-limit');
-const { validate, passwordChangeValidation, teacherProfileValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, feeBatchValidation, teacherConfirmValidation, teacherStatusUpdateValidation, teacherAvailabilitySetValidation, teacherAvailabilityDeleteValidation, teacherAvailabilityReplaceValidation } = require('../middleware/validation');
+const { validate, associatedStudentUpdateValidation, passwordChangeValidation, teacherProfileValidation, feeUpdateValidation, feeStatusUpdateValidation, feeStatusBatchValidation, feeBatchValidation, teacherConfirmValidation, teacherStatusUpdateValidation, teacherAvailabilitySetValidation, teacherAvailabilityDeleteValidation, teacherAvailabilityReplaceValidation } = require('../middleware/validation');
 const teacherController = require('../controllers/teacher-controller');
 
 // 个人信息管理
@@ -41,7 +41,7 @@ router.post('/schedules/batch-fee-status', authMiddleware, teacherOnly, validate
 router.get('/student-schedules', authMiddleware, teacherOnly, teacherController.getHeadTeacherStudentSchedules);
 router.get('/associated-students', authMiddleware, teacherOnly, teacherController.getAssociatedStudents);
 router.get('/associated-students/detail', authMiddleware, teacherOnly, teacherController.getAssociatedStudentsDetail);
-router.put('/associated-students/:id', authMiddleware, teacherOnly, teacherController.updateAssociatedStudent);
+router.put('/associated-students/:id', authMiddleware, teacherOnly, validate(associatedStudentUpdateValidation), teacherController.updateAssociatedStudent);
 router.get('/all-teachers', authMiddleware, anyAuthenticated, teacherController.getAllTeachers);
 router.post('/batch-fees', authMiddleware, teacherOnly, validate(feeBatchValidation), teacherController.batchUpdateScheduleFees);
 

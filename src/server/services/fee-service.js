@@ -12,6 +12,8 @@
  */
 
 const SchemaHelper = require('../utils/schema-helper');
+const feeAmountUtil = require('../utils/fee-amount');
+const courseSessionService = require('./course-session-service');
 const { validateFeeStatusTransition, writeFeeStatusLog, writeBatchFeeStatusLogs, resolveAutoFeeStatus } = require('../utils/fee-status');
 const logger = require('../utils/logger');
 const { AppError } = require('../middleware/error');
@@ -42,13 +44,24 @@ function toCanonicalFeeError(error) {
 }
 
 /**
- * 费用金额归一：空值/未传 → null（NULL，表示未填）；数字字符串 → number；
- * 非法 → null。保留 null 与 0 的语义差异（未填 vs 填 0）。
+ * 费用金额归一（委托 utils/fee-amount 的唯一实现）。
+ * 空值/未传 → null（NULL，表示未填）；合法数字 → number；**非法 → 400 明确拒绝**。
+ *
+ * 过去这里用 parseFloat，异形输入会被静默改写成另一个数或直接变成 null：
+ *   '1,000' → 1、'100元' → 100、'Infinity' → 最终落成 null（=「未填」，钱消失了）。
+ * 本项目的规则是「手填金额按原样读取」，所以宁可拒绝，也不猜一个值入库。
+ * 保留 null 与 0 的语义差异（未填 vs 主动填 0）。
  */
 function parseFeeAmount(val) {
-    if (val === null || val === undefined || val === '') return null;
-    const n = parseFloat(val);
-    return Number.isNaN(n) ? null : n;
+    const parsed = feeAmountUtil.parseFeeAmount(val);
+    if (!parsed.ok) {
+        throw new AppError({
+            code: 'VALIDATION_FAILED',
+            statusCode: 400,
+            message: `费用金额无效：${parsed.reason}`
+        });
+    }
+    return parsed.value;
 }
 
 /**
@@ -303,7 +316,14 @@ async function batchTransitionFeeStatus(tx, { targetIds, targets, target, note, 
 
     const sessionIds = [...new Set([...wanted.values()].map(v => v.sid))];
     const cur = await tx(
-        'SELECT id, teachers, students, version FROM course_sessions WHERE id = ANY($1::int[])',
+        'SELECT id, teachers, students, version FROM course_sessions '
+            // 读快照后要用**整列**覆盖 teachers/students，必须锁住行：
+            // 否则并发的一侧（另一批操作，或教师自己保存费用）先落库，
+            // 这里就会拿旧快照把它已经写进去的金额静默盖掉并返回 200（审查报告 P1-13）。
+            // 锁到事务结束 = 本项目既有的裁定：「FOR UPDATE 让并发下无需 version」
+            // （见 jobs/update-schedule-status.js 的同一处理方式）。
+            // ORDER BY id 保证多个批次以同一顺序加锁，避免互相死锁。
+            + ' WHERE id = ANY($1::int[]) ORDER BY id FOR UPDATE',
         [sessionIds]
     );
     const byId = new Map((cur.rows || []).map(r => [Number(r.id), r]));
@@ -336,7 +356,8 @@ async function batchTransitionFeeStatus(tx, { targetIds, targets, target, note, 
     // 批量写回：一条 UPDATE ... FROM (VALUES ...) 覆盖所有受影响场次
     // updated_by FK 引用 administrators(id)：非 admin 操作者（教师/班主任）的 id 落在不相交的编号段，
     // 若原样写入会触发 23503；因此非 admin 一律写 NULL（前端渲染为「最后修改人：—」）。
-    const updatedBy = actorType === 'admin' ? operatorId : null;
+    // 归属人可以是管理员或班主任/教师（号段可辨），不再按 admin 折成 NULL
+    const updatedBy = courseSessionService.resolveAuditActorId({ id: operatorId, actorType });
     const rows = [...writes.entries()];
     const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
     const params = [updatedBy, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];
@@ -381,7 +402,14 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
     }
 
     const cur = await tx(
-        'SELECT id, teachers, students, version FROM course_sessions WHERE id = ANY($1::int[])',
+        'SELECT id, teachers, students, version FROM course_sessions '
+            // 读快照后要用**整列**覆盖 teachers/students，必须锁住行：
+            // 否则并发的一侧（另一批操作，或教师自己保存费用）先落库，
+            // 这里就会拿旧快照把它已经写进去的金额静默盖掉并返回 200（审查报告 P1-13）。
+            // 锁到事务结束 = 本项目既有的裁定：「FOR UPDATE 让并发下无需 version」
+            // （见 jobs/update-schedule-status.js 的同一处理方式）。
+            // ORDER BY id 保证多个批次以同一顺序加锁，避免互相死锁。
+            + ' WHERE id = ANY($1::int[]) ORDER BY id FOR UPDATE',
         [[...new Set(norm.map(u => u.sessionId))]]
     );
     const byId = new Map((cur.rows || []).map(r => [Number(r.id), r]));
@@ -455,7 +483,8 @@ async function batchUpdateScheduleFeesInTx(tx, updates, { actor, operatorId, aut
 
     if (writes.size > 0) {
         // 同上：非 admin 操作者写 NULL，避免 updated_by FK 违反 23503
-        const updatedBy = actor && actor.actorType === 'admin' ? operatorId : null;
+        const updatedBy = courseSessionService.resolveAuditActorId(
+            { id: operatorId, actorType: actor && actor.actorType });
         const rows = [...writes.entries()];
         const valueRows = rows.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::jsonb)`);
         const params = [updatedBy, ...rows.flatMap(([sid, teachers]) => [sid, JSON.stringify(teachers)])];

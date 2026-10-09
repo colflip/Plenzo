@@ -11,7 +11,6 @@ module.exports = {
     loginSchema: authValidator.loginSchema,
     registerSchema: authValidator.registerSchema,
     changePasswordSchema: authValidator.changePasswordSchema,
-    refreshTokenSchema: authValidator.refreshTokenSchema,
 
     // 模块导出
     authValidator

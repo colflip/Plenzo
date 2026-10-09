@@ -7,7 +7,7 @@
  * calculateFees / getISOWeek 继续原样暴露 —— 既有测试与调用方依赖这两个静态方法。
  */
 
-const Core = require('../../../../public/js/utils/schedule-calendar-core.js');
+const Core = require('../../domain/schedule-calendar-core');
 const PermissionFilter = require('./permission-filter');
 
 class CalendarGenerator {

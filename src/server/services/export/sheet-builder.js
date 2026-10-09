@@ -28,10 +28,6 @@ class UnifiedExportService {
         this.CACHE_TTL = CACHE_CONFIG.TTL;
 
         // 名称映射缓存（性能优化）
-        this._teacherNameCache = new Map();
-        this._studentNameCache = new Map();
-        this._nameCacheExpiry = 0;
-        this.NAME_CACHE_TTL = 10 * 60 * 1000; // 10分钟
     }
 
     /**
@@ -58,79 +54,9 @@ class UnifiedExportService {
         return this._scheduleTypesCache;
     }
 
-    /**
-     * 批量缓存教师名称（减少数据库查询）
-     * @param {Array} teacherIds - 教师 ID 数组
-     */
-    async _cacheTeacherNames(teacherIds) {
-        const now = Date.now();
-
-        // 检查缓存是否过期
-        if (now > this._nameCacheExpiry) {
-            this._teacherNameCache.clear();
-            this._studentNameCache.clear();
-            this._nameCacheExpiry = now + this.NAME_CACHE_TTL;
-        }
-
-        // 过滤未缓存的 ID
-        const uncachedIds = teacherIds.filter(id => !this._teacherNameCache.has(id));
-
-        if (uncachedIds.length === 0) return;
-
-        // 批量查询
-        const db = require('../../db/db');
-        const result = await db.query(
-            'SELECT id, name FROM teachers WHERE id = ANY($1)',
-            [uncachedIds]
-        );
-
-        // 更新缓存
-        result.rows.forEach(row => {
-            this._teacherNameCache.set(row.id, row.name);
-        });
-    }
-
-    /**
-     * 批量缓存学生名称
-     * @param {Array} studentIds - 学生 ID 数组
-     */
-    async _cacheStudentNames(studentIds) {
-        const now = Date.now();
-
-        if (now > this._nameCacheExpiry) {
-            this._teacherNameCache.clear();
-            this._studentNameCache.clear();
-            this._nameCacheExpiry = now + this.NAME_CACHE_TTL;
-        }
-
-        const uncachedIds = studentIds.filter(id => !this._studentNameCache.has(id));
-
-        if (uncachedIds.length === 0) return;
-
-        const db = require('../../db/db');
-        const result = await db.query(
-            'SELECT id, name FROM students WHERE id = ANY($1)',
-            [uncachedIds]
-        );
-
-        result.rows.forEach(row => {
-            this._studentNameCache.set(row.id, row.name);
-        });
-    }
-
-    /**
-     * 预加载名称缓存（性能优化）
-     * @param {Array} rawData - 原始数据
-     */
-    async _preloadNameCache(rawData) {
-        const teacherIds = [...new Set(rawData.map(r => r.teacher_id).filter(Boolean))];
-        const studentIds = [...new Set(rawData.map(r => r.student_id).filter(Boolean))];
-
-        await Promise.all([
-            this._cacheTeacherNames(teacherIds),
-            this._cacheStudentNames(studentIds)
-        ]);
-    }
+    // 原这里有 _cacheTeacherNames / _cacheStudentNames / _preloadNameCache 与两个名称 Map：
+    // 只有写入、没有任何渲染路径读取（导出的姓名来自 SQL join 出来的 teacher_name/student_name），
+    // 而且被调用到的唯一地方是性能套件里的一条用例（审查报告 P3-10）。整块删除。
 
     /**
      * 主入口：生成完整的多Sheet导出数据

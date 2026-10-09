@@ -337,7 +337,7 @@ const teacherController = {
                 FROM v_session_pairs
                 WHERE teacher_id = $1
                   AND class_date BETWEEN $2 AND $3
-                  AND status NOT IN ('cancelled', 'modified_away')
+                  AND ${courseSessionService.sqlActivePair(null)}
             `, [req.user.id, startDate, endDate]);
 
             const count = parseInt(result.rows[0].count, 10);

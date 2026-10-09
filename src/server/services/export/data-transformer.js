@@ -5,7 +5,16 @@
 
 const { NON_COUNTABLE_STATUSES } = require('./export-constants');
 // 类型别名与折算的唯一实现（与浏览页统计、教师酬劳、图片导出共用）
-const TypeConversion = require('../../../../public/js/utils/type-conversion');
+const TypeConversion = require('../../domain/type-conversion');
+const { LIFECYCLE_MAP } = require('../../utils/shared-utils');
+
+/**
+ * 「不可计数」的写法全集：这一层拿到的 status 可能是生命周期位本身，也可能是已经翻译过的
+ * 中文标签，或旧表遗留的 '0'。清单仍由 NON_COUNTABLE_STATUSES（= shared-utils 的
+ * INACTIVE_LIFECYCLES）派生，标签由 LIFECYCLE_MAP 派生，不再手写第三份字面量。
+ */
+const NON_COUNTABLE_TOKENS = ['0', ...NON_COUNTABLE_STATUSES,
+    ...NON_COUNTABLE_STATUSES.map(s => LIFECYCLE_MAP[s]).filter(Boolean)];
 
 class DataTransformer {
     /**
@@ -23,13 +32,16 @@ class DataTransformer {
 
     /**
      * 判断是否为可统计的课程（排除已取消、已调整）
+     *
+     * 课程统计口径（业务裁定）：已取消 / 已调整代表这场课已经不存在了，不进任何计数。
+     * 费用口径**相反**，别跟着这里改 —— 课取消了但一趟路可能已经产生，费用要能报销，
+     * 所以 schedule-calendar-core.js 的 calculateFees 刻意不过滤生命周期。
      * @param {Object} row - 课程记录
      * @returns {boolean} 是否可统计
      */
     static isCountableSchedule(row) {
         const status = String(row?.status ?? row?.['状态'] ?? '').toLowerCase();
-        return !NON_COUNTABLE_STATUSES.includes(status) &&
-               !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);
+        return !NON_COUNTABLE_TOKENS.includes(status);
     }
 
     /**
