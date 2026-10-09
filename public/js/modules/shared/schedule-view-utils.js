@@ -8,6 +8,25 @@
 
 import { toISODate, normalizeDateKey } from './date-format.js';
 import { createElement } from './view-utils.js';
+import { isMobileView } from './schedule-helpers.js';
+
+/**
+ * 「导出本周视图」按钮：绑定 + 窄屏显隐。三个角色页以前各抄一份 bind/sync，
+ * 已经抄出行为差异（admin 只在网格重画时绑 → 网格加载失败就静默没有反应；
+ * admin 也没有窄屏收起）。这里是一份实现，差异靠参数说明。
+ *
+ * 网格每次重画都会再走到这里，用标记保证只绑一次；窄屏走移动端卡表，
+ * 桌面那张要么被隐藏、要么留着上一周的残留内容，截它没有意义。
+ */
+export function setupWeekViewExportButton({ buttonId, onClick, hideOnMobile = true }) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    if (!btn.__weekViewExportBound) {
+        btn.addEventListener('click', onClick);
+        btn.__weekViewExportBound = true;
+    }
+    if (hideOnMobile) btn.style.display = isMobileView() ? 'none' : '';
+}
 
 /** 临时课 / 调整课卡片右下角的手写体水印 */
 export function appendScheduleWatermark(card, watermarkText) {

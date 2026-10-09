@@ -306,6 +306,17 @@ function invalidateUserCaches(type, userId = null) {
     });
 }
 
+// 表格实际占位列数 = 表头当前可见 th 数。空数据行/错误行/哨兵行的 colspan
+// 必须用它，而不是 fields+常数：table-layout:fixed 下 colspan 超过实际列数会
+// 凭空造出 auto 列并吞掉剩余宽度，表格右侧出现整块空白。
+function usersTableColCount() {
+    const table = document.getElementById('usersTable');
+    if (!table) return 1;
+    const visible = Array.from(table.querySelectorAll('thead th'))
+        .filter(th => th.style.display !== 'none').length;
+    return Math.max(1, visible);
+}
+
 export async function loadUsers(type, opts = {}) {
     const requestedType = type || window.__usersState?.type || 'teacher';
     let requestGuard = null;
@@ -443,7 +454,7 @@ export async function loadUsers(type, opts = {}) {
         hideTableLoading(tableContainer);
 
         if (state.page === 1 && users.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="${(USER_FIELDS[state.type] || []).length + 1}">暂无数据</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${usersTableColCount()}">暂无数据</td></tr>`;
             state.hasMore = false;
             state.loading = false;
             return;
@@ -496,7 +507,7 @@ export async function loadUsers(type, opts = {}) {
             // 统一错误态：原实现用 tbody.innerHTML 拼入 err.message，存在 XSS 风险，
             // 且硬编码 #ef4444。改用 renderTableErrorRow（textContent + 重试回调）。
             renderTableErrorRow(tbody, {
-                colspan: (USER_FIELDS[state.type] || []).length + 1,
+                colspan: usersTableColCount(),
                 error: err,
                 title: errorText,
                 onRetry: () => loadUsers(state.type, { reset: true })
@@ -549,7 +560,7 @@ function setupSentinel(state, tbody) {
     if (!sentinel && state.hasMore) {
         sentinel = document.createElement('tr');
         sentinel.id = 'usersListSentinel';
-        sentinel.innerHTML = `<td colspan="${(USER_FIELDS[state.type] || []).length + 2}"></td>`;
+        sentinel.innerHTML = `<td colspan="${usersTableColCount()}"></td>`;
         tbody.appendChild(sentinel);
         const io = new IntersectionObserver((entries) => {
             entries.forEach(entry => {

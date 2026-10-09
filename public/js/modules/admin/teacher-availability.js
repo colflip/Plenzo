@@ -1,6 +1,7 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
+import { escapeHtml } from '../../utils/html-escape.js';
 
 // formatDate is available globally via window.formatDate
 
@@ -177,7 +178,8 @@ export function renderAvailabilityBody(teachers, dates) {
     let html = '';
     teachers.forEach(teacher => {
         html += `<tr>`;
-        html += `<td class="fixed-col font-medium">${teacher.name}</td>`;
+        // 教师姓名来自 PUT /teacher/profile，校验只限长度不限字符（validation.js 的 name 规则）
+        html += `<td class="fixed-col font-medium">${escapeHtml(teacher.name)}</td>`;
 
         dates.forEach(date => {
             const year = date.getFullYear();

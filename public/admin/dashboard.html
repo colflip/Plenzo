@@ -9,7 +9,7 @@
     <!-- 同步鉴权守卫：在任意脚本/接口调用前执行，避免非管理员或令牌缺失时加载后台并触发 403 误报 -->
     <script src="/js/utils/admin-auth-guard.js"></script>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+    <link rel="stylesheet" href="/css/core/material-icons.css">
     <link rel="stylesheet" href="/css/core/global.css">
     <link rel="stylesheet" href="/css/modules/dashboard.css?v=9">
     <link rel="stylesheet" href="/css/modules/admin-statistics.css">
@@ -1201,6 +1201,9 @@
                         <span class="material-icons-round">visibility</span>
                         <span id="showPlanBtnText">显示全部安排</span>
                     </button>
+                            <button id="exportAdminWeekViewBtn" class="add-btn" style="margin-left: 10px;" title="复制成图片：一名学生直接导出，多名学生先选择">
+                                <span class="material-icons-round">file_download</span> 导出本周视图
+                            </button>
                         </div>
 
                         <!-- Right: Filters -->

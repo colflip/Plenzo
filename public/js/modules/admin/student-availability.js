@@ -6,6 +6,7 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
+import { escapeHtml } from '../../utils/html-escape.js';
 
 const studentAvailabilityState = {
     currentDate: new Date(),
@@ -159,7 +160,8 @@ function renderStudentAvailabilityBody(students, dates) {
     let html = '';
     students.forEach(student => {
         html += `<tr>`;
-        html += `<td class="fixed-col font-medium">${student.name}</td>`;
+        // 学生姓名/入户地点等同理：拼进 innerHTML 前一律转义
+        html += `<td class="fixed-col font-medium">${escapeHtml(student.name)}</td>`;
 
         dates.forEach(date => {
             const year = date.getFullYear();

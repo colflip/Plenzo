@@ -5,9 +5,16 @@
 
 import { showTableLoadingRow } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
+import { toISODate } from '../shared/date-format.js';
 
 /**
  * 统排课单行数据标准化
+ *
+ * 日期键一律走 shared/date-format.js 的 toISODate（按 Asia/Shanghai 折算）。
+ * 此前这里写着 `window.dateUtils ? window.dateUtils.toISODate(d) : d.toISOString()…`，
+ * 而全库没有任何一处给 window.dateUtils 赋过值 —— 守卫条件永假，
+ * 于是**永远**执行 UTC 兜底那一支：早于北京 08:00 的时间戳会被归到前一天
+ * （审查报告 P1-24）。写成「好像已经有正确实现」比没写更危险。
  */
 export function normalizeScheduleRows(rows) {
     return (rows || []).map(r => {
@@ -20,13 +27,12 @@ export function normalizeScheduleRows(rows) {
                 dateISO = t;
             } else {
                 const d = new Date(t);
-                dateISO = Number.isNaN(d.getTime()) ? '' : (window.dateUtils ? window.dateUtils.toISODate(d) : d.toISOString().split('T')[0]);
+                dateISO = toISODate(d) || '';
             }
         } else if (rawDate instanceof Date) {
-            dateISO = window.dateUtils ? window.dateUtils.toISODate(rawDate) : rawDate.toISOString().split('T')[0];
+            dateISO = toISODate(rawDate) || '';
         } else if (typeof rawDate === 'number') {
-            const d = new Date(rawDate);
-            dateISO = Number.isNaN(d.getTime()) ? '' : (window.dateUtils ? window.dateUtils.toISODate(d) : d.toISOString().split('T')[0]);
+            dateISO = toISODate(new Date(rawDate)) || '';
         } else {
             // 若缺失，保持空字符串（后续渲染会忽略无法匹配的记录）
             dateISO = '';

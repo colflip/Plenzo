@@ -79,6 +79,8 @@ function cellColorKind(items) {
     return kind;
 }
 
+// 与服务端 data-transformer.isCountableSchedule 同一条课程统计口径：已取消 / 已调整不计。
+// 图片导出的费用列走 schedule-calendar-core，那边刻意不过滤（报销口径），两者不等价是有意的。
 function isCountableSchedule(row) {
     const status = String(row?.status ?? row?.['状态'] ?? '').toLowerCase();
     return !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);

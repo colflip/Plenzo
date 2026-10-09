@@ -7,7 +7,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>学生仪表盘 - Plenzo</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+    <link rel="stylesheet" href="/css/core/material-icons.css">
     <link rel="stylesheet" href="/css/core/global.css">
     <link rel="stylesheet" href="/css/modules/dashboard.css?v=7">
     <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
@@ -922,6 +922,10 @@
                             <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
                             <span id="studentShowPlanBtnText">显示全部安排</span>
                         </button>
+                        <button id="exportStudentWeekViewBtn" type="button" class="search-btn" style="margin-left:8px;" title="把当前这一周的课程安排复制成图片">
+                            <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                            导出本周视图
+                        </button>
                     </div>
 
                     <div class="schedule-unified-card">
@@ -1084,6 +1088,8 @@
     <script src="/js/utils/type-conversion.js?v=20260913-color"></script>
     <!-- 每日排课明细唯一实现：export-manager / 服务端 Excel 第1工作表 共用，依赖上面两个 utils -->
     <script src="/js/utils/schedule-calendar-core.js?v=20260923-calendar-core"></script>
+    <!-- html2canvas: 优先本地文件，失败时自动回退到 CDN；「导出本周视图」截图依赖它 -->
+    <script src="/js/utils/load-html2canvas.js"></script>
     <script src="/js/components/export-manager.js?v=20260913-color"></script>
     <script src="/js/components/export-dialog.js"></script>
     <script src="/js/utils/color-utils.js"></script>

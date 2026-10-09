@@ -6,6 +6,7 @@ import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpe
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { syncToggleButton } from '../shared/view-utils.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
+import { captureStudentRowToClipboard, captureStudentRowWithPicker } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
     groupSchedulesBySlot,
@@ -26,6 +27,13 @@ import {
 
 let currentWeekStart = null;
 let cachedSchedules = [];
+
+// 班主任关联学生网格用的是 #ssWeekly* 这一套 id，姓名列类名也与管理员端不同
+const HOMEROOM_CAPTURE = {
+    headerSelector: '#ssWeeklyHeader',
+    bodySelector: '#ssWeeklyBody',
+    nameCellSelector: '.student-name-cell'
+};
 let cachedStudents = [];
 let scheduleLoadSeq = 0;
 
@@ -53,21 +61,11 @@ export async function initStudentSchedulesSection() {
 
     // 导出学生数据按钮的点击事件已由 action-delegate.js 通过 data-action="export-teacher-students" 统一委托处理
 
-    // 绑定导出本周视图按钮
+    // 绑定导出本周视图按钮：多名学生有课时先弹选择，只有一人时直接导出
     const exportWeeklyBtn = document.getElementById('exportWeeklyViewBtn');
     if (exportWeeklyBtn) {
         if (!exportWeeklyBtn.__exportWeeklyBound) {
-            exportWeeklyBtn.addEventListener('click', () => {
-                if (typeof window.exportWeeklyScheduleView !== 'function') {
-                    if (window.apiUtils) window.apiUtils.showToast('导出组件未加载', 'error');
-                    return;
-                }
-                window.exportWeeklyScheduleView('teacher').catch(err => {
-                    if (window.apiUtils) {
-                        window.apiUtils.showToast('导出失败: ' + err.message, 'error');
-                    }
-                });
-            });
+            exportWeeklyBtn.addEventListener('click', () => captureStudentRowWithPicker(HOMEROOM_CAPTURE));
             exportWeeklyBtn.__exportWeeklyBound = true;
         }
     }
@@ -303,6 +301,7 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
     // 遍历每一个学生
     uniqueStudents.forEach(studentData => {
         const row = document.createElement('tr');
+        row.dataset.studentId = studentData.student_id;
 
         // 第一列：学生姓名
         const nameCell = createElement('td', 'student-name-cell');
@@ -311,7 +310,7 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
         nameCell.style.cursor = 'copy';
         nameCell.addEventListener('click', (e) => {
             e.stopPropagation();
-            handleTeacherStudentRowCapture(studentData.student_name, row);
+            captureStudentRowToClipboard({ name: studentData.student_name }, row, HOMEROOM_CAPTURE);
         });
         row.appendChild(nameCell);
 
@@ -667,189 +666,6 @@ function buildScheduleCard(group) {
     return card;
 }
 
-// 模拟管理员端 html2canvas 截取排课表行图片
-function scrollWidthWithBuffer(el) {
-    return Math.max(el.scrollWidth, 1200) + 50;
-}
-
-async function handleTeacherStudentRowCapture(studentName, originalTr) {
-    if (!window.html2canvas) {
-        if (window.apiUtils) {
-            window.apiUtils.showToast('截图组件 (html2canvas) 加载失败，请检查网络或联系管理员手动部署本地库。', 'error');
-        }
-        return;
-    }
-
-    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成图片...', 'info', 0) : null;
-
-    // 获取上层容器和表头
-    const originalHeaderTr = document.querySelector('#ssWeeklyHeader tr');
-    const originalTable = document.querySelector('#ssWeeklyBody').closest('table');
-
-    if (!originalHeaderTr || !originalTable) {
-        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-        return;
-    }
-
-    // 包装器
-    const wrapper = document.createElement('div');
-    wrapper.style.position = 'absolute';
-    wrapper.style.top = '-9999px';
-    wrapper.style.left = '0';
-    wrapper.style.zIndex = '-1';
-    wrapper.style.background = '#ffffff';
-    wrapper.style.padding = '20px';
-    wrapper.style.width = scrollWidthWithBuffer(originalTable) + 'px';
-
-    const tableClone = document.createElement('table');
-    tableClone.className = originalTable.className;
-    tableClone.style.cssText = originalTable.style.cssText;
-    tableClone.style.backgroundColor = '#ffffff';
-    tableClone.style.width = '100%';
-    // 恢复外扩边框线及圆角
-    tableClone.style.borderTop = '1px solid #E2E8F0';
-    tableClone.style.borderLeft = '1px solid #E2E8F0';
-    tableClone.style.borderRight = '1px solid #E2E8F0';
-    tableClone.style.borderRadius = '8px';
-    tableClone.style.overflow = 'hidden';
-
-    // 复制表头
-    const thead = document.createElement('thead');
-    const headerRowClone = originalHeaderTr.cloneNode(true);
-    const origThs = originalHeaderTr.querySelectorAll('th');
-    const cloneThs = headerRowClone.querySelectorAll('th');
-
-    origThs.forEach((th, index) => {
-        if (cloneThs[index]) {
-            const computed = getComputedStyle(th);
-            cloneThs[index].style.width = computed.width;
-            cloneThs[index].style.minWidth = computed.minWidth;
-            cloneThs[index].style.maxWidth = computed.maxWidth;
-            cloneThs[index].style.position = 'static';
-            cloneThs[index].style.transform = 'none';
-            // 修复表头边框线丢失
-            cloneThs[index].style.borderRight = '1px solid #E2E8F0';
-            cloneThs[index].style.borderBottom = '1px solid #E2E8F0';
-        }
-    });
-
-    thead.appendChild(headerRowClone);
-    tableClone.appendChild(thead);
-
-    // 复制内容行
-    const tbody = document.createElement('tbody');
-    const rowClone = originalTr.cloneNode(true);
-    const origTds = originalTr.querySelectorAll('td');
-    const cloneTds = rowClone.querySelectorAll('td');
-
-    origTds.forEach((td, index) => {
-        if (cloneTds[index]) {
-            const computed = getComputedStyle(td);
-            cloneTds[index].style.width = computed.width;
-            cloneTds[index].style.minWidth = computed.minWidth;
-            cloneTds[index].style.position = 'static';
-            cloneTds[index].style.left = 'auto';
-
-            if (index === 0) {
-                cloneTds[index].style.backgroundColor = '#FAFAFA';
-            } else {
-                cloneTds[index].style.backgroundColor = '#FFFFFF';
-            }
-
-            // 修复表格内网格线丢失
-            cloneTds[index].style.borderRight = '1px solid #E2E8F0';
-            cloneTds[index].style.borderBottom = '1px solid #E2E8F0';
-        }
-    });
-
-    // --- 重点：修复 cloneNode 导致的排版塌陷和状态错位 ---
-    // 1. 修复课程卡片及底部附着层(费用区)的圆角与边界重叠
-    const cloneCards = rowClone.querySelectorAll('.schedule-card, .unified-schedule-card, .schedule-card-group');
-    cloneCards.forEach(card => {
-        // 重筑大圆角、白底、大阴影以及彩色顶框，彻底克隆真实 dashboard.css 高优桌面样式以抗衡画布吞盖
-        card.style.borderRadius = '12px';
-        card.style.overflow = 'hidden';
-        card.style.backgroundColor = '#FFFFFF';
-        card.style.border = '1px solid #E2E8F0';
-        card.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
-
-        if (card.classList.contains('slot-morning')) {
-            card.style.borderTop = '4px solid #3B82F6';
-        } else if (card.classList.contains('slot-afternoon')) {
-            card.style.borderTop = '4px solid #F59E0B';
-        } else if (card.classList.contains('slot-evening')) {
-            card.style.borderTop = '4px solid #8B5CF6';
-        }
-    });
-    // html2canvas 无法正确渲染 <select>（文字垂直对齐画错），克隆体里统一替换成只读 <span>。
-    // 类名原样保留 —— 视觉几何完全由全局 CSS 驱动（span.status-select 的 inline-flex 居中 +
-    // .schedule-card-group .status-select 的「行高=内容盒高度」），与页面上的胶囊同一套规则，
-    // 不要再打内联样式补丁：line-height 等内联值会被样式表 !important 压掉，等于死代码。
-    // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
-    const origSelects = originalTr.querySelectorAll('select.status-select');
-    const cloneSelects = rowClone.querySelectorAll('select.status-select');
-    origSelects.forEach((origSel, idx) => {
-        const cloneSel = cloneSelects[idx];
-        if (!cloneSel) return;
-        const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
-        const text = opt ? opt.text : origSel.value || '';
-        const span = document.createElement('span');
-        span.className = origSel.className; // 保留 status-select + 状态颜色类
-        span.textContent = text;
-        cloneSel.parentNode.replaceChild(span, cloneSel);
-    });
-
-    tbody.appendChild(rowClone);
-    tableClone.appendChild(tbody);
-    wrapper.appendChild(tableClone);
-    document.body.appendChild(wrapper);
-
-    try {
-        // 使用 Safari 兼容的 Promise 写入模式以防止 NotAllowedError 
-        // 剪贴板需要同步的用户交互上下文，所以把 await canvas 包装到传入的 Promise 里
-        const makeImagePromise = new Promise(async (resolve, reject) => {
-            try {
-                const canvas = await html2canvas(wrapper, {
-                    scale: 2,
-                    backgroundColor: '#ffffff',
-                    logging: false,
-                    useCORS: true,
-                    width: wrapper.offsetWidth,
-                    height: wrapper.offsetHeight,
-                    onclone: (documentClone) => {
-                        // 尝试消除 willReadFrequently 警告（如果有针对性绘制可加），但这主要是 html2canvas 内部控制的
-                    }
-                });
-
-                canvas.toBlob((blob) => {
-                    if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-                    if (!blob) {
-                        reject(new Error('生成图片为空'));
-                        return;
-                    }
-                    resolve(blob);
-                }, 'image/png');
-            } catch (err) {
-                reject(err);
-            } finally {
-                if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-            }
-        });
-
-        // 立刻同步调用剪贴板 API，参数为一个未决 Promise（浏览器允许此模式保持权限）
-        const item = new ClipboardItem({ 'image/png': makeImagePromise });
-        await navigator.clipboard.write([item]);
-
-        if (window.apiUtils) window.apiUtils.showSuccessToast(`已复制 ${studentName} 的课表图片`);
-
-    } catch (err) {
-
-        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-        if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
-        if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-    }
-}
-
 /**
  * 导出班主任关联的学生数据
  * @description 本页面导出的是所选学生（默认全部关联学生）的全部排课，
@@ -869,29 +685,4 @@ async function exportTeacherStudents() {
 
 // 暴露到全局，供按钮事件调用
 window.exportTeacherStudents = exportTeacherStudents;
-
-/* ==========================================================================
- * 导出当前视图：向共享模块（weekly-view-export.js）注册教师角色上下文。
- * 实际渲染、学生选择、截图、剪贴板逻辑统一由 window.exportWeeklyScheduleView 提供。
- * ========================================================================== */
-if (typeof window.registerWeeklyViewExportContext === 'function') {
-    window.registerWeeklyViewExportContext('teacher', {
-        getWeekStart() {
-            return currentWeekStart || startOfWeek(new Date());
-        },
-        async fetchSchedules(startDate, endDate) {
-            if (!window.apiUtils) throw new Error('API 客户端尚未加载');
-            const data = await window.apiUtils.get(
-                `/teacher/student-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&show_plan=true`,
-                {},
-                { timeoutMs: 20000, suppressErrorToast: true }
-            );
-            if (!data || typeof data !== 'object' || !Array.isArray(data.schedules)) {
-                throw new Error('学生课程安排响应格式无效');
-            }
-            return data.schedules;
-        }
-    });
-}
-
 

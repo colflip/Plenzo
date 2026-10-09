@@ -6,7 +6,9 @@
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { captureStudentRowToClipboard, captureStudentRowWithPicker } from '../../components/schedule-view-capture.js';
 import { syncToggleButton } from '../shared/view-utils.js';
+import { setupWeekViewExportButton } from '../shared/schedule-view-utils.js';
 import {
     initPairForm, resetPairRows, fillPairRows, collectPairs, refitPairSelects
 } from './schedule-pair-form.js';
@@ -870,12 +872,27 @@ function renderWeeklyBody(students, schedules, weekDates) {
             nameTd.title = '该学生处于暂停状态';
         }
 
-        // Task 30: Double click to capture image
-        nameTd.title = '双击生成图片 (Double click to copy image)';
+        // 截图入口（P3-12）：原来只有双击，键盘用户完全用不了这两下。
+        // 补 tabindex + role + Enter/Space，保留 dblclick；顺带修掉 title 被无条件覆盖
+        // 「暂停」提示那一行（877 行原来在 870-873 之后执行，暂停说明根本没机会出现）。
+        const captureHint = '生成该学生本周课表图片（双击或按 Enter）';
+        nameTd.title = String(student.status) === '0'
+            ? `该学生处于暂停状态；${captureHint}`
+            : captureHint;
         nameTd.style.cursor = 'copy';
-        nameTd.addEventListener('dblclick', (e) => {
+        nameTd.tabIndex = 0;
+        nameTd.setAttribute('role', 'button');
+        nameTd.setAttribute('aria-label', `复制 ${student.name} 的周课表图片`);
+        const runCapture = (e) => {
             e.stopPropagation();
-            handleStudentRowCapture(student, tr);
+            captureStudentRowToClipboard(student, tr);
+        };
+        nameTd.addEventListener('dblclick', runCapture);
+        nameTd.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                runCapture(e);
+            }
         });
 
         tr.appendChild(nameTd);
@@ -904,225 +921,18 @@ function renderWeeklyBody(students, schedules, weekDates) {
     });
 
     tbody.appendChild(fragment);
+    bindWeekViewExportButton();
 }
 
-// Task 30 & 31: Improved Capture Logic
-/**
- * 创建离屏截图容器 + 复制原表格外观的空 <table>（含表头边框/圆角）。
- * 供单行截图与整表截图复用。
- */
-function buildCaptureWrapper(originalTable) {
-    const wrapper = document.createElement('div');
-    wrapper.id = 'schedule'; // Matches #schedule CSS scope
-    wrapper.style.position = 'absolute';
-    wrapper.style.top = '-9999px';
-    wrapper.style.left = '0';
-    wrapper.style.zIndex = '-1';
-    wrapper.style.background = '#ffffff';
-    wrapper.style.padding = '20px'; // Add white padding
-    // Force width to match scrolling width of original table to prevent wrap
-    wrapper.style.width = scrollWidthWithBuffer(originalTable) + 'px';
-
-    const tableClone = document.createElement('table');
-    tableClone.className = originalTable.className; // Copy classes: 'weekly-schedule-table'
-    tableClone.style.cssText = originalTable.style.cssText;
-    tableClone.style.backgroundColor = '#ffffff';
-    tableClone.style.width = '100%';
-    // 恢复外扩边框线及大圆角
-    tableClone.style.borderTop = '1px solid #E2E8F0';
-    tableClone.style.borderLeft = '1px solid #E2E8F0';
-    tableClone.style.borderRight = '1px solid #E2E8F0';
-    tableClone.style.borderRadius = '8px';
-    tableClone.style.overflow = 'hidden';
-
-    wrapper.appendChild(tableClone);
-    return { wrapper, tableClone };
-}
-
-/**
- * 克隆表头行并保留列宽 / 去除 sticky 定位 / 补回边框。
- */
-function buildCapturedHeader(originalHeaderTr) {
-    const thead = document.createElement('thead');
-    const headerRowClone = originalHeaderTr.cloneNode(true);
-
-    const origThs = originalHeaderTr.querySelectorAll('th');
-    const cloneThs = headerRowClone.querySelectorAll('th');
-
-    origThs.forEach((th, index) => {
-        if (cloneThs[index]) {
-            const computed = getComputedStyle(th);
-            cloneThs[index].style.width = computed.width;
-            cloneThs[index].style.minWidth = computed.minWidth;
-            cloneThs[index].style.maxWidth = computed.maxWidth;
-            // Important: Handle sticky positioning for screenshot
-            cloneThs[index].style.position = 'static';
-            cloneThs[index].style.transform = 'none';
-            // 修复表头边框线丢失
-            cloneThs[index].style.borderRight = '1px solid #E2E8F0';
-            cloneThs[index].style.borderBottom = '1px solid #E2E8F0';
-        }
+// 按钮在静态 toolbar 上，网格每次重画都会走到这里；绑定是幂等的（共享实现里带标记）。
+// hideOnMobile=false：教师/学生那两端窄屏要收起是因为桌面表被隐藏或留着上周残留，
+// admin 这一端是否同样成立还没在真机上看过，不照抄。
+function bindWeekViewExportButton() {
+    setupWeekViewExportButton({
+        buttonId: 'exportAdminWeekViewBtn',
+        onClick: () => captureStudentRowWithPicker(),
+        hideOnMobile: false
     });
-
-    thead.appendChild(headerRowClone);
-    return thead;
-}
-
-/**
- * 克隆一行学生排课并修复 cloneNode 引起的塌陷：
- *   - 同步列宽、去 sticky、补回单元格边框与底色
- *   - 重筑课程卡片圆角/边框/顶部彩条
- *   - 将 <select> 状态下拉替换为居中 <span>（html2canvas 无法正确渲染下拉对齐）
- */
-function buildCapturedRow(originalTr) {
-    const rowClone = originalTr.cloneNode(true);
-
-    // Sync widths for cells (redundant but safe) and remove sticky
-    const origTds = originalTr.querySelectorAll('td');
-    const cloneTds = rowClone.querySelectorAll('td');
-
-    origTds.forEach((td, index) => {
-        if (cloneTds[index]) {
-            const computed = getComputedStyle(td);
-            cloneTds[index].style.width = computed.width;
-            cloneTds[index].style.minWidth = computed.minWidth;
-            // Handle sticky
-            cloneTds[index].style.position = 'static';
-            cloneTds[index].style.left = 'auto'; // Reset left offset
-
-            // Ensure background is opaque white/gray, not transparent
-            // Dashboard.css uses #FAFAFA for sticky cols
-            if (td.classList.contains('sticky-col')) {
-                cloneTds[index].style.backgroundColor = '#FAFAFA';
-            } else {
-                cloneTds[index].style.backgroundColor = '#FFFFFF';
-            }
-
-            // 修复表格内网格线丢失
-            cloneTds[index].style.borderRight = '1px solid #E2E8F0';
-            cloneTds[index].style.borderBottom = '1px solid #E2E8F0';
-        }
-    });
-
-    // --- 重点：修复 cloneNode 导致的排版塌陷和状态错位 ---
-    // 1. 修复课程卡片及底部附着层(费用区)的圆角与边界重叠
-    const cloneCards = rowClone.querySelectorAll('.schedule-card, .unified-schedule-card, .schedule-card-group');
-    cloneCards.forEach(card => {
-        // 重筑大圆角、白底、大阴影以及彩色顶框，彻底克隆真实 dashboard.css 高优桌面样式以抗衡画布吞盖
-        card.style.borderRadius = '12px';
-        card.style.overflow = 'hidden';
-        card.style.backgroundColor = '#FFFFFF';
-        card.style.border = '1px solid #E2E8F0';
-        card.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
-
-        if (card.classList.contains('slot-morning')) {
-            card.style.borderTop = '4px solid #3B82F6';
-        } else if (card.classList.contains('slot-afternoon')) {
-            card.style.borderTop = '4px solid #F59E0B';
-        } else if (card.classList.contains('slot-evening')) {
-            card.style.borderTop = '4px solid #8B5CF6';
-        }
-
-        // 如果卡片底层存在附加的费用包裹块，原卡片的 overflow 可能被覆盖失效，需强制指定子元素底角
-        const feeWrap = card.querySelector('.fee-bottom-wrap');
-        if (feeWrap) {
-            feeWrap.style.borderBottomLeftRadius = '11px';
-            feeWrap.style.borderBottomRightRadius = '11px';
-        }
-    });
-    // html2canvas 无法正确渲染 <select>（文字垂直对齐画错），克隆体里统一替换成只读 <span>。
-    // 类名原样保留 —— 视觉几何完全由全局 CSS 驱动（span.status-select 的 inline-flex 居中 +
-    // .schedule-card-group .status-select 的「行高=内容盒高度」），与页面上的胶囊同一套规则，
-    // 不要再打内联样式补丁：line-height 等内联值会被样式表 !important 压掉，等于死代码。
-    // 注意：cloneNode 不保留 <select> 的运行时 selectedIndex，需要从原始 DOM 读取。
-    const origSelects = originalTr.querySelectorAll('select.status-select');
-    const cloneSelects = rowClone.querySelectorAll('select.status-select');
-    origSelects.forEach((origSel, idx) => {
-        const cloneSel = cloneSelects[idx];
-        if (!cloneSel) return;
-        const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
-        const text = opt ? opt.text : origSel.value || '';
-        const span = document.createElement('span');
-        span.className = origSel.className; // 保留 status-select + 状态颜色类
-        span.textContent = text;
-        cloneSel.parentNode.replaceChild(span, cloneSel);
-    });
-
-    return rowClone;
-}
-
-/**
- * 把离屏 wrapper 截图并写入剪贴板（Safari 兼容的 Promise 模式）。
- * 无论成功失败都会移除 wrapper。
- */
-async function captureWrapperToClipboard(wrapper, toastId, successMsg) {
-    document.body.appendChild(wrapper);
-    try {
-        const makeImagePromise = new Promise(async (resolve, reject) => {
-            try {
-                const canvas = await html2canvas(wrapper, {
-                    scale: 2,
-                    backgroundColor: '#ffffff',
-                    logging: false,
-                    useCORS: true,
-                    width: wrapper.offsetWidth,
-                    height: wrapper.offsetHeight,
-                    onclone: (documentClone) => { }
-                });
-
-                canvas.toBlob((blob) => {
-                    if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-                    if (!blob) {
-                        reject(new Error('生成图片为空'));
-                        return;
-                    }
-                    resolve(blob);
-                }, 'image/png');
-            } catch (err) {
-                reject(err);
-            } finally {
-                if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-            }
-        });
-
-        const item = new ClipboardItem({ 'image/png': makeImagePromise });
-        await navigator.clipboard.write([item]);
-
-        if (window.apiUtils) window.apiUtils.showSuccessToast(successMsg);
-    } catch (err) {
-        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-        if (window.apiUtils) window.apiUtils.showToast('生成或复制图片失败: ' + err.message, 'error');
-        if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-    }
-}
-
-async function handleStudentRowCapture(student, originalTr) {
-    if (!window.html2canvas) {
-        if (window.apiUtils) window.apiUtils.showToast('组件未加载 (html2canvas missing)', 'error');
-        return;
-    }
-
-    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成图片...', 'info', 0) : null;
-
-    const originalHeaderTr = document.querySelector('#weeklyHeader tr');
-    const originalTable = document.querySelector('#weeklyBody')?.closest('table');
-    if (!originalHeaderTr || !originalTable) {
-        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-        return;
-    }
-
-    const { wrapper, tableClone } = buildCaptureWrapper(originalTable);
-    tableClone.appendChild(buildCapturedHeader(originalHeaderTr));
-
-    const tbody = document.createElement('tbody');
-    tbody.appendChild(buildCapturedRow(originalTr));
-    tableClone.appendChild(tbody);
-
-    await captureWrapperToClipboard(wrapper, toastId, `已复制 ${student.name} 的课表图片`);
-}
-
-function scrollWidthWithBuffer(el) {
-    return Math.max(el.scrollWidth, 1200) + 50;
 }
 
 function renderGroupedMergedSlots(td, items, student, dateKey) {
@@ -1867,6 +1677,10 @@ function updateConflictWarningBanner(conflicts) {
 }
 
 export async function setupScheduleEventListeners() {
+    // 按钮先绑上：以前只在 renderWeeklyBody 末尾绑，网格加载失败或还没进过那一屏时，
+    // 点了没任何反应也不报错。绑定是幂等的，重画时再走一次没有副作用。
+    bindWeekViewExportButton();
+
     const closeForm = () => {
         const container = document.getElementById('scheduleFormContainer');
         const overlay = document.getElementById('modalOverlay');
@@ -1923,7 +1737,6 @@ export async function setupScheduleEventListeners() {
                 end_time: form.querySelector('#scheduleEndTime').value,
                 location: form.querySelector('#scheduleLocation').value,
                 notes: form.querySelector('#scheduleNotes') ? form.querySelector('#scheduleNotes').value : null,
-                resolve_strategy: 'override', // 默认覆盖
                 teachers: pairs.teachers.map(({ uid, ...rest }) => rest),
                 students: pairs.students.map(({ uid, ...rest }) => rest)
             };

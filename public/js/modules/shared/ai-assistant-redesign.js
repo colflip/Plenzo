@@ -1929,15 +1929,11 @@ function renderSchedulePreviewMessage(msg) {
         const previewCard = document.createElement('div');
         previewCard.className = 'ai-preview-card';
 
-        // 预览头部
-        // 提取唯一的教师和学生
-        const uniqueTeachers = [...new Set(msg.data.schedules.map(s => s.teacher_name).filter(Boolean))];
-        const uniqueStudents = [...new Set(msg.data.schedules.map(s => s.student_name).filter(Boolean))];
-        const uniqueCourses = [...new Set(msg.data.schedules.map(s => getBaseCourseType(s.course_type_cn)).filter(Boolean))];
-
-        // 计算合并后的数量
-        const mergedSchedules = mergeSchedulesForDisplay(msg.data.schedules);
-        const displayCount = mergedSchedules.length;
+        // 预览头部：服务端已经按「一场课一行」合并好，这里只汇总名册
+        const schedules = msg.data.schedules;
+        const uniqueTeachers = [...new Set(schedules.flatMap(s => (s.teachers || []).map(t => t.teacher_name)))];
+        const uniqueStudents = [...new Set(schedules.flatMap(s => (s.students || []).map(st => st.student_name)))];
+        const uniqueCourses = [...new Set(schedules.flatMap(s => (s.teachers || []).map(t => t.course_type_cn)))];
         const totalCount = msg.data.totalCount;
 
         const previewHeader = document.createElement('div');
@@ -1948,17 +1944,20 @@ function renderSchedulePreviewMessage(msg) {
             </div>
             <div class="ai-preview-meta">
                 <div class="ai-preview-meta-item">
-                    教师：<strong>${uniqueTeachers.join('、') || msg.data.teacher}</strong>
+                    教师：<strong>${escapeHtml(uniqueTeachers.join('、') || msg.data.teacher)}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    学生：<strong>${uniqueStudents.join('、') || msg.data.student}</strong>
+                    学生：<strong>${escapeHtml(uniqueStudents.join('、') || msg.data.student)}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    课程：<strong>${uniqueCourses.join('、') || msg.data.courseType}</strong>
+                    课程：<strong>${escapeHtml(uniqueCourses.join('、') || msg.data.courseType)}</strong>
                 </div>
                 <div class="ai-preview-meta-item">
-                    共 <strong>${displayCount}</strong> 条记录${displayCount !== totalCount ? `（${totalCount}条课程已合并）` : ''}
+                    共 <strong>${totalCount}</strong> 条记录（一场课一行，同场的多位教师合并在同一栏）
                 </div>
+                ${msg.data.conflictCount ? `<div class="ai-preview-meta-item" style="color:#b45309;font-weight:600;">
+                    ⚠ ${msg.data.conflictCount} 处时段与现有排课重叠（鼠标移到「冲突」标记上看是谁）
+                </div>` : ''}
             </div>
         `;
         previewCard.appendChild(previewHeader);
@@ -1982,7 +1981,7 @@ function renderSchedulePreviewMessage(msg) {
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
-        mergedSchedules.forEach(item => {
+        schedules.forEach(item => {
             const tr = document.createElement('tr');
 
             const tdDate = document.createElement('td');
@@ -1998,11 +1997,13 @@ function renderSchedulePreviewMessage(msg) {
             tr.appendChild(tdTime);
 
             const tdTeacher = document.createElement('td');
-            tdTeacher.textContent = item.teacher_display || '-';
+            // 与下面学生列同一兜底：老会话从 localStorage 恢复的预览行可能只有 teacher_name，
+            // 少了这一层整列会显示成 "-"
+            tdTeacher.textContent = item.teacher_display || item.teacher_name || '-';
             tr.appendChild(tdTeacher);
 
             const tdStudent = document.createElement('td');
-            tdStudent.textContent = item.student_name || '-';
+            tdStudent.textContent = item.student_display || item.student_name || '-';
             tr.appendChild(tdStudent);
 
             const tdCourse = document.createElement('td');
@@ -2014,6 +2015,14 @@ function renderSchedulePreviewMessage(msg) {
             tdStatus.textContent = statusText;
             tdStatus.style.color = item.status === 'pending' ? 'var(--ai-warning)' : 'var(--ai-success)';
             tdStatus.style.fontWeight = '600';
+            // 时段冲突不拦住创建（与管理员端一致：提示为主），但必须在确认前看得见
+            if (Array.isArray(item.conflicts) && item.conflicts.length) {
+                const warn = document.createElement('div');
+                warn.style.cssText = 'margin-top:4px;color:#b45309;font-weight:600;font-size:12px;';
+                warn.textContent = `⚠ ${item.conflicts.length} 处时段冲突`;
+                warn.title = item.conflicts.join('\n');
+                tdStatus.appendChild(warn);
+            }
             tr.appendChild(tdStatus);
 
             tbody.appendChild(tr);
@@ -2094,6 +2103,14 @@ function buildScheduleTable(rows) {
         tdStatus.textContent = statusText;
         tdStatus.style.color = getStatusColor(schedule.status);
         tdStatus.style.fontWeight = '600';
+        // 时段重叠只提示不拦（业务上允许一个人出现在重叠的两节课里），标在行上让人看得见
+        if (Array.isArray(schedule.conflicts) && schedule.conflicts.length) {
+            const warn = document.createElement('div');
+            warn.style.cssText = 'margin-top:4px;color:#b45309;font-weight:600;font-size:12px;';
+            warn.textContent = `⚠ ${schedule.conflicts.length} 处时段冲突`;
+            warn.title = schedule.conflicts.join('\n');
+            tdStatus.appendChild(warn);
+        }
         tr.appendChild(tdStatus);
 
         tbody.appendChild(tr);
@@ -2148,8 +2165,11 @@ function renderScheduleOperationPreviewMessage(msg) {
                 <div class="ai-preview-meta-item">
                     影响 <strong>${data.affectedCount}</strong> 条排课
                 </div>
-                ${data.message ? `<div class="ai-preview-meta-item">${data.message}</div>` : ''}
-                ${isDelete && data.reason ? `<div class="ai-preview-meta-item">原因：${data.reason}</div>` : ''}
+                ${data.conflictCount ? `<div class="ai-preview-meta-item" style="color:#b45309;font-weight:600;">
+                    ⚠ ${data.conflictCount} 处时段与现有排课重叠（照写，只是提示；鼠标移到行上看是谁）
+                </div>` : ''}
+                ${data.message ? `<div class="ai-preview-meta-item">${escapeHtml(data.message)}</div>` : ''}
+                ${isDelete && data.reason ? `<div class="ai-preview-meta-item">原因：${escapeHtml(data.reason)}</div>` : ''}
             </div>
         `;
         previewCard.appendChild(previewHeader);
@@ -2159,7 +2179,7 @@ function renderScheduleOperationPreviewMessage(msg) {
             const changesDiv = document.createElement('div');
             changesDiv.style.cssText = 'padding: 8px 12px; background: var(--ai-primary-light); border-radius: 8px; margin: 8px 0; font-size: 13px;';
             changesDiv.innerHTML = '<strong>变更内容：</strong><br>' +
-                data.changes.map(c => `• ${c.field} → ${c.newValue}`).join('<br>');
+                data.changes.map(c => `• ${escapeHtml(c.field)} → ${escapeHtml(c.newValue)}`).join('<br>');
             previewCard.appendChild(changesDiv);
         }
 
@@ -2180,6 +2200,7 @@ function renderScheduleOperationPreviewMessage(msg) {
             courseTypeCn: s.course_type_cn || s.course_type,
             status: s.status,
             statusCn: s.status_cn,
+            conflicts: s.conflicts || [],
             dayOfWeek: s.day_of_week
         }));
         const tableContainer = document.createElement('div');
@@ -2193,7 +2214,7 @@ function renderScheduleOperationPreviewMessage(msg) {
         if (isAdjust && data.newSchedules && data.newSchedules.length > 0) {
             const newLabel = document.createElement('div');
             newLabel.style.cssText = 'margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--ai-primary, #2f6fed);';
-            newLabel.textContent = '➕ 新建课程（调整后按新条件生成）';
+            newLabel.textContent = '➕ 调整后（整场调整就在同一场课上换时段/换增补记录；只有单独挪走某位教师时才另起一场）';
             previewCard.appendChild(newLabel);
 
             const newRows = data.newSchedules.map(n => ({
@@ -2204,7 +2225,8 @@ function renderScheduleOperationPreviewMessage(msg) {
                 studentName: n.studentName,
                 courseTypeCn: n.courseTypeCn,
                 status: n.status || 'confirmed',
-                statusCn: '已确认'
+                statusCn: '已确认',
+                conflicts: n.conflicts || []
             }));
             const newTableContainer = document.createElement('div');
             newTableContainer.className = 'ai-data-table';
@@ -2295,137 +2317,6 @@ function getDayOfWeekFromDate(dateStr) {
     return days[d.getDay()];
 }
 
-/**
- * 获取课程基础类型显示名。复用 type-conversion 单一真源，消除第 4 份重复折算副本：
- *   review / review_record              → 评审
- *   consultation / consultation_record  → 咨询
- *   其余（入户 / 试教 / 集体活动 / 未归类等）保留原样。
- * 说明：大评审按系统口径等同于评审，故在此一并并入「评审」展示，
- *       消除旧副本漏识大评审（原 replace(/记录$/) 把 大评审 当成独立不可合并类型）的漂移。
- */
-function getBaseCourseType(courseTypeCn) {
-    if (!courseTypeCn) return '';
-    const key = window.TypeConversion.normalizeTypeKey(courseTypeCn);
-    if (key === 'review' || key === 'review_record') return '评审';
-    if (key === 'consultation' || key === 'consultation_record') return '咨询';
-    return String(courseTypeCn).trim();
-}
-
-/**
- * 是否为「记录」类课程（评审记录 / 咨询记录）。
- * 复用 type-conversion，避免再写一份 endsWith('记录') 的硬编码判断，
- * 供 AI 预览把记录老师单独分列（regularTeachers / recordTeachers）。
- */
-function isRecordType(courseTypeCn) {
-    const key = window.TypeConversion.normalizeTypeKey(courseTypeCn);
-    return key === 'review_record' || key === 'consultation_record';
-}
-
-/**
- * 合并同时间同地点的评审/咨询类课程
- * 评审 + 评审记录 → 合并，咨询 + 咨询记录 → 合并
- */
-function mergeSchedulesForDisplay(schedules) {
-    if (!schedules || schedules.length === 0) return [];
-
-    const MERGE_TYPES = new Set(['评审', '咨询']);
-    const groups = [];
-
-    for (const schedule of schedules) {
-        const courseTypeCn = schedule.course_type_cn || '';
-        const baseType = getBaseCourseType(courseTypeCn);
-        const timeSlot = `${schedule.start_time || ''}-${schedule.end_time || ''}`;
-        const location = (schedule.location || '').trim();
-        const isRecord = isRecordType(courseTypeCn);
-
-        if (MERGE_TYPES.has(baseType)) {
-            // 查找已有的同类型同时段同地址分组
-            const existing = groups.find(g =>
-                g.isMerged &&
-                g.baseType === baseType &&
-                g.timeSlot === timeSlot &&
-                g.class_date === schedule.class_date &&
-                g.location === location
-            );
-
-            if (existing) {
-                existing.schedules.push(schedule);
-                if (schedule.teacher_name) {
-                    const teacherEntry = { id: schedule.teacher_id || 0, name: schedule.teacher_name };
-                    if (isRecord) {
-                        if (!existing.recordTeachers.some(t => t.id === teacherEntry.id)) {
-                            existing.recordTeachers.push(teacherEntry);
-                        }
-                    } else {
-                        if (!existing.regularTeachers.some(t => t.id === teacherEntry.id)) {
-                            existing.regularTeachers.push(teacherEntry);
-                        }
-                    }
-                }
-            } else {
-                const teacherEntry = schedule.teacher_name ? { id: schedule.teacher_id || 0, name: schedule.teacher_name } : null;
-                groups.push({
-                    isMerged: true,
-                    baseType,
-                    timeSlot,
-                    class_date: schedule.class_date,
-                    location,
-                    schedules: [schedule],
-                    regularTeachers: (!isRecord && teacherEntry) ? [teacherEntry] : [],
-                    recordTeachers: (isRecord && teacherEntry) ? [teacherEntry] : []
-                });
-            }
-        } else {
-            groups.push({
-                isMerged: false,
-                schedule,
-                baseType,
-                timeSlot
-            });
-        }
-    }
-
-    // 转换为显示格式，按教师ID排序，记录老师排在最后并加"（记录）"标签
-    const result = groups.map(group => {
-        if (group.isMerged) {
-            const first = group.schedules[0];
-            // 按教师ID排序
-            const sortedRegular = [...group.regularTeachers].sort((a, b) => a.id - b.id);
-            const sortedRecord = [...group.recordTeachers].sort((a, b) => a.id - b.id);
-            const teacherParts = [
-                ...sortedRegular.map(t => t.name),
-                ...sortedRecord.map(t => `${t.name}（记录）`)
-            ];
-            return {
-                class_date: first.class_date,
-                day_of_week: first.day_of_week || getDayOfWeekFromDate(first.class_date),
-                start_time: first.start_time,
-                end_time: first.end_time,
-                teacher_display: teacherParts.join('、'),
-                student_name: first.student_name,
-                course_type_cn: group.baseType,
-                status: first.status,
-                status_cn: first.status_cn
-            };
-        } else {
-            const s = group.schedule;
-            return {
-                ...s,
-                teacher_display: s.teacher_name || '-'
-            };
-        }
-    });
-
-    // 按日期和时间排序
-    result.sort((a, b) => {
-        const keyA = `${a.class_date || ''} ${a.start_time || ''}`;
-        const keyB = `${b.class_date || ''} ${b.start_time || ''}`;
-        return keyA.localeCompare(keyB);
-    });
-
-    return result;
-}
-
 function getStatusColor(status) {
     const colors = {
         pending: '#f59e0b',
@@ -2493,7 +2384,7 @@ function renderImagePreview() {
         const item = document.createElement('div');
         item.className = 'ai-image-preview-item';
         item.innerHTML = `
-            <img src="${image.dataUrl}" alt="${image.name}">
+            <img src="${image.dataUrl}" alt="${escapeHtml(image.name)}">
             <button class="remove-image" data-index="${index}">×</button>
         `;
         container.appendChild(item);

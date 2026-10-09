@@ -157,9 +157,15 @@
 
     function typeLabel(s) {
         if (s.type_desc) return s.type_desc;
-        const raw = s.type_name || '';
-        if (TYPE_DISPLAY_MAP[raw]) return TYPE_DISPLAY_MAP[raw];
-        return raw || s.type || s.schedule_type_cn || s.schedule_type || '';
+        // 每个候选键都要过一遍 TYPE_DISPLAY_MAP：视图这条链路里 type 有可能落到英文的
+        // schedule_type（weekly-view-export.js 的兜底顺序是 …cn || …name || type_name || …|| schedule_type），
+        // 只翻 type_name 的话，报销单与 PNG 的课程名就会露出 'visit' 这种原始位。
+        const candidates = [s.type_name, s.type, s.schedule_type_cn, s.schedule_type];
+        for (const c of candidates) {
+            if (c === undefined || c === null || c === '') continue;
+            return TYPE_DISPLAY_MAP[c] || String(c);
+        }
+        return '';
     }
 
     function typeKey(s) {
@@ -170,6 +176,44 @@
         if (s.status_category) return s.status_category;
         if (s.status_code) return String(s.status_code).split('.')[0];
         return 'normal';
+    }
+
+    function sessionKeyOf(s) {
+        // 服务端导出行走 SQL 形状（schedule_id），浏览器报销页走 pairs 接口（session_id/id）
+        const key = s.session_id != null ? s.session_id
+            : (s.schedule_id != null ? s.schedule_id : s.id);
+        return String(key);
+    }
+
+    function teacherKeyOf(s) {
+        // 用 teacher_id 而非 teacher_uid：uid 是场次数组里的元素序号
+        // （modified_away 的 t1 与 adjusted 的 t2 同师不同 uid），配不上对。
+        if (s.teacher_id != null) return String(s.teacher_id);
+        if (s.teacher_uid) return String(s.teacher_uid);
+        return String(s.teacher_name || '');
+    }
+
+    function isMovedAway(s) {
+        const st = String(s.status || '').toLowerCase();
+        return st === 'modified_away' || st === '已调整';
+    }
+
+    /**
+     * 日期列水印（调/加/原）：调=当日存在调整痕迹（modified_away 或 adjusted 类别）、
+     * 加=存在临时加课、整组都是被挪走的原课程时标「原」。
+     * 视图与 Excel 共用这一个实现，行上通过 _watermark 传递。
+     */
+    function watermarkTextForDay(recs) {
+        const list = Array.isArray(recs) ? recs : [recs];
+        if (list.length === 0 || !list[0]) return '';
+        const isOriginal = (r) => isMovedAway(r) && statusCategory(r) === 'normal';
+        const isAdjusted = (r) => statusCategory(r) === 'adjusted' || isMovedAway(r);
+        const isTemp = (r) => statusCategory(r) === 'temp';
+        if (list.every(isOriginal)) return '原';
+        const parts = [];
+        if (list.some(isAdjusted)) parts.push('调');
+        if (list.some(isTemp)) parts.push('加');
+        return parts.join('/');
     }
 
     function rowDateKey(row) {
@@ -239,6 +283,23 @@
          *  的入户/大评审在 Excel 里只剩一个名字，视图却是全名单 —— 两边永远对不齐）
          */
         generateCourseText(schedules, isSingleStudent) {
+            // 跨学生改属调整（0919 裁定）：本行 modified_away 的学生 pair 确实改属过
+            // （change log 里 pair_patch student 且 student_id from≠to，SQL 侧以每行
+            // student_swapped 标志透出）时，原计划属于别的学生 —— 计划列不渲染，
+            // 只在实际列显示调整后的课。同学生的作废+增补（09-10）不置空：改属判定
+            // 已排除号段重编（那是 user_id_migrated 不是 pair_patch）与原=新的空补丁。
+            // 跨场次的挪课（改时间）不在此列：来源场次没有 adjusted 配对，仍按 dim 计划渲染。
+            const adjustedTwinKeys = new Set();
+            schedules.forEach(s => {
+                if (statusCategory(s) === 'adjusted') {
+                    adjustedTwinKeys.add(sessionKeyOf(s) + '|' + teacherKeyOf(s));
+                }
+            });
+            schedules = schedules.filter(s => !(
+                isMovedAway(s) && s.student_swapped &&
+                adjustedTwinKeys.has(sessionKeyOf(s) + '|' + teacherKeyOf(s))
+            ));
+
             // 全序排序：仅按 TYPE_PRIORITY 时，同基类不同显示名（评审 vs (线上)评审）
             // 打平后依赖输入行序 —— 后端 SQL 与前端接口的行序不同，段序就漂移。
             // 追加 基类名→是否线上→显示名→type_id 逐级 tie-break，两边必然同序。
@@ -522,10 +583,18 @@
             const segAsc = (a, b) =>
                 (a.timeSortKey - b.timeSortKey) || String(a.ts).localeCompare(String(b.ts));
 
+            // 行序 tie-break 与段序同一口径：先 TYPE_PRIORITY（评审 2 < 入户 4），再基础类型名、
+            // 最后行键。之前只按 rowKey 做 localeCompare —— 同一时段跨类型的两行谁先谁后
+            // 取决于机器的 ICU collation，换台机器就翻顺序，段与行的规则也不一致了。
+            const rowBaseRank = (r) => TYPE_PRIORITY[RichText.getBaseTypeName(r.typeKey)] || 999;
+            const cpAsc = (x, y) => (x < y ? -1 : (x > y ? 1 : 0));
+
             return [...rows.values()]
                 .sort((a, b) => (a.timeSortKey - b.timeSortKey) ||
                     String(a.studentName).localeCompare(String(b.studentName)) ||
-                    String(a.rowKey).localeCompare(String(b.rowKey)))
+                    (rowBaseRank(a) - rowBaseRank(b)) ||
+                    cpAsc(String(a.typeKey), String(b.typeKey)) ||
+                    cpAsc(String(a.rowKey), String(b.rowKey)))
                 .map(r => {
                     const row = { rowKey: r.rowKey, planParts: [], actualParts: [] };
                     r.planSegs.sort(segAsc).forEach(
@@ -588,6 +657,9 @@
 
     // ── 费用聚合 ──
 
+    // 这里**不按** status / 生命周期过滤：课可以是被取消或被调走的，但跑路、入户这些动作
+    // 可能已经发生，费用仍需报销。课程计数的排除口径在 isCountableSchedule（服务端
+    // export/data-transformer.js、前端 admin/stats-logic.js），两边口径相反是有意的。
     function calculateFees(rawData, dates, isSingleStudent) {
         const dailyFees = new Map();
         const weeklyFees = new Map();
@@ -850,6 +922,7 @@
             const weekNumber = getISOWeek(dateObj);
 
             const daySchedules = groupedByDate.get(dateStr) || [];
+            const dayWatermark = watermarkTextForDay(daySchedules);
 
             if (daySchedules.length > 0) {
                 const { rows: scheduleRows } = RichText.generateCourseText(daySchedules, isSingleStudent);
@@ -888,6 +961,7 @@
                         '_actualIsModifiedAwayGrey': false,
                         '_isModifiedDate': actualRowParts.some(p => p.isSuperscript && p.text === '~'),
                         '_isSubRowOfMixed': false,
+                        '_watermark': index === 0 ? dayWatermark : '',
                         '_planTextParts': planRowParts,
                         '_actualTextParts': actualRowParts
                     };
@@ -922,6 +996,7 @@
                     '_actualIsModifiedAwayGrey': false,
                     '_isModifiedDate': false,
                     '_isSubRowOfMixed': false,
+                    '_watermark': '',
                     '_planTextParts': [],
                     '_actualTextParts': []
                 });
@@ -950,6 +1025,7 @@
         getISOWeek: getISOWeek,
         calculateFees: calculateFees,
         generateCalendarRows: generateCalendarRows,
+        watermarkTextForDay: watermarkTextForDay,
         RichText: RichText
     };
 }));

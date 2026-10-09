@@ -2,6 +2,8 @@
 // This file contains functions for rendering various statistics charts using Chart.js.
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 
+// 课程统计口径：已取消 / 已调整不计（业务裁定）。费用侧相反 —— 课取消了仍要报销，
+// 见 schedule-calendar-core.js 的 calculateFees；分界用例 src/server/__tests__/services/export/status-scope-split.test.js
 function isCountableSchedule(row) {
     const status = String(row?.status ?? row?.['状态'] ?? '').toLowerCase();
     return !['0', 'cancelled', '已取消', 'modified_away', '已调整'].includes(status);
