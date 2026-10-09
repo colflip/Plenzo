@@ -16,7 +16,8 @@
  *     线上：混合组挂名字后缀（高渊(线上)），整段全线上则改挂类型前缀
  *     「（线上）评审」且名字保持干净；同一行内多段之间用 ROW_SEGMENT_SEPARATOR；
  *   - 趟费：明细「填在哪显示在哪」不分摊；合计按 (场次, 教师pair) 计一次，
- *     fee_scope='student' 的键再带学生逐行相加；draft 不计入合计与明细；
+ *     fee_scope='student' 的键再带学生逐行相加；金额只看填没填，**不按 fee_status 隐藏**
+ *     （fee_status 只驱动「报销状态」列，见 calculateFees 的三态判据）；
  *   - 周键：ISO 年 + 补零周号 'YYYY-Wnn'（周四定年），两侧合并单元格都按它分组；
  *   - 明细展示顺序：老师按 teacher_id、学生按 student_id 升序，保证两边可复现。
  *
@@ -693,17 +694,15 @@
             if (!dateStr) return;
 
             if (!dayFlags.has(dateStr)) {
-                dayFlags.set(dateStr, { anyUnsubmitted: false, hasSubmitted: false, allReimbursed: true, total: 0 });
+                dayFlags.set(dateStr, { allReimbursed: true, total: 0, anyFilled: false });
             }
             const feeStatus = String(row.fee_status || '').toLowerCase();
-            const isDraftFee = feeStatus === 'draft';
-            if (isDraftFee) dayFlags.get(dateStr).anyUnsubmitted = true;
-            else dayFlags.get(dateStr).hasSubmitted = true;
+            // fee_status 只决定「报销状态」列，不参与金额显隐（见下面的三态判据）
             if (feeStatus !== 'reimbursed') dayFlags.get(dateStr).allReimbursed = false;
 
             const rowWeekNum = getISOWeek(new Date(dateStr));
             if (!weekFlags.has(rowWeekNum)) {
-                weekFlags.set(rowWeekNum, { anyRow: false, allReimbursed: true });
+                weekFlags.set(rowWeekNum, { anyRow: false, allReimbursed: true, anyFilled: false });
             }
             const weekFlag = weekFlags.get(rowWeekNum);
             weekFlag.anyRow = true;
@@ -731,24 +730,31 @@
 
             const transportFee = parseFloat(row.transport_fee) || 0;
             const otherFee = parseFloat(row.other_fee) || 0;
+            // 「填没填」看的是值在不在，不是提交状态：null/'' 才是没填，显式 0 是填了 0。
+            const isFilled = v => v !== null && v !== undefined && String(v).trim() !== '';
+            const filled = isFilled(row.transport_fee) || isFilled(row.other_fee);
+            if (filled) {
+                dayFlags.get(dateStr).anyFilled = true;
+                weekFlag.anyFilled = true;
+            }
 
-            if (!isDraftFee) {
-                if (transportFee > 0) {
-                    feeData.teacherFees.set(
-                        teacherName, (feeData.teacherFees.get(teacherName) || 0) + transportFee
-                    );
-                }
-                if (otherFee > 0) {
-                    feeData.teacherOtherFees.set(
-                        teacherName, (feeData.teacherOtherFees.get(teacherName) || 0) + otherFee
-                    );
-                }
-                feeData.totalTransport += transportFee;
-                feeData.totalOther += otherFee;
+            // 手填金额一律照原样计入，不按 fee_status 隐藏：报销单正是「待提交」阶段
+            // 要拿去提交的东西，把已填的金额藏成 '-'/'0' 等于把这张表清空。
+            if (transportFee > 0) {
+                feeData.teacherFees.set(
+                    teacherName, (feeData.teacherFees.get(teacherName) || 0) + transportFee
+                );
+            }
+            if (otherFee > 0) {
+                feeData.teacherOtherFees.set(
+                    teacherName, (feeData.teacherOtherFees.get(teacherName) || 0) + otherFee
+                );
+            }
+            feeData.totalTransport += transportFee;
+            feeData.totalOther += otherFee;
 
-                if (!counted) {
-                    dayFlags.get(dateStr).total += transportFee + otherFee;
-                }
+            if (!counted) {
+                dayFlags.get(dateStr).total += transportFee + otherFee;
             }
         });
 
@@ -778,7 +784,12 @@
                 return;
             }
 
-            if (dayFlag.anyUnsubmitted && !dayFlag.hasSubmitted) {
+            // 三态的判据是「有没有课 / 填没填金额」，与提交状态无关：
+            //   '/'  当天没有排课
+            //   '-'  当天有课，但交通与其他一个都没填
+            //   '0'  填了，合计正好是 0（显式零）
+            //   其他  金额（多学生/多老师时逐行列出）
+            if (!dayFlag.anyFilled) {
                 dailyFees.set(dateStr, '-');
             } else if (dayFlag.total === 0) {
                 dailyFees.set(dateStr, '0');
@@ -842,7 +853,9 @@
 
             const studentFees = feesByWeek.get(weekNumber) || [];
             const weekFlag = weekFlags.get(weekNumber);
-            const zeroValue = weekFlag ? '0' : '/';
+            // 与当日列同一套判据：无课 '/'、有课但没填 '-'、填了但合计 0 → '0'
+            const zeroValue = (!weekFlag || !weekFlag.anyRow) ? '/'
+                : (weekFlag.anyFilled ? '0' : '-');
 
             if (isSingleStudent) {
                 const weekTotal = studentFees.reduce(
