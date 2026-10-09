@@ -20,6 +20,7 @@ const { PERMISSION_LEVELS } = require('../middleware/role');
 const courseSessionService = require('./course-session-service');
 const aiUserModelStore = require('./ai-user-model-store');
 const { getActorLevel, visibleColumns, filterObjectByLevel } = require('../utils/admin-permissions');
+const { forgetSession } = require('../utils/session-revocation');
 
 const TABLES = { admin: 'administrators', teacher: 'teachers', student: 'students' };
 const ROLE_LABELS = { admin: '管理员', teacher: '教师', student: '学生' };
@@ -520,6 +521,11 @@ async function updateUser(userType, id, payload, req) {
         });
     } catch (_) { /* 审计失败不阻断 */ }
 
+    // 停用/恢复/改号都在这一条路径上：本实例的会话缓存必须立刻失效，
+    // 否则被停用的账号还能在 TTL（30s）内继续用旧票（其他实例由 TTL 兜住）。
+    forgetSession(userType, id);
+    if (needIdChange) forgetSession(userType, newIdInt);
+
     return rows[0];
 }
 
@@ -642,6 +648,9 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
     try {
         await recordAudit(req, { op: 'delete', entityType: userType, entityId: Number(id) });
     } catch (_) { /* 审计失败不阻断 */ }
+
+    // 行已经没了：立刻让本实例忘记它的会话状态，别让被删账号再有几分钟的可用窗口
+    forgetSession(userType, id);
 
     return { message: '用户删除成功' };
 }

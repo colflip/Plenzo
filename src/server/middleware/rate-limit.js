@@ -31,6 +31,11 @@ function envMs(name, fallback) {
     return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * 只用来给限流分桶（谁在打），不做访问判定 —— 所以这里刻意用 verifyToken 而不是
+ * verifySession：状态复核要查库，放在限流之前等于给每个请求加一次串行往返，
+ * 而真正该拦的位置是 authMiddleware。
+ */
 function verifiedTokenIdentity(req) {
     const header = req.headers && req.headers.authorization;
     if (!header) return null;

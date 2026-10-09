@@ -2,7 +2,10 @@ const AUTH_ERROR_CODES = new Set([
     'AUTH_REQUIRED',
     'AUTH_INVALID',
     'AUTH_EXPIRED',
-    'SESSION_EPOCH_MISMATCH'
+    'SESSION_EPOCH_MISMATCH',
+    // 后端复核发现账号已停用/删除（authMiddleware 的 SESSION_REVOKED）。
+    // 不列进来的话只会弹一句错误、人还留在仪表盘里，每个请求继续 401。
+    'SESSION_REVOKED'
 ]);
 
 class ApiError extends Error {
