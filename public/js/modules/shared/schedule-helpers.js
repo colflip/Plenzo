@@ -177,22 +177,13 @@ export function getAdjustmentType(rec) {
  * @param {object|Array<object>} scheduleOrGroup 单条记录或同槽记录组
  * @returns {string} '' | '原' | '调' | '加' | '调/加'
  */
+/**
+ * 日期块水印（调/加/原）。唯一实现在 schedule-calendar-core.watermarkTextForDay ——
+ * 视图卡片、周视图 PNG 与服务端 Excel 共用同一份规则；这里只是浏览器端的转发口。
+ * （原来这份自己判了一遍：只认 'modified_away' 不认已翻译的 '已调整'，与 core 已经漂移。）
+ */
 export function getScheduleWatermarkText(scheduleOrGroup) {
-    const recs = Array.isArray(scheduleOrGroup) ? scheduleOrGroup : [scheduleOrGroup];
-    if (recs.length === 0 || !recs[0]) return '';
-
-    const statusOf = (r) => (r.status || '').toLowerCase();
-    const isOriginal = (r) => statusOf(r) === 'modified_away' && getAdjustmentType(r) === 0;
-    const isAdjusted = (r) => getAdjustmentType(r) === 2 || statusOf(r) === 'modified_away';
-    const isTemp = (r) => getAdjustmentType(r) === 1;
-
-    // 整组均为「已调整调走」的原课程时，标记「原」
-    if (recs.every(isOriginal)) return '原';
-
-    const parts = [];
-    if (recs.some(isAdjusted)) parts.push('调');
-    if (recs.some(isTemp)) parts.push('加');
-    return parts.join('/');
+    return window.ScheduleCalendarCore.watermarkTextForDay(scheduleOrGroup);
 }
 
 /**

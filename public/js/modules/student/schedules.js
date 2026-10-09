@@ -2,11 +2,13 @@ import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getSched
 import { isMobileView, getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
+import { captureWeekTableToClipboard } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
     groupSchedulesByDate,
     groupSchedulesBySlot,
-    bindWeekNavigation
+    bindWeekNavigation,
+    setupWeekViewExportButton
 } from '../shared/schedule-view-utils.js';
 import {
     clearChildren,
@@ -84,7 +86,20 @@ export async function initSchedulesSection() {
     bindNavigation();
     bindShowPlanButton();
     syncShowPlanButton();
+    bindWeekViewExportButton();
     await loadSchedules(currentWeekStart);
+}
+
+function bindWeekViewExportButton() {
+    setupWeekViewExportButton({
+        buttonId: 'exportStudentWeekViewBtn',
+        onClick: () => captureWeekTableToClipboard({ label: '本周课表' })
+    });
+}
+
+// 窄屏走移动端卡表，且移动端分支不重画 #weeklyBody —— 截它只会拿到上一周的残留内容
+function syncWeekViewExportButton() {
+    bindWeekViewExportButton();
 }
 
 window.toggleStudentShowPlan = async function () {
@@ -243,6 +258,7 @@ function renderSchedules(weekDates, schedules) {
         renderHeader(weekDates);
         renderBody(weekDates, schedules);
     }
+    syncWeekViewExportButton();
 }
 
 // 移动端2列7行表格渲染

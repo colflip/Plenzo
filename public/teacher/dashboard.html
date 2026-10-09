@@ -7,7 +7,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>教师仪表盘 - Plenzo</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round">
+    <link rel="stylesheet" href="/css/core/material-icons.css">
     <link rel="stylesheet" href="/css/core/global.css">
     <link rel="stylesheet" href="/css/modules/dashboard.css?v=7">
     <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
@@ -1132,6 +1132,10 @@
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
                                 <span id="teacherShowPlanBtnText">显示全部安排</span>
                             </button>
+                            <button id="exportTeacherWeekViewBtn" class="primary-btn" style="margin-left:8px;" title="把当前这一周的课程安排复制成图片">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                                导出本周视图
+                            </button>
                         </div>
                     </div>
 
@@ -1263,6 +1267,11 @@
                                 style="margin-left: 8px;" data-action="export-teacher-students">
                                 <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
                                 导出数据
+                            </button>
+                            <button id="exportWeeklyViewBtn" class="primary-btn"
+                                style="margin-left: 8px;" title="复制成图片：一名学生直接导出，多名学生先选择">
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">file_download</span>
+                                导出本周视图
                             </button>
                         </div>
                     </div>

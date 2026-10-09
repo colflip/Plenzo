@@ -213,7 +213,7 @@ function initLogin() {
             const textEl = errorMessage.querySelector('#errorMessageText');
             if (textEl) textEl.textContent = msg;
             else errorMessage.textContent = msg;
-            errorMessage.style.display = 'block';
+            errorMessage.style.display = 'flex';
             // Slight shake animation
             const card = document.querySelector('.login-card');
             if (card) {

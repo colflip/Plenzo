@@ -261,10 +261,27 @@ export function createAvailabilityView(config) {
                     <span class="icon-slot-text">${slot.label}</span>
                 `;
 
-                iconContainer.addEventListener('click', () => {
-                    const newState = !iconContainer.classList.contains('active');
-                    iconContainer.classList.toggle('active', newState);
-                    handleAvailabilityChange(iso, slot.id, newState, cell);
+                // 原来是个纯 div + click，键盘和读屏都到不了（P3-12）。不换 <button> 是因为
+                // 现有 CSS 按 div 排版；改挂 role/tabindex/aria-pressed，Enter 与 Space 走同一处理。
+                // 状态以 aria-pressed 为唯一真相，不再从 classList 反推（否则视觉与可访问性各说一套）。
+                iconContainer.setAttribute('role', 'button');
+                iconContainer.tabIndex = 0;
+                iconContainer.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                iconContainer.setAttribute('aria-label', `${dateLabel} ${slot.label}`);
+
+                const toggleSlot = () => {
+                    const next = iconContainer.getAttribute('aria-pressed') !== 'true';
+                    iconContainer.classList.toggle('active', next);
+                    iconContainer.setAttribute('aria-pressed', next ? 'true' : 'false');
+                    handleAvailabilityChange(iso, slot.id, next, cell);
+                };
+
+                iconContainer.addEventListener('click', toggleSlot);
+                iconContainer.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                        e.preventDefault();
+                        toggleSlot();
+                    }
                 });
 
                 cell.appendChild(iconContainer);
@@ -335,6 +352,8 @@ export function createAvailabilityView(config) {
                 const iso = toISODate(date);
                 const cell = createElement('td', 'availability-cell');
                 const isActive = state.get(iso)?.[slot.id] ?? false;
+                // 这张是转置表（行=时段、列=日期），没有 dateLabel 变量，标签按表头同一写法拼
+                const slotDateLabel = `${date.getMonth() + 1}月${date.getDate()}日`;
 
                 const iconContainer = createElement('div', `icon-slot-container ${isActive ? 'active' : ''}`);
                 iconContainer.innerHTML = `
@@ -342,10 +361,25 @@ export function createAvailabilityView(config) {
                     <span class="icon-slot-text">${slot.label}</span>
                 `;
 
-                iconContainer.addEventListener('click', () => {
-                    const newState = !iconContainer.classList.contains('active');
-                    iconContainer.classList.toggle('active', newState);
-                    handleAvailabilityChange(iso, slot.id, newState, cell);
+                // 同上：div + click 对键盘不可达（P3-12），补 role/tabindex/aria-pressed 与 Enter/Space
+                iconContainer.setAttribute('role', 'button');
+                iconContainer.tabIndex = 0;
+                iconContainer.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                iconContainer.setAttribute('aria-label', `${slotDateLabel} ${slot.label}`);
+
+                const toggleSlot = () => {
+                    const next = iconContainer.getAttribute('aria-pressed') !== 'true';
+                    iconContainer.classList.toggle('active', next);
+                    iconContainer.setAttribute('aria-pressed', next ? 'true' : 'false');
+                    handleAvailabilityChange(iso, slot.id, next, cell);
+                };
+
+                iconContainer.addEventListener('click', toggleSlot);
+                iconContainer.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                        e.preventDefault();
+                        toggleSlot();
+                    }
                 });
 
                 cell.appendChild(iconContainer);

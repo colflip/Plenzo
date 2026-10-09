@@ -48,33 +48,9 @@
             return date;
         });
     }
-    function normalizeDateKey(dateLike) {
-        return toISODate(dateLike) || null;
-    }
 
-    // ---- 水印文本（与 schedule-helpers.js getScheduleWatermarkText 统一） ----
-    // 规则：adjustment_type===2 或 status==='modified_away' 即视为「已调整」（"调"水印）；
-    // 整组均为 modified_away+type0 时标记「原」；type===1 标记「加」。
-    function getAdjustmentType(rec) {
-        // 数据源换成状态码的类别位（normal|adjusted|temp），旧的两列已不再返回
-        const cat = rec && (rec.status_category || (rec.status_code ? String(rec.status_code).split('.')[0] : ''));
-        const raw = cat === 'temp' ? 1 : (cat === 'adjusted' ? 2 : 0);
-        const num = Number(raw);
-        return Number.isFinite(num) ? num : 0;
-    }
-    function getScheduleWatermarkText(group) {
-        const recs = Array.isArray(group) ? group : [group];
-        if (recs.length === 0 || !recs[0]) return '';
-        const statusOf = (r) => (r.status || '').toLowerCase();
-        const isOriginal = (r) => statusOf(r) === 'modified_away' && getAdjustmentType(r) === 0;
-        const isAdjusted = (r) => getAdjustmentType(r) === 2 || statusOf(r) === 'modified_away';
-        const isTemp = (r) => getAdjustmentType(r) === 1;
-        if (recs.every(isOriginal)) return '原';
-        const parts = [];
-        if (recs.some(isAdjusted)) parts.push('调');
-        if (recs.some(isTemp)) parts.push('加');
-        return parts.join('/');
-    }
+    // ---- 水印文本：由 ScheduleCalendarCore.watermarkTextForDay 统一计算，
+    // 行上的 _watermark 直接消费（调/加/原规则与 Excel 日期列同源） ----
 
     // ---- 表格视觉常量（与教师端 WEEKLY_VIEW_STYLE 1:1 对齐） ------------
     const WEEKLY_VIEW_STYLE = {
@@ -394,6 +370,9 @@
                 course_id: s.course_id,
                 status_category: s.status_category,
                 status_code: s.status_code,
+                // 跨学生改属标志：core 的「计划列不渲染」判定吃这个字段。视图/PNG 这条链路
+                // 以前不带它，同一周的 PNG 和 Excel 计划列就会不一致。
+                student_swapped: s.student_swapped,
                 location: s.location
             }));
 
@@ -429,62 +408,57 @@
         }
 
         // 3. 渲染 DOM 表格
-        const wrapper = buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows);
+        const wrapper = buildWeeklyViewWrapper(rows, weekDates, targetStudent);
         document.body.appendChild(wrapper);
 
-        // 4. html2canvas + 剪贴板（Safari 兼容 Promise 模式）
-        try {
-            const makeImagePromise = new Promise(async (resolve, reject) => {
-                try {
-                    const canvas = await html2canvas(wrapper, {
-                        scale: 2,
-                        backgroundColor: '#ffffff',
-                        logging: false,
-                        useCORS: true,
-                        width: wrapper.offsetWidth,
-                        height: wrapper.offsetHeight
-                    });
+        // 4. html2canvas + 剪贴板。Safari 要的是「同步用 pending Promise 构造 ClipboardItem」，
+        //    而不是 `new Promise(async …)` —— 后者的 async 体内抛错会变成永不 settle 的外层
+        //    Promise（toast 永远挂着，审查报告 P2-21），所以渲染逻辑放进普通 async 函数。
+        //    字体这一跳必须有：图标是本地自托管且 font-display: block，抢在就绪前截出来
+        //    会是空白或 'download' / 'person' 字面文字（P3-16）。
+        const renderToPngBlob = async () => {
+            try {
+                if (document.fonts && document.fonts.ready) await document.fonts.ready;
+                const canvas = await html2canvas(wrapper, {
+                    scale: 2,
+                    backgroundColor: '#ffffff',
+                    logging: false,
+                    useCORS: true,
+                    width: wrapper.offsetWidth,
+                    height: wrapper.offsetHeight
+                });
+                return await new Promise((resolve, reject) => {
                     canvas.toBlob(blob => {
-                        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
                         if (!blob) { reject(new Error('生成图片为空')); return; }
                         resolve(blob);
                     }, 'image/png');
-                } catch (err) {
-                    reject(err);
-                } finally {
-                    if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-                }
-            });
+                });
+            } finally {
+                if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
+            }
+        };
 
-            const item = new ClipboardItem({ 'image/png': makeImagePromise });
+        try {
+            const item = new ClipboardItem({ 'image/png': renderToPngBlob() });
             await navigator.clipboard.write([item]);
-
             if (window.apiUtils) window.apiUtils.showSuccessToast('已导出本周安排视图到粘贴板');
         } catch (err) {
+            // 剪贴板的 DOMException 经常没有 message，直接拼会得到「导出失败: 」这种半句话
+            const reason = String((err && err.message) || '').trim()
+                || (err && err.name === 'NotAllowedError'
+                    ? '需要页面处于焦点，请点击页面后重试'
+                    : '剪贴板不可用，请聚焦页面后重试');
+            if (window.apiUtils) window.apiUtils.showToast('导出失败: ' + reason, 'error');
+        } finally {
             if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
-            if (window.apiUtils) window.apiUtils.showToast('导出失败: ' + err.message, 'error');
             if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
         }
     }
 
     // ---- 离屏表格构造（与教师端 buildWeeklyViewWrapper 1:1） -----------
-    function buildWeeklyViewWrapper(rows, weekDates, targetStudent, adaptedRows) {
+    function buildWeeklyViewWrapper(rows, weekDates, targetStudent) {
         const HEADERS = ['日期', '星期', '计划安排', '实际安排', '费用', '周汇总'];
         const totalWidth = HEADERS.reduce((sum, h) => sum + (WEEKLY_VIEW_STYLE.columnPx[h] || 0), 0);
-
-        const watermarkByDate = {};
-        if (Array.isArray(adaptedRows)) {
-            const byDate = {};
-            adaptedRows.forEach(r => {
-                const dk = normalizeDateKey(r.date);
-                if (!byDate[dk]) byDate[dk] = [];
-                byDate[dk].push(r);
-            });
-            Object.keys(byDate).forEach(dk => {
-                const text = getScheduleWatermarkText(byDate[dk]);
-                if (text) watermarkByDate[dk] = text;
-            });
-        }
 
         const wrapper = document.createElement('div');
         wrapper.style.cssText = [
@@ -565,7 +539,7 @@
                 });
 
                 if (h === '日期' && rowspans.dateFirst[i]) {
-                    const wmText = watermarkByDate[normalizeDateKey(r['日期'])];
+                    const wmText = r._watermark;
                     if (wmText) {
                         td.style.cssText += ';position:relative;overflow:hidden;';
                         const wm = document.createElement('span');
@@ -786,4 +760,6 @@
     // ---- 暴露统一接口 ---------------------------------------------------
     window.exportWeeklyScheduleView = exportWeeklyScheduleView;
     window.registerWeeklyViewExportContext = registerWeeklyViewExportContext;
+    // 学生选择弹窗的唯一实现：视图截图路径（schedule-view-capture.js）复用同一个，不再复制一套 UI
+    window.pickWeeklyViewStudent = pickStudentForWeeklyView;
 })();

@@ -7,6 +7,7 @@ import {
     groupSchedulesByDate,
     groupSchedulesBySlot,
     bindWeekNavigation,
+    setupWeekViewExportButton,
     updateTeacherScheduleStatus as updateScheduleStatus
 } from '../shared/schedule-view-utils.js';
 import {
@@ -28,6 +29,7 @@ const { escapeHtml, safeSetHTML } = window.SecurityUtils;
 
 // 导入时间槽工具函数
 import { getTimeSlotFromStartTime } from './time-slots.js';
+import { captureWeekTableToClipboard } from '../../components/schedule-view-capture.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];
@@ -48,9 +50,22 @@ export async function initSchedulesSection() {
     currentWeekStart = currentWeekStart || startOfWeek(new Date());
     bindNavigation();
     syncShowPlanButton();
+    bindWeekViewExportButton();
     // 旧版课表内嵌的费用弹窗已随 77caebf 迁往「费用管理」页（FeeManager 统一接管），
     // 函数本体已删除；残留的调用会抛 ReferenceError 并炸掉整个课程安排区块的初始化。
     await loadSchedules(currentWeekStart);
+}
+
+function bindWeekViewExportButton() {
+    setupWeekViewExportButton({
+        buttonId: 'exportTeacherWeekViewBtn',
+        onClick: () => captureWeekTableToClipboard({ label: '本周课表' })
+    });
+}
+
+// 窄屏走的是移动端两张卡表，桌面那张被隐藏，截图入口此时无意义
+function syncWeekViewExportButton() {
+    bindWeekViewExportButton();
 }
 
 window.toggleTeacherShowPlan = async function () {
@@ -197,6 +212,7 @@ function renderSchedules(weekDates, schedules) {
         renderHeader(weekDates);
         renderBody(weekDates, schedules); // 修复此处，应传递原始 schedules 数组给矩阵渲染函数
     }
+    syncWeekViewExportButton();
 }
 
 

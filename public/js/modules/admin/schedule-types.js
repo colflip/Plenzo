@@ -1,6 +1,7 @@
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
+import { escapeHtml } from '../../utils/html-escape.js';
 
 function syncScheduleTypesStore(types, detail = {}) {
     const store = window.ScheduleTypesStore;
@@ -78,10 +79,10 @@ export function renderScheduleTypesTable(types) {
     types.forEach(type => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${type.name}</td>
-            <td>${type.description || '-'}</td>
+            <td>${escapeHtml(type.name)}</td>
+            <td>${escapeHtml(type.description || '-')}</td>
             <td>
-                <button class="edit-type-btn" data-id="${type.id}" data-name="${type.name}" data-description="${type.description || ''}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
+                <button class="edit-type-btn" data-id="${escapeHtml(type.id)}" data-name="${escapeHtml(type.name)}" data-description="${escapeHtml(type.description || '')}" title="编辑" style="background:none;border:none;color:#2ECC71;cursor:pointer;margin-right:8px;">
                     <span class="material-icons-round" style="font-size:18px;">edit</span>
                 </button>
                 <button class="delete-type-btn" data-id="${type.id}" title="删除" style="background:none;border:none;color:#ef4444;cursor:pointer;">
