@@ -174,14 +174,16 @@ function buildStudentFeePatchSql() {
                                  jsonb_set(
                                    jsonb_set(
                                      jsonb_set(
-                                       e, '{fees}',
-                                       CASE WHEN jsonb_typeof(e -> 'fees') = 'object'
-                                            THEN e -> 'fees' ELSE '{}'::jsonb END),
+                                       jsonb_set(
+                                         e, '{fees}',
+                                         CASE WHEN jsonb_typeof(e -> 'fees') = 'object'
+                                              THEN e -> 'fees' ELSE '{}'::jsonb END),
                                      ARRAY['fees', $4::text], $5::jsonb),
                                    '{transport_fee}', 'null'::jsonb),
-                                 '{other_fee}', 'null'::jsonb)
-                          WHEN $3::text IS NULL THEN e
-                          ELSE jsonb_set(e, '{fee_status}', to_jsonb($3::text)) END
+                                 '{other_fee}', 'null'::jsonb),
+                                 -- $3 为空时保持原值（两个都是 NULL 时 jsonb_set 等于不动这一键）
+                                 '{fee_status}', COALESCE(to_jsonb($3::text), e -> 'fee_status'))
+                          ELSE e END
                    ORDER BY ord)
                    FROM jsonb_array_elements(cs.teachers) WITH ORDINALITY AS a(e, ord)),
                updated_at = CURRENT_TIMESTAMP
