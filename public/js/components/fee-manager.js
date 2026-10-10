@@ -2,11 +2,15 @@
  * 统一费用管理组件（FeeManager）
  *
  * 管理端与教师端共用，通过 config 参数适配不同角色与接口，避免重复代码。
- * - 日期范围选择（开始/结束日期）+ 学生视图聚合表格：
- *   一个学生一行（行首 sticky 学生列），表头列与逐条明细记录一一对应：
- *   学生 / 日期时间 / 老师 / 课程类型 / 上课地点 / 状态 / 交通 / 其他 / 总计 / 操作；
- *   学生行默认展开其下逐条课时明细（每条记录一行，字段与表头对齐），点学生姓名可收起；
- *   教师多教以「/」连接，状态以「完成4 待2」迷你拆解，合计为该生范围内求和（与顶部选择器严格对应）。
+ * - 日期范围选择（开始/结束日期）+ 两种表格模式（由 config.groupBy 选择）：
+ *   ① 学生视图（默认，管理员 #finance / 班主任 #sd-fees）：一个学生一行（行首 sticky 学生列）
+ *      + 该生逐条课时明细，列序为
+ *      学生 / 日期时间 / 老师 / 课程类型 / 上课地点 / 状态 / 交通 / 其他 / 总计 / 操作；
+ *      学生行默认展开其下逐条课时明细（每条记录一行，字段与表头对齐），点学生姓名可收起；
+ *      教师多教以「/」连接，状态以「完成4 待2」迷你拆解，合计为该生范围内求和（与顶部选择器严格对应）。
+ *   ② 课时视图（groupBy:'session'，教师本人 #fees）：不做学生分组、无汇总行，一次课一行，
+ *      列序为 日期时间 / 学生 / 老师 / …；日期与学生名都遵守「与上一行重复则占位隐藏」
+ *      （visibility:hidden 而非 display:none，保证时间段的水平位置不随省略左移）。
  * - 自带费用弹窗（DOM 由本组件动态注入，id 前缀 fm-，不与现有
  *   adminFeeManagementModal / feeManagementModal 冲突）
  * - 单条 PATCH 或 批量 POST 保存（由 saveMode 决定）
@@ -486,6 +490,11 @@
     const STUDENT_COLS = 10;
     const STATUS_SHORT = { completed: '完成', pending: '待', confirmed: '确认', cancelled: '取消' };
 
+    // 课时视图（教师本人费用页）：一次课一行、不做学生分组，与学生视图共用同一套单元格渲染
+    function isSessionView(config) {
+        return !!(config && config.groupBy === 'session');
+    }
+
     // 费用报销状态（与后端 validateFeeStatusTransition / feeStatus.js 保持一致）
     const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
     const FEE_STATUS = {
@@ -720,7 +729,7 @@
         if (!tbody) return;
 
         // 先渲染表头，便于加载遮罩探测表头实际高度（与排课管理一致）
-        renderHeader(mountEl);
+        renderHeader(mountEl, config);
 
         // 清空数据区，改用与排课管理统一的加载过渡遮罩
         if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(tbody, '');
@@ -769,17 +778,23 @@
         }
     }
 
-    function renderHeader(mountEl) {
+    function renderHeader(mountEl, config) {
         const thead = mountEl.querySelector('[data-fm="thead"]');
         if (!thead) return;
+        const session = isSessionView(config);
         // 表头列名/位置与下方明细记录（逐条课时）的字段一一对应：
-        // 学生 / 日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
+        // 学生视图：学生 / 日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
+        // 课时视图：日期时间 / 学生 / 老师 / …（一次课一行，学生名退成普通一列）
         // （原「课程类型」与「状态」合并为「排课及状态」：汇总行各占一行、明细行同行显示）
-        const cols = ['学生', '日期时间', '老师', '排课及状态', '上课地点', '费用状态', '交通', '其他', '总计', '操作'];
+        const cols = session
+            ? ['日期时间', '学生', '老师', '排课及状态', '上课地点', '费用状态', '交通', '其他', '总计', '操作']
+            : ['学生', '日期时间', '老师', '排课及状态', '上课地点', '费用状态', '交通', '其他', '总计', '操作'];
         // 每列基础宽度（px，作为 table-layout:auto 下的列宽下限）：
         // 列宽基准是【明细行】每条课时记录（单老师名/单课程类型等短内容），而非汇总行的聚合长文本。
         // 排课及状态（合并）需更宽以容纳「类型，状态」；费用状态独立列。
-        const colWidths = ['80px', '155px', '120px', '150px', '95px', '90px', '70px', '70px', '80px', '90px'];
+        const colWidths = session
+            ? ['160px', '100px', '120px', '150px', '95px', '90px', '70px', '70px', '80px', '90px']
+            : ['80px', '155px', '120px', '150px', '95px', '90px', '70px', '70px', '80px', '90px'];
         if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(thead, '');
         else thead.innerHTML = '';
 
@@ -802,7 +817,9 @@
         cols.forEach((c, i) => {
             const th = document.createElement('th');
             th.textContent = c;
-            if (i === 0) th.className = 'sticky-col student-cell';
+            // sticky-col 被全局钉成 width/min/max 140px（dashboard.css 的 sticky 首列规则），
+            // 课时视图的首列要放「MM-DD（周X） HH:MM - HH:MM」，钉死就会截断，故不加。
+            if (i === 0 && !session) th.className = 'sticky-col student-cell';
             tr.appendChild(th);
         });
         thead.appendChild(tr);
@@ -876,23 +893,35 @@
         td.appendChild(span);
     }
 
-    // 折叠明细行：逐条课时（日期/时间/类型/状态/交通/其他/改）；默认展开
-    // 明细记录：每条课时记录渲染为一行，字段与表头列一一对应（学生列留白不显示内容）
-    function buildDetailRows(config, key, list) {
+    // 逐条课时行（日期/时间/类型/状态/交通/其他/改）；默认展开
+    // sessionMode=false（学生视图）：每条记录一行，首列「学生」位留白，姓名由其上的汇总行给出
+    // sessionMode=true （课时视图）：同一套单元格，但日期时间提到首列、第 2 列显示学生姓名，
+    //   两者都遵守「与上一行重复则占位隐藏」；此时 key 未使用（无分组，也就没有展开/收起）
+    function buildDetailRows(config, key, list, sessionMode) {
+        const session = sessionMode === true;
         const frag = document.createDocumentFragment();
         let prevDate = null;   // 追踪上一行日期，同日期则省略日期前缀（分组省略规则）
         let prevDtKey = null;  // 追踪上一行日期+时间，完全相同则为交叉积重复行（留空）
-        list.slice().sort((a, b) =>
-            (a.date || '').localeCompare(b.date || '') ||
-            (a.start_time || '').localeCompare(b.start_time || '')
+        let prevStudent = null; // 追踪上一行学生名，同名则同样只占位不显示
+        const byDate = (a, b) => (a.date || '').localeCompare(b.date || '');
+        const byTime = (a, b) => (a.start_time || '').localeCompare(b.start_time || '');
+        const byStudent = (a, b) => (a.student_name || '').localeCompare(b.student_name || '', 'zh');
+        // 学生视图：组内已是同一位学生，按日期→时段排。
+        // 课时视图：日期→学生→时段 —— 学生排在时段前，同一天的课按人聚成一块，
+        // 「姓名从第二条重复起不显示」才有连续可比的对象（按时刻排会把同一个人的课打散）。
+        list.slice().sort(session
+            ? (a, b) => byDate(a, b) || byStudent(a, b) || byTime(a, b)
+            : (a, b) => byDate(a, b) || byTime(a, b)
         ).forEach(r => {
             const tr = document.createElement('tr');
-            tr.className = 'fm-detail';
-            tr.dataset.stuDetail = key;
-
-            const blankTd = document.createElement('td');
-            blankTd.className = 'fm-detail-blank';
-            tr.appendChild(blankTd);
+            tr.className = session ? 'fm-detail fm-session-row' : 'fm-detail';
+            if (!session) {
+                // 学生视图：明细行首列留白（姓名在其上的汇总行），横向滚动时该列仍 sticky 对齐
+                tr.dataset.stuDetail = key;
+                const blankTd = document.createElement('td');
+                blankTd.className = 'fm-detail-blank';
+                tr.appendChild(blankTd);
+            }
 
             const teacher = r.teacher_name || '未分配';
             const typeStr = r.schedule_type_cn || r.schedule_type || r.schedule_types || '课程';
@@ -914,8 +943,13 @@
                 dtHtml = `<span class="fm-date-prefix${ghostCls}">${datePrefix}</span>${timeRange}`;
             }
             prevDate = r.date || null;
-            // 交叉积重复行（同日期+同时间）：留空并去掉下方分割线
-            const dtKey = `${r.date}|${start}|${end}`;
+            // 交叉积重复行（同日期+同时间）：留空并去掉下方分割线。
+            // 课时视图里「同一趟的不同学生」是两条各自计费的记录，不能一起抹掉，
+            // 所以判重键要带上学生，只折叠同一位学生的多老师交叉积。
+            const stuKey = r.student_uid == null ? (r.student_name || '') : r.student_uid;
+            const dtKey = session
+                ? `${r.date}|${start}|${end}|${stuKey}`
+                : `${r.date}|${start}|${end}`;
             const isDup = (prevDtKey !== null && dtKey === prevDtKey);
             if (!isDup) prevDtKey = dtKey;
             else tr.classList.add('fm-dup-row');
@@ -945,8 +979,17 @@
             totalDisp = (isUnfilled(r.transport_fee) && isUnfilled(r.other_fee))
                 ? { text: '—', cls: 'fm-fee-empty' }
                 : { text: '¥' + money(total), cls: total === 0 ? 'fm-fee-zero' : 'fm-fee-set' };
-            // 顺序与表头对齐：日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
+            // 顺序与表头对齐：
+            //  学生视图：（首列学生位留白）/ 日期时间 / 老师 / 排课及状态 / 上课地点 / 费用状态 / 交通 / 其他 / 总计 / 操作
+            //  课时视图：日期时间 / 学生 / 老师 / …（其余同序）
             addCell('datetime', isDup ? '' : dtHtml);
+            if (session) {
+                // 姓名与上一行相同时用 visibility:hidden 占位，列宽与分割线位置不随省略漂移
+                const stuName = r.student_name || '未分配';
+                const stuGhost = (prevStudent === stuName) ? ' fm-student-ghost' : '';
+                addCell('student', `<span class="fm-student-name${stuGhost}">${esc(stuName)}</span>`);
+                prevStudent = stuName;
+            }
             addCell('teacher', teacher);
             addCell('merged', `${esc(typeStr)}，${esc(statusText(r.status))}`);
             addCell('location', locationText);
@@ -990,6 +1033,11 @@
 
         if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(tbody, '');
         else tbody.innerHTML = '';
+
+        if (isSessionView(config)) {
+            renderSessionRows(config, tbody, schedules);
+            return;
+        }
 
         const { groups, order } = aggregateByStudent(schedules);
 
@@ -1175,6 +1223,20 @@
                 sel.addEventListener('click', (e) => e.stopPropagation());
             });
         }
+    }
+
+    // 课时视图（教师本人费用页）：一次课一行、不做学生分组。
+    // 没有学生汇总行 = 没有「整生编辑/清除」入口，编辑只能逐条走行内「编辑」（saveMode 本就是 single）。
+    function renderSessionRows(config, tbody, schedules) {
+        tbody.appendChild(buildDetailRows(config, null, schedules, true));
+        tbody.querySelectorAll('[data-fm="edit-one"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 按 feeKey（场次 + 老师 + 学生）定位记录：场次 id 在多老师/多学生时重复
+                const rec = schedules.find(r => r._feeKey === btn.dataset.pair);
+                if (rec) openModal(config, 'single', [rec]);
+            });
+        });
     }
 
     // 单条费用状态流转（PATCH /{base}/:id/fee-status）。
