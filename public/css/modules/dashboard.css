@@ -9219,6 +9219,27 @@ span.status-select {
     visibility: hidden;
 }
 
+/* 课时视图（教师本人费用页，config.groupBy='session'）：一次课一行，日期时间打头、学生名第 2 列。
+   学生格不加 .sticky-col —— 该基类被 width/min/max 140px !important 钉死（见上面 sticky 首列规则），
+   而这一列要放完整姓名，钉住就变成省略号。 */
+.fm-d-student {
+    font-size: var(--fs-300);
+    color: #111111;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 姓名与学生视图汇总行同名同权重：两张表的「这是谁」保持一致 */
+.fm-student-name {
+    font-weight: 600;
+}
+
+/* 与上一行同名的续行同样只占位不显示（重复值从第二条起不显示） */
+.fm-student-ghost {
+    visibility: hidden;
+}
+
 .fm-d-type {
     color: #475569;
 }

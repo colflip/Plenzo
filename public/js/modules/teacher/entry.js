@@ -157,6 +157,8 @@ function mountTeacherFees() {
         mountSelector: '#teacherFeeManagerMount',
         role: 'teacher',
         listEndpoint: '/teacher/schedules',
+        // 教师看自己的费用：一次课一行（日期时间 / 学生 打头），不按学生分组聚合
+        groupBy: 'session',
         saveMode: 'single',
         feeEndpoint: (id) => `/teacher/schedules/${id}/fees`,
         feeStatusBase: '/teacher/schedules',
