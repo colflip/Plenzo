@@ -324,9 +324,12 @@ function resolveAuditActorId(actor) {
 }
 
 /** 服务端组装教师 pair：uid 与 created_by 由服务端决定，请求传入的同名键一律忽略 */
-function buildTeacherPair(input, uid, actorId) {
-    const category = CATEGORIES.includes(input.category) && input.category !== 'adjusted'
-        ? input.category : 'normal';   // adjusted 只有作废+增补流程能写
+function buildTeacherPair(input, uid, actorId, { allowAdjustedCategory = false } = {}) {
+    // adjusted 只由调整流程写入：作废+增补的增补 pair，或另建调整记录的新场次。
+    // 普通新建/编辑一律降级为 normal，避免调用方伪造溯源类别。
+    const category = CATEGORIES.includes(input.category)
+        && (input.category !== 'adjusted' || allowAdjustedCategory)
+        ? input.category : 'normal';
     const lifecycle = LIFECYCLES.includes(input.lifecycle) ? input.lifecycle : 'pending';
     return {
         uid,
@@ -524,7 +527,7 @@ const writeChangeLog = (tx, entry) => writeChangeLogs(tx, [entry]);
  */
 const pickQ = (tx) => (typeof tx === 'function' ? tx : (tx ? tx.query.bind(tx) : db.query));
 
-async function createSession(payload, actor, tx = null) {
+async function createSession(payload, actor, tx = null, { allowAdjustedCategory = false } = {}) {
     const actorId = actor && actor.id ? Number(actor.id) : null;
     const q = pickQ(tx);
     const teachersIn = Array.isArray(payload.teachers) ? payload.teachers : [];
@@ -532,7 +535,8 @@ async function createSession(payload, actor, tx = null) {
     if (teachersIn.length === 0) throw new SessionValidationError('至少需要一位教师');
     if (studentsIn.length === 0) throw new SessionValidationError('至少需要一位学生');
 
-    const teachers = teachersIn.map((t, i) => buildTeacherPair(t, `t${i + 1}`, actorId));
+    const teachers = teachersIn.map((t, i) =>
+        buildTeacherPair(t, `t${i + 1}`, actorId, { allowAdjustedCategory }));
     const students = studentsIn.map((s, i) => buildStudentPair(s, `s${i + 1}`, actorId));
 
     await assertReferences({
