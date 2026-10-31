@@ -49,11 +49,6 @@ function studentIdsChanged(currentStudents, nextStudents) {
     return a.length !== b.length || a.some((id, i) => id !== b[i]);
 }
 
-/** 在职 pair 的类别位（normal | temp）；adjusted 是旧数据的溯源标记，新记录一律落 normal */
-function activeCategoryOf(status) {
-    return String(status || '').split('.')[0] === 'temp' ? 'temp' : 'normal';
-}
-
 /**
  * 本次保存是不是「调整」：有**在职** pair 被标成了 modified_away。
  *
@@ -97,7 +92,7 @@ async function archiveAndCreateAdjustedSession(session, body, actor, version, q)
 
     const targetTeachers = [];
     const seenTeachers = new Set();
-    const pushTeacher = (teacherId, typeId, category, lifecycle) => {
+    const pushTeacher = (teacherId, typeId, lifecycle) => {
         const tid = Number(teacherId);
         if (!Number.isFinite(tid) || seenTeachers.has(tid)) return;
         const originPair = (session.teachers || []).find(p => Number(p.teacher_id) === tid);
@@ -109,18 +104,26 @@ async function archiveAndCreateAdjustedSession(session, body, actor, version, q)
             type_id: type,
             // 被标成「已调整」的那一位进入新记录后回到待确认；其余教师沿用表单里的状态
             lifecycle: ['pending', 'confirmed', 'completed'].includes(lifecycle) ? lifecycle : 'pending',
-            category: category === 'temp' ? 'temp' : 'normal'
+            // 新记录是调整增补课：类别位落 adjusted，前端/导出据此显示「调」水印
+            category: 'adjusted'
         });
     };
 
-    if (inRowAdjusted.length) {
+    // 旧版行内增补（场次里同时有已归档原 pair + adjusted 活跃 pair）才需要把增补 pair
+    // 挪出去；新版另建的调整记录本身就是一条独立场次，重新调整时按普通归档处理。
+    const hasArchivedOriginal = (session.teachers || []).some(p => {
+        const status = String(p.status || '');
+        return status.endsWith('.modified_away') && !status.startsWith('adjusted.');
+    });
+    const moveOutInRowAdjusted = inRowAdjusted.length > 0 && hasArchivedOriginal;
+
+    if (moveOutInRowAdjusted) {
         // 行内增补的活跃 pair 是当前课程本身：挪到新记录，原场次不再保留它
         for (const pair of inRowAdjusted) {
             const item = (body.teachers || []).find(x => String(x.uid) === String(pair.uid));
             pushTeacher(
                 item && item.teacher_id != null ? item.teacher_id : pair.teacher_id,
                 item && item.type_id != null ? item.type_id : pair.type_id,
-                item && item.category != null ? item.category : 'normal',
                 String(pair.status || '').split('.')[1] || 'pending'
             );
         }
@@ -133,7 +136,8 @@ async function archiveAndCreateAdjustedSession(session, body, actor, version, q)
             curVersion = Number(current.version);
         }
     } else {
-        // 原场次：在职 pair 只归档（不追加增补 pair），学生与 header 原样保留
+        // 原场次：在职 pair（含上一次调整留下的 adjusted 活跃 pair）只归档，
+        // 学生与 header 原样保留
         for (const pair of activePairs) {
             const r = await courseSessionService.adjustTeacherPair(
                 session.id, pair.uid, {}, actor, curVersion, current, { detach: true, tx: q }
@@ -147,13 +151,9 @@ async function archiveAndCreateAdjustedSession(session, body, actor, version, q)
         // 新记录的教师名册来自本次表单；已取消的教师不进新课。
         for (const item of (body.teachers || [])) {
             if (!item || item.teacher_id == null || item.lifecycle === 'cancelled') continue;
-            const originPair = item.uid != null
-                ? (session.teachers || []).find(p => String(p.uid) === String(item.uid))
-                : null;
             pushTeacher(
                 item.teacher_id,
                 item.type_id,
-                item.category != null ? item.category : (originPair ? activeCategoryOf(originPair.status) : 'normal'),
                 // 触发本次调整的那一行（modified_away）在新记录里是待确认
                 item.lifecycle === 'modified_away' ? 'pending' : item.lifecycle
             );
@@ -200,7 +200,7 @@ async function archiveAndCreateAdjustedSession(session, body, actor, version, q)
         notes,
         teachers: targetTeachers,
         students
-    }, actor, q);
+    }, actor, q, { allowAdjustedCategory: true });
 }
 
 // 辅助函数：根据时间段返回 [start, end]
@@ -1215,13 +1215,14 @@ class ScheduleService {
                                     teacher_id: pair.teacher_id,
                                     type_id: b.type_id || (Array.isArray(b.type_ids) ? b.type_ids[0] : pair.type_id),
                                     lifecycle: 'pending',
-                                    category: activeCategoryOf(pair.status)
+                                    // 新记录是调整增补课：类别位落 adjusted，前端显示「调」水印
+                                    category: 'adjusted'
                                 }],
                                 students: (current.students || []).map(s => ({
                                     student_id: s.student_id,
                                     family_participants: s.family_participants
                                 }))
-                            }, actor, q);
+                            }, actor, q, { allowAdjustedCategory: true });
                             const bodyOut = await this.decorateSessionNames(created, q);
                             bodyOut.adjustmentCreated = true;
                             bodyOut.crossStudent = false;

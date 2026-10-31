@@ -2237,16 +2237,14 @@ async function executeDataTool(toolName, args, req) {
                             // 只调某位教师时只取那几位，其余教师留在原场次。
                             const newTeachers = pickAdjustedTeachers(
                                 effTeachers, allActive, operation.targetTeacherUid, studentChanged
-                            ).map(t => {
-                                const { category } = splitStatus(t.status_code || 'normal.confirmed');
-                                return {
-                                    teacher_id: Number(t.teacher_id),
-                                    type_id: Number(t.course_type_id),
-                                    // 调整后是一条新的待确认记录（与原 adjusted.pending 的含义一致）
-                                    lifecycle: 'pending',
-                                    category: category === 'temp' ? 'temp' : 'normal'
-                                };
-                            });
+                            ).map(t => ({
+                                teacher_id: Number(t.teacher_id),
+                                type_id: Number(t.course_type_id),
+                                // 调整后是一条新的待确认记录（与原 adjusted.pending 的含义一致）
+                                lifecycle: 'pending',
+                                // 类别位落 adjusted：前端据此给新记录显示「调」水印
+                                category: 'adjusted'
+                            }));
 
                             // 时段重叠只提示不拦，记下「新记录」的时段与名单，提交后一次批量查
                             slotsToCheck.push({
@@ -2282,7 +2280,7 @@ async function executeDataTool(toolName, args, req) {
                                     student_id: s.student_id,
                                     family_participants: s.family_participants
                                 }))
-                            }, actor, q);
+                            }, actor, q, { allowAdjustedCategory: true });
                             sessionIds.push(sid);
                             newSessionIds.push(fresh.id);
                             if (studentChanged) crossStudentMoved.push({ from: sid, to: fresh.id });
