@@ -2214,7 +2214,10 @@ function renderScheduleOperationPreviewMessage(msg) {
         if (isAdjust && data.newSchedules && data.newSchedules.length > 0) {
             const newLabel = document.createElement('div');
             newLabel.style.cssText = 'margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--ai-primary, #2f6fed);';
-            newLabel.textContent = '➕ 调整后（整场调整就在同一场课上换时段/换增补记录；只有单独挪走某位教师时才另起一场）';
+            // 调整 = 原记录归档 + 另建一条新记录（同学生/跨学生都一样）
+            newLabel.textContent = data.newSchedules.some(n => n && n.crossStudent)
+                ? '➕ 调整后（新建一条记录并在新学生名下；原记录所有字段保持不变）'
+                : '➕ 调整后（新建一条记录；原记录所有字段保持不变，仅归档为已调整）';
             previewCard.appendChild(newLabel);
 
             const newRows = data.newSchedules.map(n => ({
@@ -2224,8 +2227,8 @@ function renderScheduleOperationPreviewMessage(msg) {
                 teacherName: n.teacherName,
                 studentName: n.studentName,
                 courseTypeCn: n.courseTypeCn,
-                status: n.status || 'confirmed',
-                statusCn: '已确认',
+                status: n.status || 'pending',
+                statusCn: translateStatus(n.status || 'pending'),
                 conflicts: n.conflicts || []
             }));
             const newTableContainer = document.createElement('div');

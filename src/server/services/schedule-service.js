@@ -38,6 +38,171 @@ const TEACHER_PAIR_KEYS = ['teacher_uid', 'uid', 'teacher_id', 'category', 'type
 const STUDENT_PAIR_KEYS = ['student_uid', 'student_id', 'family_participants'];
 const PAIR_KEYS = [...TEACHER_PAIR_KEYS, ...STUDENT_PAIR_KEYS];
 
+/** 学生身份集合是否变了（只比 student_id；pair uid 沿用不算没换人） */
+function studentIdsChanged(currentStudents, nextStudents) {
+    const ids = (list) => (list || [])
+        .map(s => Number(s && s.student_id))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+    const a = ids(currentStudents);
+    const b = ids(nextStudents);
+    return a.length !== b.length || a.some((id, i) => id !== b[i]);
+}
+
+/** 在职 pair 的类别位（normal | temp）；adjusted 是旧数据的溯源标记，新记录一律落 normal */
+function activeCategoryOf(status) {
+    return String(status || '').split('.')[0] === 'temp' ? 'temp' : 'normal';
+}
+
+/**
+ * 本次保存是不是「调整」：有**在职** pair 被标成了 modified_away。
+ *
+ * 这是所有调整的唯一判定口径。同学生、跨学生一视同仁 —— 只要用户把某位在职
+ * 教师的状态选成「已调整」，这次保存就是一次调整：原记录归档 + 另建一条新记录，
+ * 而不是在原地改原记录。
+ *
+ * 已经归档（modified_away）或已取消的 pair 不算触发：编辑旧记录/历史数据时，
+ * 表单会把它们的 lifecycle 原样回传，不能因此再建一条。
+ */
+function isAdjustmentRequest(session, body) {
+    if (!Array.isArray(body.teachers)) return false;
+    const teachers = session.teachers || [];
+    return body.teachers.some(item => {
+        if (!item || item.uid == null || item.lifecycle !== 'modified_away') return false;
+        const pair = teachers.find(p => String(p.uid) === String(item.uid));
+        return !!pair && courseSessionService.isActive(pair.status);
+    });
+}
+
+/**
+ * 调整落库：**原记录所有字段保持不变**（学生/时段/地点/类型/备注都不动），
+ * 只把在职教师 pair 归档为 modified_away（detach，不追加增补 pair）；
+ * 再按本次表单的 header / 教师名册 / 学生名册另建一条新记录。
+ *
+ * 教师 pair 有两种形状：
+ * - 正常调整（原场次是普通 pair）：在职 pair 全部归档，新记录用表单里的名册；
+ * - 行内增补（旧实现留下的 adjusted.* 活跃 pair）：那一条才是当前课程，
+ *   把它整体挪到新记录并从原场次移除，原场次只留历史归档。
+ *
+ * 两步必须在同一个事务里，不能出现「原记录归档了、新记录没建」。
+ *
+ * @returns {Promise<object>} 新建的场次行
+ */
+async function archiveAndCreateAdjustedSession(session, body, actor, version, q) {
+    let current = session;
+    let curVersion = version;
+
+    const activePairs = (session.teachers || []).filter(p => courseSessionService.isActive(p.status));
+    const inRowAdjusted = activePairs.filter(p => String(p.status || '').startsWith('adjusted.'));
+
+    const targetTeachers = [];
+    const seenTeachers = new Set();
+    const pushTeacher = (teacherId, typeId, category, lifecycle) => {
+        const tid = Number(teacherId);
+        if (!Number.isFinite(tid) || seenTeachers.has(tid)) return;
+        const originPair = (session.teachers || []).find(p => Number(p.teacher_id) === tid);
+        const type = typeId != null ? Number(typeId) : (originPair ? Number(originPair.type_id) : NaN);
+        if (!Number.isFinite(type)) return;
+        seenTeachers.add(tid);
+        targetTeachers.push({
+            teacher_id: tid,
+            type_id: type,
+            // 被标成「已调整」的那一位进入新记录后回到待确认；其余教师沿用表单里的状态
+            lifecycle: ['pending', 'confirmed', 'completed'].includes(lifecycle) ? lifecycle : 'pending',
+            category: category === 'temp' ? 'temp' : 'normal'
+        });
+    };
+
+    if (inRowAdjusted.length) {
+        // 行内增补的活跃 pair 是当前课程本身：挪到新记录，原场次不再保留它
+        for (const pair of inRowAdjusted) {
+            const item = (body.teachers || []).find(x => String(x.uid) === String(pair.uid));
+            pushTeacher(
+                item && item.teacher_id != null ? item.teacher_id : pair.teacher_id,
+                item && item.type_id != null ? item.type_id : pair.type_id,
+                item && item.category != null ? item.category : 'normal',
+                String(pair.status || '').split('.')[1] || 'pending'
+            );
+        }
+        for (const pair of inRowAdjusted) {
+            const r = await courseSessionService.removePair(session.id, 'teacher', pair.uid, actor, curVersion, q);
+            if (r.notFound) {
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '排课不存在' });
+            }
+            current = r.session;
+            curVersion = Number(current.version);
+        }
+    } else {
+        // 原场次：在职 pair 只归档（不追加增补 pair），学生与 header 原样保留
+        for (const pair of activePairs) {
+            const r = await courseSessionService.adjustTeacherPair(
+                session.id, pair.uid, {}, actor, curVersion, current, { detach: true, tx: q }
+            );
+            if (r.notFound) {
+                throw new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '排课不存在' });
+            }
+            current = r.session;
+            curVersion = Number(current.version);
+        }
+        // 新记录的教师名册来自本次表单；已取消的教师不进新课。
+        for (const item of (body.teachers || [])) {
+            if (!item || item.teacher_id == null || item.lifecycle === 'cancelled') continue;
+            const originPair = item.uid != null
+                ? (session.teachers || []).find(p => String(p.uid) === String(item.uid))
+                : null;
+            pushTeacher(
+                item.teacher_id,
+                item.type_id,
+                item.category != null ? item.category : (originPair ? activeCategoryOf(originPair.status) : 'normal'),
+                // 触发本次调整的那一行（modified_away）在新记录里是待确认
+                item.lifecycle === 'modified_away' ? 'pending' : item.lifecycle
+            );
+        }
+    }
+
+    // 新场次：header 取本次提交值（没带就沿用原场次）
+    const classDate = body.date !== undefined ? body.date
+        : (body.class_date !== undefined ? body.class_date : session.class_date);
+    const startTime = body.start_time !== undefined ? body.start_time : session.start_time;
+    const endTime = body.end_time !== undefined ? body.end_time : session.end_time;
+    const location = body.location !== undefined ? body.location : session.location;
+    const notes = body.notes !== undefined ? body.notes : session.notes;
+
+    const seenStudents = new Set();
+    const students = [];
+    // 只标了「已调整」、没带学生名册时，新记录沿用原场次的学生
+    const studentInput = Array.isArray(body.students) && body.students.length
+        ? body.students
+        : (session.students || []).map(s => ({
+            student_id: s.student_id,
+            family_participants: s.family_participants
+        }));
+    for (const item of studentInput) {
+        if (!item || item.student_id == null) continue;
+        const studentId = Number(item.student_id);
+        if (!Number.isFinite(studentId) || seenStudents.has(studentId)) continue;
+        const originStudent = (session.students || []).find(p => Number(p.student_id) === studentId);
+        seenStudents.add(studentId);
+        // 表单不带家属人数：同一位学生在原记录里有值就沿用，新学生交给 buildStudentPair 的默认值
+        students.push({
+            student_id: studentId,
+            family_participants: item.family_participants != null
+                ? item.family_participants
+                : (originStudent ? originStudent.family_participants : undefined)
+        });
+    }
+
+    return courseSessionService.createSession({
+        class_date: classDate,
+        start_time: startTime,
+        end_time: endTime,
+        location,
+        notes,
+        teachers: targetTeachers,
+        students
+    }, actor, q);
+}
+
 // 辅助函数：根据时间段返回 [start, end]
 function slotToRange(slot) {
     switch (slot) {
@@ -895,6 +1060,14 @@ class ScheduleService {
 
         const notFound = () => new AppError({ code: 'RESOURCE_NOT_FOUND', statusCode: 404, message: '排课不存在' });
 
+        // 调整判定：只要本次保存把某位**在职**教师标成「已调整」，就是一次调整。
+        // 同学生、跨学生一视同仁：原记录所有字段保持不变，另建一条新记录。
+        // 判定必须在写 header 之前做 —— 否则原场次的时间/学生会被先改掉。
+        const adjustmentRequest = isAdjustmentRequest(session, b);
+        const crossStudent = adjustmentRequest
+            && Array.isArray(b.students)
+            && studentIdsChanged(session.students, b.students);
+
         // 钱不在这条接口上：混在排课保存里会被静默丢掉，所以动手前一次性拦掉。
         let version = b.version !== undefined ? Number(b.version) : Number(session.version);
         let current = session;
@@ -931,6 +1104,20 @@ class ScheduleService {
                 : work(db.query.bind(db)));
 
             return await runWrites(async (q) => {
+                // 调整走独立路径：原场次只归档教师 pair，学生/时段/地点/类型/备注全部不动；
+                // 新记录按本次表单的时段/教师/学生名册新建。中途出错整批回滚。
+                if (adjustmentRequest) {
+                    const created = await archiveAndCreateAdjustedSession(current, b, actor, version, q);
+                    const body = await this.decorateSessionNames(created, q);
+                    body.adjustmentCreated = true;
+                    body.crossStudent = !!crossStudent;
+                    body.originalSessionId = Number(session.id);
+                    body.message = crossStudent
+                        ? '已按调整保存：原记录保持不变（归档为已调整），新课程已建在新学生名下'
+                        : '已按调整保存：原记录保持不变（归档为已调整），新课程已另建一条记录';
+                    return body;
+                }
+
                 // 头部、名册、单 pair 状态是几条彼此独立的 UPDATE：放进同一个事务，中途出错整批回滚，
                 // 不会留下「时间已经改了、教师还没换」这种半截课。
                 // 时段重叠不拦写入（业务上允许一位教师/学生出现在重叠的两节课里），
@@ -1009,22 +1196,43 @@ class ScheduleService {
                     const lifecycle = b.lifecycle || b.status;
                     if (lifecycle) {
                         const pair = (current.teachers || []).find(x => String(x.uid) === String(teacherUid));
-                        const wasAdjusted = pair && pair.status.startsWith('adjusted.');
-                        if (lifecycle === 'modified_away' && pair && !pair.status.endsWith('.modified_away') && !wasAdjusted) {
-                            // 作废+增补：原 pair 标记调走，同一条 UPDATE 追加 adjusted.pending 新 pair
-                            const r = await courseSessionService.adjustTeacherPair(
-                                id, teacherUid, { type_id: b.type_id || (Array.isArray(b.type_ids) ? b.type_ids[0] : undefined) },
-                                actor, version, current, { tx: q }
+                        if (lifecycle === 'modified_away' && pair && courseSessionService.isActive(pair.status)) {
+                            // 调整 = 原记录归档 + 另建一条记录（不再在同一行内追加 adjusted pair）。
+                            // 这条路径是卡片上的状态下拉「已调整」：只挪这一位教师，其余教师留在原场次。
+                            const archived = await courseSessionService.adjustTeacherPair(
+                                id, teacherUid, {}, actor, version, current, { detach: true, tx: q }
                             );
-                            if (r.notFound) throw notFound();
-                            current = r.session;
+                            if (archived.notFound) throw notFound();
+                            current = archived.session;
                             version = Number(current.version);
-                        } else {
-                            const r = await courseSessionService.setTeacherStatus(id, teacherUid, lifecycle, actor, b.notes, current, q);
-                            if (!r.updated) throw notFound();
-                            current = r.session;
-                            version = Number(current.version);
+                            const created = await courseSessionService.createSession({
+                                class_date: current.class_date,
+                                start_time: current.start_time,
+                                end_time: current.end_time,
+                                location: current.location,
+                                notes: current.notes,
+                                teachers: [{
+                                    teacher_id: pair.teacher_id,
+                                    type_id: b.type_id || (Array.isArray(b.type_ids) ? b.type_ids[0] : pair.type_id),
+                                    lifecycle: 'pending',
+                                    category: activeCategoryOf(pair.status)
+                                }],
+                                students: (current.students || []).map(s => ({
+                                    student_id: s.student_id,
+                                    family_participants: s.family_participants
+                                }))
+                            }, actor, q);
+                            const bodyOut = await this.decorateSessionNames(created, q);
+                            bodyOut.adjustmentCreated = true;
+                            bodyOut.crossStudent = false;
+                            bodyOut.originalSessionId = Number(session.id);
+                            bodyOut.message = '已调整：原记录保持不变（归档为已调整），新课程已另建一条记录';
+                            return bodyOut;
                         }
+                        const r = await courseSessionService.setTeacherStatus(id, teacherUid, lifecycle, actor, b.notes, current, q);
+                        if (!r.updated) throw notFound();
+                        current = r.session;
+                        version = Number(current.version);
                     }
                 }
 
