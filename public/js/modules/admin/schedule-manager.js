@@ -5,7 +5,7 @@
 
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
-import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { getScheduleWatermarkText, getCardTypeKey } from '../shared/schedule-helpers.js';
 import { captureStudentRowToClipboard, captureStudentRowWithPicker } from '../../components/schedule-view-capture.js';
 import { syncToggleButton } from '../shared/view-utils.js';
 import { setupWeekViewExportButton } from '../shared/schedule-view-utils.js';
@@ -938,14 +938,24 @@ function bindWeekViewExportButton() {
 function renderGroupedMergedSlots(td, items, student, dateKey) {
     const groups = new Map();
     items.forEach(item => {
-        // 分组键就是场次 id。旧实现拼 `${start}|${end}|${loc}` 当键，任一行的时间或地点
-        // 被改动就会让这一组静默裂开；现在后端每行都带 session_id，一场课就是一张卡片。
-        const key = item.session_id != null ? String(item.session_id) : String(item.id);
+        // 分组键 = 场次 + 课程类型。旧实现只按场次 id 归组，把一场课里类型不同的
+        // 教师（评审老师 + 改成入户/补进来的入户老师）画进了同一张卡；类型不同的
+        // 是两节不同的课，必须各成一张卡。类型相同（评审/大评审/评审记录/线上评审
+        // 折回同一基类）仍合并，与导出文本的分段口径一致。
+        const sessionKey = item.session_id != null ? String(item.session_id) : String(item.id);
+        const key = `${sessionKey}|${getCardTypeKey(item)}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
     });
 
-    const sortedGroups = Array.from(groups.values()).sort((a, b) => (a[0].startMin || 0) - (b[0].startMin || 0));
+    const sortedGroups = Array.from(groups.values()).sort((a, b) => {
+        const byStart = (a[0].startMin || 0) - (b[0].startMin || 0);
+        if (byStart) return byStart;
+        // 同一场次拆出的几张卡按类型名定序，顺序不随后端行序漂移
+        const ka = getCardTypeKey(a[0]);
+        const kb = getCardTypeKey(b[0]);
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
 
     sortedGroups.forEach(group => {
         const card = buildAdminScheduleCard(group, student, dateKey);
