@@ -1174,7 +1174,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
 /**
  * 切换某位教师在某一场课里的生命周期状态。
  * 签名从 (id, status) 变为 (sessionId, teacherUid, lifecycle)：状态挂在教师 pair 上，
- * 定位需要「场次 id + uid」两个键。后端走原地重建，只改这一个 pair 的 status。
+ * 定位需要「场次 id + uid」两个键。普通状态原地重建；「已调整」是调整动作 ——
+ * 后端会把原记录归档并另建一条新课程，前端需要整屏刷新（见 adjustmentCreated）。
  */
 export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
     if (!window.apiUtils) return;
@@ -1187,6 +1188,17 @@ export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
     try {
         // 远程优先：先同步到数据库。响应是更新后的整场（带最新 version）。
         const res = await window.apiUtils.patch(`/admin/sessions/${sessionId}/teachers/${teacherUid}/status`, { lifecycle: newStatus });
+
+        // 「已调整」不是原地改状态：后端会把原记录归档、另建一条新课程，
+        // 这一行的 version 已经不是原场次的了，必须整屏刷一次。
+        if (res && res.adjustmentCreated) {
+            if (row) row.classList.remove('optimistic-loading');
+            WeeklyDataStore.invalidateSchedules();
+            await loadSchedules(true, false);
+            window.apiUtils.showSuccessToast(res.message || '已调整：原记录归档，新课程已另建一条记录');
+            return;
+        }
+
         const freshVersion = res && res.version != null ? Number(res.version) : null;
 
         // 远程成功后再更新本地缓存与UI（status + version 一起写回，保持与库一致）
@@ -1766,6 +1778,7 @@ export async function setupScheduleEventListeners() {
             let backup = null;
             let currentCard = null; // 用于编辑模式下的乐观更新
             let originalCardHtml = '';
+            let adjustmentMessage = null; // 调整：后端已把原记录归档、另建一条新课程
 
             try {
                 if (mode === 'add') {
@@ -1877,6 +1890,12 @@ export async function setupScheduleEventListeners() {
                             `以下字段未被保存：${saved.rejectedFields.join('、')}`, 'warning'
                         );
                     }
+                    // 调整不是普通的整场覆盖：原记录所有字段保持不变、归档为已调整，
+                    // 另建一条新记录。保存成功的提示要说清楚，否则用户会以为原记录被改掉了。
+                    if (saved && (saved.adjustmentCreated || saved.crossStudentAdjusted)) {
+                        adjustmentMessage = saved.message
+                            || '已按调整保存：原记录保持不变（归档为已调整），新课程已另建一条记录';
+                    }
 
                     saveFormMemory({
                         start_time: body.start_time,
@@ -1934,7 +1953,9 @@ export async function setupScheduleEventListeners() {
                     oldStudentId,
                     oldDateKey
                 });
-                window.apiUtils?.showSuccessToast(mode === 'add' ? '排课添加成功' : '排课更新成功');
+                window.apiUtils?.showSuccessToast(
+                    mode === 'add' ? '排课添加成功' : (adjustmentMessage || '排课更新成功')
+                );
             } catch (err) {
 
 

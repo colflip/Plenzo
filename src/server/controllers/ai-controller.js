@@ -240,6 +240,42 @@ function effectiveStudentRoster(session, fields, refs) {
 }
 
 /**
+ * 学生名册是否真的换了人（跨学生调整）。
+ *
+ * 比的是学生**身份集合**，不是 pair uid：AI 换学生通常沿用原 uid（s1）只把
+ * student_id 换掉，uid 相同不代表没换人。人数或任一 student_id 变了就算跨学生。
+ * 只改家长人数、或者名册原样回传，都不算。
+ */
+function studentRosterChanged(current = [], next = []) {
+    const ids = (list) => (list || [])
+        .map(s => Number(s && s.student_id))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+    const a = ids(current);
+    const b = ids(next);
+    return a.length !== b.length || a.some((id, i) => id !== b[i]);
+}
+
+/** 这位 pair 还能不能作为「调整对象」：已归档/已取消/旧增补 pair 都不算 */
+function isAdjustableStatus(status) {
+    const { category, lifecycle } = splitStatus(status || 'normal.confirmed');
+    return lifecycle !== 'modified_away' && category !== 'adjusted';
+}
+
+/**
+ * 调整后新记录要带哪些教师（预览与确认同一口径）：
+ * - 整场调整 → 改完之后的全部在职教师；
+ * - 只指名某一位且本场有多位在职教师 → 只有那一位，其余教师留在原场次。
+ */
+function pickAdjustedTeachers(teachers, activePairs, targetTeacherUid, studentChanged) {
+    const active = (t) => isAdjustableStatus(t.status_code || 'normal.confirmed');
+    if (!studentChanged && targetTeacherUid && activePairs.length > 1) {
+        return (teachers || []).filter(t => String(t.uid) === String(targetTeacherUid) && active(t));
+    }
+    return (teachers || []).filter(active);
+}
+
+/**
  * 一批预览内部的相互冲突（同一位教师或同一位学生在这批里被排进两个重叠时段）。
  * findConflictsBatch 只比对库里已有的场次，批内互撞要在这里单独抓 ——
  * 用户一口气写九行，两行如果解析成同一个时段，就该在这里被拦住。
@@ -1821,31 +1857,40 @@ async function executeDataTool(toolName, args, req) {
                 if (person.status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `学生 ${person.name} 已被禁用` });
             }
 
-            // 每场的生效名册只算一次，预览与确认存的是同一口径
-            const resolved = sessions.map(session => ({
-                session,
-                teachers: effectiveTeacherRoster(session, fields, refs),
-                students: effectiveStudentRoster(session, fields, refs)
-            }));
-
-            // 调整课程：status=modified_away → 本场在职教师全部归档 + 按新条件另起一场完整课
+            // 调整课程：status=modified_away → 原记录归档 + 另建一条新记录
             const isAdjust = fields.status === 'modified_away';
-            const newSchedulesPreview = isAdjust ? resolved.map(({ session, teachers, students }) => ({
+
+            // 每场的生效名册只算一次，预览与确认存的是同一口径。
+            // newTeachers：调整后新记录实际会带上的教师（同位调整只带指名那位）。
+            const resolved = sessions.map(session => {
+                const teachers = effectiveTeacherRoster(session, fields, refs);
+                const students = effectiveStudentRoster(session, fields, refs);
+                const studentChanged = studentRosterChanged(session.students, students);
+                const activePairs = (session.teachers || []).filter(t => isAdjustableStatus(t.status_code));
+                const newTeachers = pickAdjustedTeachers(teachers, activePairs, targetTeacherUid, studentChanged);
+                return { session, teachers, students, studentChanged, newTeachers };
+            });
+
+            const newSchedulesPreview = isAdjust ? resolved.map(({ session, students, studentChanged, newTeachers }) => ({
                 originalId: session.id,
-                teachers, students,
-                teacherName: formatTeacherDisplay(teachers),
+                teachers: newTeachers, students,
+                teacherName: formatTeacherDisplay(newTeachers),
                 studentName: students.map(s => s.student_name).join('、'),
-                courseTypeCn: [...new Set(teachers.map(t => t.course_type_cn))].join('、'),
+                courseTypeCn: [...new Set(newTeachers.map(t => t.course_type_cn))].join('、'),
                 classDate: fields.classDate ?? session.class_date,
                 startTime: fields.startTime ?? session.start_time,
                 endTime: fields.endTime ?? session.end_time,
                 location: fields.location !== undefined ? fields.location : session.location,
-                status: 'confirmed',
-                adjustmentType: 2
+                // 调整后是新建的一条待确认记录
+                status: 'pending',
+                adjustmentType: 2,
+                crossStudent: !!studentChanged
             })) : null;
 
-            // 预览表格：一场课一行（教师/学生都是整场名册，记录教师带「（记录）」）
-            const displayRows = resolved.map(({ session, teachers, students }) => toMergedDisplayRow(session, teachers, students));
+            // 预览表格：一场课一行（教师/学生都是整场名册，记录教师带「（记录）」）。
+            // 「原排课」一栏必须显示库里**当前**的名册与时段 —— 调整不会改动它。
+            const displayRows = resolved.map(({ session }) =>
+                toMergedDisplayRow(session, session.teachers, session.students));
 
             // 编辑也要提示时段重叠（与新建预览同一份文案、同样只提示不拦）：
             // 查的是「改完之后」的时段与名册，并排除被编辑的这些场次自己 —— 挪走不是撞车。
@@ -1855,11 +1900,11 @@ async function executeDataTool(toolName, args, req) {
             let editConflictCount = 0;
             if (slotTouched || rosterTouched) {
                 const found = await scheduleService.findConflictsBatch({
-                    slots: resolved.map(({ session, teachers, students }) => ({
+                    slots: resolved.map(({ session, teachers, students, newTeachers }) => ({
                         date: toDateKey(fields.classDate ?? session.class_date),
                         startTime: normTime(fields.startTime ?? session.start_time),
                         endTime: normTime(fields.endTime ?? session.end_time),
-                        teacherIds: teachers.map(t => Number(t.teacher_id)),
+                        teacherIds: (isAdjust ? newTeachers : teachers).map(t => Number(t.teacher_id)),
                         studentIds: students.map(s => Number(s.student_id))
                     })),
                     excludeSessionIds: resolved.map(r => Number(r.session.id))
@@ -1934,17 +1979,27 @@ async function executeDataTool(toolName, args, req) {
                 changes.push({ field: fieldNames[key] || key, newValue });
             });
 
-            // 调整课程：在变更对比里追加“原记录归档+新建”说明
+            // 调整课程：在变更对比里追加“原记录归档 + 新记录新建”说明
             if (isAdjust) {
-                const partial = targetTeacherUid
-                    && resolved.some(r => r.session.active_teachers.length > 1);
-                changes.push({ field: '原记录', newValue: '本场在职教师归档为已调整 (modified_away)' });
+                const anyCrossStudent = resolved.some(r => r.studentChanged);
+                const anyPartial = !!targetTeacherUid && resolved.some(r =>
+                    r.newTeachers.length < (r.session.teachers || []).filter(t => isAdjustableStatus(t.status_code)).length);
                 changes.push({
-                    field: '新课',
-                    newValue: partial
-                        ? '指名的教师另起一场新课；其余教师留在原时段（原场次不会跟着搬）'
-                        : '整场调整就在这一行内增补：改了时段就把整场 header 搬过去、旧时段随即释放（不再另起一行）'
+                    field: '原记录',
+                    newValue: '所有字段保持不变，归档为已调整 (modified_away)'
                 });
+                changes.push({
+                    field: '新课程',
+                    newValue: anyPartial
+                        ? '指名的教师另建一条新记录；其余教师留在原场次'
+                        : '另建一条新记录（学生/时段/教师类型按本次修改，原记录不动）'
+                });
+                if (anyCrossStudent) {
+                    changes.push({
+                        field: '新学生',
+                        newValue: '新课程建在新学生名下；原学生名下的原记录内容不变'
+                    });
+                }
             }
 
             // 存储待确认操作（跨实例持久化）：确认时按这份生效名册写库，不再回退到「取第一位」。
@@ -1960,9 +2015,10 @@ async function executeDataTool(toolName, args, req) {
                 fields,
                 targetTeacherUid,
                 targetStudentUid,
-                rosters: resolved.map(({ session, teachers, students }) => ({
+                rosters: resolved.map(({ session, teachers, students, studentChanged }) => ({
                     sessionId: session.id,
                     teachers, students,
+                    crossStudent: !!studentChanged,
                     teacherUids: (targetTeacherUid ? [targetTeacherUid]
                         : session.teachers.filter(t => courseSessionService.isActive(t.status_code)).map(t => t.uid)),
                     studentUids: targetStudentUid ? [targetStudentUid] : students.map(s => s.uid)
@@ -2124,9 +2180,9 @@ async function executeDataTool(toolName, args, req) {
                 // 执行修改操作
                 const { scheduleIds, fields } = operation;
 
-                // 调整课程：整场调整就在**同一行内**作废+增补，改了时段就把整场的 header 一起搬过去
-                // —— 不再另起一行，否则旧时段还被归档的那条 pair 占着（日历两格、统计多算一场）。
-                // 只调某几位教师又要换时段时，那几位 detach 出去新建一场，其余教师留在原时段。
+                // 调整课程统一落成「原记录归档 + 另建一条新记录」：
+                // 原场次的学生/时段/地点/类型/备注一律不动，新记录按改动后的名册新建。
+                // 只调某几位教师时，那几位归档后另建一条；其余教师留在原场次。
                 if (operation.isAdjust) {
                     const actor = { id: req.user.id, actorType: 'admin' };
                     const rosters = operation.rosters || [];
@@ -2134,15 +2190,11 @@ async function executeDataTool(toolName, args, req) {
                     // 涉及的课程类型在循环外一次校验，循环内 skipTypeAssert 跳过逐条查询
                     if (typeIds.length) await courseSessionService.assertReferences({ typeIds });
 
-                    const activePair = (p) => {
-                        const { category, lifecycle } = splitStatus(p.status);
-                        return lifecycle !== 'modified_away' && category !== 'adjusted';
-                    };
-
                     const result = await db.runInTransaction(async (client, usePool) => {
                         const q = usePool ? db.query.bind(db) : client.query.bind(client);
                         const sessionIds = [];
                         const newSessionIds = [];
+                        const crossStudentMoved = [];   // 跨学生调整：原场次归档，新学生另建一场
                         const slotsToCheck = [];   // 改完之后的时段，事务提交后一次批量查冲突（只提示）
 
                         // 一次把本次要动的行全部锁回来（按 id 升序 → 并发会话拿行锁的顺序一致，
@@ -2160,17 +2212,8 @@ async function executeDataTool(toolName, args, req) {
                             const sid = Number(roster.sessionId);
                             const origin = byId.get(sid);
                             if (!origin) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
-                            let session = origin;
-                            let version = Number(session.version);
 
-                            const allActive = (origin.teachers || []).filter(activePair);
-                            // 归档对象：teacherUid 指名的那一位，否则本场全部在职教师
-                            const targets = operation.targetTeacherUid
-                                ? allActive.filter(p => String(p.uid) === String(operation.targetTeacherUid))
-                                : allActive;
-                            if (!targets.length) {
-                                throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 没有可调整的在职教师记录（可能已被调整过）` });
-                            }
+                            const allActive = (origin.teachers || []).filter(p => isAdjustableStatus(p.status));
 
                             const effTeachers = roster.teachers || [];
                             const effStudents = roster.students || [];
@@ -2178,106 +2221,74 @@ async function executeDataTool(toolName, args, req) {
                             const effStart = fields.startTime ?? origin.start_time;
                             const effEnd = fields.endTime ?? origin.end_time;
                             const effLocation = fields.location !== undefined ? (fields.location || null) : origin.location;
-                            const headerMoved = toDateKey(effDate) !== toDateKey(origin.class_date)
-                                || effStart !== origin.start_time || effEnd !== origin.end_time
-                                || (effLocation || null) !== (origin.location || null);
-                            // 只挪走部分教师 + 换了 header 字段（时段**或地点**都在 header 上，
-                            // 一位教师改地点原行也放不下）→ 这几位得去另一行，原行的 header 不能跟着动
-                            const partialMove = headerMoved && targets.length < allActive.length;
 
-                            // 时段重叠只提示不拦，所以不必在事务里逐场查（那是每场 2 次往返、
-                            // 还全程持锁）。这里只记下「改完之后」的时段与名单，事务提交后一次批量查完。
-                            const teachersToCheck = partialMove
-                                ? effTeachers.filter(t => targets.some(p => String(p.uid) === String(t.uid)))
-                                : effTeachers;
+                            // 换学生时整场都搬；否则只调 teacherUid 指名的那位；未指名就是整场。
+                            const studentChanged = studentRosterChanged(origin.students, effStudents);
+                            const targets = studentChanged
+                                ? allActive
+                                : (operation.targetTeacherUid
+                                    ? allActive.filter(p => String(p.uid) === String(operation.targetTeacherUid))
+                                    : allActive);
+                            if (!targets.length) {
+                                throw new AppError({ code: 'CONFLICT', message: `排课 ${sid} 没有可调整的在职教师记录（可能已被调整过）` });
+                            }
+
+                            // 新记录的教师名单：整场调整取改完之后的整场在职名册；
+                            // 只调某位教师时只取那几位，其余教师留在原场次。
+                            const newTeachers = pickAdjustedTeachers(
+                                effTeachers, allActive, operation.targetTeacherUid, studentChanged
+                            ).map(t => {
+                                const { category } = splitStatus(t.status_code || 'normal.confirmed');
+                                return {
+                                    teacher_id: Number(t.teacher_id),
+                                    type_id: Number(t.course_type_id),
+                                    // 调整后是一条新的待确认记录（与原 adjusted.pending 的含义一致）
+                                    lifecycle: 'pending',
+                                    category: category === 'temp' ? 'temp' : 'normal'
+                                };
+                            });
+
+                            // 时段重叠只提示不拦，记下「新记录」的时段与名单，提交后一次批量查
                             slotsToCheck.push({
                                 date: toDateKey(effDate),
                                 startTime: effStart,
                                 endTime: effEnd,
-                                teacherIds: teachersToCheck.map(t => Number(t.teacher_id)),
+                                teacherIds: newTeachers.map(t => Number(t.teacher_id)),
                                 studentIds: effStudents.map(s => Number(s.student_id))
                             });
 
-                            // 2. 逐个 pair 作废+增补：换人/换类型写进增补 pair；
-                            //    被移出本场的教师（名册里不再有他）与 partialMove 只归档不追加。
-                            const movedOut = [];
+                            // 1. 原场次：被调整的教师 pair 只归档（detach，不追加增补 pair），
+                            //    学生/时段/地点/类型/备注全部保持原样。
+                            let session = origin;
+                            let version = Number(origin.version);
                             for (const pair of targets) {
-                                const eff = effTeachers.find(t => String(t.uid) === String(pair.uid))
-                                    || effTeachers.find(t => Number(t.teacher_id) === Number(pair.teacher_id));
-                                const dropped = Array.isArray(fields.teachers) && !eff;
                                 const adjusted = await courseSessionService.adjustTeacherPair(
-                                    sid, pair.uid,
-                                    {
-                                        teacher_id: eff ? eff.teacher_id : undefined,
-                                        type_id: (eff && eff.course_type_id) ?? pair.type_id
-                                    },
+                                    sid, pair.uid, {},
                                     actor, version, session,
-                                    { skipTypeAssert: true, detach: dropped || partialMove, tx: q }
+                                    { skipTypeAssert: true, detach: true, tx: q }
                                 );
                                 if (adjusted.notFound) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: `排课 ${sid} 不存在` });
                                 session = adjusted.session;
                                 version = Number(session.version);
-                                if (adjusted.detached) movedOut.push(adjusted.detached);
                             }
 
-                            if (partialMove) {
-                                // 3a. 被挪走的教师另起一场（含本场全部学生），原行只留归档痕迹
-                                const fresh = await courseSessionService.createSession({
-                                    class_date: effDate, start_time: effStart, end_time: effEnd,
-                                    location: effLocation, notes: origin.notes,
-                                    teachers: movedOut.map(t => ({ teacher_id: t.teacher_id, type_id: t.type_id, lifecycle: 'confirmed' })),
-                                    students: effStudents.map(s => ({ student_id: s.student_id, family_participants: s.family_participants }))
-                                }, actor, q);
-                                sessionIds.push(fresh.id);
-                                newSessionIds.push(fresh.id);
-                            } else {
-                                // 3b. 名册里新增的教师补进本场（他不是"调整出来的增补"，就是新加一位参与者）
-                                if (Array.isArray(fields.teachers)) {
-                                    const present = new Set((session.teachers || []).filter(activePair).map(p => Number(p.teacher_id)));
-                                    for (const t of effTeachers.filter(x => !x.uid)) {
-                                        if (present.has(Number(t.teacher_id))) continue;
-                                        const r = await courseSessionService.addPair(sid, 'teacher', {
-                                            teacher_id: t.teacher_id, type_id: t.course_type_id, lifecycle: 'confirmed'
-                                        }, actor, version, q);
-                                        if (r.session) { session = r.session; version = Number(session.version); }
-                                        present.add(Number(t.teacher_id));
-                                    }
-                                }
-
-                                // 4. 学生名册有变就在本场做增删改（教师侧已由上面作废+增补承担）
-                                if (Array.isArray(fields.students)) {
-                                    const keepUids = new Set(effStudents.filter(s => s.uid).map(s => String(s.uid)));
-                                    for (const s of effStudents) {
-                                        if (s.uid) {
-                                            const r = await courseSessionService.patchPair(sid, 'student', s.uid, {
-                                                student_id: s.student_id, family_participants: s.family_participants
-                                            }, actor, version, session, q);
-                                            if (r.session) { session = r.session; version = Number(session.version); }
-                                        } else {
-                                            const r = await courseSessionService.addPair(sid, 'student', {
-                                                student_id: s.student_id, family_participants: s.family_participants
-                                            }, actor, version, q);
-                                            if (r.session) { session = r.session; version = Number(session.version); }
-                                        }
-                                    }
-                                    for (const pair of (session.students || []).filter(p => !keepUids.has(String(p.uid)))) {
-                                        const r = await courseSessionService.removePair(sid, 'student', pair.uid, actor, version, q);
-                                        if (r.session) { session = r.session; version = Number(session.version); }
-                                    }
-                                }
-
-                                // 5. 整场换时段/换地点：直接在原行搬 header，旧时段就此释放
-                                if (headerMoved) {
-                                    const r = await courseSessionService.updateSessionHeader(sid, {
-                                        class_date: effDate, start_time: effStart, end_time: effEnd, location: effLocation
-                                    }, actor, version, session, q);
-                                    if (r) { session = r; version = Number(session.version); }
-                                }
-                                sessionIds.push(sid);
-                            }
+                            // 2. 新记录：按改动后的 header / 名册 / 学生新建一条，
+                            //    不再在原场次里增补、搬 header 或原地改学生。
+                            const fresh = await courseSessionService.createSession({
+                                class_date: effDate, start_time: effStart, end_time: effEnd,
+                                location: effLocation, notes: origin.notes,
+                                teachers: newTeachers,
+                                students: effStudents.map(s => ({
+                                    student_id: s.student_id,
+                                    family_participants: s.family_participants
+                                }))
+                            }, actor, q);
+                            sessionIds.push(sid);
+                            newSessionIds.push(fresh.id);
+                            if (studentChanged) crossStudentMoved.push({ from: sid, to: fresh.id });
                         }
-                        return { sessionIds, newSessionIds, slotsToCheck };
-                    });   // 不降级：整批 sid 的归档 + 增补/搬移必须同生共死，否则会留下「原记录已归档但新课没建」的空洞
+                        return { sessionIds, newSessionIds, crossStudentMoved, slotsToCheck };
+                    });   // 不降级：原记录归档 + 新记录新建必须同生共死，否则会留下「原记录已归档但新课没建」的空洞
 
                     // 提交之后再一次批量查重叠：一条语句覆盖全部新时段（原来是每场 2 次往返、还都在持锁期间），
                     // 报的是「改完之后确实和谁重叠」，只提示不拦
@@ -2289,19 +2300,23 @@ async function executeDataTool(toolName, args, req) {
                         : [];
 
                     await aiOperationStore.deleteOperation(operationId);
+                    // 调整统一落成「原记录归档 + 新记录新建」，不再有「原场次内增补」的分支
+                    const crossCount = result.crossStudentMoved.length;
+                    let message = `已调整 ${result.sessionIds.length} 场课：原记录内容保持不变并归档为已调整，`
+                        + `另建 ${result.newSessionIds.length} 条新课程`;
+                    if (crossCount) message += `（其中 ${crossCount} 场改为新学生名下）`;
                     return {
                         type: 'text',
                         title: '调整成功',
                         data: {
-                            message: (result.newSessionIds.length
-                                ? `已调整 ${result.sessionIds.length} 场课，其中换时段的教师另起了 ${result.newSessionIds.length} 场新课（原记录归档为已调整）`
-                                : `已调整 ${result.sessionIds.length} 场课（原记录归档为已调整，新课时就在原场次上生效）`)
+                            message: message
                                 + (adjustConflicts.length
                                     ? `（注意：${adjustConflicts.length} 处时段与现有排课重叠 —— ${adjustConflicts.join('；')}）`
                                     : ''),
                             originalIds: scheduleIds,
                             newIds: result.sessionIds,
                             newSessionIds: result.newSessionIds,
+                            crossStudentMoves: result.crossStudentMoved,
                             conflictWarnings: adjustConflicts
                         }
                     };
@@ -2910,21 +2925,24 @@ const query = asyncHandler(async (req, res) => {
           `\n============================\n` +
           `# 8. 调整课程流程（改期/换教师/换地点，保留原记录归档）\n` +
           `============================\n` +
-          `定义：「调整课程」= 将原课程记录标记为「已调整」状态(status=modified_away)，同时按新条件新建一门课程；原课程的教师、教室、学生、时间段等所有未被显式修改的属性保持不变，复制到新课程。\n` +
+          `定义：「调整课程」= 原课程记录**所有字段保持不变**、状态归档为「已调整」，同时按新条件**另建一条新课程记录**。\n` +
+          `原记录的教师、教室、学生、时间段、类型、地点全部不动；新记录复制原记录后再应用本次修改。` +
+          `同学生调整与跨学生调整完全同一套语义，区别只是新记录的学生不同。\n` +
           `与普通改课的区别：普通改课（不带 status）直接覆盖原记录字段；调整课程（fields.status="modified_away"）` +
-          `把本场在职教师逐个归档为 modified_away，并在**同一行内**追加 adjusted 增补 pair 承载新条件；` +
-          `原记录不再占时段、不再计入统计，但可在「全部安排/报销单」视图回看。\n` +
+          `会把原记录整体归档、新条件落到一条新记录上；原记录不再占时段、不再计入统计，但可在「全部安排/报销单」视图回看。\n` +
           `后端处理逻辑（系统自动完成，你无需手写 SQL）：\n` +
-          `1. 原 pair 类别位保留、生命周期位置为 modified_away；同一行追加 adjusted.pending；\n` +
-          `2. 改了时段就把整场 header 搬到新时段（不另起一行，旧时段随即释放）；只有指名某一位教师且换时段，` +
-          `那一位才另起新场次，其余教师留在原时段；\n` +
-          `3. 归档、增补、搬移在同一个事务里，中途出错整批回滚，不会留下「原记录已归档但增补没写」的空洞；\n` +
+          `1. 原场次：本场在职教师 pair 生命周期改为 modified_away（类别位保留），**不追加任何增补 pair**；` +
+          `header、学生、地点、备注原样保留；\n` +
+          `2. 新场次：按 fields 的日期/时间/教师/学生/地点另建一条 normal 记录，状态为待确认；\n` +
+          `3. 归档与新建在同一个事务里，中途出错整批回滚，不会留下「原记录已归档但新记录没建」的空洞；\n` +
           `4. 时段与其它课重叠**不会拦**：业务上允许一位教师/学生出现在重叠的两节课里，` +
           `预览行会标 ⚠，你如实提示用户即可，不要因为它而自行改时段或换教师。\n` +
           `何时使用（默认规则·关键）：只要对已有课程的【内容属性】做任何修改——改日期/改时间/换教师/换学生/换地点/换课程类型——一律走本「调整课程」，fields 必须带 status:"modified_away"。这是修改课程的默认方式，无需用户特意要求"保留痕迹"。\n` +
-          `作用范围：调整默认对**整场课**生效 —— 本场全部在职教师归档，增补就在同一行内完成；` +
-          `改了时段就把整场搬到新时段、旧时段随即释放（不会另起一条课，也不会两处都占着）。` +
-          `只调某一位教师时传 teacherUid 指名那一位：时段也变的话，只有他另起新场次，其余教师留在原时段。\n` +
+          `作用范围：调整默认对**整场课**生效 —— 本场全部在职教师归档，另建一条整场的新记录。` +
+          `只调某一位教师时传 teacherUid 指名那一位：只有他归档并进入新记录，其余教师留在原场次。\n` +
+          `跨学生调整（换学生）：要调整的是**原学生**名下的那节课，scheduleIds 必须按「原学生 + 原时段」` +
+          `查出来；新学生只写进 fields.students（替换名册），不要拿新学生现有的课当 scheduleIds，` +
+          `也不要先把原记录改成新学生。原记录留在原学生名下、内容不变；新记录落新学生名下。\n` +
           `例外：仅当用户只修改【状态】本身（如 pending→confirmed、标记 completed/cancelled）且没有改任何内容属性时，才用 # 9 普通改课（不传 status，直接覆盖原记录）。\n` +
           `操作步骤：\n` +
           `(1) query_schedules 查到目标排课 ID。\n` +
@@ -2935,6 +2953,13 @@ const query = asyncHandler(async (req, res) => {
           `  → query_schedules 找到该排课 id；resolve_datetime("下周五 19-21") 得 date=下周五, 19:00:00-21:30:00\n` +
           `  → preview_schedule_update(scheduleIds:[id], fields:{ classDate:"下周五", status:"modified_away" })\n` +
           `  → 确认后：原记录归档为已调整，新建一条下周五 19-21 的入户（教师/学生/地点等沿用原记录）。\n` +
+          `【正例·跨学生】"把学生1周三12-15点半次入户调整为学生2周三12-17点入户"：\n` +
+          `  → query_schedules 按「学生1 + 周三 12-15」找到原排课 id（原学生才是被调整的那节）；\n` +
+          `  → query_students 查到学生2 的真实 ID；\n` +
+          `  → preview_schedule_update(scheduleIds:[原排课id], fields:{ students:[{studentUid:原学生uid, studentId:学生2ID}],` +
+          ` startTime:"12:00:00", endTime:"17:00:00", courseType:"visit", status:"modified_away" })\n` +
+          `  → 确认后：学生1名下保留原记录（12-15 半次入户，归档为已调整），学生2名下新建 12-17 入户。\n` +
+          `【反例·跨学生】不要因为"新学生2也要上课"就去查学生2的排课、把学生2现有的课拿去调整 —— 那会把学生2的课归档掉，学生1的原课反而没动。\n` +
           `【反例】不要用普通改课（不传 status）来"调整"——那会直接覆盖原记录，丢失原排课痕迹，且不会生成新课程。\n` +
           `\n============================\n` +
           `# 9. 改课 / 删课流程\n` +
