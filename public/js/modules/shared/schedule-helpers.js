@@ -113,6 +113,34 @@ export function getStatusLabel(status) {
 }
 
 /**
+ * 卡片分组用的课程类型键（折叠类型名）
+ *
+ * 一场课可以同时挂不同类型的教师：把某位老师的评审改成入户（或调整后补
+ * 一位入户老师）时，两类老师仍是同一个 session_id、同样的时间地点。卡片
+ * 只按场次/时段合并的话，两类课会挤进同一张卡，看起来像一节课。
+ *
+ * 折叠口径与 Excel/PNG 文本的段标签同源（ScheduleCalendarCore.RichText
+ * .getFoldedDisplayType）：线上变体、大评审、评审记录都折回「评审」，
+ * 入户 / 半次入户 / 试教 / 集体活动 / 咨询各成一类。这样「视图分卡」与
+ * 「导出分段」不会各说各话。
+ * @param {Object} schedule
+ * @returns {string} 归一化后的类型名；无法识别时退回原始类型文本
+ */
+export function getCardTypeKey(schedule) {
+    if (!schedule) return '';
+    const RichText = (typeof window !== 'undefined' && window.ScheduleCalendarCore)
+        ? window.ScheduleCalendarCore.RichText
+        : null;
+    if (RichText && typeof RichText.getFoldedDisplayType === 'function') {
+        const folded = RichText.getFoldedDisplayType(schedule);
+        if (folded) return folded;
+    }
+    const raw = schedule.schedule_type_cn || schedule.schedule_type
+        || schedule.course_type || schedule.schedule_types || '';
+    return String(raw).trim();
+}
+
+/**
  * 按时间段分组课表
  * @param {Array} schedules
  * @returns {{morning: Array, afternoon: Array, evening: Array, unspecified: Array}}

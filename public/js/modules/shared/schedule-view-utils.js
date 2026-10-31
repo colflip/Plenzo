@@ -8,7 +8,7 @@
 
 import { toISODate, normalizeDateKey } from './date-format.js';
 import { createElement } from './view-utils.js';
-import { isMobileView } from './schedule-helpers.js';
+import { isMobileView, getCardTypeKey } from './schedule-helpers.js';
 
 /**
  * 「导出本周视图」按钮：绑定 + 窄屏显隐。三个角色页以前各抄一份 bind/sync，
@@ -72,11 +72,13 @@ export function groupSchedulesByDate(weekDates, schedules) {
     return grouped;
 }
 
-/** 同一时段 + 同一地点的记录聚成一组（渲染成一张合并卡片） */
+/** 同一时段 + 同一地点 + 同一课程类型的记录聚成一组（渲染成一张合并卡片） */
 export function groupSchedulesBySlot(schedules) {
     const slots = new Map();
     schedules.forEach(s => {
-        const key = `${s.start_time}-${s.end_time}-${s.location || ''}`;
+        // 类型也进键：同时间同地点但类型不同（评审 vs 入户）是两节不同的课，
+        // 不能并成一张卡 —— 把评审改成入户后，两类老师还挂在同一个场次下。
+        const key = `${s.start_time}-${s.end_time}-${s.location || ''}|${getCardTypeKey(s)}`;
         if (!slots.has(key)) slots.set(key, []);
         slots.get(key).push(s);
     });
