@@ -143,7 +143,13 @@ function setupEventListeners() {
             const startDate = document.getElementById('teachingStartDate')?.value;
             const endDate = document.getElementById('teachingEndDate')?.value;
             if (window.ExportDialog) {
-                window.ExportDialog.open({ startDate, endDate });
+                // 统计管理入口只导出本人授课记录，锁定类型避免切到班主任学生数据
+                window.ExportDialog.open({
+                    startDate,
+                    endDate,
+                    type: 'teacher_schedule',
+                    allowedTypes: ['teacher_schedule']
+                });
             }
         });
     }

@@ -102,6 +102,7 @@ window.ExportDialog = (function () {
         endDate: null,
         exportContext: null,
         presetType: null,       // 调用方指定的默认导出类型（open({ type })）
+        allowedTypes: null,     // 调用方锁定的可选类型（open({ allowedTypes })，null = 不锁定）
         studentListScope: null, // 学生下拉当前已加载的范围，切换导出类型时用于判断是否需要重新拉取
         isExporting: false
     };
@@ -263,6 +264,10 @@ window.ExportDialog = (function () {
         if (!config) {
             return;
         }
+        // 调用方锁定类型后，非白名单类型不可选（入口隔离：统计管理 / 班主任管理）
+        if (state.allowedTypes && !state.allowedTypes.includes(typeId)) {
+            return;
+        }
 
         state.selectedType = typeId;
 
@@ -298,7 +303,11 @@ window.ExportDialog = (function () {
         const filterSection = document.getElementById('exportFilterSection');
         const studentFilter = document.getElementById('exportStudentFilter');
         const teacherFilter = document.getElementById('exportTeacherFilter');
+        const userType = getCurrentUser().userType || 'admin';
         const showFilters = (typeId === EXPORT_TYPES.TEACHER_SCHEDULE || typeId === EXPORT_TYPES.TEACHER_HOMEROOM || typeId === EXPORT_TYPES.STUDENT_SCHEDULE || typeId === EXPORT_TYPES.SCHEDULE_DATA);
+        // 教师筛选：本人授课记录固定导出本人，教师端筛别人没有意义；
+        // 学生端同样只能看自己的课。只有管理员与班主任（按授课教师二次筛选）需要。
+        const showTeacherFilter = showFilters && (userType === 'admin' || typeId === EXPORT_TYPES.TEACHER_HOMEROOM);
 
         // 显示筛选区域容器
         if (filterSection) {
@@ -315,8 +324,8 @@ window.ExportDialog = (function () {
 
         // 显示教师筛选
         if (teacherFilter) {
-            teacherFilter.style.display = showFilters ? 'block' : 'none';
-            if (showFilters && !state.teachersLoaded) {
+            teacherFilter.style.display = showTeacherFilter ? 'block' : 'none';
+            if (showTeacherFilter && !state.teachersLoaded) {
                 loadTeacherList();
             }
         }
@@ -861,7 +870,7 @@ window.ExportDialog = (function () {
 
     /**
      * 重置状态
-     * @param {Object} options - 初始化选项 { startDate, endDate, type, exportContext }
+     * @param {Object} options - 初始化选项 { startDate, endDate, type, allowedTypes, exportContext }
      */
     function resetState(options = {}) {
         state.selectedType = null;
@@ -877,6 +886,11 @@ window.ExportDialog = (function () {
         state.exportContext = options.exportContext || null;
         // 调用方指定的默认导出类型（仅接受已注册类型，避免脏值影响选择器）
         state.presetType = (options.type && EXPORT_TYPE_CONFIG[options.type]) ? options.type : null;
+        // 调用方锁定的可选类型：过滤掉未注册的类型；为空则视为不锁定
+        const allowedTypes = Array.isArray(options.allowedTypes)
+            ? options.allowedTypes.filter(typeId => EXPORT_TYPE_CONFIG[typeId])
+            : null;
+        state.allowedTypes = allowedTypes && allowedTypes.length ? allowedTypes : null;
 
         // 如果 DOM 已存在，立即更新日期输入框
         const startInput = document.getElementById('exportStartDate');
@@ -901,15 +915,46 @@ window.ExportDialog = (function () {
     }
 
     /**
+     * 按调用方锁定的类型过滤侧边栏
+     * @description 锁定后只保留白名单内的类型；只剩一项时隐藏整条侧栏，
+     *              对话框标题/描述仍由 selectExportType 渲染，用户无法再切换类型。
+     */
+    function applyTypeLock() {
+        const container = document.getElementById('exportDialog');
+        const items = Array.from(document.querySelectorAll('.export-type-item'));
+        if (!container || items.length === 0) return;
+
+        const allowed = state.allowedTypes;
+        let visibleCount = 0;
+        items.forEach(item => {
+            const visible = !allowed || allowed.includes(item.getAttribute('data-type'));
+            item.style.display = visible ? '' : 'none';
+            if (visible) visibleCount++;
+        });
+
+        // 白名单与该角色的可见类型没有交集：退化为不锁定，避免出现空白对话框
+        if (allowed && visibleCount === 0) {
+            state.allowedTypes = null;
+            items.forEach(item => { item.style.display = ''; });
+            visibleCount = items.length;
+        }
+
+        container.classList.toggle('is-locked', visibleCount === 1);
+    }
+
+    /**
      * 显示对话框
-     * @param {Object} options - 配置项 { startDate, endDate, type, exportContext }
+     * @param {Object} options - 配置项 { startDate, endDate, type, allowedTypes, exportContext }
      *                           type：调用方希望默认选中的导出类型（如班主任页面传 teacher_homeroom），
      *                           缺省时按角色回退到各端默认类型
+     *                           allowedTypes：锁定该入口可选的类型（入口隔离用；缺省不限制）
      */
     function show(options) {
         init();
         // 确保 DOM 初始化后再重置状态，并传入选项
         resetState(options);
+        // 侧栏可见项必须跟随本次 open 的锁定范围（DOM 会复用/重建，不能只在 createDialogHTML 里过滤）
+        applyTypeLock();
 
         const currentUser = getCurrentUser();
         const roleDefaultType = currentUser.userType === 'teacher'
@@ -919,9 +964,14 @@ window.ExportDialog = (function () {
                 : EXPORT_TYPES.SCHEDULE_DATA;    // 管理员默认排课数据
 
         setTimeout(() => {
-            // 优先使用调用方指定的类型；该类型对当前角色不可见时回退到角色默认类型
-            const el = (state.presetType && document.querySelector(`.export-type-item[data-type="${state.presetType}"]`))
-                || document.querySelector(`.export-type-item[data-type="${roleDefaultType}"]`);
+            // 锁定时只能是被允许的类型；否则优先使用调用方指定的类型，不可见时回退角色默认类型
+            const allowed = state.allowedTypes;
+            const preferredType = allowed
+                ? (allowed.includes(state.presetType) ? state.presetType : allowed[0])
+                : state.presetType;
+            const el = (preferredType && document.querySelector(`.export-type-item[data-type="${preferredType}"]`))
+                || document.querySelector(`.export-type-item[data-type="${roleDefaultType}"]`)
+                || document.querySelector('.export-type-item');
             if (el) el.click();
         }, 50);
 
@@ -1104,6 +1154,11 @@ window.ExportDialog = (function () {
                 overflow: hidden;
                 animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 font-family: 'Inter', system-ui, sans-serif;
+            }
+
+            /* 入口锁定单一导出类型时，隐藏类型侧栏，主内容区占满 */
+            .export-dialog-container.is-locked .export-sidebar {
+                display: none;
             }
 
             /* ========== 左侧侧边栏 ========== */
