@@ -486,6 +486,5 @@ class ValidationError extends Error {
 }
 
 window.apiUtils = new ApiUtils();
-window.ApiUtils = ApiUtils;
 window.ApiError = ApiError;
 window.ValidationError = ValidationError;

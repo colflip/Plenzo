@@ -1,20 +1,10 @@
 // 费用报销状态：枚举、流转校验与审计（管理员 / 班主任 / 教师三档权限）
 // 与前端 public/js/components/fee-manager.js 的 FEE_STATUS 展示名保持一致。
 
-const SchemaHelper = require('../utils/schema-helper');
+const SchemaHelper = require('./schema-helper');
 const logger = require('./logger');
 
 const FEE_STATUSES = ['draft', 'teacher_submitted', 'admin_submitted', 'reimbursed', 'returned', 'reimbursement_returned'];
-
-// 前端展示名（状态名与角色无关，身份在后端的 fee_status_logs.actor_type 区分）
-const FEE_STATUS_LABELS = {
-    draft: '待提交',
-    teacher_submitted: '待审核',
-    admin_submitted: '已审核',
-    reimbursed: '已报销',
-    returned: '已退回',
-    reimbursement_returned: '退回报销',
-};
 
 // 普通教师仅允许的两类流转（首次提交 / 退回后重新提交）
 const TEACHER_ALLOWED = {
@@ -140,9 +130,6 @@ async function resolveActor(db, teacherId) {
 
 module.exports = {
     FEE_STATUSES,
-    FEE_STATUS_LABELS,
-    TEACHER_ALLOWED,
-    FEE_AUTO_SUBMIT,
     normalizeStatus,
     resolveAutoFeeStatus,
     validateFeeStatusTransition,

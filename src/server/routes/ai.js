@@ -27,7 +27,7 @@ const {
 // 必须走 createRateLimitHandler：它输出统一信封。
 // 原来这里塞的是裸对象 { success:false, message } —— 非信封载荷会撞上
 // middleware/response-envelope.js 的护栏（它对流出的 JSON 做 isEnvelope 校验并抛错），
-// 于是限流命中回的是 500，而 docs/api.md:45 承诺的是 429（审查报告 P2-14）。
+// 于是限流命中回的是 500，而 API 契约承诺的是 429（审查报告 P2-14；docs/ 只在本机，未入库）。
 const AI_QUERY_MAX = parseInt(process.env.AI_RATE_LIMIT_MAX, 10) || 100;
 const aiLimiter = rateLimit({
     windowMs: 60 * 1000,

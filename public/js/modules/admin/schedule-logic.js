@@ -56,7 +56,6 @@ export async function showAddScheduleModal() {
         return;
     }
     if (overlay) overlay.style.display = 'block';
-    // ... rest of logic
     form.dataset.mode = 'add';
     form.dataset.id = '';
     title.textContent = '添加排课';
@@ -513,7 +512,6 @@ export async function loadScheduleFormOptions() {
                     case 'conflict': // 冲突 - 灰色 + 标记
                         label += ' (时间冲突)';
                         opt.style.color = '#94a3b8'; // Slate 400
-                        // opt.disabled = true; // Optional: disable user from selecting? User didn't strictly say disable, just categorize. Usually better to allow override.
                         break;
                     case 'unavailable': // 不在服务时间 - 浅灰色
                         label += ' (休息中)';

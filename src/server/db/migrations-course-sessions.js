@@ -422,7 +422,7 @@ async function migrateCourseSessions() {
 
 module.exports = {
     migrateCourseSessions, LIFECYCLES, CATEGORIES, FEE_STATUSES, CHANGE_ACTIONS,
-    SCHEMA_KEY, isApplied, markApplied,
+    isApplied, markApplied,
     // 导出 DDL 文本只为测试用：断言「不活跃清单」确实由 shared-utils 那一份派生（见 pair-status-vocabulary.test.js）
     FN_VALIDATE_TEACHERS
 };

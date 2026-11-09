@@ -464,8 +464,6 @@ function renderHeader(weekDates) {
     const row = document.createElement('tr');
 
     // Remove Student Name Header for Single-Row View
-    // const nameHeader = createElement('th', 'name-col-header', { textContent: '学生姓名' });
-    // row.appendChild(nameHeader);
 
     // Date Headers
     weekDates.forEach(date => {
@@ -537,9 +535,6 @@ function renderBody(weekDates, schedules) {
 function renderFullEmptyState(weekDates) {
     const tbody = elements.body();
     const row = document.createElement('tr');
-
-    // No Sticky Col
-    // row.appendChild(createElement('td', 'sticky-col', { textContent: '-' }));
 
     weekDates.forEach(() => {
         const cell = createElement('td', 'schedule-cell');

@@ -81,8 +81,6 @@ const errorCodeToStatus = (code) => CODE_TO_STATUS[code] || 500;
 const codeDefaults = (code) => CODE_DEFAULTS[code] || null;
 
 module.exports = {
-    STATUS_TO_CODE,
-    CODE_TO_STATUS,
     CODE_DEFAULTS,
     statusToErrorCode,
     errorCodeToStatus,

@@ -1,7 +1,6 @@
 /**
- * AI 助手 - 专业重构版
- * @description 基于现代设计系统标准的全新 AI 助手界面
- * @module modules/shared/ai-assistant
+ * AI 助手面板（共享模块）
+ * @module modules/shared/ai-assistant-redesign
  */
 
 const PANEL_ID = 'ai-assistant-panel';

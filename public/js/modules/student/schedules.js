@@ -457,8 +457,6 @@ function renderHeader(weekDates) {
     const row = document.createElement('tr');
 
     // Remove Teacher Name Header for Single-Row View
-    // const nameHeader = createElement('th', 'name-col-header', { textContent: '老师姓名' });
-    // row.appendChild(nameHeader);
 
     // Date Headers
     weekDates.forEach(date => {

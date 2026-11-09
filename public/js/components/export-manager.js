@@ -812,7 +812,6 @@ function aggregateTeacherStats(rawData, studentName = '全部学生', state = {}
 
         // 统计类型
         let typeKey = ''; // english key: visit, review, etc.
-        // let typeName = ''; // localized name
 
         const typeVal = row.course_id || row.type || row.schedule_type || row['类型'];
 

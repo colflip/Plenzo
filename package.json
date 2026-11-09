@@ -1,6 +1,7 @@
 {
   "name": "plenzo",
   "version": "1.0.0",
+  "private": true,
   "description": "An AI-powered scheduling management system with multi-role permissions and intelligent assistant.",
   "main": "src/server/app.js",
   "keywords": [
@@ -29,7 +30,7 @@
     "test:integration": "jest --testMatch '**/tests/(integration|performance)/**/*.test.js' --setupFilesAfterEnv '<rootDir>/tests/setup.js'",
     "test:performance": "jest --testMatch '**/__tests__/performance/**/*.perf.js'",
     "test:workers": "npm --prefix workers/plenzo-router test",
-    "test:all": "npm run test:unit && npm run test:workers",
+    "test:all": "npm test && npm run test:workers",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },

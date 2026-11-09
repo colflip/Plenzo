@@ -656,11 +656,6 @@ async function deleteUser(userType, id, { cascade = false } = {}, req) {
 }
 
 module.exports = {
-    TABLES,
-    BASE_COLUMNS,
-    ALLOWED_ADDITIONAL,
-    resolveTable,
-    filterAdditional,
     listUsers,
     getUserById,
     getNextUserId,

@@ -345,16 +345,12 @@ async function findByUrl(channelId, baseUrl, opts = {}) {
 
 module.exports = {
     TABLE,
-    MASK,
-    isHttpUrl,
     ensureTable,
     listEndpoints,
-    getEndpoint,
     findByUrl,
     createEndpoint,
     updateEndpoint,
     deleteEndpoint,
-    invalidateCache,
     // 测试钩子
     _reset: () => { tableReady = false; invalidateCache(); }
 };

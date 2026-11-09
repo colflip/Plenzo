@@ -10,8 +10,5 @@ module.exports = {
     // 认证验证
     loginSchema: authValidator.loginSchema,
     registerSchema: authValidator.registerSchema,
-    changePasswordSchema: authValidator.changePasswordSchema,
-
-    // 模块导出
-    authValidator
+    changePasswordSchema: authValidator.changePasswordSchema
 };

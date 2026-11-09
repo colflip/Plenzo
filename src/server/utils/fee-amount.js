@@ -40,20 +40,4 @@ function parseFeeAmount(value) {
     return { ok: true, value: Number(digits) };
 }
 
-/**
- * 严格版：解析失败直接抛（调用方已在边界处理过格式时才用）。
- * @param {*} value
- * @returns {number|null}
- */
-function requireFeeAmount(value) {
-    const parsed = parseFeeAmount(value);
-    if (!parsed.ok) {
-        const err = new Error(parsed.reason);
-        err.code = 'VALIDATION_FAILED';
-        err.statusCode = 400;
-        throw err;
-    }
-    return parsed.value;
-}
-
-module.exports = { parseFeeAmount, requireFeeAmount, FEE_PATTERN };
+module.exports = { parseFeeAmount };

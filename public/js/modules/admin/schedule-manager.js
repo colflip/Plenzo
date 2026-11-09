@@ -1798,34 +1798,8 @@ export async function setupScheduleEventListeners() {
 
                     // 静默失效本地缓存。不进行全盘闪烁式刷新
                     WeeklyDataStore.invalidateSchedules();
-                    // 移除成功提示 toast
-                    // window.apiUtils.showSuccessToast('排课添加成功');
+                    // 刻意不弹成功提示（列表刷新即反馈）
                 } else {
-                    //                     // 乐观更新：立即用新表单里的数据去“覆写”当前点击格子的HTML
-                    //                     currentCard = document.querySelector(`.schedule-card[data-schedule-id="${id}"]`);
-                    //                     if (currentCard) {
-                    //                         originalCardHtml = currentCard.innerHTML; // 快照
-                    //                         currentCard.classList.add('optimistic-updating');
-                    // 
-                    //                         // 从表单内爬取修改的字段并投射到卡片上
-                    //                         const teacherSelect = form.querySelector('#scheduleTeacher');
-                    //                         const typeSelect = form.querySelector('#scheduleTypeSelect');
-                    //                         const tName = teacherSelect && teacherSelect.selectedOptions[0] ? teacherSelect.selectedOptions[0].text : '';
-                    //                         const cName = typeSelect && typeSelect.selectedOptions[0] ? typeSelect.selectedOptions[0].text : '';
-                    // 
-                    //                         const timeSpan = currentCard.querySelector('.schedule-time');
-                    //                         if (timeSpan) timeSpan.textContent = `${body.start_time.substring(0, 5)}-${body.end_time.substring(0, 5)}`;
-                    // 
-                    //                         const tDiv = currentCard.querySelector('.teacher-name');
-                    //                         if (tDiv && tName) tDiv.textContent = tName;
-                    // 
-                    //                         const cDiv = currentCard.querySelector('.course-type');
-                    //                         if (cDiv && cName) cDiv.textContent = cName;
-                    // 
-                    //                         const locP = currentCard.querySelector('.location-text');
-                    //                         window.SecurityUtils.safeSetHTML(locP, `<span class="material-icons-round">place</span>${body.location}`);
-                    //                     }
-
                     // 编辑：一次提交整场（头部 + 全部 pair），服务端走 updatePairsBatch 顺序应用。
                     //   ① 头部（日期/时段/地点/备注）—— 整场生效，带 version 乐观锁
                     //   ② teachers[] / students[] —— 带 uid 的项按 uid patch（换人/改类型/改类别/改状态），
@@ -1904,13 +1878,12 @@ export async function setupScheduleEventListeners() {
                         type_id: body.teachers[0] && body.teachers[0].type_id
                     });
 
-                    // 成功后，去处特效
+                    // 成功后，去除特效
                     if (currentCard) {
                         currentCard.classList.remove('optimistic-updating');
                     }
                     WeeklyDataStore.invalidateSchedules();
-                    // 移除成功提示 toast
-                    // window.apiUtils.showSuccessToast('排课更新成功');
+                    // 刻意不弹成功提示（列表刷新即反馈）
                 }
 
                 // 立即关闭表单并移除背景蒙层(阴影区域)
