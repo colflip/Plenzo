@@ -219,7 +219,6 @@ async function syncHolidaysFromAPI(yearsInput, req, { fetcher = fetch } = {}) {
 }
 
 module.exports = {
-    HOLIDAY_COLUMNS,
     validateHolidayFields,
     listHolidays,
     createHoliday,

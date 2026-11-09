@@ -123,7 +123,5 @@ const changePasswordSchema = Joi.object({
 module.exports = {
     loginSchema,
     registerSchema,
-    changePasswordSchema,
-    strongPasswordSchema,
-    weakPasswordSchema
+    changePasswordSchema
 };

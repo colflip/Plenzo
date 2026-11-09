@@ -232,7 +232,6 @@ function beijingWeekWindow(now = new Date()) {
 module.exports = {
     validateDateFormat,
     getTimestamp,
-    resolveTableName,
     resolveUserName,
     STATUS_MAP,
     LIFECYCLE_MAP,

@@ -265,12 +265,5 @@ function getPresetModels(includeApiKey = false) {
 
 module.exports = {
     getPresetModels,
-    buildEnvEndpoints,
-    envList,
-    envInt,
-    envBool,
-    envJson,
-    ENDPOINT_STRATEGIES,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TIMEOUT
+    buildEnvEndpoints
 };

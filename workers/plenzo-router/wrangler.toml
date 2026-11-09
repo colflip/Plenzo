@@ -28,7 +28,7 @@ workers_dev = false
 preview_urls = false
 
 # 两个 origin 主机名，不要带协议和路径。
-# 换成你自己的：Render Dashboard → 服务 → Settings 顶部的 URL；Vercel → 项目 → Domains。
+# 当前即生产值：Render 为主源，Vercel 为回退源；换域名时同步改这里。
 [vars]
 PRIMARY_ORIGIN = "plenzo.onrender.com"
 FALLBACK_ORIGIN = "plenzo.vercel.app"

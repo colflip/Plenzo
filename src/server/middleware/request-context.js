@@ -30,4 +30,4 @@ const requestContext = (req, res, next) => {
     next();
 };
 
-module.exports = { requestContext, SAFE_INBOUND };
+module.exports = { requestContext };

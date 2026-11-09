@@ -1,6 +1,6 @@
 # Plenzo
 
-[![version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/colflip/Plenzo) [![license](https://img.shields.io/badge/license-CC--BY--NC--4.0-green.svg?style=flat-square)](https://github.com/colflip/Plenzo/blob/master/LICENSE) [![node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org) [![express](https://img.shields.io/badge/express-4.18.x-000000.svg?style=flat-square)](https://expressjs.com) [![postgresql](https://img.shields.io/badge/postgresql-supported-336791.svg?style=flat-square)](https://www.postgresql.org)
+[![version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/colflip/plenzo) [![license](https://img.shields.io/badge/license-CC--BY--NC--4.0-green.svg?style=flat-square)](https://github.com/colflip/plenzo/blob/master/LICENSE) [![node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org) [![express](https://img.shields.io/badge/express-4.18.x-000000.svg?style=flat-square)](https://expressjs.com) [![postgresql](https://img.shields.io/badge/postgresql-supported-336791.svg?style=flat-square)](https://www.postgresql.org)
 
 一款面向复杂资源配置的 **AI-Native** 决策与调度引擎，基于 `PostgreSQL` 与 `JWT` 无状态认证构建，采用 *RBAC* 多角色权限控制。
 
@@ -8,7 +8,7 @@
 
 **✨ AI 功能**：系统采用 **LLM Tool Calling** 架构集成 AI 能力。服务层通过统一的 LLM 适配器与*协议翻译层*，为上层提供一致的请求和响应结构，并支持多模型供应商及自定义兼容网关。AI 控制器内置 **15+ 工具函数**，覆盖调度、查询、统计与管理等场景；涉及数据写入时，采用“预览与确认”机制，在执行前向用户确认变更。前端助手支持模型能力检测、多模态输入（Vision API）、`30` 轮上下文，以及会话持久化与历史回溯。
 
-数据模型遵循 `3NF`，以 `teachers`、`students`、`course_arrangement` 为核心实体，通过*外键约束*维护*引用完整性*。时段数据采用时间区间建模，审计表通过 `Provenance Tracking` 保障操作可追溯性。数据库层基于 `SchemaHelper` 进行动态结构检测，并结合 `JSONB` 支持灵活扩展；连接层采用标准 PostgreSQL `pg` 连接池。
+数据模型遵循 `3NF`，以 `teachers`、`students`、`course_sessions` 为核心实体（成对视角由视图 `v_session_pairs` 提供），通过*外键约束*维护*引用完整性*。时段数据采用时间区间建模，审计表通过 `Provenance Tracking` 保障操作可追溯性。数据库层基于 `SchemaHelper` 进行动态结构检测，并结合 `JSONB` 支持灵活扩展；连接层采用标准 PostgreSQL `pg` 连接池。
 
 ```
 plenzo/
@@ -20,7 +20,6 @@ plenzo/
 │   ├── teacher/
 │   ├── assets/
 │   ├── css/
-│   │   ├── components/
 │   │   ├── core/
 │   │   └── modules/
 │   ├── js/
@@ -41,6 +40,7 @@ plenzo/
 │   ├── db/
 │   │   ├── db.js
 │   │   └── migrations.js
+│   ├── domain/
 │   ├── jobs/
 │   ├── middleware/
 │   ├── routes/
@@ -49,6 +49,8 @@ plenzo/
 │   ├── utils/
 │   ├── validators/
 │   └── app.js
+├── workers/
+│   └── plenzo-router/
 ├── .gitignore
 ├── LICENSE
 ├── README.md
@@ -70,7 +72,7 @@ plenzo/
 | 数据同步 | API Client + Event Bus + Request Guards + Client-side Cache |
 | 定时任务 | node-cron |
 | 安全 | Helmet + CORS + Joi + express-rate-limit |
-| 测试 | Jest + BackstopJS |
+| 测试 | Jest + node:test（Workers） |
 
 本项目基于 [CC BY-NC 4.0](./LICENSE) 开源。
 
@@ -82,7 +84,7 @@ The system uses a decoupled front-end/back-end architecture: the server, built w
 
 **✨ AI Features**: The system integrates AI through an **LLM Tool Calling** architecture. A unified LLM adapter and *Protocol Translation Layer* provide upper layers with consistent request and response structures while supporting multiple model providers and custom-compatible gateways. The AI controller includes **15+ tool functions** spanning scheduling, queries, statistics, and management. Data-modifying operations follow a preview-and-confirmation workflow, allowing users to verify changes before execution. The frontend assistant supports model capability detection, multimodal input via the Vision API, a `30`-turn context window, conversation persistence, and history retrieval.
 
-The data model follows `3NF`, with `teachers`, `students`, and `course_arrangement` as its core entities and *foreign key constraints* preserving *referential integrity*. Scheduling data uses temporal interval modeling, while audit tables implement `Provenance Tracking` to ensure operational traceability. The database layer combines `SchemaHelper`-based dynamic structural detection with `JSONB` extensibility, and the connection layer uses the standard PostgreSQL `pg` connection pool.
+The data model follows `3NF`, with `teachers`, `students`, and `course_sessions` as its core entities (the paired view is provided by the `v_session_pairs` view) and *foreign key constraints* preserving *referential integrity*. Scheduling data uses temporal interval modeling, while audit tables implement `Provenance Tracking` to ensure operational traceability. The database layer combines `SchemaHelper`-based dynamic structural detection with `JSONB` extensibility, and the connection layer uses the standard PostgreSQL `pg` connection pool.
 
 Released under [CC BY-NC 4.0](./LICENSE).
 

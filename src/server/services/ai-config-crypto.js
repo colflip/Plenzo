@@ -142,4 +142,4 @@ function decrypt(stored) {
     }
 }
 
-module.exports = { encrypt, decrypt, PREFIX, _resolveKey: resolveKey };
+module.exports = { encrypt, decrypt, PREFIX };

@@ -279,22 +279,6 @@ async function transitionFeeStatus(tx, { sessionId, teacherUid, id, from, target
 }
 
 /**
- * 「保存并提交」费用后的自动状态流转（教师端 → 待审核；管理员端 → 已审核）。
- * 规则见 utils/feeStatus.js#FEE_AUTO_SUBMIT：已报销 / 退回报销 不回退，已是目标状态不重复写审计。
- * 幂等：无需流转时不产生任何写入。
- * @returns {{ changed: boolean, fee_status: string }} fee_status 为流转后的最终状态
- */
-async function autoSubmitFeeStatus(tx, { sessionId, teacherUid, id, from, actorType, operatorId, note }) {
-    const target = resolveAutoFeeStatus(actorType, from);
-    if (!target) return { changed: false, fee_status: from };
-    const r = await transitionFeeStatus(tx, {
-        sessionId: sessionId != null ? sessionId : id, teacherUid,
-        from, target, note: note || '保存并提交', operatorId, actorType
-    });
-    return r.ok ? { changed: true, fee_status: r.fee_status } : { changed: false, fee_status: from };
-}
-
-/**
  * 批量费用报销状态流转。
  *
  * 性能约定（不可回退成逐条循环）：Neon HTTP 驱动下每条 SQL 都是一次网络往返（实测 ~300ms），
@@ -536,14 +520,12 @@ module.exports = {
     hasFilledFee,
     checkScheduleScope,
     locateTeacherPair,
-    studentFeesOf,
     effectiveFeeOf,
     withStudentFee,
     buildStudentFeePatchSql,
     buildPairPatchSql,
     updateScheduleFeesInTx,
     transitionFeeStatus,
-    autoSubmitFeeStatus,
     batchTransitionFeeStatus,
     batchUpdateScheduleFeesInTx,
     toCanonicalFeeError

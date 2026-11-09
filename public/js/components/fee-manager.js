@@ -141,6 +141,31 @@
         return { pending: '待确认', confirmed: '已确认', completed: '已完成', cancelled: '已取消' }[s] || s || '-';
     }
     function statusClass(s) { return `sstatus-${s || 'pending'}`; }
+    // 课程状态标签：费用弹窗里要能看见「这节课上没上成」。配色沿用表格的 sstatus-*，
+    // 缺状态时不出标签（默认成「待确认」等于凭空编一个状态）。
+    function statusBadge(status) {
+        const code = String(status || '').toLowerCase();
+        if (!code) return '';
+        return `<span class="fm-course-status ${statusClass(code)}">${esc(statusText(code))}</span>`;
+    }
+    // 单条弹窗的课程上下文：日期（周X）时间段 · 学生 · 老师 · 课程类型 + 状态标签。
+    // 只露出两个费用输入框时，「改的是哪节课」全靠猜；日期/时间可与表格逐字对上。
+    function courseMetaHtml(rec) {
+        const parts = [];
+        if (rec.date) {
+            const dt = new Date(rec.date + 'T00:00:00');
+            const week = Number.isNaN(dt.getTime()) ? '' : `（周${'日一二三四五六'[dt.getDay()]}）`;
+            parts.push(Number.isNaN(dt.getTime()) ? rec.date : `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}${week}`);
+        }
+        const start = rec.start_time ? String(rec.start_time).substring(0, 5) : '';
+        const end = rec.end_time ? String(rec.end_time).substring(0, 5) : '';
+        if (start || end) parts.push(`${start || '--'} - ${end || '--'}`);
+        if (rec.student_name) parts.push(rec.student_name);
+        parts.push(rec.teacher_name || '未分配');
+        parts.push(rec.schedule_type_cn || rec.schedule_type || '课程');
+        const text = parts.join(' · ');
+        return `<div class="fm-course-meta-text" title="${esc(text)}">${esc(text)}</div>${statusBadge(rec.status)}`;
+    }
     function money(n) {
         const v = parseFloat(n) || 0;
         return v.toFixed(2);
@@ -1360,6 +1385,7 @@
                 </div>
                 <div class="modal-body">
                     <form id="fmFeeForm">
+                        <div id="fmSingleCourseMeta" class="fm-course-meta" style="display:none;"></div>
                         <div id="fmDynamicFeeInputsContainer" style="display:none; width:100%;"></div>
                         <div class="form-group" id="fmDefaultGroup">
                             <label>交通费 (元)</label>
@@ -1414,6 +1440,7 @@
         const defaultGroup = modal.querySelector('#fmDefaultGroup');
         const defaultOther = modal.querySelector('#fmDefaultOtherGroup');
         const container = modal.querySelector('#fmDynamicFeeInputsContainer');
+        const courseMeta = modal.querySelector('#fmSingleCourseMeta');
         const tInput = modal.querySelector('#fmTransportInput');
         const oInput = modal.querySelector('#fmOtherInput');
 
@@ -1425,6 +1452,7 @@
         if (mode === 'multi') {
             defaultGroup.style.display = 'none';
             defaultOther.style.display = 'none';
+            courseMeta.style.display = 'none';
             container.style.display = 'block';
             content.style.width = 'min(680px, 92vw)';
             if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(container, '');
@@ -1465,7 +1493,7 @@
                     // 同一 pair 覆盖多名学生时合并显示（费用一趟一笔，只有一组输入框）
                     const studentText = entry.names.join('、');
                     const itemHtml = `
-                        <div class="fm-day-item-title">${esc(studentText)} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}</div>
+                        <div class="fm-day-item-title">${esc(studentText)} · ${esc(s.teacher_name || '老师')} · ${esc(typeText)}${esc(timeText)}${statusBadge(s.status)}</div>
                         <div class="fm-day-item-inputs">
                             <div class="form-group" style="flex:1; min-width:0; margin-bottom:0;">
                                 <label style="font-size: var(--fs-300);">交通费</label>
@@ -1503,6 +1531,10 @@
             content.style.width = '480px';
             if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(container, '');
             const rec = schedules[0] || {};
+            const metaHtml = courseMetaHtml(rec);
+            if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(courseMeta, metaHtml);
+            else courseMeta.innerHTML = metaHtml;
+            courseMeta.style.display = 'flex';
             // 未填写(null)→输入框留空；0 或正数→原值。留空保存即写回 NULL（未填写），与「清除费用」置 null 一致。
             tInput.value = isUnfilled(rec.transport_fee) ? '' : String(rec.transport_fee);
             oInput.value = isUnfilled(rec.other_fee) ? '' : String(rec.other_fee);

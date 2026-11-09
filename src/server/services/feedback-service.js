@@ -129,9 +129,6 @@ async function deleteFeedback(id, req) {
 }
 
 module.exports = {
-    ALLOWED_TYPES,
-    ALLOWED_PRIORITIES,
-    ALLOWED_STATUS,
     listFeedbacks,
     createFeedback,
     updateFeedback,

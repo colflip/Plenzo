@@ -6,17 +6,14 @@
 
 const { authMiddleware, getJwtSecret } = require('./auth');
 const {
-    ROLES,
     PERMISSION_LEVELS,
-    requireRole,
     requirePermissionLevel,
     requireOwnerOrAdmin,
     adminOnly,
     teacherOnly,
     studentOnly,
     teacherOrAdmin,
-    anyAuthenticated,
-    superAdminOnly
+    anyAuthenticated
 } = require('./role');
 const {
     validate,
@@ -52,9 +49,7 @@ module.exports = {
     getJwtSecret,
 
     // 角色权限
-    ROLES,
     PERMISSION_LEVELS,
-    requireRole,
     requirePermissionLevel,
     requireOwnerOrAdmin,
     adminOnly,
@@ -62,7 +57,6 @@ module.exports = {
     studentOnly,
     teacherOrAdmin,
     anyAuthenticated,
-    superAdminOnly,
 
     // 验证
     validate,

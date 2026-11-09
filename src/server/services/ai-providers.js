@@ -49,14 +49,4 @@ const PROVIDER_DEFAULTS = {
     }
 };
 
-/**
- * 解析 provider 名到其默认配置；未知 provider 回退到 custom。
- * @param {string} provider
- * @returns {{baseUrl:string, model:string, protocol:string}}
- */
-function providerDefault(provider) {
-    const p = (provider || '').toLowerCase();
-    return PROVIDER_DEFAULTS[p] || PROVIDER_DEFAULTS.custom;
-}
-
-module.exports = { PROVIDER_DEFAULTS, providerDefault };
+module.exports = { PROVIDER_DEFAULTS };

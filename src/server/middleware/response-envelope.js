@@ -94,4 +94,4 @@ const responseEnvelope = (req, res, next) => {
     next();
 };
 
-module.exports = { responseEnvelope, isEnvelope, normalizeEnvelope, RESPONSE_ENVELOPE_ERROR };
+module.exports = { responseEnvelope, isEnvelope };

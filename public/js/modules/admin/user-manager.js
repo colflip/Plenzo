@@ -28,12 +28,7 @@ const USER_FORM_FIELD_MAP = Object.freeze({
 });
 
 
-// Retry helper
-/*
-- **CRUD Operations**: Confirmed "Edit" and "Delete" buttons are rendered and functional in the last column.
-- **Improved Alignment**: Optimized the operations column to ensure Edit and Delete buttons are perfectly centered both horizontally and vertically.
-- **Fixed Navigation**: Resolved the interface "jumping" issue. Clicking User Management now directly and stably displays the Teacher view by default.
-*/
+// 写操作重试：400/404/409 是确定性失败，重试无意义；其余按 800ms 递增退避
 async function withRetry(fn, retries = 2, delayMs = 800) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {

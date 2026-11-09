@@ -33,6 +33,5 @@ function injectAssetVersion(html, version) {
 }
 
 module.exports = {
-    injectAssetVersion,
-    ASSET_REF_RE
+    injectAssetVersion
 };

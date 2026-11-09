@@ -230,9 +230,6 @@ const llmMetrics = (() => {
 })();
 
 module.exports = {
-    LLMSemaphore,
-    defaultSemaphore,
     withLLMRetry,
-    backoffMs,
     llmMetrics
 };

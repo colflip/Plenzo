@@ -1,10 +1,7 @@
-// TIME_ZONE 常量定义
-const TIME_ZONE = 'Asia/Shanghai';
-
-// 统计模块初始化标志
 let statisticsInitialized = false;
 
-// 日期格式化函数
+// 本文件是经典脚本（无 ESM import）；ESM 版共享实现见 modules/shared/date-format.js。
+// 两者契约不同：这里非法日期返回 ''，共享版返回 null —— 不要互相替换。
 function toISODate(date) {
     if (!date) return '';
     const d = new Date(date);
@@ -14,11 +11,7 @@ function toISODate(date) {
     return `${year}-${month}-${day}`;
 }
 
-// --- Administrator Fee Visibility State ---
-// 此部分已移动到 schedule-manager.js，此处移除以避免函数定义冲突
-// 保持 legacy-adapter.js 专注于旧代码的桥接与适配
-
-
+// 管理员费用可见性状态已移至 schedule-manager.js（避免重复定义冲突）
 
 function chartLoadError() {
     return new Error('图表组件加载失败');
@@ -306,21 +299,11 @@ if (startInput && endInput) {
     updateWeeklyRangeText(week[0], week[week.length - 1]);
     loadSchedules();
 }
-// 增加上一周/下一周按钮交互
-// [FIX] 移除重复监听器：已在 schedule-manager.js 中统一处理
-/*
-const prevBtn = document.getElementById('prevWeek');
-const nextBtn = document.getElementById('nextWeek');
-if (prevBtn && nextBtn) {
-    // ... duplicate logic removed ...
-}
-*/
-// 排课管理 - 新建排课按钮
-// 排课管理 - 新建排课按钮 (Event Delegation for robustness)
+// 上一周/下一周按钮的监听已在 schedule-manager.js 统一挂载，这里不再重复绑定。
+// 排课管理 - 新建排课按钮（事件委托，按钮随周视图重渲染）
 document.addEventListener('click', (e) => {
     const btn = e.target.closest('#addScheduleBtn');
     if (btn) {
-        // Ensure function exists
         if (typeof showAddScheduleModal === 'function') {
             showAddScheduleModal();
         } else {

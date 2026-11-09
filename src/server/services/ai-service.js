@@ -511,14 +511,11 @@ module.exports = {
     chat,
     extractText,
     extractToolCalls,
-    buildEndpoint,
-    PROVIDER_DEFAULTS,
     // 供单元测试使用的协议翻译内部函数
     toAnthropicMessages,
     toAnthropicTools,
     fromAnthropicResponse,
     normalizeLLMError,
-    // 护栏（信号量 / 重试 / 指标）
-    withLLMRetry,
+    // 护栏指标（信号量与重试由 ai-guardrails 直接提供）
     llmMetrics
 };

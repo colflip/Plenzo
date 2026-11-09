@@ -109,19 +109,13 @@ const studentOnly = requireRole(ROLES.STUDENT);
 const teacherOrAdmin = requireRole(ROLES.TEACHER, ROLES.ADMIN);
 const anyAuthenticated = requireRole(ROLES.ADMIN, ROLES.TEACHER, ROLES.STUDENT);
 
-// 按权限级别的快捷中间件
-const superAdminOnly = requirePermissionLevel(PERMISSION_LEVELS.SUPER_ADMIN);
-
 module.exports = {
-    ROLES,
     PERMISSION_LEVELS,
-    requireRole,
     requirePermissionLevel,
     requireOwnerOrAdmin,
     adminOnly,
     teacherOnly,
     studentOnly,
     teacherOrAdmin,
-    anyAuthenticated,
-    superAdminOnly
+    anyAuthenticated
 };
