@@ -396,9 +396,9 @@
     color: #000000 !important;
 }
 
-/* 底部时间文本：与地点同字重同颜色 */
+/* 底部时间文本：黑色加粗，让时段更醒目 */
 .schedule-card-group .schedule-footer .time-text {
-    font-weight: 400 !important;
+    font-weight: 700 !important;
     color: #000000 !important;
 }
 
