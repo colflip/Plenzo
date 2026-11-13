@@ -1,11 +1,10 @@
-import { API_ENDPOINTS, STATUS_LABELS, EMPTY_STATES, SCHEDULE_TYPE_MAP, getScheduleTypeLabel } from './constants.js';
-import { isMobileView, getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { API_ENDPOINTS, getScheduleTypeLabel } from './constants.js';
+import { getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
-import { captureWeekTableToClipboard } from '../../components/schedule-view-capture.js';
+import { captureWeekTableToClipboard, captureWeekMobileViewToClipboard } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
-    groupSchedulesByDate,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton
@@ -21,8 +20,7 @@ import {
     showInlineFeedback,
     toISODate,
     handleApiError,
-    startOfWeek,
-    getTimeSlotId
+    startOfWeek
 } from './utils.js';
 const { escapeHtml, safeSetHTML } = window.SecurityUtils;
 
@@ -93,13 +91,42 @@ export async function initSchedulesSection() {
 function bindWeekViewExportButton() {
     setupWeekViewExportButton({
         buttonId: 'exportStudentWeekViewBtn',
-        onClick: () => captureWeekTableToClipboard({ label: '本周课表' })
+        onClick: exportWeekView
     });
 }
 
-// 窄屏走移动端卡表，且移动端分支不重画 #weeklyBody —— 截它只会拿到上一周的残留内容
-function syncWeekViewExportButton() {
-    bindWeekViewExportButton();
+// 导出本周视图：先弹「视图选择」窗口（默认移动端），选完再截图到剪贴板。
+// 移动端长图是临时渲染、截完即弃，页面版式本身不变。
+function exportWeekView() {
+    window.ScheduleExportDialog.openViewChoice({
+        label: '本周课表',
+        onChoose: async (view) => {
+            if (view === 'mobile') {
+                await exportMobileWeekView();
+            } else {
+                captureWeekTableToClipboard({ label: '本周课表' });
+            }
+        }
+    });
+}
+
+// 把本周数据渲染成移动端日卡片长图（离屏渲染，页面版式不受影响）
+async function exportMobileWeekView() {
+    const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
+    await captureWeekMobileViewToClipboard({
+        weekDates,
+        schedules: cachedSchedules || [],
+        scopeId: 'schedules',
+        label: '本周课表',
+        options: {
+            personName: s => s.teacher_name || '未分配教师',
+            typeLabel: s => s.schedule_type_cn || getScheduleTypeLabel(s.schedule_type || s.course_type),
+            editableStatus: false,
+            formatTimeRange,
+            sortGroup: sortTeachersByIdAndType,
+            emptyText: '暂无排课'
+        }
+    });
 }
 
 window.toggleStudentShowPlan = async function () {
@@ -204,9 +231,7 @@ export async function loadSchedules(baseDate, showLoading = true) {
     const tableContainer = document.querySelector('#schedules .schedule-unified-card');
 
     // 1. 先渲染表头，消除导航时"头身不一致"的中间状态
-    if (!isMobileView()) {
-        renderHeader(weekDates);
-    }
+    renderHeader(weekDates);
 
     // 2. 显示加载动画（与教师端保持一致）
     if (showLoading && tableContainer) {
@@ -249,205 +274,9 @@ export async function loadSchedules(baseDate, showLoading = true) {
 }
 
 function renderSchedules(weekDates, schedules) {
-    const grouped = groupSchedulesByDate(weekDates, schedules);
-
-    // 检测是否为移动端
-    if (isMobileView()) {
-        renderMobileScheduleTable(weekDates, grouped);
-    } else {
-        renderHeader(weekDates);
-        renderBody(weekDates, schedules);
-    }
-    syncWeekViewExportButton();
+    renderHeader(weekDates);
+    renderBody(weekDates, schedules);
 }
-
-// 移动端2列7行表格渲染
-function renderMobileScheduleTable(weekDates, grouped) {
-    // 尝试多种选择器，优先使用.schedule-unified-card
-    let container = document.querySelector('#schedules .schedule-unified-card');
-    if (!container) {
-        container = document.querySelector('.schedule-unified-card');
-    }
-    if (!container) {
-        container = document.querySelector('#schedules .table-container');
-    }
-    if (!container) {
-        container = document.querySelector('.table-container');
-    }
-    if (!container) {
-
-        return;
-    }
-
-    clearChildren(container);
-
-    // 创建表格（不添加标题）
-    const table = createElement('table', 'mobile-schedule-table');
-
-    // 创建表头
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    const dateHeader = createElement('th', '', { textContent: '日期' });
-    const detailsHeader = createElement('th', '', { textContent: '课程详情' });
-    headerRow.appendChild(dateHeader);
-    headerRow.appendChild(detailsHeader);
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    // 创建表体
-    const tbody = document.createElement('tbody');
-    weekDates.forEach(date => {
-        const iso = toISODate(date);
-        const row = document.createElement('tr');
-
-        // 日期列
-        const day = date.getDate();
-        const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        const weekday = weekdayNames[date.getDay()];
-
-        const metaText = window.ScheduleDateLabels?.getHeaderMetaText(date);
-        const dateLabel = `${day}/${weekday}${metaText ? ` ${metaText}` : ''}`;
-        const dateCell = createElement('td', 'mobile-date-cell', { textContent: dateLabel });
-        row.appendChild(dateCell);
-
-        // 课程详情列
-        const detailsCell = createElement('td', 'mobile-details-cell');
-        const dailySchedules = grouped.get(iso) || [];
-
-        if (dailySchedules.length === 0) {
-            const empty = createElement('div', 'no-schedule', { textContent: '暂无排课' });
-            detailsCell.appendChild(empty);
-        } else {
-            // 按时间和地点分组（合并相同时间地点的课程）
-            const aggregatedGroups = groupSchedulesBySlot(dailySchedules);
-
-            aggregatedGroups.forEach((group, index) => {
-                // 对组内课程进行排序（特殊课程类型排最后，其他按教师ID排序）
-                group.sort(sortTeachersByIdAndType);
-
-                // 统一使用紧凑格式卡片（不再区分单个或多个）
-                const card = buildCompactMobileScheduleCard(group);
-                detailsCell.appendChild(card);
-
-                // 添加分隔线（除了最后一个组）
-                if (index < aggregatedGroups.length - 1) {
-                    const divider = createElement('hr', 'schedule-divider');
-                    divider.style.cssText = 'margin: 8px 0; border: none; border-top: 1px solid #e9ecef;';
-                    detailsCell.appendChild(divider);
-                }
-            });
-        }
-
-        row.appendChild(detailsCell);
-        tbody.appendChild(row);
-    });
-
-    table.appendChild(tbody);
-    container.appendChild(table);
-}
-
-
-/**
- * 构建移动端紧凑格式排课卡片（学生端）
- * 格式：教师1（类型chip，状态chip），教师2（类型chip，状态chip），时间，地点（灰色）
- * @param {Array} scheduleGroup 排课记录组（可以是单个或多个）
- * @returns {HTMLElement} 紧凑格式的排课卡片DOM元素
- */
-function buildCompactMobileScheduleCard(scheduleGroup) {
-    if (!scheduleGroup || scheduleGroup.length === 0) {
-        return document.createElement('div');
-    }
-
-    const first = scheduleGroup[0];
-    const slotId = getTimeSlotId(first.start_time);
-    const slotClass = slotId ? `slot-${slotId}` : 'slot-unspecified';
-
-    // 创建卡片容器，保持时间槽颜色
-    const card = createElement('div', `group-picker-item ${slotClass}`);
-
-    // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
-    // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
-    card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
-    appendScheduleWatermark(card, getScheduleWatermarkText(scheduleGroup));
-
-    // 为每位教师创建信息块：姓名（类型chip，状态chip）
-    scheduleGroup.forEach((schedule, index) => {
-        const teacherName = schedule.teacher_name || '未分配教师';
-        const typeCode = schedule.schedule_type || '';
-        const typeLabel = schedule.schedule_type_cn || getScheduleTypeLabel(typeCode);
-        const status = (schedule.status || 'pending').toLowerCase();
-        const statusLabel = getDisplayStatus(schedule);
-
-        // 确定课程类型的CSS类
-        let typeClass = 'type-default';
-        if (typeLabel.includes('入户')) typeClass = 'type-visit';
-        else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-        else if (typeLabel.includes('评审')) typeClass = 'type-review';
-        else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
-        else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
-
-        // 教师名称
-        const nameSpan = createElement('span', '', {
-            textContent: teacherName,
-            style: 'font-weight: 500; font-size: var(--fs-300);'
-        });
-        card.appendChild(nameSpan);
-
-        // 左括号
-        card.appendChild(document.createTextNode('（'));
-
-        // 课程类型chip
-        const typeChip = createElement('span', `chip ${typeClass}`, {
-            textContent: typeLabel
-        });
-        card.appendChild(typeChip);
-
-        // 逗号
-        card.appendChild(document.createTextNode('，'));
-
-        // 状态chip
-        const statusChip = createElement('span', `chip status-${status}`, {
-            textContent: statusLabel
-        });
-        card.appendChild(statusChip);
-
-        // 右括号
-        card.appendChild(document.createTextNode('）'));
-
-        // 如果不是最后一个，添加逗号和空格
-        if (index < scheduleGroup.length - 1) {
-            card.appendChild(document.createTextNode('，'));
-        }
-    });
-
-    // 添加逗号分隔符
-    card.appendChild(document.createTextNode('，'));
-
-    // 时间
-    const timeText = formatTimeRange(first.start_time, first.end_time);
-    const timeSpan = createElement('span', '', {
-        textContent: timeText,
-        style: 'font-size: var(--fs-300); font-weight: 500;'
-    });
-    card.appendChild(timeSpan);
-
-    // 添加逗号
-    card.appendChild(document.createTextNode('，'));
-
-    // 地点（灰色字体）—— 纯文本 DB 字段用 textContent，避免任何 HTML 解析路径
-    const locSpan = createElement('span', '', {
-        style: 'color: #9CA3AF; font-size: var(--fs-300);'
-    });
-    if (first.location) {
-        locSpan.textContent = first.location;
-    } else {
-        locSpan.innerHTML = '<span style="font-style: italic; color: #94a3b8;">地点待定</span>';
-    }
-    card.appendChild(locSpan);
-
-    return card;
-}
-
 
 function renderHeader(weekDates) {
     const thead = elements.header();

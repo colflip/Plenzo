@@ -1,10 +1,9 @@
-import { DEFAULT_LOCATION_PLACEHOLDER, SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel, getStatusLabel } from './constants.js';
-import { isMobileView, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel } from './constants.js';
+import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import {
     appendScheduleWatermark,
-    groupSchedulesByDate,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton,
@@ -29,7 +28,7 @@ const { escapeHtml, safeSetHTML } = window.SecurityUtils;
 
 // 导入时间槽工具函数
 import { getTimeSlotFromStartTime } from './time-slots.js';
-import { captureWeekTableToClipboard } from '../../components/schedule-view-capture.js';
+import { captureWeekTableToClipboard, captureWeekMobileViewToClipboard } from '../../components/schedule-view-capture.js';
 
 let currentWeekStart = null;
 let cachedSchedules = [];
@@ -51,21 +50,53 @@ export async function initSchedulesSection() {
     bindNavigation();
     syncShowPlanButton();
     bindWeekViewExportButton();
-    // 旧版课表内嵌的费用弹窗已随 77caebf 迁往「费用管理」页（FeeManager 统一接管），
-    // 函数本体已删除；残留的调用会抛 ReferenceError 并炸掉整个课程安排区块的初始化。
     await loadSchedules(currentWeekStart);
 }
 
 function bindWeekViewExportButton() {
     setupWeekViewExportButton({
         buttonId: 'exportTeacherWeekViewBtn',
-        onClick: () => captureWeekTableToClipboard({ label: '本周课表' })
+        onClick: exportWeekView
     });
 }
 
-// 窄屏走的是移动端两张卡表，桌面那张被隐藏，截图入口此时无意义
-function syncWeekViewExportButton() {
-    bindWeekViewExportButton();
+// 导出本周视图：先弹「视图选择」窗口（默认移动端），选完再截图到剪贴板。
+// 移动端长图是临时渲染、截完即弃，页面版式本身不变。
+function exportWeekView() {
+    window.ScheduleExportDialog.openViewChoice({
+        label: '本周课表',
+        onChoose: async (view) => {
+            if (view === 'mobile') {
+                await exportMobileWeekView();
+            } else {
+                captureWeekTableToClipboard({ label: '本周课表' });
+            }
+        }
+    });
+}
+
+// 把本周数据渲染成移动端日卡片长图（离屏渲染，页面版式不受影响）
+async function exportMobileWeekView() {
+    const weekDates = getWeekDates(currentWeekStart || startOfWeek(new Date()));
+    await captureWeekMobileViewToClipboard({
+        weekDates,
+        schedules: cachedSchedules || [],
+        scopeId: 'schedules',
+        label: '本周课表',
+        options: {
+            personName: s => s.student_name || '未分配学生',
+            typeLabel: s => getScheduleTypeLabel(s.schedule_type || s.course_type),
+            editableStatus: true,
+            formatTimeRange,
+            sortGroup: sortStudentsByIdAndType,
+            onStatusChange: (schedule, newStatus) => updateScheduleStatus(schedule.id, newStatus, schedule.teacher_uid),
+            onStatusChanged: (err, message) => {
+                const fb = document.getElementById('scheduleFeedback');
+                if (fb) showInlineFeedback(fb, message, err ? 'error' : 'success');
+            },
+            emptyText: '暂无排课'
+        }
+    });
 }
 
 window.toggleTeacherShowPlan = async function () {
@@ -160,8 +191,7 @@ export async function loadSchedules(baseDate, showLoading = true) {
     const tableContainer = document.querySelector('#schedules .schedule-unified-card');
 
     // 1. 先渲染表头，以便加载动画能正确探测高度
-    if (!isMobileView()) {
-        renderHeader(weekDates);
+    renderHeader(weekDates);
     }
 
     // 2. 显示加载动画
@@ -199,261 +229,8 @@ export async function loadSchedules(baseDate, showLoading = true) {
 }
 
 function renderSchedules(weekDates, schedules) {
-    const grouped = groupSchedulesByDate(weekDates, schedules);
-
-    // 检测移动端视口
-    if (isMobileView()) {
-        renderMobileScheduleTable(weekDates, grouped);
-    } else {
-        const container = document.querySelector('#schedules .schedule-unified-card');
-        container?.querySelector('.mobile-schedule-table')?.remove();
-        const desktopTable = container?.querySelector('.weekly-schedule-table');
-        if (desktopTable) desktopTable.style.display = '';
-        renderHeader(weekDates);
-        renderBody(weekDates, schedules); // 修复此处，应传递原始 schedules 数组给矩阵渲染函数
-    }
-    syncWeekViewExportButton();
-}
-
-
-// 移动端2列7行表格渲染
-function renderMobileScheduleTable(weekDates, grouped) {
-    // 尝试多种选择器，确保能找到容器
-    // 教师端使用 schedule-unified-card，学生端使用 table-container
-    let container = document.querySelector('#schedules .schedule-unified-card');
-    if (!container) {
-        container = document.querySelector('#schedules .weekly-schedule-table')?.parentElement;
-    }
-    if (!container) {
-        container = document.querySelector('.table-container');
-    }
-    if (!container) {
-        
-        return;
-    }
-
-    container.querySelector('.mobile-schedule-table')?.remove();
-    const desktopTable = container.querySelector('.weekly-schedule-table');
-    if (desktopTable) desktopTable.style.display = 'none';
-
-    // 创建表格
-    const table = createElement('table', 'mobile-schedule-table');
-
-    // 创建表头
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    const dateHeader = createElement('th', '', { textContent: '日期' });
-    const detailsHeader = createElement('th', '', { textContent: '课程详情' });
-    headerRow.appendChild(dateHeader);
-    headerRow.appendChild(detailsHeader);
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    // 创建表体
-    const tbody = document.createElement('tbody');
-    weekDates.forEach(date => {
-        const iso = toISODate(date);
-        const row = document.createElement('tr');
-
-        // 日期列
-        const day = date.getDate();
-        const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        const weekday = weekdayNames[date.getDay()];
-
-        const metaText = window.ScheduleDateLabels?.getHeaderMetaText(date);
-        const dateLabel = `${day}/${weekday}${metaText ? ` ${metaText}` : ''}`;
-        const dateCell = createElement('td', 'mobile-date-cell', { textContent: dateLabel });
-        row.appendChild(dateCell);
-
-        // 课程详情列
-        const detailsCell = createElement('td', 'mobile-details-cell');
-        const dailySchedules = grouped.get(iso) || [];
-
-        if (dailySchedules.length === 0) {
-            const empty = createElement('div', 'no-schedule', { textContent: '暂无排课' });
-            detailsCell.appendChild(empty);
-        } else {
-            // 按时间和地点分组（合并相同时间地点的课程）
-            const aggregatedGroups = groupSchedulesBySlot(dailySchedules);
-
-            aggregatedGroups.forEach((group, index) => {
-                // 对组内课程进行排序（特殊课程类型排最后，其他按学生ID排序）
-                group.sort(sortStudentsByIdAndType);
-
-                // 统一使用紧凑格式卡片（不再区分单个或多个）
-                const card = buildCompactMobileScheduleCard(group);
-                detailsCell.appendChild(card);
-
-                // 添加分隔线（除了最后一个组）
-                if (index < aggregatedGroups.length - 1) {
-                    const divider = createElement('hr', 'schedule-divider');
-                    divider.style.cssText = 'margin: 8px 0; border: none; border-top: 1px solid #e9ecef;';
-                    detailsCell.appendChild(divider);
-                }
-            });
-        }
-
-        row.appendChild(detailsCell);
-        tbody.appendChild(row);
-    });
-
-    table.appendChild(tbody);
-    container.appendChild(table);
-}
-
-
-/**
- * 构建移动端紧凑格式排课卡片（教师端）
- * 格式：学生1（类型chip，状态chip），学生2（类型chip，状态chip），时间，地点（灰色）
- * @param {Array} scheduleGroup 排课记录组（可以是单个或多个）
- * @returns {HTMLElement} 紧凑格式的排课卡片DOM元素
- */
-function buildCompactMobileScheduleCard(scheduleGroup) {
-    if (!scheduleGroup || scheduleGroup.length === 0) {
-        return document.createElement('div');
-    }
-
-    const first = scheduleGroup[0];
-    const slotId = getTimeSlotFromStartTime(first.start_time);
-    const slotClass = slotId ? `slot-${slotId}` : 'slot-unspecified';
-
-    // 检测是否整组取消
-    const isAllCancelled = scheduleGroup.every(s => (s.status || '').toLowerCase() === 'cancelled');
-
-    // 创建卡片容器，保持时间槽颜色
-    const card = createElement('div', `group-picker-item ${slotClass}${isAllCancelled ? ' status-cancelled' : ''}`);
-    // 使用默认的 display: block 以确保文本像句子一样自动换行，而不是像flex items那样整个换行
-    // 注意：CSS中可能定义了 display: flex !important 或 min-height !important，所以这里需要强制覆盖
-    card.style.cssText = 'padding: 12px; line-height: 1.8; word-wrap: break-word; overflow-wrap: break-word; display: block !important; min-height: auto !important;';
-    appendScheduleWatermark(card, getScheduleWatermarkText(scheduleGroup));
-
-    // 为每个学生创建信息块：姓名（类型chip，状态chip）
-    scheduleGroup.forEach((schedule, index) => {
-        const studentName = schedule.student_name || '未分配学生';
-        const typeLabel = getScheduleTypeLabel(schedule.schedule_type || schedule.course_type);
-        const status = (schedule.status || 'pending').toLowerCase();
-        const statusLabel = getStatusLabel(status);
-
-        // 确定课程类型的CSS类
-        let typeClass = 'type-default';
-        if (typeLabel.includes('入户')) typeClass = 'type-visit';
-        else if (typeLabel.includes('试教')) typeClass = 'type-trial';
-        else if (typeLabel.includes('评审')) typeClass = 'type-review';
-        else if (typeLabel.includes('半次')) typeClass = 'type-half-visit';
-        else if (typeLabel.includes('集体')) typeClass = 'type-group-activity';
-
-        // 学生名称
-        const nameSpan = createElement('span', '', {
-            textContent: studentName,
-            style: 'font-weight: 500; font-size: var(--fs-300);'
-        });
-        card.appendChild(nameSpan);
-
-        // 左括号
-        card.appendChild(document.createTextNode('（'));
-
-        // 课程类型chip
-        const typeChip = createElement('span', `chip ${typeClass}`, {
-            textContent: typeLabel
-        });
-        card.appendChild(typeChip);
-
-        // 逗号
-        card.appendChild(document.createTextNode('，'));
-
-        // 状态快速切换下拉框
-        const statusSelect = createElement('select', `status-select chip status-${status}`, {
-            style: 'margin-left: 2px; padding: 2px 4px; font-size: var(--fs-300); border: none; background-color: transparent; appearance: menulist;'
-        });
-        statusSelect.dataset.lastStatus = status;
-
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
-        Object.keys(statusMap).forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = statusMap[key];
-            if (key === status) opt.selected = true;
-            statusSelect.appendChild(opt);
-        });
-
-        statusSelect.addEventListener('click', (e) => e.stopPropagation());
-
-        statusSelect.addEventListener('change', async (e) => {
-            e.stopPropagation();
-            const newStatus = e.target.value;
-            const oldStatus = statusSelect.dataset.lastStatus;
-
-            statusSelect.disabled = true;
-            statusSelect.blur();
-
-            try {
-                // 远程优先：先同步数据库
-                await updateScheduleStatus(schedule.id, newStatus, schedule.teacher_uid);
-                // 远程成功后再更新本地UI
-                statusSelect.className = `status-select chip status-${newStatus}`;
-                statusSelect.dataset.lastStatus = newStatus;
-
-                if (newStatus === 'cancelled') {
-                    card.classList.add('status-cancelled');
-                } else if (oldStatus === 'cancelled') {
-                    card.classList.remove('status-cancelled');
-                }
-
-                const fb = document.getElementById('scheduleFeedback');
-                if (fb && window.showInlineFeedback) {
-                    window.showInlineFeedback(fb, '状态跟新成功', 'success');
-                }
-            } catch (err) {
-                statusSelect.value = oldStatus;
-                statusSelect.className = `status-select chip status-${oldStatus}`;
-                if (oldStatus === 'cancelled') {
-                    card.classList.add('status-cancelled');
-                }
-                const fb = document.getElementById('scheduleFeedback');
-                if (fb && window.showInlineFeedback) {
-                    window.showInlineFeedback(fb, '修改失败，请重试', 'error');
-                }
-            } finally {
-                statusSelect.disabled = false;
-            }
-        });
-
-        card.appendChild(statusSelect);
-
-        // 右括号
-        card.appendChild(document.createTextNode('）'));
-
-        // 如果不是最后一个，添加逗号
-        if (index < scheduleGroup.length - 1) {
-            card.appendChild(document.createTextNode('，'));
-        }
-    });
-
-    // 添加逗号分隔符
-    card.appendChild(document.createTextNode('，'));
-
-    // 时间
-    const timeText = formatTimeRange(first.start_time, first.end_time);
-    const timeSpan = createElement('span', '', {
-        textContent: timeText,
-        style: 'font-size: var(--fs-300); font-weight: 500;'
-    });
-    card.appendChild(timeSpan);
-
-    // 添加逗号
-    card.appendChild(document.createTextNode('，'));
-
-    // 地点（灰色字体）
-    const locationText = first.location || DEFAULT_LOCATION_PLACEHOLDER;
-    const locationSpan = createElement('span', '', {
-        textContent: locationText,
-        style: 'color: #9CA3AF; font-size: var(--fs-300);'
-    });
-    card.appendChild(locationSpan);
-
-    // 费用在「费用管理」（fees）页统一管理，此处不再渲染费用按钮（2026-09-07）
-
-    return card;
+    renderHeader(weekDates);
+    renderBody(weekDates, schedules); // 修复此处，应传递原始 schedules 数组给矩阵渲染函数
 }
 
 function renderHeader(weekDates) {
@@ -735,10 +512,7 @@ function showStatusActionSheet(schedule, card) {
 
 
 function renderScheduleErrorState(weekDates, weekStart, error) {
-    const container = document.querySelector('#schedules .schedule-unified-card');
-    container?.querySelector('.mobile-schedule-table')?.remove();
-    const desktopTable = container?.querySelector('.weekly-schedule-table');
-    if (desktopTable) desktopTable.style.display = '';
+    // 错误态一律用桌面表展示（含行内重试）
     renderHeader(weekDates);
 
     const tbody = elements.body();
