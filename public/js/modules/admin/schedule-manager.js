@@ -6,7 +6,11 @@
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { getScheduleWatermarkText, getCardTypeKey } from '../shared/schedule-helpers.js';
-import { captureStudentRowToClipboard, captureStudentRowWithPicker } from '../../components/schedule-view-capture.js';
+import {
+    collectWeeklyViewRows,
+    captureWeeklyViewRow,
+    captureWeekMobileViewToClipboard
+} from '../../components/schedule-view-capture.js';
 import { syncToggleButton } from '../shared/view-utils.js';
 import { setupWeekViewExportButton } from '../shared/schedule-view-utils.js';
 import {
@@ -16,6 +20,10 @@ import {
 
 // --- Global State ---
 window.adminShowPlan = false;
+
+// 双击学生导出移动端长图时要用：记住当前周视图是哪一周、含哪些排课
+let currentWeekDates = [];
+let currentSchedules = [];
 
 window.toggleAdminShowPlan = async function () {
     window.adminShowPlan = !window.adminShowPlan;
@@ -830,6 +838,10 @@ function renderWeeklyBody(students, schedules, weekDates) {
     if (!tbody) return;
     window.SecurityUtils.safeSetHTML(tbody, '');
 
+    // 供双击学生导出移动端长图使用
+    currentWeekDates = weekDates.slice();
+    currentSchedules = schedules || [];
+
     // Performance: Use Fragment
     const fragment = document.createDocumentFragment();
     const dateKeys = weekDates.map(toISODate);
@@ -885,7 +897,8 @@ function renderWeeklyBody(students, schedules, weekDates) {
         nameTd.setAttribute('aria-label', `复制 ${student.name} 的周课表图片`);
         const runCapture = (e) => {
             e.stopPropagation();
-            captureStudentRowToClipboard(student, tr);
+            // 双击学生姓名：直接导出「该学生 + 移动端视图」，不弹窗、不让用户再选
+            exportStudentMobileView({ id: student.id, name: student.name });
         };
         nameTd.addEventListener('dblclick', runCapture);
         nameTd.addEventListener('keydown', (e) => {
@@ -930,8 +943,55 @@ function renderWeeklyBody(students, schedules, weekDates) {
 function bindWeekViewExportButton() {
     setupWeekViewExportButton({
         buttonId: 'exportAdminWeekViewBtn',
-        onClick: () => captureStudentRowWithPicker(),
+        onClick: () => {
+            const rows = collectWeeklyViewRows();
+            if (rows.length === 0) {
+                if (window.apiUtils) window.apiUtils.showToast('本周没有排课', 'warning');
+                return;
+            }
+            // 视图 + 学生名单在一个窗口里一次选完，不再先选视图再弹选学生
+            window.ScheduleExportDialog.openViewChoice({
+                label: '本周学生课表',
+                students: rows,
+                needsStudent: () => true,
+                onChoose: (view, row) => {
+                    const target = row || rows[0];
+                    if (view === 'mobile') {
+                        exportStudentMobileView({ id: target.id, name: target.name });
+                    } else {
+                        captureWeeklyViewRow(target);
+                    }
+                }
+            });
+        },
         hideOnMobile: false
+    });
+}
+
+/**
+ * 双击学生导出移动端：把该学生本周的排课渲染成竖向日卡片长图（离屏渲染，页面不动）。
+ */
+async function exportStudentMobileView(student) {
+    const sid = String(student.id);
+    const rows = currentSchedules.filter(s => {
+        const ids = s.student_id != null ? [String(s.student_id)] :
+            String(s.student_ids || '').split(',').map(x => x.trim()).filter(Boolean);
+        return ids.includes(sid);
+    });
+
+    await captureWeekMobileViewToClipboard({
+        weekDates: currentWeekDates,
+        schedules: rows,
+        scopeId: 'schedule',
+        label: `${student.name} 的课表`,
+        options: {
+            studentName: student.name,
+            personName: s => s.teacher_name || '未分配教师',
+            typeLabel: s => s.schedule_type_cn || s.schedule_type || '课程',
+            editableStatus: false,
+            formatTimeRange: (a, b) => `${sanitizeTimeString(a)}–${sanitizeTimeString(b)}`,
+            emptyText: '暂无排课'
+        }
     });
 }
 
