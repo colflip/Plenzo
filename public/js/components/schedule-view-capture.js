@@ -9,6 +9,8 @@
  * 周切换、「显示全部安排」开关、卡片水印、状态胶囊都直接继承当前视图状态。
  */
 
+import { renderMobileScheduleView, clearMobileScheduleView } from '../modules/shared/mobile-schedule-view.js';
+
 function scrollWidthWithBuffer(el) {
     return Math.max(el.scrollWidth, 1200) + 50;
 }
@@ -288,11 +290,40 @@ export async function captureStudentRowToClipboard(student, originalTr, {
  * weekly-view-export.js#pickStudentForWeeklyView，通过 window.pickWeeklyViewStudent 暴露），
  * 取消则什么都不做。
  */
+/**
+ * 收集周课表里「本周有课」的学生行，供导出弹窗展示名单与按行截图。
+ * 返回 [{id, name, tr}]，tr 是原始行节点。
+ */
+export function collectWeeklyViewRows({
+    bodySelector = '#weeklyBody',
+    nameCellSelector = '.sticky-col.student-cell, .student-name-cell'
+} = {}) {
+    const tbody = document.querySelector(bodySelector);
+    if (!tbody) return [];
+    return Array.from(tbody.querySelectorAll(':scope > tr'))
+        .filter(tr => tr.querySelector('.schedule-card-group'))
+        .map(tr => {
+            const name = (tr.querySelector(nameCellSelector)?.textContent || '').trim() || '未知学生';
+            return { id: tr.dataset.studentId || name, name, tr };
+        });
+}
+
+/** 按选中的行截图：默认截桌面单行；传 captureRow 则走调用方自定义（移动端长图） */
+export async function captureWeeklyViewRow(row, {
+    headerSelector = '#weeklyHeader',
+    bodySelector = '#weeklyBody',
+    captureRow = null
+} = {}) {
+    if (captureRow) return captureRow(row, { headerSelector, bodySelector });
+    return captureStudentRowToClipboard(row, row.tr, { headerSelector, bodySelector });
+}
+
 export async function captureStudentRowWithPicker({
     headerSelector = '#weeklyHeader',
     bodySelector = '#weeklyBody',
     nameCellSelector = '.sticky-col.student-cell, .student-name-cell',
-    noScheduleToast = '本周没有排课'
+    noScheduleToast = '本周没有排课',
+    captureRow = null
 } = {}) {
     if (!requireHtml2canvas()) return;
 
@@ -306,19 +337,17 @@ export async function captureStudentRowWithPicker({
         return;
     }
 
-    const rows = Array.from(tbody.querySelectorAll(':scope > tr'))
-        .filter(tr => tr.querySelector('.schedule-card-group'))
-        .map(tr => {
-            const name = (tr.querySelector(nameCellSelector)?.textContent || '').trim() || '未知学生';
-            return { id: tr.dataset.studentId || name, name, tr };
-        });
+    const rows = collectWeeklyViewRows({ bodySelector, nameCellSelector });
+
+    // 选中某行后如何截图：默认截桌面单行；调用方可注入自定义（如移动端日卡片长图）
+    const capture = (row) => captureWeeklyViewRow(row, { headerSelector, bodySelector, captureRow });
 
     if (rows.length === 0) {
         if (window.apiUtils) window.apiUtils.showToast(noScheduleToast, 'warning');
         return;
     }
     if (rows.length === 1) {
-        return captureStudentRowToClipboard(rows[0], rows[0].tr, { headerSelector, bodySelector });
+        return capture(rows[0]);
     }
 
     if (typeof window.pickWeeklyViewStudent !== 'function') {
@@ -333,7 +362,7 @@ export async function captureStudentRowWithPicker({
         return;
     }
     const row = rows.find(r => String(r.id) === String(chosen.id)) || rows[0];
-    await captureStudentRowToClipboard(row, row.tr, { headerSelector, bodySelector });
+    await capture(row);
 }
 
 /**
@@ -389,5 +418,125 @@ export async function captureWeekTableToClipboard({
         await captureWrapperToClipboard(wrapper, toastId, `已复制${label}图片`);
     } finally {
         if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+    }
+}
+
+/**
+ * 移动端视图（竖向「日卡片」列表）截图 → 剪贴板。
+ *
+ * 与桌面整表路径同一出口（captureWrapperToClipboard / renderWrapperToPngBlob），
+ * 只是来源是 #mobileWeeklyView 的离屏克隆：克隆体复用当前页面的 CSS 作用域
+ * （#schedules / #student-schedules，记录在 root.dataset.captureScope），
+ * 否则卡片颜色 / 顶条会被桌面端 !important 规则篡改。把行内 <select> 状态
+ * 下拉替换为只读 <span>（html2canvas 画不准下拉对齐），与 buildCapturedRow 同口径。
+ */
+export async function captureMobileScheduleView({
+    rootId = 'mobileWeeklyView',
+    scopeId = 'schedules',
+    label = '本周课表'
+} = {}) {
+    if (!requireHtml2canvas()) return;
+
+    const mobileRoot = document.getElementById(rootId);
+    if (!mobileRoot || !mobileRoot.offsetParent) {
+        if (window.apiUtils) window.apiUtils.showToast('当前视图不是周课表，请在桌面端导出', 'warning');
+        return;
+    }
+
+    const toastId = window.apiUtils ? window.apiUtils.showToast('正在生成图片...', 'info', 0) : null;
+    try {
+        const scope = mobileRoot.dataset.captureScope || scopeId;
+        const wrapper = document.createElement('div');
+        // 与 buildCaptureWrapper 同口径：保留作用域 id 让克隆体继承正确的周视图样式，
+        // append 到 body 末尾（captureWrapperToClipboard 也是这么做的），避免 querySelector
+        // 命中顺序被两个同名 id 打乱；同时标记 aria-hidden 供任何按 id 扫状态的代码排除。
+        wrapper.id = scope;
+        wrapper.setAttribute('aria-hidden', 'true');
+        wrapper.dataset.captureClone = 'true';
+        wrapper.style.position = 'absolute';
+        wrapper.style.top = '-9999px';
+        wrapper.style.left = '0';
+        wrapper.style.zIndex = '-1';
+        wrapper.style.background = '#ffffff';
+        wrapper.style.padding = '8px';
+        // 锁定与屏幕上移动视图一致的宽度，避免离屏 absolute 容器收缩到内容宽度而挤压换行
+        wrapper.style.width = (mobileRoot.offsetWidth || 360) + 'px';
+
+        const clone = mobileRoot.cloneNode(true);
+
+        // 把行内状态 <select> 换成只读 <span>，类名原样保留（视觉由全局 .chip 规则驱动）
+        const origSelects = mobileRoot.querySelectorAll('select.chip.status-select');
+        const cloneSelects = clone.querySelectorAll('select.chip.status-select');
+        origSelects.forEach((origSel, idx) => {
+            const cloneSel = cloneSelects[idx];
+            if (!cloneSel) return;
+            const opt = origSel.options[origSel.selectedIndex] || origSel.options[0];
+            const text = opt ? opt.text : origSel.value || '';
+            const span = document.createElement('span');
+            span.className = origSel.className;
+            span.textContent = text;
+            cloneSel.parentNode.replaceChild(span, cloneSel);
+        });
+
+        wrapper.appendChild(clone);
+        await captureWrapperToClipboard(wrapper, toastId, `已复制${label}图片`);
+    } finally {
+        if (toastId && window.apiUtils) window.apiUtils.hideToast(toastId);
+    }
+}
+
+/**
+ * 把本周数据临时渲染成「移动端视图」长图并复制到剪贴板。
+ *
+ * 页面上的课表版式始终不变（仍是桌面网格 / 窄屏两列表）：这里把移动视图渲染进一个
+ * 离屏、固定手机宽度的宿主容器，截完立即移除，既不闪屏也不会污染页面 DOM。
+ *
+ * @param {Object} params
+ * @param {Date[]} params.weekDates 本周 7 天
+ * @param {Array} params.schedules 本周排课
+ * @param {Object} params.options renderMobileScheduleView 的角色差异项（personName/typeLabel/editableStatus/...）
+ * @param {string} [params.label] 成功 toast 里的名称
+ * @param {string} [params.scopeId] 截图克隆体作用域 id（继承 dashboard.css 的周视图样式）
+ * @param {number} [params.width] 移动视图宽度（默认 390，接近常见手机视口）
+ */
+export async function captureWeekMobileViewToClipboard({
+    weekDates,
+    schedules,
+    options = {},
+    label = '本周课表',
+    scopeId = 'schedules',
+    width = 390
+} = {}) {
+    if (!requireHtml2canvas()) return;
+    if (!Array.isArray(weekDates) || weekDates.length === 0) {
+        if (window.apiUtils) window.apiUtils.showToast('暂无可导出的周课表', 'warning');
+        return;
+    }
+
+    // 离屏宿主：固定手机宽度 + 白底，按移动视图类名渲染。top:-9999px 仍参与布局，
+    // offsetParent 非空，html2canvas 能正确测量。
+    const host = document.createElement('div');
+    host.setAttribute('aria-hidden', 'true');
+    host.dataset.captureClone = 'true';
+    host.style.position = 'absolute';
+    host.style.top = '-9999px';
+    host.style.left = '0';
+    host.style.width = `${width}px`;
+    host.style.background = '#ffffff';
+    host.style.padding = '0';
+    host.style.zIndex = '-1';
+    document.body.appendChild(host);
+
+    const tempRootId = `${scopeId}MobileCaptureRoot`;
+    try {
+        renderMobileScheduleView(host, weekDates, schedules, {
+            ...options,
+            rootId: tempRootId,
+            scopeId
+        });
+        await captureMobileScheduleView({ rootId: tempRootId, scopeId, label });
+    } finally {
+        clearMobileScheduleView(host);
+        host.remove();
     }
 }
