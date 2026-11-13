@@ -11,6 +11,7 @@ node_modules/
 .workbuddy-ai/
 .claude/
 .opencode/
+.zcode/
 CLAUDE.md
 AGENTS.md
 
