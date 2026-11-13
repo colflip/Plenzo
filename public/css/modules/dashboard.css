@@ -6676,8 +6676,8 @@ span.status-select {
 .time-text {
     font-weight: 700;
     font-size: var(--fs-300);
-    color: #0F172A;
-    /* Slate-900 */
+    color: #000000;
+    /* 黑色加粗，与 admin-schedule.css 的 !important 规则保持一致 */
     line-height: 1.2;
 }
 
@@ -7498,7 +7498,7 @@ span.status-select {
 .time-text {
     font-size: var(--fs-300) !important;
     font-weight: 700 !important;
-    color: #334155 !important;
+    color: #000000 !important;
     margin-bottom: 2px !important;
 }
 
