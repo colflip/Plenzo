@@ -1,0 +1,209 @@
+/* ==========================================================================
+ * 周课表「移动端视图」样式：双列表格（第一列日期 / 第二列入户安排计划）
+ *
+ * 类型 chip 完全复用 dashboard.css 的 .chip + .chip.type-* 组件
+ * （颜色、字体、padding、高度、圆角等一律由前端现成规则决定），
+ * 这里不写任何 .chip 覆盖，避免与前端不一致。
+ * 本文件只定义两列表格的框线、单元格与安排行的版式。
+ * ========================================================================== */
+
+.mobile-weekly-view {
+    padding: 6px;
+    background: #ffffff;
+}
+
+.mobile-weekly-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: var(--fs-300, 14px);
+    color: #334155;
+}
+
+.mobile-weekly-table th,
+.mobile-weekly-table td {
+    border: 1px solid #E5E7EB;
+    padding: 10px 8px;
+    vertical-align: top;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.mobile-weekly-table thead th {
+    background: #F8FAFC;
+    font-weight: 500;
+    color: #1F2937;
+    text-align: left;
+}
+
+/* 第一列表头：日期 + 本周范围同行显示 */
+.msv-head-date,
+.msv-head-range {
+    display: inline;
+}
+
+.msv-head-range {
+    font-size: var(--fs-200, 13px);
+    font-weight: 400;
+    color: #64748B;
+    margin-left: 2px;
+    white-space: nowrap;
+}
+
+/* 第一列：字体保持 13px 不压缩，只把左右内边距收紧，让列宽尽量贴近内容 */
+.mobile-weekly-table .msv-col-date {
+    width: 128px;
+}
+
+.mobile-weekly-table th.msv-col-date,
+.mobile-weekly-table td.msv-date-cell {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+.msv-date-cell {
+    background: #F8FAFC;
+    white-space: nowrap;
+}
+
+.msv-date {
+    display: block;
+    font-weight: 500;
+    color: #1F2937;
+}
+
+.msv-weekday {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--fs-200, 12px);
+    color: #64748B;
+}
+
+/* 第二列：每节安排一个块 */
+.msv-course {
+    position: relative;
+    line-height: 1.9;
+    padding-left: 10px;
+    border-left: 3px solid #CBD5E1;
+}
+
+.msv-course + .msv-course {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #EEF2F6;
+}
+
+.msv-course.slot-morning { border-left-color: #3B82F6; }
+.msv-course.slot-afternoon { border-left-color: #F59E0B; }
+.msv-course.slot-evening { border-left-color: #8B5CF6; }
+.msv-course.slot-unspecified { border-left-color: #CBD5E1; }
+
+/* 姓名：黑色细体，单个名字内部不折行 */
+.msv-course .msc-person {
+    font-size: var(--fs-300, 14px);
+    font-weight: 400;
+    color: #000000;
+    white-space: nowrap;
+}
+
+/* 老师信息：按 teacher_id 顺序流式显示。姓名/类型各自是最小单位（nowrap），
+   但多组之间、以及合并标签的逗号处都允许自动换行，显示不完不裁切。 */
+.msv-teacher-list {
+    line-height: 1.8;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.msv-teacher-part {
+    display: inline;
+}
+
+/* 类型标签：去掉背景色，字体用与地点相同的灰色、细体 */
+.mobile-weekly-view .chip {
+    background: transparent !important;
+    padding: 0;
+    margin-left: 6px;
+    color: #64748B !important;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* 评审 / 咨询合并标签：整体红色（与导出文件的评审族红字一致）。
+   block 容器 + 名字 inline-block 原子单元，浏览器与 html2canvas 都能贪心填满每行。 */
+.msv-merged-category {
+    display: block;
+    line-height: 1.8;
+    color: #FF0000 !important;
+}
+
+.msv-merged-category .msc-person {
+    display: inline-block;
+    color: #FF0000 !important;
+}
+
+/* 仅「待确认」「已取消」显示状态：沿用前端 .chip.status-* 的字色，
+   用独立类避免被上面 .chip / 评审红色规则覆盖。
+   居中方式：不设固定 height / line-height（html2canvas 会按基线把文字顶到
+   胶囊上方），改用上下不对称 padding 做光学补偿，让墨迹视觉居中。 */
+.msv-status {
+    display: inline-block;
+    margin-left: 4px;
+    /* 上下不对称 padding 做光学居中：html2canvas 按基线绘制，中文字形墨迹
+       天然偏下约 1px，上少下多让文字视觉居中 */
+    padding: 2px 7px 4px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 300;
+    line-height: 1;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* 状态配色整体变浅，弱化于老师/时间等主信息 */
+.msv-status-pending {
+    background: #FFF4E0 !important;
+    color: #B98A5A !important;
+}
+
+.msv-status-cancelled {
+    background: #FDEDED !important;
+    color: #B56A6A !important;
+}
+
+/* 底部一行「时间 + 地点」：时间黑色、字重收敛到 600 */
+.msv-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 4px;
+    line-height: 1.5;
+}
+
+.msv-footer .msc-time {
+    font-size: var(--fs-300, 14px);
+    font-weight: 600;
+    color: #000000;
+}
+
+.msv-footer .msc-location {
+    color: #64748B;
+    font-size: var(--fs-300, 14px);
+}
+
+/* 整组取消：时间地点置灰划线（与桌面卡 status-cancelled 同源） */
+.msv-course.status-cancelled {
+    opacity: 0.6;
+}
+
+.msv-course.status-cancelled .msc-time,
+.msv-course.status-cancelled .msc-location {
+    text-decoration: line-through;
+    color: #94A3B8;
+}
+
+.msv-course-cell .no-schedule {
+    color: #94A3B8;
+    font-size: var(--fs-300, 14px);
+    padding: 4px 0;
+}
