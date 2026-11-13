@@ -215,7 +215,7 @@ export function getScheduleWatermarkText(scheduleOrGroup) {
 }
 
 /**
- * 判断是否为移动端视图
+ * 判断是否为移动端视图（纯按窗口宽度，不持久化）
  * @returns {boolean}
  */
 export function isMobileView() {

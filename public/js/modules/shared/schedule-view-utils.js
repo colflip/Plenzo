@@ -8,7 +8,7 @@
 
 import { toISODate, normalizeDateKey } from './date-format.js';
 import { createElement } from './view-utils.js';
-import { isMobileView, getCardTypeKey } from './schedule-helpers.js';
+import { getCardTypeKey } from './schedule-helpers.js';
 
 /**
  * 「导出本周视图」按钮：绑定 + 窄屏显隐。三个角色页以前各抄一份 bind/sync，
@@ -18,14 +18,14 @@ import { isMobileView, getCardTypeKey } from './schedule-helpers.js';
  * 网格每次重画都会再走到这里，用标记保证只绑一次；窄屏走移动端卡表，
  * 桌面那张要么被隐藏、要么留着上一周的残留内容，截它没有意义。
  */
-export function setupWeekViewExportButton({ buttonId, onClick, hideOnMobile = true }) {
+export function setupWeekViewExportButton({ buttonId, onClick, hideOnMobile = false }) {
     const btn = document.getElementById(buttonId);
     if (!btn) return;
     if (!btn.__weekViewExportBound) {
         btn.addEventListener('click', onClick);
         btn.__weekViewExportBound = true;
     }
-    if (hideOnMobile) btn.style.display = isMobileView() ? 'none' : '';
+    // 移动端视图现在作为默认、且移动端也能导出，故不再按窄屏隐藏按钮。
 }
 
 /** 临时课 / 调整课卡片右下角的手写体水印 */
