@@ -71,6 +71,8 @@ function normalizeGitHubRepo(value) {
     return '';
 }
 
+const DEFAULT_REPO = 'colflip/Plenzo';
+
 async function getGitHubRepo() {
     return normalizeGitHubRepo(process.env.GITHUB_REPOSITORY) ||
         normalizeGitHubRepo(
@@ -78,7 +80,10 @@ async function getGitHubRepo() {
                 ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}`
                 : ''
         ) ||
-        normalizeGitHubRepo(await runGit(['config', '--get', 'remote.origin.url']));
+        normalizeGitHubRepo(await runGit(['config', '--get', 'remote.origin.url'])) ||
+        // API/CLI 部署（非 Git 触发）时平台不注入 repo 变量，部署产物里也没有 .git。
+        // 仓库就这一个，直接兜底，别让 repo 解析为空把整条 GitHub 链路废掉。
+        DEFAULT_REPO;
 }
 
 function requestJson(url, headers = {}, timeoutMs = 2500) {
