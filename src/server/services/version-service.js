@@ -14,25 +14,29 @@ let cachedAt = 0;
 const REPO_ROOT = path.join(__dirname, '../../..');
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-// GitHub 元数据只用于展示「仓库最近更新时间」，与 shortSha 无关（shortSha 走本地 git）。
-// 但它在网络不通时会白等 2.5s 超时——实测本机断网时首个 dashboard 请求因此慢 1932ms。
-// 两道闸：1) 非部署环境（本地 dev）根本不发这个请求；2) 失败后冷却，避免每 5 分钟重付一次。
-const isDeployedRuntime = Boolean(process.env.VERCEL || process.env.RENDER || process.env.CLOUDZYRO);
+// GitHub 元数据只用于展示「仓库最近更新时间」与版本兜底；短超时 + 失败冷却，
+// 避免网络不通时每个请求都白等 2.5s（实测本机断网曾因此慢 1932ms）。
+//
+// 部署判定必须用 NODE_ENV=production，不能看 VERCEL/RENDER 注入变量：
+// redeploy-vercel.js 走 POST /v13/deployments 重建部署（非 Git 集成），
+// 实测线上 process.env.VERCEL 为空（2026-11-16 线上 envDebug 实证），
+// 用它做闸门会让整条 GitHub 链路被跳过。本地开发（development）不发外网请求。
+const isDeployedRuntime = process.env.NODE_ENV === 'production';
 const GITHUB_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 let githubFailedAt = 0;
-// 临时诊断（上线看完即删）：记录最近一次 GitHub 调用失败原因，随 /meta/version 暴露。
-let githubLastError = '';
 
 /**
- * 识别当前运行环境（哪个源在服务这个请求）。
- * 三个源跑同一份代码：Vercel 注入 VERCEL、Render 注入 RENDER；
- * Cloudzyro 两者都没有，按排除法识别。
- *
- * 读不出来就返回 null —— 徽章据此省略这一段。绝不能默认 'local'：
- * 没注入平台变量的部署（如 cloudzyro）曾被全部误标成本地。
- * 'local' 只给**真正的本地开发**：有 .git 检出、且不是 production 模式。
+ * 识别当前运行环境（哪个源在服务这个请求），只用于展示。
+ * 优先读显式的 DEPLOY_PLATFORM（vercel/render/cloudzyro）——API 部署的 Vercel
+ * 实测不注入 VERCEL 变量（2026-11-16 线上实证），平台自带的标识不可靠；
+ * 再退到平台注入的 VERCEL/RENDER/CLOUDZYRO。
+ * 都读不出来返回 null，让徽章省略该段——绝不默认 'local'：没注入平台变量的
+ * 部署曾被全部误标成本地。'local' 只给**真正的本地开发**：有 .git 检出、且不是
+ * production 模式。
  */
 function resolveRuntime() {
+    const explicit = String(process.env.DEPLOY_PLATFORM || '').trim().toLowerCase();
+    if (explicit) return explicit;
     if (process.env.VERCEL) return 'vercel';
     if (process.env.RENDER) return 'render';
     if (process.env.CLOUDZYRO) return 'cloudzyro';
@@ -166,7 +170,6 @@ async function getGitHubHeadSha(repo) {
         return (data && data.sha) ? String(data.sha) : '';
     } catch (error) {
         githubFailedAt = Date.now();
-        githubLastError = error && error.message ? String(error.message) : String(error);
         return '';
     }
 }
@@ -228,14 +231,6 @@ async function getVersionMeta() {
         name: process.env.npm_package_name || 'plenzo',
         version: process.env.npm_package_version || '1.0.0',
         runtime: resolveRuntime(),
-        // 临时诊断（看完即删）
-        githubError: githubLastError || null,
-        hasToken: Boolean(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
-        envDebug: {
-            VERCEL: process.env.VERCEL || null,
-            RENDER: process.env.RENDER || null,
-            NODE_ENV: process.env.NODE_ENV || null
-        },
         ...meta
     };
     cachedAt = Date.now();
