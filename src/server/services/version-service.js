@@ -225,6 +225,15 @@ async function getVersionMeta() {
         const localMeta = await getLocalGitMeta(repo);
         meta.commitSha = localMeta.commitSha;
         meta.shortSha = localMeta.shortSha;
+        // GitHub 元数据成功但本地 git/env 都给不出 sha（API 部署产物无 .git）时，
+        // 同样用仓库 HEAD 补齐 —— 否则徽章有日期没版本号。
+        if (!meta.shortSha && isDeployedRuntime) {
+            const sha = await getGitHubHeadSha(repo);
+            if (sha) {
+                meta.commitSha = sha;
+                meta.shortSha = sha.slice(0, 7);
+            }
+        }
     }
 
     cachedMeta = {
