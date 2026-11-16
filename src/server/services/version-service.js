@@ -20,6 +20,8 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const isDeployedRuntime = Boolean(process.env.VERCEL || process.env.RENDER || process.env.CLOUDZYRO);
 const GITHUB_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 let githubFailedAt = 0;
+// 临时诊断（上线看完即删）：记录最近一次 GitHub 调用失败原因，随 /meta/version 暴露。
+let githubLastError = '';
 
 /**
  * 识别当前运行环境（哪个源在服务这个请求）。
@@ -164,6 +166,7 @@ async function getGitHubHeadSha(repo) {
         return (data && data.sha) ? String(data.sha) : '';
     } catch (error) {
         githubFailedAt = Date.now();
+        githubLastError = error && error.message ? String(error.message) : String(error);
         return '';
     }
 }
@@ -225,6 +228,9 @@ async function getVersionMeta() {
         name: process.env.npm_package_name || 'plenzo',
         version: process.env.npm_package_version || '1.0.0',
         runtime: resolveRuntime(),
+        // 临时诊断（看完即删）
+        githubError: githubLastError || null,
+        hasToken: Boolean(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
         ...meta
     };
     cachedAt = Date.now();
