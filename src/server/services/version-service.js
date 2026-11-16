@@ -21,6 +21,18 @@ const GITHUB_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 let githubFailedAt = 0;
 
 /**
+ * 识别当前运行环境（哪个源在服务这个请求）。
+ * 三个源跑同一份代码：Vercel 注入 VERCEL、Render 注入 RENDER；
+ * Cloudzyro 两者都没有，按排除法识别。
+ */
+function resolveRuntime() {
+    if (process.env.VERCEL) return 'vercel';
+    if (process.env.RENDER) return 'render';
+    if (process.env.CLOUDZYRO) return 'cloudzyro';
+    return 'local';
+}
+
+/**
  * 异步执行 git 命令，避免阻塞事件循环
  */
 async function runGit(args) {
@@ -183,6 +195,7 @@ async function getVersionMeta() {
     cachedMeta = {
         name: process.env.npm_package_name || 'plenzo',
         version: process.env.npm_package_version || '1.0.0',
+        runtime: resolveRuntime(),
         ...meta
     };
     cachedAt = Date.now();

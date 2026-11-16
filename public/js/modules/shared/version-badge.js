@@ -1,5 +1,6 @@
 (function () {
     const BADGE_ID = 'appVersionBadge';
+    const REPO = 'colflip/Plenzo';
 
     function formatUpdatedAt(value) {
         if (!value) return '';
@@ -14,6 +15,24 @@
         }).formatToParts(date);
         const get = (type) => (parts.find(p => p.type === type) || {}).value || '';
         return `${get('year')}${get('month')}${get('day')}`;
+    }
+
+    /**
+     * 实时读 GitHub 仓库的最新 commit（api.github.com 是 GitHub 官方唯一允许浏览器
+     * 跨域访问的入口，仓库 HTML 页面没有 CORS 头，前端 fetch 会被浏览器拦掉）。
+     * 未认证限额 60 次/小时/IP，仅本徽章使用足够。
+     */
+    async function fetchLiveGitHubCommit() {
+        const response = await fetch(`https://api.github.com/repos/${REPO}/commits/HEAD`, {
+            headers: { 'Accept': 'application/vnd.github+json' },
+            signal: AbortSignal.timeout(8000)
+        });
+        if (!response.ok) throw new Error(`GitHub API ${response.status}`);
+        const data = await response.json();
+        return {
+            sha: (data.sha || '').slice(0, 7),
+            updatedAt: data.commit && data.commit.committer && data.commit.committer.date
+        };
     }
 
     function resolveMountTarget() {
@@ -77,31 +96,49 @@
     async function loadVersionBadge() {
         const badge = ensureBadge();
         watchOverviewVisibility();
-        try {
-            if (!window.apiUtils) throw new Error('API 客户端尚未加载');
-            const meta = await window.apiUtils.get('/meta/version', {}, {
+        badge.textContent = '';
+        badge.href = `https://github.com/${REPO}`;
+
+        // 服务端版本信息只请求一次：runtime 字段始终要用，同时作为 GitHub 读不到时的兜底。
+        const serverMetaPromise = window.apiUtils
+            ? window.apiUtils.get('/meta/version', {}, {
                 timeoutMs: 10000,
                 suppressErrorToast: true
-            });
-            if (!meta || typeof meta !== 'object') throw new Error('版本信息响应格式无效');
-            const dateText = formatUpdatedAt(meta.updatedAt);
-            const sha = meta.shortSha || '';
-            // 显示格式：shortSha,YYYYMMDD（缺失项自动省略）
-            const label = [sha, dateText].filter(Boolean).join(',');
-            badge.textContent = label || '版本未知';
-            badge.title = meta.source === 'github'
-                ? '来自 GitHub 仓库版本信息'
-                : '来自本地 Git 最近提交时间';
+            }).catch(() => null)
+            : Promise.resolve(null);
 
-            if (meta.repoUrl) {
-                badge.href = meta.repoUrl;
-            } else {
-                badge.href = 'https://github.com/colflip/Plenzo';
-            }
-        } catch (error) {
-            badge.textContent = '版本未知';
+        // 版本号优先实时读 GitHub 最新 commit；读不到（断网/限流）再退回服务端版本。
+        let sha = '';
+        let dateText = '';
+        const [live, serverMeta] = await Promise.all([
+            fetchLiveGitHubCommit().catch(() => null),
+            serverMetaPromise
+        ]);
+
+        if (live && live.sha) {
+            sha = live.sha;
+            dateText = formatUpdatedAt(live.updatedAt);
+            badge.title = '实时读取自 GitHub 仓库最新提交';
+        } else if (serverMeta && typeof serverMeta === 'object') {
+            sha = serverMeta.shortSha || '';
+            dateText = formatUpdatedAt(serverMeta.updatedAt);
+            badge.title = serverMeta.source === 'github'
+                ? '来自 GitHub 仓库版本信息（服务端）'
+                : '来自本地 Git 最近提交时间';
+            badge.href = serverMeta.repoUrl || `https://github.com/${REPO}`;
+        } else {
             badge.title = '无法获取系统版本信息';
-            badge.href = 'https://github.com/colflip/Plenzo';
+        }
+
+        const runtime = (serverMeta && serverMeta.runtime) || '';
+
+        // 只显示拿到的字段（shortSha,YYYYMMDD,环境）；全部缺失则整个徽章不显示
+        const label = [sha, dateText, runtime].filter(Boolean).join(',');
+        if (label) {
+            badge.textContent = label;
+            badge.classList.remove('is-hidden');
+        } else {
+            badge.classList.add('is-hidden');
         }
     }
 
