@@ -231,6 +231,11 @@ async function getVersionMeta() {
         // 临时诊断（看完即删）
         githubError: githubLastError || null,
         hasToken: Boolean(process.env.GITHUB_TOKEN || process.env.GH_TOKEN),
+        envDebug: {
+            VERCEL: process.env.VERCEL || null,
+            RENDER: process.env.RENDER || null,
+            NODE_ENV: process.env.NODE_ENV || null
+        },
         ...meta
     };
     cachedAt = Date.now();
