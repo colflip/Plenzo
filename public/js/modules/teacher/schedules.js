@@ -1,4 +1,4 @@
-import { SCHEDULE_STATUS_OPTIONS, getScheduleTypeLabel } from './constants.js';
+import { SCHEDULE_STATUS_OPTIONS } from './constants.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
@@ -85,7 +85,6 @@ async function exportMobileWeekView() {
         label: '本周课表',
         options: {
             personName: s => s.student_name || '未分配学生',
-            typeLabel: s => getScheduleTypeLabel(s.schedule_type || s.course_type),
             editableStatus: true,
             formatTimeRange,
             sortGroup: sortStudentsByIdAndType,

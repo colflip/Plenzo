@@ -987,7 +987,6 @@ async function exportStudentMobileView(student) {
         options: {
             studentName: student.name,
             personName: s => s.teacher_name || '未分配教师',
-            typeLabel: s => s.schedule_type_cn || s.schedule_type || '课程',
             editableStatus: false,
             formatTimeRange: (a, b) => `${sanitizeTimeString(a)}–${sanitizeTimeString(b)}`,
             emptyText: '暂无排课'

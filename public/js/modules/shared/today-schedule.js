@@ -407,22 +407,45 @@ function buildTodayScheduleRow(schedule, options = {}) {
     return row;
 }
 
-// —— 评审/咨询合并 + 按人员分组渲染（管理端/教师端/学生端共用）——
+// —— 全类型合并 + 按人员分组渲染（管理端/教师端/学生端共用）——
 
-// 类别识别：类型名含「评审」→ 评审类；含「咨询」→ 咨询类
-function getMergeCategory(label) {
-    if (label.includes('评审')) return '评审';
-    if (label.includes('咨询')) return '咨询';
-    return null;
+// 类别键：走 TypeConversion 归一（线上变体/大评审/记录折回基类），与导出文件分段同源
+function getMergeCategory(schedule) {
+    const tc = (typeof window !== 'undefined' && window.TypeConversion) || null;
+    if (tc && typeof tc.normalizeTypeKey === 'function') {
+        return tc.normalizeTypeKey(getScheduleTypeLabel(schedule)) || '';
+    }
+    const label = getScheduleTypeLabel(schedule);
+    if (label.includes('评审')) return 'review';
+    if (label.includes('咨询')) return 'consultation';
+    if (label.includes('入户')) return 'visit';
+    if (label.includes('试教')) return 'trial';
+    if (label.includes('集体')) return 'group_activity';
+    return String(label).trim();
 }
 
 // 是否「记录」类类型（评审记录/咨询记录）
-function isRecordType(label) {
-    return label.includes('记录');
+function isRecordType(schedule) {
+    const rt = (typeof window !== 'undefined' && window.ScheduleCalendarCore)
+        ? window.ScheduleCalendarCore.RichText
+        : null;
+    if (rt && typeof rt.isRecordType === 'function') return !!rt.isRecordType(schedule);
+    return getScheduleTypeLabel(schedule).includes('记录');
+}
+
+/** 导出文件的颜色口径：红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑 */
+function getTypeColorClass(category) {
+    const tc = (typeof window !== 'undefined' && window.TypeConversion) || null;
+    const kind = tc && typeof tc.getColorKind === 'function'
+        ? tc.getColorKind(getScheduleTypeLabel({ schedule_type_cn: category }))
+        : 'black';
+    if (kind === 'red') return 'type-review';
+    if (kind === 'blue') return 'type-group-activity';
+    return category === 'consultation' ? 'type-counseling' : 'type-visit';
 }
 
 /**
- * 合并同人员下同日期/同时间段/同地址的评审、咨询课程（已取消课程不参与显示）
+ * 合并同人员下同日期/同时间段/同地址的**全部课程类型**（已取消课程不参与显示）
  * @param {Array<Object>} items 参与合并的课程
  * @param {Object} groupFields 分组依据字段 { id, name }
  */
@@ -430,7 +453,7 @@ function mergeReviewCounseling(items, groupFields) {
     const groups = new Map();
     items.forEach(item => {
         const key = [
-            getMergeCategory(getScheduleTypeLabel(item)),
+            getMergeCategory(item),
             item[groupFields.id] != null ? item[groupFields.id] : item[groupFields.name] || '',
             item.date || '',
             item.start_time || '',
@@ -459,14 +482,14 @@ function mergeReviewCounseling(items, groupFields) {
 
 /**
  * 合并段教师列表：普通老师在前、「记录」类老师（评审记录/咨询记录）最后；
- * 记录类老师名称后跟随类型徽章（评审记录/咨询记录），临时加课为文本标注（临时加课）。
- * 类别徽章（评审/咨询）由渲染器放在教师列表之后
+ * 记录类老师名称后跟随具体类型徽章（评审记录/咨询记录…），临时加课为文本标注（临时加课）。
+ * 类别徽章（评审/咨询/入户…）由渲染器放在教师列表之后
  */
 function buildMergedParts(courses) {
-    const category = getMergeCategory(getScheduleTypeLabel(courses[0]));
+    const category = getMergeCategory(courses[0]);
     const withMeta = courses.map(course => {
         const label = getScheduleTypeLabel(course);
-        return { course, label, isRecord: isRecordType(label) };
+        return { course, label, isRecord: isRecordType(course) };
     });
     // 稳定排序：记录类放最后
     withMeta.sort((a, b) => (a.isRecord === b.isRecord ? 0 : a.isRecord ? 1 : -1));
@@ -482,17 +505,17 @@ function buildMergedParts(courses) {
             className: '',
             badge: isRecord ? {
                 label,
-                typeClass: label.includes('咨询') ? 'type-counseling' : 'type-review'
+                typeClass: getTypeColorClass(getMergeCategory(course))
             } : null
         };
     });
 
     return {
         parts,
-        badge: category ? {
-            label: category,
-            typeClass: category === '评审' ? 'type-review' : 'type-counseling'
-        } : null
+        badge: {
+            label: getScheduleTypeLabel(courses[0]),
+            typeClass: getTypeColorClass(category)
+        }
     };
 }
 
@@ -506,7 +529,7 @@ function getMergedStatus(courses) {
  * 按人员分组渲染「今日排课」（管理端/教师端/学生端共用）：
  * - 同一人员多节课只在首行显示姓名；续行姓名隐藏但占位，保持列对齐
  * - 行内顺序：姓名 → （日期）→ 时段 → 时间 → 教师姓名 → 课程类型 → 地点 → 状态
- * - 评审/咨询类：同日期同时间段同地址的合并为一行（类型徽章 + 教师列表）
+ * - 全部课程类型：同日期同时间段同地址的合并为一行（类型徽章 + 教师列表）
  * - 不同人员之间用分割线区分，按最早一节课的时间顺序排列（样式见 .today-schedule-table.grouped）
  *
  * @param {HTMLElement} container 目标容器（#todayScheduleList）
@@ -527,24 +550,18 @@ export function renderGroupedTodayScheduleList(container, schedules, options = {
         ...options
     };
 
-    // 拆分：评审/咨询类进入合并池；其余保持原可见规则（已取消/已调整不显示）
+    // 全部类型进入合并池（同人员同日期同时间段同地址并成一行）；已取消/已调整不显示
     if (!Array.isArray(schedules)) {
         throw new TypeError('今日排课数据必须是数组');
     }
     const mergePool = [];
-    const plainItems = [];
     schedules.forEach(item => {
         const status = String(item.status || 'pending').toLowerCase();
-        if (status === 'modified_away') return;
-        if (getMergeCategory(getScheduleTypeLabel(item))) {
-            if (status !== 'cancelled') mergePool.push(item);
-            return;
-        }
-        if (status !== 'cancelled') plainItems.push(item);
+        if (status === 'modified_away' || status === 'cancelled') return;
+        mergePool.push(item);
     });
 
-    const visible = plainItems
-        .concat(mergeReviewCounseling(mergePool, opts.groupFields))
+    const visible = mergeReviewCounseling(mergePool, opts.groupFields)
         .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
 
     if (visible.length === 0) {
