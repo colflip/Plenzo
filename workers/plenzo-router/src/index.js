@@ -1,8 +1,8 @@
 /**
  * Plenzo 统一入口 Worker
  *
- * 一个入口域名 `plenzo.cc.cd` → Render（主源）/ Vercel（备源），
- * 主源「连不上」时自动回退到备源。
+ * 一个入口域名 `plenzo.cc.cd` → Vercel（主源）→ Cloudzyro（二级源）→ Render（兜底源），
+ * 上游「连不上」时自动降级到下一级。
  *
  * 绑定的域名是 Cloudflare 里一个 **active 的 full zone**（`plenzo.cc.cd`，NS 为
  * `elly/vicente.ns.cloudflare.com`）。历史上「子域不能建 zone（API 1116）」的阻塞对
@@ -26,12 +26,17 @@
  *    两者不相等。**必须**在两个平台配置 `ALLOWED_ORIGINS=https://plenzo.cc.cd`，
  *    否则同源判定失败、所有写请求返回 403 CORS_FORBIDDEN。
  *
- * 3. 回退响应带 `X-Served-By: vercel-fallback`，用于确认当前走的是哪个源。
+ * 3. 回退响应带 `X-Served-By: <origin>-fallback`，用于确认当前走的是哪个源。
  *    正常路径不加这个头（避免为每个响应包一层 Response、白白多一次 body 流转）。
  */
 
-const DEFAULT_PRIMARY = 'plenzo.onrender.com';
-const DEFAULT_FALLBACK = 'plenzo.vercel.app';
+// 2026-11-14：接入 Cloudzyro（plenzo.cloudzyro.app，同一 Neon 库）。
+// 用户指定的顺序：Vercel（主）→ Cloudzyro（二）→ Render（兜底）。
+// Render 从主源降为兜底：免费流量不够，且 0.1 CPU + 15 分钟休眠最差；
+// Cloudzyro 1 CPU + 1h 休眠 + 超量限速，排中间。
+const DEFAULT_PRIMARY = 'plenzo.vercel.app';
+const DEFAULT_SECONDARY = 'plenzo.cloudzyro.app';
+const DEFAULT_FALLBACK = 'plenzo.onrender.com';
 
 /**
  * 单源超时。默认 10s，可用 `ROUTER_TIMEOUT_MS` 覆盖（也便于测试注入极小值）。
@@ -134,6 +139,7 @@ async function tryOrigin(request, originHost, timeoutMs) {
 export default {
     async fetch(request, env = {}) {
         const primaryHost = normalizeHost(env.PRIMARY_ORIGIN, DEFAULT_PRIMARY);
+        const secondaryHost = normalizeHost(env.SECONDARY_ORIGIN, DEFAULT_SECONDARY);
         const fallbackHost = normalizeHost(env.FALLBACK_ORIGIN, DEFAULT_FALLBACK);
         const timeoutMs = resolveTimeoutMs(env);
 
@@ -141,11 +147,22 @@ export default {
         const primaryResponse = await tryOrigin(request.clone(), primaryHost, timeoutMs);
         if (primaryResponse) return primaryResponse;
 
+        // 二级源（Cloudzyro）
+        if (FAILOVER_METHODS.includes(request.method)) {
+            const secondaryResponse = await tryOrigin(request.clone(), secondaryHost, timeoutMs);
+            if (secondaryResponse) {
+                const tagged = new Response(secondaryResponse.body, secondaryResponse);
+                tagged.headers.set('X-Served-By', 'cloudzyro-fallback');
+                return tagged;
+            }
+        }
+
+        // 兜底源（Render）
         if (FAILOVER_METHODS.includes(request.method)) {
             const fallbackResponse = await tryOrigin(request.clone(), fallbackHost, timeoutMs);
             if (fallbackResponse) {
                 const tagged = new Response(fallbackResponse.body, fallbackResponse);
-                tagged.headers.set('X-Served-By', 'vercel-fallback');
+                tagged.headers.set('X-Served-By', 'render-fallback');
                 return tagged;
             }
         }

@@ -27,11 +27,12 @@ compatibility_date = "2026-09-01"
 workers_dev = false
 preview_urls = false
 
-# 两个 origin 主机名，不要带协议和路径。
-# 当前即生产值：Render 为主源，Vercel 为回退源；换域名时同步改这里。
+# 三个 origin 主机名，不要带协议和路径。
+# 2026-11-14 起顺序：Vercel 主源 → Cloudzyro 二级 → Render 兜底（用户指定）。
 [vars]
-PRIMARY_ORIGIN = "plenzo.onrender.com"
-FALLBACK_ORIGIN = "plenzo.vercel.app"
+PRIMARY_ORIGIN = "plenzo.vercel.app"
+SECONDARY_ORIGIN = "plenzo.cloudzyro.app"
+FALLBACK_ORIGIN = "plenzo.onrender.com"
 
 # 开启 Workers Logs，方便在控制台确认回退有没有触发
 [observability]

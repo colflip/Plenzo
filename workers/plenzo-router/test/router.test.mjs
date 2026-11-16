@@ -32,7 +32,7 @@ function stubFetch(script) {
     return calls;
 }
 
-const ENV = { PRIMARY_ORIGIN: 'primary.test', FALLBACK_ORIGIN: 'fallback.test' };
+const ENV = { PRIMARY_ORIGIN: 'primary.test', SECONDARY_ORIGIN: 'secondary.test', FALLBACK_ORIGIN: 'fallback.test' };
 const hit = (path = '/api/health', method = 'GET', body) =>
     new Request(`https://plenzo.cc.cd${path}`, { method, body, headers: { 'X-Marker': '1' } });
 
@@ -58,19 +58,45 @@ test('主源返回应用自己的 5xx：不回退（请求已送达，重放可�
 test('主源 DNS 失败（边缘合成 530，不抛异常）：仍然回退并标记来源', async () => {
     const calls = stubFetch({
         'primary.test': { status: 530, body: 'origin down' },
-        'fallback.test': { status: 200, body: 'served by vercel' }
+        'secondary.test': { status: 200, body: 'served by cloudzyro' }
     });
     const res = await worker.fetch(hit(), ENV);
 
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('X-Served-By'), 'vercel-fallback');
-    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'fallback.test']);
+    assert.equal(res.headers.get('X-Served-By'), 'cloudzyro-fallback');
+    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'secondary.test']);
+});
+
+test('主源与二级源都失败：降级到兜底源（Render）', async () => {
+    const calls = stubFetch({
+        'primary.test': { status: 530, body: '' },
+        'secondary.test': { status: 530, body: '' },
+        'fallback.test': { status: 200, body: 'served by render' }
+    });
+    const res = await worker.fetch(hit(), ENV);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('X-Served-By'), 'render-fallback');
+    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'secondary.test', 'fallback.test']);
+});
+
+test('二级源正常时绝不打兜底源', async () => {
+    const calls = stubFetch({
+        'primary.test': { status: 530, body: '' },
+        'secondary.test': { status: 200, body: 'ok' },
+        'fallback.test': { throw: true } // 打到兜底就直接抛错暴露
+    });
+    const res = await worker.fetch(hit(), ENV);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('X-Served-By'), 'cloudzyro-fallback');
+    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'secondary.test']);
 });
 
 test('写请求回退时 body 必须完整重放（双 clone 的真实风险点）', async () => {
     const calls = stubFetch({
         'primary.test': { status: 522, body: '' },
-        'fallback.test': { status: 200, body: 'created' }
+        'secondary.test': { status: 200, body: 'created' }
     });
     const payload = JSON.stringify({ scheduleIds: [1001], fields: { location: '新课堂' } });
     const res = await worker.fetch(hit('/api/ai/query', 'POST', payload), ENV);
@@ -84,16 +110,16 @@ test('写请求回退时 body 必须完整重放（双 clone 的真实风险点�
 test('主源连不上抛异常：同样回退', async () => {
     const calls = stubFetch({
         'primary.test': { throw: true },
-        'fallback.test': { status: 204 }
+        'secondary.test': { status: 204 }
     });
     const res = await worker.fetch(hit(), ENV);
 
     assert.equal(res.status, 204);
-    assert.equal(res.headers.get('X-Served-By'), 'vercel-fallback');
+    assert.equal(res.headers.get('X-Served-By'), 'cloudzyro-fallback');
 });
 
 test('两源都没送达：502 + Retry-After，不带上游信封', async () => {
-    stubFetch({ 'primary.test': { throw: true }, 'fallback.test': { status: 530 } });
+    stubFetch({ 'primary.test': { throw: true }, 'secondary.test': { throw: true }, 'fallback.test': { status: 530 } });
     const res = await worker.fetch(hit(), ENV);
 
     assert.equal(res.status, 502);
@@ -191,13 +217,26 @@ test('PUT/PATCH/DELETE 超时同样不重放', async () => {
 });
 
 test('GET 超时仍然回退：重复执行无害，可用性优先', async () => {
-    const calls = stubHosts({ 'primary.test': { hang: true }, 'fallback.test': { status: 200, body: 'from vercel' } });
+    const calls = stubHosts({ 'primary.test': { hang: true }, 'secondary.test': { status: 200, body: 'from cloudzyro' } });
     const res = await worker.fetch(hit('/api/health'), ENV_FAST_TIMEOUT);
 
     assert.equal(res.status, 200);
-    assert.equal(await res.text(), 'from vercel');
-    assert.equal(res.headers.get('X-Served-By'), 'vercel-fallback');
-    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'fallback.test']);
+    assert.equal(await res.text(), 'from cloudzyro');
+    assert.equal(res.headers.get('X-Served-By'), 'cloudzyro-fallback');
+    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'secondary.test']);
+});
+
+test('主源与二级源 GET 都超时：GET 可安全重放，继续降到兜底源', async () => {
+    const calls = stubHosts({
+        'primary.test': { hang: true },
+        'secondary.test': { hang: true },
+        'fallback.test': { status: 200, body: 'from render' }
+    });
+    const res = await worker.fetch(hit('/api/health'), ENV_FAST_TIMEOUT);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('X-Served-By'), 'render-fallback');
+    assert.deepEqual(calls.map(c => c.host), ['primary.test', 'secondary.test', 'fallback.test']);
 });
 
 test('ROUTER_TIMEOUT_MS 非法值回落到默认 10s（不会立刻中断正常请求）', async () => {
@@ -210,10 +249,11 @@ test('ROUTER_TIMEOUT_MS 非法值回落到默认 10s（不会立刻中断正常�
 });
 
 test('连接层失败（非超时）的写请求仍按原策略回退，且 body 完整', async () => {
-    const calls = stubHosts({ 'primary.test': { status: 522, body: '' }, 'fallback.test': { status: 200, body: 'created' } });
+    const calls = stubHosts({ 'primary.test': { status: 522, body: '' }, 'secondary.test': { status: 200, body: 'created' } });
     const payload = JSON.stringify({ location: '新课堂' });
     const res = await worker.fetch(hit('/api/schedule', 'POST', payload), ENV);
 
     assert.equal(await res.text(), 'created');
     assert.equal(calls.length, 2);
+    assert.equal(calls[1].host, 'secondary.test', '回退到的是二级源');
 });
