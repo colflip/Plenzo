@@ -8544,8 +8544,8 @@ span.status-select {
     border: none;
     background: none;
     box-shadow: none;
-    color: #64748b;
-    font-size: var(--fs-300);
+    color: #94a3b8;
+    font-size: 12px;
     line-height: 1.4;
     text-decoration: underline;
     text-decoration-color: transparent;
@@ -8554,9 +8554,12 @@ span.status-select {
     transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 
-.app-version-badge:hover {
-    color: #3b82f6;
-    text-decoration-color: #3b82f6;
+.app-version-badge:visited,
+.app-version-badge:hover,
+.app-version-badge:active,
+.app-version-badge:focus {
+    color: #64748b;
+    text-decoration-color: #64748b;
 }
 
 .app-version-badge.is-hidden {
