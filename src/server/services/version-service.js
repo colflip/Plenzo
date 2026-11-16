@@ -4,6 +4,7 @@
  */
 
 const { execFile } = require('child_process');
+const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
@@ -16,7 +17,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 // GitHub 元数据只用于展示「仓库最近更新时间」，与 shortSha 无关（shortSha 走本地 git）。
 // 但它在网络不通时会白等 2.5s 超时——实测本机断网时首个 dashboard 请求因此慢 1932ms。
 // 两道闸：1) 非部署环境（本地 dev）根本不发这个请求；2) 失败后冷却，避免每 5 分钟重付一次。
-const isDeployedRuntime = Boolean(process.env.VERCEL || process.env.RENDER);
+const isDeployedRuntime = Boolean(process.env.VERCEL || process.env.RENDER || process.env.CLOUDZYRO);
 const GITHUB_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 let githubFailedAt = 0;
 
@@ -24,12 +25,19 @@ let githubFailedAt = 0;
  * 识别当前运行环境（哪个源在服务这个请求）。
  * 三个源跑同一份代码：Vercel 注入 VERCEL、Render 注入 RENDER；
  * Cloudzyro 两者都没有，按排除法识别。
+ *
+ * 读不出来就返回 null —— 徽章据此省略这一段。绝不能默认 'local'：
+ * 没注入平台变量的部署（如 cloudzyro）曾被全部误标成本地。
+ * 'local' 只给**真正的本地开发**：有 .git 检出、且不是 production 模式。
  */
 function resolveRuntime() {
     if (process.env.VERCEL) return 'vercel';
     if (process.env.RENDER) return 'render';
     if (process.env.CLOUDZYRO) return 'cloudzyro';
-    return 'local';
+    if (process.env.NODE_ENV !== 'production' && fs.existsSync(path.join(REPO_ROOT, '.git'))) {
+        return 'local';
+    }
+    return null;
 }
 
 /**
@@ -127,36 +135,42 @@ async function getGitHubMeta(repo) {
 
 /**
  * 解析部署版本号（shortSha），按部署平台依次兜底：
- *   Vercel  →  Render  →  本地 git  →  构建时间戳
- * 这样 Vercel / Render / 本地 dev / docker 均能量化出稳定版本号。
+ *   Vercel → Render → GitHub API（仓库最新 commit）→ 本地 git。
+ * 取不到就返回 null —— 徽章据此省略版本段。绝不能用构建时间戳伪造：
+ * 没 .git 的部署（cloudzyro）曾因此显示假版本号 b6041008。
  */
-function resolveCommitSha() {
+async function resolveCommitSha(repo) {
     const fromEnv =
         process.env.VERCEL_GIT_COMMIT_SHA ||
         process.env.RENDER_GIT_COMMIT ||
         process.env.RENDER_GIT_COMMIT_SHA ||
         process.env.RENDER_DEPLOY_ID;
     if (fromEnv) return fromEnv;
-    return null;
+    return await runGit(['log', '-1', '--format=%H']);
 }
 
-function resolveBuildTimestamp() {
-    const raw = process.env.BUILD_TIMESTAMP || process.env.BUILD_TIME;
-    if (raw) return String(raw);
-    return new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+async function getGitHubHeadSha(repo) {
+    if (!repo) return '';
+    const headers = {};
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+        const data = await requestJson(`https://api.github.com/repos/${repo}/commits/HEAD`, headers);
+        return (data && data.sha) ? String(data.sha) : '';
+    } catch (error) {
+        githubFailedAt = Date.now();
+        return '';
+    }
 }
 
 async function getLocalGitMeta(repo) {
-    const envSha = resolveCommitSha();
-    const commitSha = envSha || await runGit(['log', '-1', '--format=%H']);
-    let shortSha = commitSha ? commitSha.slice(0, 7) : await runGit(['log', '-1', '--format=%h']);
-    // 兜底：无任何 git/环境变量可用时，用构建时间戳保证版本号非空且每次构建不同。
-    if (!shortSha) shortSha = `b${resolveBuildTimestamp().slice(-7)}`;
-    const updatedAt = await runGit(['log', '-1', '--format=%cI']) || null;
+    const commitSha = await resolveCommitSha(repo);
+    const shortSha = commitSha ? commitSha.slice(0, 7) : '';
+    const updatedAt = shortSha ? await runGit(['log', '-1', '--format=%cI']) : null;
 
     return {
         updatedAt,
-        source: updatedAt ? 'git' : 'build',
+        source: updatedAt ? 'git' : 'none',
         repo,
         repoUrl: repo ? `https://github.com/${repo}` : '',
         commitSha: commitSha || '',
@@ -172,7 +186,7 @@ async function getVersionMeta() {
     const repo = await getGitHubRepo();
     let meta = null;
 
-    // 仅部署环境（Vercel/Render）才查 GitHub：本地 dev 的 shortSha 来自本地 git，
+    // 仅部署环境（Vercel/Render/cloudzyro）才查 GitHub：本地 dev 的 shortSha 来自本地 git，
     // 查 GitHub 只会增加一个必然超时的外网往返。
     const githubAllowed = isDeployedRuntime && (Date.now() - githubFailedAt > GITHUB_FAIL_COOLDOWN_MS);
     if (githubAllowed) {
@@ -186,6 +200,16 @@ async function getVersionMeta() {
 
     if (!meta) {
         meta = await getLocalGitMeta(repo);
+        // 部署环境没有 .git（如 cloudzyro 只上传运行产物）时，再从 GitHub API 兜底取
+        // 仓库最新 commit —— 宁可空着也不能伪造版本号（曾显示过假版本 b6041008）。
+        if (!meta.shortSha && isDeployedRuntime) {
+            const sha = await getGitHubHeadSha(repo);
+            if (sha) {
+                meta.commitSha = sha;
+                meta.shortSha = sha.slice(0, 7);
+                meta.source = 'github';
+            }
+        }
     } else {
         const localMeta = await getLocalGitMeta(repo);
         meta.commitSha = localMeta.commitSha;
