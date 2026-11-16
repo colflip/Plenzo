@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, getScheduleTypeLabel } from './constants.js';
+import { API_ENDPOINTS } from './constants.js';
 import { getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
@@ -120,7 +120,6 @@ async function exportMobileWeekView() {
         label: '本周课表',
         options: {
             personName: s => s.teacher_name || '未分配教师',
-            typeLabel: s => s.schedule_type_cn || getScheduleTypeLabel(s.schedule_type || s.course_type),
             editableStatus: false,
             formatTimeRange,
             sortGroup: sortTeachersByIdAndType,

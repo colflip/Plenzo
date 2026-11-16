@@ -128,21 +128,37 @@
     white-space: nowrap;
 }
 
-/* 评审 / 咨询合并标签：整体红色（与导出文件的评审族红字一致）。
+/* 合并标签：颜色随导出文件（红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑）。
    block 容器 + 名字 inline-block 原子单元，浏览器与 html2canvas 都能贪心填满每行。 */
 .msv-merged-category {
     display: block;
     line-height: 1.8;
-    color: #FF0000 !important;
+    color: #000000 !important;
 }
 
 .msv-merged-category .msc-person {
     display: inline-block;
+    color: inherit !important;
+}
+
+.msv-merged-category.color-red {
     color: #FF0000 !important;
 }
 
+.msv-merged-category.color-red .msc-person {
+    color: #FF0000 !important;
+}
+
+.msv-merged-category.color-blue {
+    color: #0000FF !important;
+}
+
+.msv-merged-category.color-blue .msc-person {
+    color: #0000FF !important;
+}
+
 /* 仅「待确认」「已取消」显示状态：沿用前端 .chip.status-* 的字色，
-   用独立类避免被上面 .chip / 评审红色规则覆盖。
+   用独立类避免被上面的合并标签颜色规则覆盖。
    居中方式：不设固定 height / line-height（html2canvas 会按基线把文字顶到
    胶囊上方），改用上下不对称 padding 做光学补偿，让墨迹视觉居中。 */
 .msv-status {

@@ -3,17 +3,19 @@
  *
  * 三端（学生 / 教师 / 班主任）与管理端双击导出共用这一份渲染。
  * 结构是一张两列表格：左列「M月D日 周X」，右列当天所有安排。
- * 每节课内部与 PC 卡片对齐：多位老师同槽时「姓名 + 类型 chip」顺序依次排在同一行、
- * 不强制换行；底部独立一行「时间 + 地点」（时间黑色加粗）。移动端不显示课程状态。
- * 类型 chip 直接复用 dashboard.css 的 .chip.type-* 组件，颜色/字体/高度完全继承前端。
+ * 每节课与导出文件同口径：全类型合并成「类型（老师A，老师B，老师C（记录））」，
+ * 普通老师按 teacher_id 升序在前、记录类老师沉底标「（记录）」；
+ * 颜色随导出文件（红 = 评审/咨询族，蓝 = 集体活动，其余黑）；
+ * 底部独立一行「时间 + 地点」（时间黑色加粗）。移动端只显示待确认/已取消状态。
+ * 类型折叠与颜色判定直接调 ScheduleCalendarCore.RichText / TypeConversion。
  *
  * 复用既有能力，不重复造轮子：
  *   - groupSchedulesByDate / groupSchedulesBySlot：按日、按时段+地点+类型分组
  *   - getTimeSlotId / formatTimeRange / getScheduleWatermarkText：时段、时间、水印
  *   - appendScheduleWatermark：临时/调整课手写体水印
- *   - .chip / .slot-*：dashboard.css 已有的统一视觉 token
+ *   - .slot-*：dashboard.css 已有的统一视觉 token
  *
- * 调用方负责传入容器与每个角色的差异项（人名来源、类型文案、状态是否可编辑）。
+ * 调用方负责传入容器与每个角色的差异项（人名来源、状态是否可编辑）。
  */
 
 import { createElement } from './view-utils.js';
@@ -42,9 +44,8 @@ function visibleStatusOf(schedule) {
     return VISIBLE_STATUS[st] || null;
 }
 
-// 需要「类型（老师A，老师B，老师C（记录））」合并展示的族。
-// 折叠类型名直接复用 ScheduleCalendarCore.RichText（导出文件同一套口径）。
-const MERGED_CATEGORIES = ['评审', '咨询'];
+// 全部课程类型都走「类型（老师A，老师B，老师C（记录））」合并展示（与导出文件分段一致）。
+// 折叠类型名与文字颜色直接复用 ScheduleCalendarCore.RichText / TypeConversion（同一套口径）。
 
 function richText() {
     return (typeof window !== 'undefined' && window.ScheduleCalendarCore)
@@ -71,8 +72,9 @@ function isRecordOf(schedule) {
 }
 
 /**
- * 评审 / 咨询族：把同组多位老师合并成「评审（张三，李四，王五（记录））」，
+ * 全类型合并：把同组多位老师合并成「入户（张三，李四，王五（记录））」，
  * 与导出文件的段格式一致。普通老师在前按 teacher_id 升序，记录类老师排最后且名字后标「（记录）」。
+ * 颜色随导出文件：红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑。
  */
 function buildMergedCategoryLabel(group, options, category) {
     const meta = group.map(s => ({ s, isRecord: isRecordOf(s) }));
@@ -82,9 +84,17 @@ function buildMergedCategoryLabel(group, options, category) {
         return (Number(a.s.teacher_id) || 0) - (Number(b.s.teacher_id) || 0);
     });
 
+    const tc = (typeof window !== 'undefined' && window.TypeConversion) || null;
+    const colorKind = tc && typeof tc.getColorKind === 'function'
+        ? tc.getColorKind(category)
+        : 'black';
+    const colorClass = colorKind === 'red'
+        ? ' color-red'
+        : colorKind === 'blue' ? ' color-blue' : '';
+
     // 用 block 容器 + 每个名字是 inline-block（不可拆单元），这样浏览器与 html2canvas
     // 都会按可用宽度贪心填满每一行、放不下才换行，不会留下大片右侧空白。
-    const wrap = createElement('div', 'msv-merged-category');
+    const wrap = createElement('div', `msv-merged-category${colorClass}`);
     wrap.appendChild(document.createTextNode(`${category}（`));
     meta.forEach(({ s, isRecord }, index) => {
         const status = visibleStatusOf(s);
@@ -98,20 +108,6 @@ function buildMergedCategoryLabel(group, options, category) {
     });
     wrap.appendChild(document.createTextNode('）'));
     return wrap;
-}
-
-/** 类型文案 → 前端 .chip.type-* 类（直接复用 dashboard.css 的现成组件，不自定义样式） */
-function typeClassFromLabel(label) {
-    if (!label) return 'type-default';
-    if (label.includes('半次')) return 'type-half-visit';
-    if (label.includes('评审记录') || label.includes('大评审记录')) return 'type-review-record';
-    if (label.includes('咨询记录')) return 'type-advisory';
-    if (label.includes('评审')) return 'type-review';
-    if (label.includes('试教') || label.includes('试讲')) return 'type-trial';
-    if (label.includes('入户')) return 'type-visit';
-    if (label.includes('集体')) return 'type-group-activity';
-    if (label.includes('咨询')) return 'type-advisory';
-    return 'type-default';
 }
 
 /**
@@ -135,31 +131,11 @@ function buildCourseLine(group, options) {
     // 不可拆单位（整组不换行），多组按可用宽度顺序流式填满每行，放不下才整组换行。
     const list = createElement('div', 'msv-teacher-list');
 
-    // 评审 / 咨询族与导出文件一致：无论人数都合并成「评审（张三，李四，王五（记录））」，
-    // 单人也写成「评审（张三）」，保持整个族格式统一
+    // 与导出文件一致：所有类型都合并成「入户（张三，李四，王五（记录））」，
+    // 单人也写成「入户（张三）」，保持整个族格式统一
     const category = foldedTypeOf(first);
-    if (MERGED_CATEGORIES.includes(category)) {
-        list.appendChild(buildMergedCategoryLabel(group, options, category));
-        line.appendChild(list);
-    } else {
-        const ordered = group.slice().sort((a, b) =>
-            (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0)
-        );
-        ordered.forEach((schedule, index) => {
-            const name = options.personName(schedule);
-            const typeLabel = options.typeLabel(schedule);
-            const status = visibleStatusOf(schedule);
-            const part = createElement('span', 'msv-teacher-part');
-            part.appendChild(createElement('span', 'msc-person', { textContent: name }));
-            part.appendChild(createElement('span', `chip ${typeClassFromLabel(typeLabel)}`, { textContent: typeLabel }));
-            if (status) {
-                part.appendChild(createElement('span', `msv-status ${status.cls}`, { textContent: status.text }));
-            }
-            list.appendChild(part);
-            if (index < ordered.length - 1) list.appendChild(document.createTextNode('，'));
-        });
-        line.appendChild(list);
-    }
+    list.appendChild(buildMergedCategoryLabel(group, options, category));
+    line.appendChild(list);
 
     // 底部一行「时间 + 地点」，与 PC 卡片的 schedule-footer 对齐；时间黑色加粗。
     const footer = createElement('div', 'msv-footer');

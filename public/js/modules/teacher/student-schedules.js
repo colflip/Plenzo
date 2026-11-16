@@ -126,7 +126,6 @@ async function exportStudentMobileView(studentId, studentName) {
         options: {
             studentName,
             personName: s => s.teacher_name || '未分配教师',
-            typeLabel: s => s.schedule_type_cn || s.schedule_type || '课程',
             editableStatus: false,
             formatTimeRange,
             emptyText: '暂无排课'
@@ -147,7 +146,6 @@ async function exportMobileWeekView() {
                 const stu = s.student_name || '未知学生';
                 return s.teacher_name ? `${stu} · ${s.teacher_name}` : stu;
             },
-            typeLabel: s => s.schedule_type_cn || s.schedule_type || '课程',
             editableStatus: true,
             formatTimeRange,
             sortGroup: sortHomeroomGroup,
