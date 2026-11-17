@@ -6498,6 +6498,50 @@ svg {
     /* No background on row, clean look as per image */
 }
 
+/* 合并行（PC 页内周视图卡片）：「类型（老师A，老师B，老师C（记录））」+ 每人状态。
+   与移动端导出视图（.msv-merged-category）同款布局：block 容器 + inline-block 姓名原子，
+   放不下才整组换行。颜色（红=评审/咨询族，蓝=集体活动）由 JS 按 TypeConversion.getColorKind
+   挂 color-red/color-blue。 */
+.merged-category {
+    display: block;
+    line-height: 1.8;
+    color: #000000;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.merged-category .merged-person {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.merged-category .merged-status {
+    display: inline-block;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.merged-category .status-select {
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.merged-category.color-red {
+    color: #FF0000;
+}
+
+.merged-category.color-red .merged-person {
+    color: #FF0000;
+}
+
+.merged-category.color-blue {
+    color: #0000FF;
+}
+
+.merged-category.color-blue .merged-person {
+    color: #0000FF;
+}
+
 /* Row Left: Name + Type */
 .schedule-row .row-left {
     display: flex;

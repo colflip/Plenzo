@@ -26,6 +26,7 @@ import {
 } from './schedule-helpers.js';
 import {
     appendScheduleWatermark,
+    buildMergedCategoryLabel,
     groupSchedulesByDate,
     groupSchedulesBySlot
 } from './schedule-view-utils.js';
@@ -45,69 +46,23 @@ function visibleStatusOf(schedule) {
 }
 
 // 全部课程类型都走「类型（老师A，老师B，老师C（记录））」合并展示（与导出文件分段一致）。
-// 折叠类型名与文字颜色直接复用 ScheduleCalendarCore.RichText / TypeConversion（同一套口径）。
-
-function richText() {
-    return (typeof window !== 'undefined' && window.ScheduleCalendarCore)
-        ? window.ScheduleCalendarCore.RichText
-        : null;
-}
-
-/** 该排课的折叠类型名（评审记录→评审 / 咨询记录→咨询），无全局组件时按文案兜底 */
-function foldedTypeOf(schedule) {
-    const rt = richText();
-    if (rt && typeof rt.getFoldedDisplayType === 'function') {
-        const folded = rt.getFoldedDisplayType(schedule);
-        if (folded) return folded;
-    }
-    const raw = String(schedule.schedule_type_cn || schedule.schedule_type || '').trim();
-    return raw.replace(/[（(]线上[）)]/g, '').replace(/记录$/, '').trim();
-}
-
-/** 是否「记录」类（评审记录 / 咨询记录），复用 RichText 的判定 */
-function isRecordOf(schedule) {
-    const rt = richText();
-    if (rt && typeof rt.isRecordType === 'function') return !!rt.isRecordType(schedule);
-    return /记录/.test(String(schedule.schedule_type_cn || schedule.schedule_type || ''));
-}
+// 合并标签的构建、老师排序、颜色判定统一收在 schedule-view-utils.js 的
+// buildMergedCategoryLabel（PC 页内周视图卡片与这里共用一份实现）。
 
 /**
  * 全类型合并：把同组多位老师合并成「入户（张三，李四，王五（记录））」，
  * 与导出文件的段格式一致。普通老师在前按 teacher_id 升序，记录类老师排最后且名字后标「（记录）」。
  * 颜色随导出文件：红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑。
  */
-function buildMergedCategoryLabel(group, options, category) {
-    const meta = group.map(s => ({ s, isRecord: isRecordOf(s) }));
-    // 记录类沉底；族内一律按 teacher_id 升序
-    meta.sort((a, b) => {
-        if (a.isRecord !== b.isRecord) return a.isRecord ? 1 : -1;
-        return (Number(a.s.teacher_id) || 0) - (Number(b.s.teacher_id) || 0);
+function buildMergedCategoryLabelForMobile(group, options) {
+    // 移动端只显示「待确认/已取消」两种需要留意的状态
+    return buildMergedCategoryLabel(group, {
+        personName: options.personName,
+        buildStatus: visibleStatusOf,
+        className: 'msv-merged-category',
+        personClassName: 'msc-person',
+        statusClassName: 'msv-status'
     });
-
-    const tc = (typeof window !== 'undefined' && window.TypeConversion) || null;
-    const colorKind = tc && typeof tc.getColorKind === 'function'
-        ? tc.getColorKind(category)
-        : 'black';
-    const colorClass = colorKind === 'red'
-        ? ' color-red'
-        : colorKind === 'blue' ? ' color-blue' : '';
-
-    // 用 block 容器 + 每个名字是 inline-block（不可拆单元），这样浏览器与 html2canvas
-    // 都会按可用宽度贪心填满每一行、放不下才换行，不会留下大片右侧空白。
-    const wrap = createElement('div', `msv-merged-category${colorClass}`);
-    wrap.appendChild(document.createTextNode(`${category}（`));
-    meta.forEach(({ s, isRecord }, index) => {
-        const status = visibleStatusOf(s);
-        wrap.appendChild(createElement('span', 'msc-person', {
-            textContent: options.personName(s) + (isRecord ? '（记录）' : '')
-        }));
-        if (status) {
-            wrap.appendChild(createElement('span', `msv-status ${status.cls}`, { textContent: `（${status.text}）` }));
-        }
-        if (index < meta.length - 1) wrap.appendChild(document.createTextNode('，'));
-    });
-    wrap.appendChild(document.createTextNode('）'));
-    return wrap;
 }
 
 /**
@@ -133,8 +88,7 @@ function buildCourseLine(group, options) {
 
     // 与导出文件一致：所有类型都合并成「入户（张三，李四，王五（记录））」，
     // 单人也写成「入户（张三）」，保持整个族格式统一
-    const category = foldedTypeOf(first);
-    list.appendChild(buildMergedCategoryLabel(group, options, category));
+    list.appendChild(buildMergedCategoryLabelForMobile(group, options));
     line.appendChild(list);
 
     // 底部一行「时间 + 地点」，与 PC 卡片的 schedule-footer 对齐；时间黑色加粗。

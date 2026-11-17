@@ -1,10 +1,11 @@
 import { API_ENDPOINTS } from './constants.js';
-import { getAdjustmentType, getScheduleWatermarkText } from '../shared/schedule-helpers.js';
+import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { captureWeekTableToClipboard, captureWeekMobileViewToClipboard } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
+    buildMergedCategoryLabel,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton
@@ -30,45 +31,8 @@ let scheduleLoadSeq = 0;
 
 window.studentShowPlan = false;
 
-/**
- * 统一的教师排序函数
- * 规则:
- * 1. 状态优先级：优先展示非"已调整"和非"已取消"的记录
- * 2. 咨询记录/评审记录类型的教师排在最后
- * 3. 其他教师按ID由小到大排序
- */
-function sortTeachersByIdAndType(scheduleA, scheduleB) {
-    // 1. 状态优先级：优先展示非“已调整”和非“已取消”的记录
-    const getStatus = (item) => (item.status || 'pending').toLowerCase();
-    const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-    const inactiveA = isInactive(getStatus(scheduleA));
-    const inactiveB = isInactive(getStatus(scheduleB));
-
-    if (inactiveA && !inactiveB) return 1;
-    if (!inactiveA && inactiveB) return -1;
-
-    const getTypeName = (item) => (
-        item.schedule_type_name ||
-        item.type_name ||
-        item.schedule_type_cn ||
-        item.schedule_types ||
-        item.schedule_type || ''
-    ).toString();
-
-    const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
-
-    const typeA = getTypeName(scheduleA);
-    const typeB = getTypeName(scheduleB);
-    const recordA = isRecord(typeA);
-    const recordB = isRecord(typeB);
-
-    // 咨询记录/评审记录排在最后
-    if (recordA && !recordB) return 1;
-    if (!recordA && recordB) return -1;
-
-    // 其他按教师ID由小到大排序
-    return (scheduleA.teacher_id || 0) - (scheduleB.teacher_id || 0);
-}
+// 老师排序统一走 schedule-view-utils.js 的 buildMergedCategoryLabel
+// （记录类沉底 + teacher_id 升序），本地不再保留一份副本。
 
 const elements = {
     header: () => document.getElementById('weeklyHeader'),
@@ -122,7 +86,6 @@ async function exportMobileWeekView() {
             personName: s => s.teacher_name || '未分配教师',
             editableStatus: false,
             formatTimeRange,
-            sortGroup: sortTeachersByIdAndType,
             emptyText: '暂无排课'
         }
     });
@@ -340,8 +303,7 @@ function renderBody(weekDates, schedules) {
             // Group by Time/Location
             const groups = groupSchedulesBySlot(dailySchedules);
             groups.forEach(group => {
-                // 使用统一的排序函数
-                group.sort(sortTeachersByIdAndType);
+                // 老师排序在 buildMergedCategoryLabel 内统一处理（记录类沉底 + teacher_id 升序）
                 cell.appendChild(buildScheduleCard(group));
             });
         } else {
@@ -420,94 +382,20 @@ function buildScheduleCard(group) {
     // 内容容器
     const content = createElement('div', 'card-content');
 
-    // 使用统一的排序函数:特殊课程类型(评审/咨询)排在最后,其他按教师ID排序
-    group.sort(sortTeachersByIdAndType);
-
-    // 2. 排课记录列表
+    // 2. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
+    //    移动端视图同口径。学生端只读：每人名字后跟各自的状态文字标签。
     const listDiv = createElement('div', 'schedule-list');
 
-    group.forEach(rec => {
-        const row = createElement('div', 'schedule-row');
-        const st = (rec.status || 'pending').toLowerCase();
-        if (st === 'cancelled') row.classList.add('status-cancelled');
-        else if (st === 'modified_away') row.classList.add('status-modified_away');
+    const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
-        // 左侧：老师姓名 + 课程类型 (Marquee)
-        const left = createElement('div', 'row-left marquee-wrapper');
-
-        let typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';
-        // Try to resolve CN name using Store if available
-        if (window.ScheduleTypesStore && window.ScheduleTypesStore.getAll) {
-            const allTypes = window.ScheduleTypesStore.getAll();
-            // Match by ID (course_id) or Code string (schedule_type)
-            const found = allTypes.find(t =>
-                (rec.course_id && t.id == rec.course_id) ||
-                (rec.schedule_type && t.name === rec.schedule_type)
-            );
-            if (found) typeStr = found.description || found.name;
+    const mergedLabel = buildMergedCategoryLabel(group, {
+        personName: (rec) => rec.teacher_name || '未指定',
+        buildStatus: (rec) => {
+            const st = (rec.status || 'pending').toLowerCase();
+            return statusMap[st] ? { text: statusMap[st], cls: `st-${st}` } : null;
         }
-
-        const nameSpan = createElement('span', 'teacher-name', {
-            textContent: rec.teacher_name || '未指定'
-        });
-        nameSpan.style.cssText = 'flex-shrink: 0; white-space: nowrap;';
-
-        const marqueeWrapper = createElement('div', 'marquee-wrapper');
-        marqueeWrapper.style.cssText = 'flex: 1; min-width: 0; max-width: none;';
-
-        const marqueeContent = createElement('div', 'marquee-content');
-        marqueeContent.style.paddingRight = '0';
-        const typeSpan = createElement('span', 'course-type-text', {
-            textContent: typeStr
-        });
-        marqueeContent.appendChild(typeSpan);
-
-        if (getAdjustmentType(rec) === 1) {
-            const tempBadge = createElement('span', 'badge-temp', {
-                textContent: '加'
-            });
-            marqueeContent.appendChild(tempBadge);
-        }
-
-        marqueeWrapper.appendChild(marqueeContent);
-        left.appendChild(nameSpan);
-        left.appendChild(marqueeWrapper);
-        row.appendChild(left);
-
-        // 右侧：状态显示 (Green tag for confirmed, Gray for completed)
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
-        const statusLabel = statusMap[st] || st;
-
-        // Use styled span to mimic the look of the admin select but readonly
-        const statusTag = createElement('span', `status-select ${st}`, {
-            textContent: statusLabel,
-            style: 'pointer-events: none; border:none; appearance:none; padding: 4px 12px; border-radius: 999px; font-size: var(--fs-300); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; height: 24px;'
-        });
-
-        // Specific color overrides based on image analysis
-        if (st === 'confirmed') {
-            statusTag.style.backgroundColor = '#dcfce7'; // Light Green
-            statusTag.style.color = '#166534'; // Dark Green Text
-        } else if (st === 'completed') {
-            statusTag.style.backgroundColor = '#f3f4f6'; // Gray
-            statusTag.style.color = '#4b5563'; // Dark Gray Text
-        }
-
-        // Checkmark for completed status
-        if (st === 'completed') {
-            const checkmark = createElement('div', 'completed-checkmark-icon');
-            // Ensure relative positioning context if needed, but row usually has it or we might need to adjust CSS
-            // The row is `schedule-row`. Let's check CSS for `schedule-row`.
-            // If `schedule-row` is relatively positioned, absolute child works.
-            // If not, we might need to make it relative.
-            row.style.position = 'relative';
-            row.appendChild(checkmark);
-        }
-
-        row.appendChild(statusTag);
-
-        listDiv.appendChild(row);
     });
+    listDiv.appendChild(mergedLabel);
     content.appendChild(listDiv);
 
     // 3. 底部信息 (时间和地点)

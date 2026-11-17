@@ -12,7 +12,7 @@ import {
     captureWeekMobileViewToClipboard
 } from '../../components/schedule-view-capture.js';
 import { syncToggleButton } from '../shared/view-utils.js';
-import { setupWeekViewExportButton } from '../shared/schedule-view-utils.js';
+import { setupWeekViewExportButton, buildMergedCategoryLabel } from '../shared/schedule-view-utils.js';
 import {
     initPairForm, resetPairRows, fillPairRows, collectPairs, refitPairSelects
 } from './schedule-pair-form.js';
@@ -235,6 +235,7 @@ function optimisticAdd(scheduleData) {
  * @returns {Object} 包含原始数据的backup对象
  */
 function optimisticUpdate(id, changes, teacherUid) {
+    // 合并行改造后，data-* 定位键直接挂在 .status-select 上（旧版挂在行元素上）
     const row = teacherUid
         ? document.querySelector(`[data-schedule-id="${id}"][data-teacher-uid="${teacherUid}"]`)
         : document.querySelector(`[data-schedule-id="${id}"]`);
@@ -254,7 +255,8 @@ function optimisticUpdate(id, changes, teacherUid) {
     };
 
     if (changes.status) {
-        const select = row.querySelector('.status-select');
+        // row 可能就是 select（新版合并行），也可能是含 .status-select 的行（过渡期）
+        const select = row.tagName === 'SELECT' ? row : row.querySelector('.status-select');
         if (select) {
             backup.oldStatus = select.dataset.lastStatus || select.value;
             select.value = changes.status;
@@ -262,27 +264,11 @@ function optimisticUpdate(id, changes, teacherUid) {
             select.dataset.lastStatus = changes.status;
         }
 
-        row.classList.toggle('status-cancelled', changes.status === 'cancelled');
-
-        if (changes.status === 'completed') {
-            if (!row.querySelector('.completed-checkmark-icon')) {
-                const checkmark = document.createElement('div');
-                checkmark.className = 'completed-checkmark-icon';
-                if (select) {
-                    row.insertBefore(checkmark, select);
-                } else {
-                    row.appendChild(checkmark);
-                }
-            }
-        } else {
-            const checkIcon = row.querySelector('.completed-checkmark-icon');
-            if (checkIcon) checkIcon.remove();
-        }
-
+        // 整卡置灰口径不变：组内所有状态下拉都是已取消才置灰卡片
         const group = row.closest('.schedule-card-group');
         if (group) {
-            const allRows = Array.from(group.querySelectorAll('.schedule-row'));
-            const allCancelled = allRows.length > 0 && allRows.every(r => r.classList.contains('status-cancelled'));
+            const allSelects = Array.from(group.querySelectorAll('.status-select'));
+            const allCancelled = allSelects.length > 0 && allSelects.every(s => s.dataset.lastStatus === 'cancelled');
             group.classList.toggle('status-cancelled', allCancelled);
         }
     }
@@ -997,12 +983,11 @@ async function exportStudentMobileView(student) {
 function renderGroupedMergedSlots(td, items, student, dateKey) {
     const groups = new Map();
     items.forEach(item => {
-        // 分组键 = 场次 + 课程类型。旧实现只按场次 id 归组，把一场课里类型不同的
-        // 教师（评审老师 + 改成入户/补进来的入户老师）画进了同一张卡；类型不同的
-        // 是两节不同的课，必须各成一张卡。类型相同（评审/大评审/评审记录/线上评审
-        // 折回同一基类）仍合并，与导出文本的分段口径一致。
-        const sessionKey = item.session_id != null ? String(item.session_id) : String(item.id);
-        const key = `${sessionKey}|${getCardTypeKey(item)}`;
+        // 分组键 = 时间段 + 地点 + 折叠类型，与导出文件 / 移动端视图同口径：
+        // 同一天同时间同地点同类型的课就是「一节课」，无论来自几个场次，老师都并进同一张卡。
+        // 旧实现按场次 id 归组，同时间同地点的两个场次（补排 / 调整后另建）会各画一张卡，
+        // 看起来像同一节课出现了两次。类型不同的（评审老师 + 入户老师）仍是两节不同的课。
+        const key = `${item.start_time || ''}-${item.end_time || ''}-${item.location || ''}|${getCardTypeKey(item)}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
     });
@@ -1010,7 +995,7 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
     const sortedGroups = Array.from(groups.values()).sort((a, b) => {
         const byStart = (a[0].startMin || 0) - (b[0].startMin || 0);
         if (byStart) return byStart;
-        // 同一场次拆出的几张卡按类型名定序，顺序不随后端行序漂移
+        // 同一时段拆出的几张卡按类型名定序，顺序不随后端行序漂移
         const ka = getCardTypeKey(a[0]);
         const kb = getCardTypeKey(b[0]);
         return ka < kb ? -1 : ka > kb ? 1 : 0;
@@ -1025,34 +1010,8 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
 function buildAdminScheduleCard(group, student, dateKey) {
     if (!group.length) return document.createElement('div');
 
-    // 排序逻辑改进：
-    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    // 2. 咨询记录/评审记录类型的教师在最后，其他按教师ID排序
-    group.sort((a, b) => {
-        const getStatus = (item) => (item.status || 'pending').toLowerCase();
-        const statusA = getStatus(a);
-        const statusB = getStatus(b);
-        
-        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(statusA);
-        const inactiveB = isInactive(statusB);
-
-        if (inactiveA && !inactiveB) return 1;
-        if (!inactiveA && inactiveB) return -1;
-
-        const getTypeName = (item) => (item.schedule_type_name || item.type_name || item.schedule_type_cn || item.schedule_types || item.schedule_type || '').toString();
-        const isRecord = (name) => name.includes('评审记录') || name.includes('咨询记录');
-
-        const typeA = getTypeName(a);
-        const typeB = getTypeName(b);
-        const recordA = isRecord(typeA);
-        const recordB = isRecord(typeB);
-
-        if (recordA && !recordB) return 1;
-        if (!recordA && recordB) return -1;
-        return (a.teacher_id || 0) - (b.teacher_id || 0);
-    });
-
+    // 老师排序与合并文案由共享 buildMergedCategoryLabel 统一处理：
+    // 记录类老师沉底、其余按 teacher_id 升序（与导出文件/移动端视图同口径）。
     const first = group[0];
 
     // Time Slot Logic
@@ -1109,97 +1068,58 @@ function buildAdminScheduleCard(group, student, dateKey) {
     const content = document.createElement('div');
     content.className = 'card-content';
 
-    // 1. Valid Rows (Teachers)
+    // 1. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
+    //    移动端视图同口径。管理端老师可逐人快速切状态：下拉直接挂在各自名字后面。
     const listDiv = document.createElement('div');
     listDiv.className = 'schedule-list';
 
-    group.forEach(rec => {
-        const row = document.createElement('div');
-        const st = (rec.status || 'pending').toLowerCase();
-        row.className = 'schedule-row';
-        if (st === 'cancelled') {
-            row.classList.add('status-cancelled');
-        } else if (st === 'modified_away') {
-            row.classList.add('status-modified_away');
+    const statusMap = {
+        'pending': '待确认',
+        'confirmed': '已确认',
+        'completed': '已完成',
+        'cancelled': '已取消',
+        'modified_away': '已调整'
+    };
+
+    const mergedLabel = buildMergedCategoryLabel(group, {
+        personName: (rec) => rec.teacher_name || '未分配',
+        buildStatusNode: (rec) => {
+            const st = (rec.status || 'pending').toLowerCase();
+
+            // 行的唯一标识仍是 (session_id, teacher_uid)：同一场课出现在多个学生列，
+            // 乐观更新与状态切换都按这两个键定位（挂在 select 上，替代旧版挂在行上）。
+            const statusSelect = document.createElement('select');
+            statusSelect.className = `status-select ${st}`;
+            statusSelect.dataset.lastStatus = st;
+            statusSelect.dataset.scheduleId = rec.session_id != null ? rec.session_id : rec.id;
+            if (rec.teacher_uid) statusSelect.dataset.teacherUid = rec.teacher_uid;
+            // 乐观锁版本同步挂上：状态切换成功后更新它，编辑弹窗不再拿过期值撞 409。
+            if (rec.version != null) statusSelect.dataset.version = String(rec.version);
+
+            Object.keys(statusMap).forEach(key => {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = statusMap[key];
+                if (key === st) opt.selected = true;
+                statusSelect.appendChild(opt);
+            });
+
+            statusSelect.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止触发整卡编辑
+            });
+
+            statusSelect.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const newStatus = e.target.value;
+                statusSelect.blur(); // Remove focus
+                // 统一调用 updateScheduleStatus，由其内部处理 optimistic UI 和 API 同步
+                updateScheduleStatus(rec.session_id != null ? rec.session_id : rec.id, rec.teacher_uid, newStatus);
+            });
+
+            return statusSelect;
         }
-        row.dataset.scheduleId = rec.session_id != null ? rec.session_id : rec.id;
-        // 同一场课会出现在多个学生列里，session id 不再唯一 —— 行的唯一标识是
-        // (session_id, teacher_uid)，乐观更新与状态切换都按这两个键定位。
-        if (rec.teacher_uid) row.dataset.teacherUid = rec.teacher_uid;
-        // 把乐观锁版本也挂到 DOM 上：状态切换成功后同步刷新它，编辑弹窗与后续操作
-        // 就能拿到与库一致的 version，不再拿过期值撞 409。
-        row.dataset.sessionId = rec.session_id != null ? rec.session_id : rec.id;
-        if (rec.version != null) row.dataset.version = rec.version;
-        row.title = '点击修改';
-        row.style.cursor = 'pointer';
-
-        row.addEventListener('click', (e) => {
-            e.stopPropagation();
-            editSchedule(rec.session_id != null ? rec.session_id : rec.id);
-        });
-
-        // Left: Name + Type
-        const left = document.createElement('div');
-        left.className = 'row-left';
-
-        const typeStr = (rec.schedule_type_cn || rec.schedule_types || '').toString();
-
-        const leftHtml = `
-            <span class="teacher-name" style="flex-shrink: 0; white-space: nowrap;">${rec.teacher_name || '未分配'}</span>
-            <div class="marquee-wrapper" style="flex: 1; min-width: 0; max-width: none;">
-                <div class="marquee-content" style="padding-right: 0;">
-                    <span class="course-type-text">${typeStr}</span>
-                </div>
-            </div>
-        `;
-        if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(left, leftHtml);
-        else left.innerHTML = leftHtml;
-        row.appendChild(left);
-
-        // Right: Status Select (Quick Change)
-        const statusSelect = document.createElement('select');
-        statusSelect.className = `status-select ${st}`;
-        statusSelect.dataset.lastStatus = st; // Store for revert
-
-        const statusMap = { 
-            'pending': '待确认', 
-            'confirmed': '已确认', 
-            'completed': '已完成', 
-            'cancelled': '已取消',
-            'modified_away': '已调整'
-        };
-
-        Object.keys(statusMap).forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = statusMap[key];
-            if (key === st) opt.selected = true;
-            statusSelect.appendChild(opt);
-        });
-
-        statusSelect.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent card click
-        });
-
-        statusSelect.addEventListener('change', (e) => {
-            e.stopPropagation();
-            const newStatus = e.target.value;
-            statusSelect.blur(); // Remove focus
-
-            // 统一调用 updateScheduleStatus，由其内部处理 optimistic UI 和 API 同步
-            updateScheduleStatus(rec.session_id != null ? rec.session_id : rec.id, rec.teacher_uid, newStatus);
-        });
-
-        // Checkmark for completed status
-        if (st === 'completed') {
-            const checkmark = document.createElement('div');
-            checkmark.className = 'completed-checkmark-icon';
-            row.appendChild(checkmark);
-        }
-
-        row.appendChild(statusSelect);
-        listDiv.appendChild(row);
     });
+    listDiv.appendChild(mergedLabel);
     content.appendChild(listDiv);
 
     // 2. Footer (Time & Location) - Centered, Block

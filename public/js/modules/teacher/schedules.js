@@ -1,9 +1,9 @@
-import { SCHEDULE_STATUS_OPTIONS } from './constants.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import {
     appendScheduleWatermark,
+    buildMergedCategoryLabel,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton,
@@ -19,7 +19,6 @@ import {
     setText,
     showInlineFeedback,
     toISODate,
-    showActionSheet,
     startOfWeek
 } from './utils.js';
 const { escapeHtml, safeSetHTML } = window.SecurityUtils;
@@ -87,7 +86,6 @@ async function exportMobileWeekView() {
             personName: s => s.student_name || '未分配学生',
             editableStatus: true,
             formatTimeRange,
-            sortGroup: sortStudentsByIdAndType,
             onStatusChange: (schedule, newStatus) => updateScheduleStatus(schedule.id, newStatus, schedule.teacher_uid),
             onStatusChanged: (err, message) => {
                 const fb = document.getElementById('scheduleFeedback');
@@ -356,106 +354,59 @@ function buildScheduleCard(group) {
     // 内容容器
     const content = createElement('div', 'card-content');
 
-    // 排序逻辑改进：
-    // 1. 优先展示“正常/已确认/已完成”的课程，将“已调整(modified_away)”或“已取消”的排在后面
-    group.sort((a, b) => {
-        const getStatus = (item) => (item.status || 'pending').toLowerCase();
-        const statusA = getStatus(a);
-        const statusB = getStatus(b);
-        
-        const isInactive = (s) => s === 'modified_away' || s === 'cancelled';
-        const inactiveA = isInactive(statusA);
-        const inactiveB = isInactive(statusB);
-
-        if (inactiveA && !inactiveB) return 1;
-        if (!inactiveA && inactiveB) return -1;
-        return 0;
-    });
-
-    // 2. 排课记录列表 (支持多条合并)
+    // 2. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
+    //    移动端视图同口径。教师端老师可逐人快速切状态：下拉挂在各自名字后面。
     const listDiv = createElement('div', 'schedule-list');
 
-    group.forEach(rec => {
-        const st = (rec.status || 'pending').toLowerCase();
-        const row = createElement('div', 'schedule-row');
-        if (st === 'cancelled') row.classList.add('status-cancelled');
-        else if (st === 'modified_away') row.classList.add('status-modified_away');
-        row.title = '点击修改详情';
-        row.style.cursor = 'pointer';
+    const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
-        // 点击行打开编辑弹窗 (原有逻辑)
-        row.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showStatusActionSheet(rec, card);
-        });
+    const mergedLabel = buildMergedCategoryLabel(group, {
+        // 教师端视角：卡片主语是学生（谁在上课）
+        personName: (rec) => rec.student_name || '未指定',
+        buildStatusNode: (rec) => {
+            const st = (rec.status || 'pending').toLowerCase();
 
-        // 左侧：学生姓名 + 课程类型
-        const left = createElement('div', 'row-left');
-        const typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';
+            const statusSelect = createElement('select', `status-select ${st}`);
+            statusSelect.dataset.lastStatus = st;
 
-        const nameSpan = createElement('span', 'teacher-name', {
-            textContent: rec.student_name || '未指定'
-        });
-        nameSpan.style.cssText = 'flex-shrink: 0; white-space: nowrap;';
+            Object.keys(statusMap).forEach(key => {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = statusMap[key];
+                if (key === st) opt.selected = true;
+                statusSelect.appendChild(opt);
+            });
 
-        const marqueeWrapper = createElement('div', 'marquee-wrapper');
-        marqueeWrapper.style.cssText = 'flex: 1; min-width: 0; max-width: none;';
+            // 阻止点击下拉框触发状态面板（保留卡片/名字的原有点击行为）
+            statusSelect.addEventListener('click', (e) => e.stopPropagation());
 
-        const marqueeContent = createElement('div', 'marquee-content');
-        marqueeContent.style.paddingRight = '0';
-        const typeSpan = createElement('span', 'course-type-text', {
-            textContent: typeStr
-        });
-        marqueeContent.appendChild(typeSpan);
+            statusSelect.addEventListener('change', async (e) => {
+                e.stopPropagation();
+                const newStatus = e.target.value;
+                const oldStatus = statusSelect.dataset.lastStatus;
 
-        marqueeWrapper.appendChild(marqueeContent);
-        left.appendChild(nameSpan);
-        left.appendChild(marqueeWrapper);
-        row.appendChild(left);
+                statusSelect.disabled = true;
+                statusSelect.blur();
 
-        // 右侧：状态快速切换 (教师端可见)
-        const statusSelect = createElement('select', `status-select ${st}`);
-        statusSelect.dataset.lastStatus = st;
+                try {
+                    // 远程优先：先同步数据库，成功后再更新本地UI
+                    await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
+                    statusSelect.className = `status-select ${newStatus}`;
+                    statusSelect.dataset.lastStatus = newStatus;
+                    showInlineFeedback(elements.feedback(), '状态更新成功', 'success');
+                } catch (err) {
+                    statusSelect.value = oldStatus;
+                    statusSelect.className = `status-select ${oldStatus}`;
+                    showInlineFeedback(elements.feedback(), '更新失败', 'error');
+                } finally {
+                    statusSelect.disabled = false;
+                }
+            });
 
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
-
-        Object.keys(statusMap).forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = statusMap[key];
-            if (key === st) opt.selected = true;
-            statusSelect.appendChild(opt);
-        });
-
-        // 阻止点击下拉框触发行的编辑弹窗
-        statusSelect.addEventListener('click', (e) => e.stopPropagation());
-
-        statusSelect.addEventListener('change', async (e) => {
-            e.stopPropagation();
-            const newStatus = e.target.value;
-            const oldStatus = statusSelect.dataset.lastStatus;
-
-            statusSelect.disabled = true;
-            statusSelect.blur();
-
-            try {
-                // 远程优先：先同步数据库，成功后再更新本地UI
-                await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
-                statusSelect.className = `status-select ${newStatus}`;
-                statusSelect.dataset.lastStatus = newStatus;
-                showInlineFeedback(elements.feedback(), '状态更新成功', 'success');
-            } catch (err) {
-                statusSelect.value = oldStatus;
-                statusSelect.className = `status-select ${oldStatus}`;
-                showInlineFeedback(elements.feedback(), '更新失败', 'error');
-            } finally {
-                statusSelect.disabled = false;
-            }
-        });
-
-        row.appendChild(statusSelect);
-        listDiv.appendChild(row);
+            return statusSelect;
+        }
     });
+    listDiv.appendChild(mergedLabel);
     content.appendChild(listDiv);
 
     // 3. 底部信息
@@ -488,23 +439,6 @@ function buildScheduleCard(group) {
  */
 // updateScheduleStatus 由 shared/schedule-view-utils.js 提供（别名导入）
 
-function showStatusActionSheet(schedule, card) {
-    const status = (schedule.status || 'pending').toLowerCase();
-    showActionSheet(
-        '修改课程状态',
-        SCHEDULE_STATUS_OPTIONS.map(opt => ({
-            label: opt.label,
-            value: opt.value,
-            selected: opt.value === status
-        })),
-        async (newStatus) => {
-            if (newStatus !== status) {
-                await handleStatusChange(schedule.id, newStatus, card, null, schedule.teacher_uid);
-            }
-        }
-    );
-}
-
 // --------------------------------------------------------------------------
 // End of Build Schedule Card
 // --------------------------------------------------------------------------
@@ -536,58 +470,6 @@ function updateWeekRangeLabel(weekDates) {
 // startOfWeek is imported from ../shared/schedule-helpers.js
 
 
-// 处理状态修改 (for mobile view)
-async function handleStatusChange(scheduleId, newStatus, cardElement, statusSelect, teacherUid) {
-    const originalStatus = statusSelect ? statusSelect.value : null;
-
-    try {
-        // 禁用选择器防止重复操作
-        if (statusSelect) {
-            statusSelect.disabled = true;
-            statusSelect.style.opacity = '0.6';
-        }
-
-        // 调用API更新状态（与桌面端共用 pair 级端点，需带上 teacher_uid）
-        await updateScheduleStatus(scheduleId, newStatus, teacherUid);
-
-        // 更新UI - 更新select的class以反映新状态
-        if (statusSelect) {
-            statusSelect.className = `status-select-mobile chip status-${newStatus}`;
-        }
-
-        // 更新卡片状态类
-        cardElement.className = cardElement.className.replace(/status-\w+/, `status-${newStatus}`);
-
-        // 显示成功提示
-        showInlineFeedback(elements.feedback(), '课程状态已更新', 'success');
-
-        // 3秒后清除提示
-        setTimeout(() => {
-            showInlineFeedback(elements.feedback(), '', 'info');
-        }, 3000);
-
-    } catch (error) {
-        
-
-        // 恢复原状态
-        if (statusSelect && originalStatus) {
-            statusSelect.value = originalStatus;
-        }
-
-        // 显示错误提示
-        showInlineFeedback(elements.feedback(), '状态更新失败，请稍后重试', 'error');
-
-        setTimeout(() => {
-            showInlineFeedback(elements.feedback(), '', 'info');
-        }, 3000);
-    } finally {
-        // 重新启用选择器
-        if (statusSelect) {
-            statusSelect.disabled = false;
-            statusSelect.style.opacity = '1';
-        }
-    }
-}
 
 // Add global click listener to close dropdowns when clicking outside
 document.addEventListener('click', (e) => {
@@ -597,23 +479,6 @@ document.addEventListener('click', (e) => {
         });
     }
 });
-// 排序排课记录：特殊类型排最后，其他按学生ID排序
-function sortStudentsByIdAndType(a, b) {
-    // 1. 特殊类型排最后 (评审, 咨询)
-    // 教师端数据可能用 course_type 或 schedule_type
-    const typeA = String(a.schedule_type || a.course_type || '');
-    const typeB = String(b.schedule_type || b.course_type || '');
-
-    const specialTypes = ['review', 'advisory', 'review-online', 'advisory-online'];
-    const aIsSpecial = specialTypes.includes(typeA);
-    const bIsSpecial = specialTypes.includes(typeB);
-
-    if (aIsSpecial && !bIsSpecial) return 1;
-    if (!aIsSpecial && bIsSpecial) return -1;
-
-    // 2. 按学生ID排序
-    return (a.student_id || 0) - (b.student_id || 0);
-}
 
 export function refreshSchedules() {
     return loadSchedules(currentWeekStart);
