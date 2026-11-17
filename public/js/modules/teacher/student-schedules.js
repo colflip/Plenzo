@@ -11,6 +11,7 @@ import {
 } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
+    buildMergedCategoryLabel,
     groupSchedulesBySlot,
     bindWeekNavigation,
     updateTeacherScheduleStatus as updateScheduleStatus
@@ -404,22 +405,7 @@ function renderDesktopScheduleTable(weekDates, schedules, students = []) {
                 // 按时间/地点分组
                 const groups = groupSchedulesBySlot(dailySchedules);
                 groups.forEach(group => {
-                    // 评审记录 / 咨询记录 类型的记录沉到最后，其它按 teacher_id 升序
-                    group.sort((a, b) => {
-                        const getTypeName = (item) => (
-                            item.schedule_type_cn || item.schedule_type_name || item.type_name ||
-                            item.schedule_types || item.schedule_type || item.course_type || ''
-                        ).toString();
-                        const isRecord = (item) => {
-                            const n = getTypeName(item);
-                            if (n.includes('评审记录') || n.includes('咨询记录')) return true;
-                            return /(review|consultation|advisory)[\s_-]?record/i.test(n);
-                        };
-                        const rA = isRecord(a) ? 1 : 0;
-                        const rB = isRecord(b) ? 1 : 0;
-                        if (rA !== rB) return rA - rB;
-                        return (Number(a.teacher_id) || 0) - (Number(b.teacher_id) || 0);
-                    });
+                    // 老师排序在 buildMergedCategoryLabel 内统一处理（记录类沉底 + teacher_id 升序）
                     cell.appendChild(buildScheduleCard(group));
                 });
             } else {
@@ -496,89 +482,64 @@ function buildScheduleCard(group) {
     const content = createElement('div', 'card-content');
     const listDiv = createElement('div', 'schedule-list');
 
-    group.forEach(rec => {
-        const row = createElement('div', 'schedule-row');
-        const st = (rec.status || 'pending').toLowerCase();
-        if (st === 'cancelled') {
-            row.classList.add('status-cancelled');
-        } else if (st === 'modified_away') {
-            row.classList.add('status-modified_away');
+    // 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
+    // 移动端视图同口径。班主任可逐人快速切状态：下拉挂在各自名字后面。
+    const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
+
+    const mergedLabel = buildMergedCategoryLabel(group, {
+        personName: (rec) => rec.teacher_name || '未指定',
+        buildStatusNode: (rec) => {
+            const st = (rec.status || 'pending').toLowerCase();
+
+            const statusSelect = createElement('select', `status-select ${st}`);
+            statusSelect.dataset.lastStatus = st;
+            Object.keys(statusMap).forEach(key => {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = statusMap[key];
+                if (key === st) opt.selected = true;
+                statusSelect.appendChild(opt);
+            });
+
+            statusSelect.addEventListener('click', (e) => e.stopPropagation());
+            statusSelect.addEventListener('change', async (e) => {
+                e.stopPropagation();
+                const newStatus = e.target.value;
+                const oldStatus = statusSelect.dataset.lastStatus;
+
+                statusSelect.disabled = true;
+                statusSelect.blur();
+
+                try {
+                    // 远程优先：先同步数据库
+                    await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
+                    // 远程成功后再更新本地UI状态
+                    statusSelect.className = `status-select ${newStatus}`;
+                    statusSelect.dataset.lastStatus = newStatus;
+                    const feedback = document.getElementById('ssScheduleFeedback');
+                    if (feedback) {
+                        showInlineFeedback(feedback, '状态更新成功', 'success');
+                    } else if (window.apiUtils && window.apiUtils.showToast) {
+                        window.apiUtils.showToast('状态更新成功', 'success');
+                    }
+                } catch (err) {
+                    statusSelect.value = oldStatus;
+                    statusSelect.className = `status-select ${oldStatus}`;
+                    const feedback = document.getElementById('ssScheduleFeedback');
+                    if (feedback) {
+                        showInlineFeedback(feedback, '更新失败', 'error');
+                    } else if (window.apiUtils && window.apiUtils.showToast) {
+                        window.apiUtils.showToast(err.message || '更新失败', 'error');
+                    }
+                } finally {
+                    statusSelect.disabled = false;
+                }
+            });
+
+            return statusSelect;
         }
-
-        const left = createElement('div', 'row-left marquee-wrapper');
-        const typeStr = rec.schedule_type_cn || rec.schedule_type || '课程';
-
-        const nameSpan = createElement('span', 'teacher-name', {
-            textContent: rec.teacher_name || '未指定',
-            style: 'flex-shrink: 0; white-space: nowrap; max-width: 60px; overflow: hidden; text-overflow: ellipsis;'
-        });
-
-        const marqueeWrapper = createElement('div', 'marquee-wrapper');
-        marqueeWrapper.style.cssText = 'flex: 1; min-width: 0; max-width: none;';
-
-        const marqueeContent = createElement('div', 'marquee-content');
-        marqueeContent.style.paddingRight = '0';
-        window.SecurityUtils.safeSetHTML(marqueeContent, `<span class="course-type-text">${typeStr}</span>`);
-        
-        
-
-        marqueeWrapper.appendChild(marqueeContent);
-        left.appendChild(nameSpan);
-        left.appendChild(marqueeWrapper);
-        row.appendChild(left);
-
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
-
-        const statusSelect = createElement('select', `status-select ${st}`);
-        statusSelect.dataset.lastStatus = st;
-        Object.keys(statusMap).forEach(key => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = statusMap[key];
-            if (key === st) opt.selected = true;
-            statusSelect.appendChild(opt);
-        });
-
-        statusSelect.addEventListener('click', (e) => e.stopPropagation());
-        statusSelect.addEventListener('change', async (e) => {
-            e.stopPropagation();
-            const newStatus = e.target.value;
-            const oldStatus = statusSelect.dataset.lastStatus;
-
-            statusSelect.disabled = true;
-            statusSelect.blur();
-
-            try {
-                // 远程优先：先同步数据库
-                await updateScheduleStatus(rec.id, newStatus, rec.teacher_uid);
-                // 远程成功后再更新本地UI状态
-                statusSelect.className = `status-select ${newStatus}`;
-                statusSelect.dataset.lastStatus = newStatus;
-                const feedback = document.getElementById('ssScheduleFeedback');
-                if (feedback) {
-                    showInlineFeedback(feedback, '状态更新成功', 'success');
-                } else if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast('状态更新成功', 'success');
-                }
-            } catch (err) {
-                statusSelect.value = oldStatus;
-                statusSelect.className = `status-select ${oldStatus}`;
-                const feedback = document.getElementById('ssScheduleFeedback');
-                if (feedback) {
-                    showInlineFeedback(feedback, '更新失败', 'error');
-                } else if (window.apiUtils && window.apiUtils.showToast) {
-                    window.apiUtils.showToast(err.message || '更新失败', 'error');
-                }
-            } finally {
-                statusSelect.disabled = false;
-            }
-        });
-
-        const rightLabel = createElement('div', '', { style: 'display: flex; align-items: center; gap: 4px; flex-shrink: 0;' });
-        rightLabel.appendChild(statusSelect);
-        row.appendChild(rightLabel);
-        listDiv.appendChild(row);
     });
+    listDiv.appendChild(mergedLabel);
     content.appendChild(listDiv);
 
     // 底部信息 (时间和地点)
