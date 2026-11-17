@@ -11,7 +11,7 @@ import {
 } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
-    buildMergedCategoryLabel,
+    buildCardTeacherArea,
     groupSchedulesBySlot,
     bindWeekNavigation,
     updateTeacherScheduleStatus as updateScheduleStatus
@@ -482,11 +482,11 @@ function buildScheduleCard(group) {
     const content = createElement('div', 'card-content');
     const listDiv = createElement('div', 'schedule-list');
 
-    // 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
-    // 移动端视图同口径。班主任可逐人快速切状态：下拉挂在各自名字后面。
+    // 人员区：单人一行「姓名 授课类型 状态」；多人时评审/咨询族、集体活动
+    // 内联（类型名在前），其它类型每行一位老师。班主任可逐人快速切状态。
     const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
-    const mergedLabel = buildMergedCategoryLabel(group, {
+    const teacherArea = buildCardTeacherArea(group, {
         personName: (rec) => rec.teacher_name || '未指定',
         buildStatusNode: (rec) => {
             const st = (rec.status || 'pending').toLowerCase();
@@ -539,7 +539,7 @@ function buildScheduleCard(group) {
             return statusSelect;
         }
     });
-    listDiv.appendChild(mergedLabel);
+    listDiv.appendChild(teacherArea);
     content.appendChild(listDiv);
 
     // 底部信息 (时间和地点)

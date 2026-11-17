@@ -5,14 +5,14 @@
 
 import { TIME_ZONE } from './constants.js';
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
-import { getScheduleWatermarkText, getCardTypeKey } from '../shared/schedule-helpers.js';
+import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import {
     collectWeeklyViewRows,
     captureWeeklyViewRow,
     captureWeekMobileViewToClipboard
 } from '../../components/schedule-view-capture.js';
 import { syncToggleButton } from '../shared/view-utils.js';
-import { setupWeekViewExportButton, buildMergedCategoryLabel } from '../shared/schedule-view-utils.js';
+import { setupWeekViewExportButton, buildCardTeacherArea } from '../shared/schedule-view-utils.js';
 import {
     initPairForm, resetPairRows, fillPairRows, collectPairs, refitPairSelects
 } from './schedule-pair-form.js';
@@ -983,11 +983,13 @@ async function exportStudentMobileView(student) {
 function renderGroupedMergedSlots(td, items, student, dateKey) {
     const groups = new Map();
     items.forEach(item => {
-        // 分组键 = 时间段 + 地点 + 折叠类型，与导出文件 / 移动端视图同口径：
-        // 同一天同时间同地点同类型的课就是「一节课」，无论来自几个场次，老师都并进同一张卡。
-        // 旧实现按场次 id 归组，同时间同地点的两个场次（补排 / 调整后另建）会各画一张卡，
-        // 看起来像同一节课出现了两次。类型不同的（评审老师 + 入户老师）仍是两节不同的课。
-        const key = `${item.start_time || ''}-${item.end_time || ''}-${item.location || ''}|${getCardTypeKey(item)}`;
+        // 分组键 = 数据库记录（session_id）：一条记录 = 一节课，一条记录可含多位
+        // 老师、多种授课类型，全部并进同一张卡。不再用时间/地点/类型拼判定键 ——
+        // 那是基于「一场课只有一种类型」的旧假设；课程保存方式已改为单条记录
+        // 多老师多类型。session_id 缺失时按 (时间+地点) 兜底。
+        const key = item.session_id != null
+            ? `session:${item.session_id}`
+            : `fallback:${item.start_time || ''}-${item.end_time || ''}-${item.location || ''}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
     });
@@ -995,9 +997,9 @@ function renderGroupedMergedSlots(td, items, student, dateKey) {
     const sortedGroups = Array.from(groups.values()).sort((a, b) => {
         const byStart = (a[0].startMin || 0) - (b[0].startMin || 0);
         if (byStart) return byStart;
-        // 同一时段拆出的几张卡按类型名定序，顺序不随后端行序漂移
-        const ka = getCardTypeKey(a[0]);
-        const kb = getCardTypeKey(b[0]);
+        // 同一时段拆出的几张卡按地点定序，顺序不随后端行序漂移
+        const ka = a[0].location || '';
+        const kb = b[0].location || '';
         return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 
@@ -1068,8 +1070,8 @@ function buildAdminScheduleCard(group, student, dateKey) {
     const content = document.createElement('div');
     content.className = 'card-content';
 
-    // 1. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
-    //    移动端视图同口径。管理端老师可逐人快速切状态：下拉直接挂在各自名字后面。
+    // 1. 人员区：单人一行「姓名 授课类型 状态」；多人时评审/咨询族、集体活动
+    //    内联（类型名在前），其它类型每行一位老师。管理端老师可逐人快速切状态。
     const listDiv = document.createElement('div');
     listDiv.className = 'schedule-list';
 
@@ -1081,13 +1083,13 @@ function buildAdminScheduleCard(group, student, dateKey) {
         'modified_away': '已调整'
     };
 
-    const mergedLabel = buildMergedCategoryLabel(group, {
+    const teacherArea = buildCardTeacherArea(group, {
         personName: (rec) => rec.teacher_name || '未分配',
         buildStatusNode: (rec) => {
             const st = (rec.status || 'pending').toLowerCase();
 
             // 行的唯一标识仍是 (session_id, teacher_uid)：同一场课出现在多个学生列，
-            // 乐观更新与状态切换都按这两个键定位（挂在 select 上，替代旧版挂在行上）。
+            // 乐观更新与状态切换都按这两个键定位（挂在 select 上）。
             const statusSelect = document.createElement('select');
             statusSelect.className = `status-select ${st}`;
             statusSelect.dataset.lastStatus = st;
@@ -1119,7 +1121,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
             return statusSelect;
         }
     });
-    listDiv.appendChild(mergedLabel);
+    listDiv.appendChild(teacherArea);
     content.appendChild(listDiv);
 
     // 2. Footer (Time & Location) - Centered, Block

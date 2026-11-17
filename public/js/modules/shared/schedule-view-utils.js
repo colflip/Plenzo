@@ -39,66 +39,142 @@ export function sortMergedGroup(group) {
 }
 
 /**
- * 构建「类型（老师A，老师B，老师C（记录））」合并标签 —— PC 页内周视图卡片与
- * 移动端导出视图共用的一份实现，与导出文件的段格式同口径。
+ * 周视图卡片的「人员区」构建器（PC 页内四端 + 移动端导出视图共用）。
  *
- * 颜色随导出文件（TypeConversion.getColorKind：红 = 评审/咨询族，蓝 = 集体活动，
- * 其余黑）。每位老师名字后可挂自己的状态：buildStatus(rec) 返回 {text, cls} 或
- * null 时渲染文字 span（移动端轻量状态）；需要交互控件（管理端/教师端的状态
- * 下拉）时用 buildStatusNode(rec)，直接返回要插入的元素，返回 null 则不插。
+ * 卡片基本结构（配色、底部时间地点）由调用方负责，这里只负责人员区三版式：
+ * - 单人课程（不限类型）：一行「姓名 授课类型 状态」，无分隔符；
+ * - 多人课程：
+ *   · 组内含评审/咨询族或集体活动（TypeConversion.getColorKind 红/蓝）：类型名在前，
+ *     「姓名 状态」依次内联显示，放不下自动换行；记录类老师名字带（记录）并沉底。
+ *     整行着色：集体活动全蓝、评审/咨询全红（状态 chip 自带配色不受影响）；
+ *   · 其它类型：每行一位老师「姓名 授课类型 状态」，行与行之间无分隔符。
  *
- * @param {Array} group 同一课程（同时间/地点/类型）的排课记录组
- * @param {object} options { personName(rec), buildStatus(rec), buildStatusNode(rec),
- *                           className, personClassName, statusClassName }
+ * 状态由 options.buildStatusNode(rec) 提供（PC 管理端/教师端/班主任端返回可交互
+ * 下拉，学生端与移动端返回只读标签），返回 null 则该人不显示状态。
+ * 类名前缀可注入：PC 用默认 ct-*（CSS 在 dashboard.css 的 .card-teachers 家族），
+ * 移动端传 cls 适配对象改挂 msv-*（CSS 在 schedule-mobile-view.css）。
+ *
+ * @param {Array} group 同一课程（session_id 一条记录）的排课记录组，可含多种类型
+ * @param {object} options { personName(rec), typeLabelOf(rec), buildStatusNode(rec),
+ *                           className, cls: {area, row, left, right, person, type,
+ *                           inline, head, colorRed, colorBlue} }
  * @returns {HTMLElement}
  */
-export function buildMergedCategoryLabel(group, options) {
+export function buildCardTeacherArea(group, options) {
     const opts = {
-        personName: (rec) => rec.teacher_name || rec.teacher_uid || '未指定',
-        buildStatus: null,
+        personName: (rec) => rec.teacher_name || '未指定',
+        typeLabelOf: (rec) => String(rec.schedule_type_cn || rec.schedule_types || rec.schedule_type || '课程').trim(),
         buildStatusNode: null,
-        className: 'merged-category',
-        personClassName: 'merged-person',
-        statusClassName: 'merged-status',
+        className: 'card-teachers',
+        // 其它类型多人时的版式：'rows'（PC，每行一位）| 'inline'（移动端，内联流式换行）
+        nonFamilyLayout: 'rows',
+        // PC 端默认类名；移动端经 cls 对象整体替换
+        cls: {
+            area: 'card-teachers',
+            row: 'ct-row',
+            left: 'ct-left',
+            right: 'ct-right',
+            person: 'ct-person',
+            type: 'ct-type',
+            inline: 'ct-inline',
+            head: 'ct-head',
+            unit: 'ct-unit',
+            colorRed: 'ct-color-red',
+            colorBlue: 'ct-color-blue'
+        },
         ...options
     };
+    const cls = { ...opts.cls };
+    if (opts.className && opts.className !== 'card-teachers') cls.area = opts.className;
     const ordered = sortMergedGroup(group.slice());
-    const rt = richText();
-    const category = (rt && typeof rt.getFoldedDisplayType === 'function')
-        ? (rt.getFoldedDisplayType(ordered[0]) || getCardTypeKey(ordered[0]))
-        : getCardTypeKey(ordered[0]);
+    const wrap = createElement('div', cls.area);
 
+    if (ordered.length === 1) {
+        wrap.appendChild(buildTeacherRow(ordered[0], opts, cls));
+        return wrap;
+    }
+
+    // 组内可能混类型（一条记录多位老师不同类型）：取组内主类型定颜色。
+    // 排序后记录类沉底，主类型取首位普通老师的折叠类型。
+    const primary = ordered.find(rec => !isRecordTypeOf(rec)) || ordered[0];
+    const category = getCardTypeKey(primary);
     const tc = (typeof window !== 'undefined' && window.TypeConversion) || null;
     const colorKind = tc && typeof tc.getColorKind === 'function'
         ? tc.getColorKind(category)
         : 'black';
-    const colorClass = colorKind === 'red'
-        ? ' color-red'
-        : colorKind === 'blue' ? ' color-blue' : '';
 
-    // 用 block 容器 + 每个名字是 inline-block（不可拆单元），浏览器与 html2canvas
-    // 都按可用宽度贪心填满每一行，放不下才整组换行（与移动端视图同款实现）。
-    const wrap = createElement('div', `${opts.className}${colorClass}`);
-    wrap.appendChild(document.createTextNode(`${category}（`));
+    if (colorKind === 'red' || colorKind === 'blue') {
+        wrap.appendChild(buildFamilyInline(ordered, opts, cls, category, colorKind));
+    } else if (opts.nonFamilyLayout === 'inline') {
+        wrap.appendChild(buildTeacherFlow(ordered, opts, cls));
+    } else {
+        ordered.forEach(rec => wrap.appendChild(buildTeacherRow(rec, opts, cls)));
+    }
+    return wrap;
+}
+
+/** 单行版式：「姓名 授课类型」+ 右侧状态（其它类型与单人课程共用），无分隔符 */
+function buildTeacherRow(rec, opts, cls) {
+    const row = createElement('div', cls.row);
+    const left = createElement('div', cls.left);
+    left.appendChild(createElement('span', cls.person, { textContent: opts.personName(rec) }));
+    left.appendChild(createElement('span', cls.type, { textContent: opts.typeLabelOf(rec) || '课程' }));
+    row.appendChild(left);
+
+    if (opts.buildStatusNode) {
+        const statusNode = opts.buildStatusNode(rec);
+        if (statusNode) {
+            const right = createElement('div', cls.right);
+            right.appendChild(statusNode);
+            row.appendChild(right);
+        }
+    }
+    return row;
+}
+
+/**
+ * 内联流式版式（移动端其它类型多人）：每位老师的「姓名 授课类型 状态」是一个
+ * nowrap 原子单元，依次顺序排列，放不下整组换行。老师之间用「，」分隔。
+ */
+function buildTeacherFlow(ordered, opts, cls) {
+    const flow = createElement('div', cls.inline);
     ordered.forEach((rec, index) => {
-        wrap.appendChild(createElement('span', opts.personClassName, {
+        const unit = createElement('span', cls.unit);
+        unit.appendChild(createElement('span', cls.person, { textContent: opts.personName(rec) }));
+        unit.appendChild(createElement('span', cls.type, { textContent: opts.typeLabelOf(rec) || '课程' }));
+        if (opts.buildStatusNode) {
+            const statusNode = opts.buildStatusNode(rec);
+            if (statusNode) unit.appendChild(statusNode);
+        }
+        flow.appendChild(unit);
+        if (index < ordered.length - 1) flow.appendChild(document.createTextNode('，'));
+    });
+    return flow;
+}
+
+/**
+ * 红蓝色族多人内联版式：「评审：张三 状态，李四 状态」。
+ * 整行着色（集体活动蓝 / 评审咨询红）；状态节点若自带配色（chip/下拉）则不受行色影响，
+ * 行内人名之间的「，」分隔符保留（这是用户指定的族内格式）。
+ */
+function buildFamilyInline(ordered, opts, cls, category, colorKind) {
+    const inline = createElement('div', `${cls.inline} ${colorKind === 'red' ? cls.colorRed : cls.colorBlue}`);
+    const head = createElement('span', cls.head, {
+        textContent: `${category}：`
+    });
+    inline.appendChild(head);
+
+    ordered.forEach((rec, index) => {
+        inline.appendChild(createElement('span', cls.person, {
             textContent: opts.personName(rec) + (isRecordTypeOf(rec) ? '（记录）' : '')
         }));
         if (opts.buildStatusNode) {
             const statusNode = opts.buildStatusNode(rec);
-            if (statusNode) wrap.appendChild(statusNode);
-        } else if (opts.buildStatus) {
-            const status = opts.buildStatus(rec);
-            if (status) {
-                wrap.appendChild(createElement('span', `${opts.statusClassName} ${status.cls || ''}`, {
-                    textContent: `（${status.text}）`
-                }));
-            }
+            if (statusNode) inline.appendChild(statusNode);
         }
-        if (index < ordered.length - 1) wrap.appendChild(document.createTextNode('，'));
+        if (index < ordered.length - 1) inline.appendChild(document.createTextNode('，'));
     });
-    wrap.appendChild(document.createTextNode('）'));
-    return wrap;
+    return inline;
 }
 
 /**
@@ -163,13 +239,20 @@ export function groupSchedulesByDate(weekDates, schedules) {
     return grouped;
 }
 
-/** 同一时段 + 同一地点 + 同一课程类型的记录聚成一组（渲染成一张合并卡片） */
+/**
+ * 按数据库记录（session_id）聚组：一条记录 = 一节课，一条记录可含多位老师、
+ * 多种授课类型，全部渲染进同一张卡片。
+ *
+ * 不再用时间/地点/类型拼判定键 —— 那是基于「一场课只有一种类型」的旧假设。
+ * 课程保存方式已改为单条记录多老师多类型，判定标准就是记录本身。
+ * session_id 缺失时按 (时间+地点) 兜底，避免旧数据丢组。
+ */
 export function groupSchedulesBySlot(schedules) {
     const slots = new Map();
     schedules.forEach(s => {
-        // 类型也进键：同时间同地点但类型不同（评审 vs 入户）是两节不同的课，
-        // 不能并成一张卡 —— 把评审改成入户后，两类老师还挂在同一个场次下。
-        const key = `${s.start_time}-${s.end_time}-${s.location || ''}|${getCardTypeKey(s)}`;
+        const key = s.session_id != null
+            ? `session:${s.session_id}`
+            : `fallback:${s.start_time}-${s.end_time}-${s.location || ''}`;
         if (!slots.has(key)) slots.set(key, []);
         slots.get(key).push(s);
     });

@@ -445,21 +445,20 @@ function getTypeColorClass(category) {
 }
 
 /**
- * 合并同人员下同日期/同时间段/同地址的**全部课程类型**（已取消课程不参与显示）
+ * 按数据库记录（session_id）合并同人员下的课程（已取消课程不参与显示）：
+ * 一条记录 = 一节课，一条记录可含多位老师、多种授课类型，全部并成一行。
+ * 不再用类别/日期/时间段/地址拼判定键 —— 课程保存方式已改为单条记录
+ * 多老师多类型，判定标准就是记录本身。session_id 缺失时按人员+时间兜底。
  * @param {Array<Object>} items 参与合并的课程
  * @param {Object} groupFields 分组依据字段 { id, name }
  */
 function mergeReviewCounseling(items, groupFields) {
     const groups = new Map();
     items.forEach(item => {
-        const key = [
-            getMergeCategory(item),
-            item[groupFields.id] != null ? item[groupFields.id] : item[groupFields.name] || '',
-            item.date || '',
-            item.start_time || '',
-            item.end_time || '',
-            item.location || ''
-        ].join('|');
+        const person = item[groupFields.id] != null ? item[groupFields.id] : item[groupFields.name] || '';
+        const key = item.session_id != null
+            ? `session:${item.session_id}`
+            : `fallback:${person}|${item.date || ''}|${item.start_time || ''}|${item.end_time || ''}|${item.location || ''}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(item);
     });

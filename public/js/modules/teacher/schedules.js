@@ -3,7 +3,7 @@ import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
 import {
     appendScheduleWatermark,
-    buildMergedCategoryLabel,
+    buildCardTeacherArea,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton,
@@ -354,15 +354,16 @@ function buildScheduleCard(group) {
     // 内容容器
     const content = createElement('div', 'card-content');
 
-    // 2. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
-    //    移动端视图同口径。教师端老师可逐人快速切状态：下拉挂在各自名字后面。
+    // 2. 人员区：单人一行「姓名 授课类型 状态」；多人时评审/咨询族、集体活动
+    //    内联（类型名在前），其它类型每行一位老师。教师端可逐人快速切状态。
     const listDiv = createElement('div', 'schedule-list');
 
     const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
-    const mergedLabel = buildMergedCategoryLabel(group, {
+    const teacherArea = buildCardTeacherArea(group, {
         // 教师端视角：卡片主语是学生（谁在上课）
         personName: (rec) => rec.student_name || '未指定',
+        typeLabelOf: (rec) => String(rec.schedule_type_cn || rec.schedule_type || '课程').trim(),
         buildStatusNode: (rec) => {
             const st = (rec.status || 'pending').toLowerCase();
 
@@ -406,7 +407,7 @@ function buildScheduleCard(group) {
             return statusSelect;
         }
     });
-    listDiv.appendChild(mergedLabel);
+    listDiv.appendChild(teacherArea);
     content.appendChild(listDiv);
 
     // 3. 底部信息
