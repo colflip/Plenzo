@@ -3,14 +3,14 @@
  *
  * 三端（学生 / 教师 / 班主任）与管理端双击导出共用这一份渲染。
  * 结构是一张两列表格：左列「M月D日 周X」，右列当天所有安排。
- * 每节课与导出文件同口径：全类型合并成「类型（老师A，老师B，老师C（记录））」，
- * 普通老师按 teacher_id 升序在前、记录类老师沉底标「（记录）」；
- * 颜色随导出文件（红 = 评审/咨询族，蓝 = 集体活动，其余黑）；
- * 底部独立一行「时间 + 地点」（时间黑色加粗）。移动端只显示待确认/已取消状态。
+ * 人员区与 PC 卡片同口径：每位老师一行「姓名 授课类型 状态」（无括号、无逗号），
+ * 记录类老师沉底标「（记录）」；颜色随导出文件（红 = 评审/咨询族，蓝 = 集体活动，
+ * 状态 chip 自带配色不受影响）；底部独立一行「时间 + 地点」（时间黑色加粗）。
+ * 移动端只显示待确认/已取消状态。分组按数据库记录（session_id）。
  * 类型折叠与颜色判定直接调 ScheduleCalendarCore.RichText / TypeConversion。
  *
  * 复用既有能力，不重复造轮子：
- *   - groupSchedulesByDate / groupSchedulesBySlot：按日、按时段+地点+类型分组
+ *   - groupSchedulesByDate / groupSchedulesBySlot：按日、按数据库记录分组
  *   - getTimeSlotId / formatTimeRange / getScheduleWatermarkText：时段、时间、水印
  *   - appendScheduleWatermark：临时/调整课手写体水印
  *   - .slot-*：dashboard.css 已有的统一视觉 token
@@ -26,17 +26,19 @@ import {
 } from './schedule-helpers.js';
 import {
     appendScheduleWatermark,
-    buildMergedCategoryLabel,
+    buildCardTeacherArea,
     groupSchedulesByDate,
     groupSchedulesBySlot
 } from './schedule-view-utils.js';
 
 const WEEKDAY_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
-// 移动端只暴露这两种「需要留意」的状态；已确认 / 已完成 / 已调整不显示
+// 移动端只显示「非正常」状态：待确认 / 已取消 / 已调整；已确认 / 已完成不显示。
+// 与 PC 卡片同口径（PC 端每人完整状态下拉，移动端只读标签）。
 const VISIBLE_STATUS = {
     pending: { text: '待确认', cls: 'msv-status-pending' },
-    cancelled: { text: '已取消', cls: 'msv-status-cancelled' }
+    cancelled: { text: '已取消', cls: 'msv-status-cancelled' },
+    modified_away: { text: '已调整', cls: 'msv-status-cancelled' }
 };
 
 /** 该排课是否需要显示状态标记；返回 {text, cls} 或 null */
@@ -45,23 +47,34 @@ function visibleStatusOf(schedule) {
     return VISIBLE_STATUS[st] || null;
 }
 
-// 全部课程类型都走「类型（老师A，老师B，老师C（记录））」合并展示（与导出文件分段一致）。
-// 合并标签的构建、老师排序、颜色判定统一收在 schedule-view-utils.js 的
-// buildMergedCategoryLabel（PC 页内周视图卡片与这里共用一份实现）。
-
 /**
- * 全类型合并：把同组多位老师合并成「入户（张三，李四，王五（记录））」，
- * 与导出文件的段格式一致。普通老师在前按 teacher_id 升序，记录类老师排最后且名字后标「（记录）」。
- * 颜色随导出文件：红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑。
+ * 人员区：与 PC 页内卡片同一份三版式构建器（单人一行 / 红/蓝族内联 / 其它每行一位），
+ * 类名适配到 msv-*（CSS 在 schedule-mobile-view.css）。
+ * 状态是只读标签，只显示非正常状态（待确认/已取消/已调整）。
  */
-function buildMergedCategoryLabelForMobile(group, options) {
-    // 移动端只显示「待确认/已取消」两种需要留意的状态
-    return buildMergedCategoryLabel(group, {
+function buildTeacherArea(group, options) {
+    return buildCardTeacherArea(group, {
         personName: options.personName,
-        buildStatus: visibleStatusOf,
-        className: 'msv-merged-category',
-        personClassName: 'msc-person',
-        statusClassName: 'msv-status'
+        buildStatusNode: (rec) => {
+            const status = visibleStatusOf(rec);
+            if (!status) return null;
+            return createElement('span', `msv-status ${status.cls}`, { textContent: status.text });
+        },
+        className: 'msv-teacher-list',
+        // 其它类型多人：内联流式（姓名 类型 状态是原子单元，放不下整组换行）
+        nonFamilyLayout: 'inline',
+        cls: {
+            row: 'msv-teacher-row',
+            left: 'msv-row-left',
+            right: 'msv-row-right',
+            person: 'msc-person',
+            type: 'msv-type',
+            inline: 'msv-inline',
+            head: 'msv-head',
+            unit: 'msv-teacher-unit',
+            colorRed: 'msv-color-red',
+            colorBlue: 'msv-color-blue'
+        }
     });
 }
 
@@ -82,14 +95,8 @@ function buildCourseLine(group, options) {
     const line = createElement('div', `msv-course ${slotClass}${isAllCancelled ? ' status-cancelled' : ''}`);
     appendScheduleWatermark(line, getScheduleWatermarkText(group));
 
-    // 多位老师同槽时按 teacher_id 升序显示。「姓名 + 类型 chip」是一组最小的
-    // 不可拆单位（整组不换行），多组按可用宽度顺序流式填满每行，放不下才整组换行。
-    const list = createElement('div', 'msv-teacher-list');
-
-    // 与导出文件一致：所有类型都合并成「入户（张三，李四，王五（记录））」，
-    // 单人也写成「入户（张三）」，保持整个族格式统一
-    list.appendChild(buildMergedCategoryLabelForMobile(group, options));
-    line.appendChild(list);
+    // 人员区：每位老师一行「姓名 授课类型 状态」，与 PC 卡片同口径（无括号）
+    line.appendChild(buildTeacherArea(group, options));
 
     // 底部一行「时间 + 地点」，与 PC 卡片的 schedule-footer 对齐；时间黑色加粗。
     const footer = createElement('div', 'msv-footer');

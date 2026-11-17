@@ -5,7 +5,7 @@ import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { captureWeekTableToClipboard, captureWeekMobileViewToClipboard } from '../../components/schedule-view-capture.js';
 import {
     appendScheduleWatermark,
-    buildMergedCategoryLabel,
+    buildCardTeacherArea,
     groupSchedulesBySlot,
     bindWeekNavigation,
     setupWeekViewExportButton
@@ -382,20 +382,24 @@ function buildScheduleCard(group) {
     // 内容容器
     const content = createElement('div', 'card-content');
 
-    // 2. 合并行：所有类型统一「类型（老师A，老师B，老师C（记录））」，与导出文件 /
-    //    移动端视图同口径。学生端只读：每人名字后跟各自的状态文字标签。
+    // 2. 人员区：单人一行「姓名 授课类型 状态」；多人时评审/咨询族、集体活动
+    //    内联（类型名在前），其它类型每行一位老师。学生端只读：状态是纯标签。
     const listDiv = createElement('div', 'schedule-list');
 
     const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
 
-    const mergedLabel = buildMergedCategoryLabel(group, {
+    const teacherArea = buildCardTeacherArea(group, {
         personName: (rec) => rec.teacher_name || '未指定',
-        buildStatus: (rec) => {
+        buildStatusNode: (rec) => {
             const st = (rec.status || 'pending').toLowerCase();
-            return statusMap[st] ? { text: statusMap[st], cls: `st-${st}` } : null;
+            if (!statusMap[st]) return null;
+            return createElement('span', `status-select ${st}`, {
+                textContent: statusMap[st],
+                style: 'pointer-events: none; border:none; appearance:none; padding: 4px 12px; border-radius: 999px; font-size: var(--fs-300); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; height: 24px;'
+            });
         }
     });
-    listDiv.appendChild(mergedLabel);
+    listDiv.appendChild(teacherArea);
     content.appendChild(listDiv);
 
     // 3. 底部信息 (时间和地点)
@@ -444,15 +448,4 @@ export function refreshSchedules() {
     return loadSchedules(currentWeekStart);
 }
 
-function getDisplayStatus(schedule) {
-    const status = (schedule.status || '').toLowerCase();
-    const statusMap = {
-        'pending': '待确认',
-        'confirmed': '已确认',
-        'completed': '已完成',
-        'cancelled': '已取消',
-        'modified_away': '已调整'
-    };
-    return statusMap[status] || status;
-}
 

@@ -6498,47 +6498,99 @@ svg {
     /* No background on row, clean look as per image */
 }
 
-/* 合并行（PC 页内周视图卡片）：「类型（老师A，老师B，老师C（记录））」+ 每人状态。
-   与移动端导出视图（.msv-merged-category）同款布局：block 容器 + inline-block 姓名原子，
-   放不下才整组换行。颜色（红=评审/咨询族，蓝=集体活动）由 JS 按 TypeConversion.getColorKind
-   挂 color-red/color-blue。 */
-.merged-category {
+/* 人员区（PC 页内周视图卡片，.card-teachers 家族）：
+   - 单人：一行「姓名，授课类型 + 右侧状态」
+   - 多人·评审/咨询族、集体活动（ct-inline）：类型名在前（红/蓝），「姓名 状态」
+     依次内联、自动换行，记录类名字带（记录）并沉底
+   - 多人·其它类型：每行一位老师（ct-row）
+   配色、底部时间地点由卡片既有样式负责，这里只管人员区。 */
+.card-teachers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.card-teachers .ct-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 4px;
+}
+
+.card-teachers .ct-left {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.card-teachers .ct-right {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.card-teachers .ct-person {
+    font-weight: 600;
+    font-size: var(--fs-300);
+    color: #1E293B;
+    white-space: nowrap;
+}
+
+/* 内联行（评审/咨询红、集体活动蓝）的人名跟行走色：上面的 .ct-person 写死了
+   深色，特异性会压过 .ct-inline 的行色继承，这里显式放回 inherit。 */
+.card-teachers .ct-inline .ct-person {
+    font-weight: 400;
+    color: inherit;
+}
+
+.card-teachers .ct-type {
+    font-size: var(--fs-300);
+    color: #64748B;
+    white-space: nowrap;
+}
+
+/* 红蓝色族内联行：block 容器 + inline 流，名字是 nowrap 原子，放不下整组换行。
+   整行着色（集体活动全蓝 / 评审咨询全红，含类型名与人名）；
+   状态 chip/下拉自带配色，不受行色影响。 */
+.card-teachers .ct-inline {
     display: block;
-    line-height: 1.8;
-    color: #000000;
+    line-height: 2;
     overflow-wrap: break-word;
     word-break: break-word;
+    color: #000000;
 }
 
-.merged-category .merged-person {
+.card-teachers .ct-inline .ct-person {
     display: inline-block;
+    font-weight: 400;
     white-space: nowrap;
 }
 
-.merged-category .merged-status {
-    display: inline-block;
-    white-space: nowrap;
-    font-weight: 500;
-}
-
-.merged-category .status-select {
+.card-teachers .ct-inline .ct-person + .status-select {
     margin-left: 4px;
     vertical-align: middle;
 }
 
-.merged-category.color-red {
+.card-teachers .ct-head {
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* 内联流式单元（移动端 nonFamilyLayout:'inline' 用，PC 默认版式不产出）：
+   每位老师的「姓名 类型 状态」整体不折行 */
+.card-teachers .ct-unit {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.card-teachers .ct-inline.ct-color-red {
     color: #FF0000;
 }
 
-.merged-category.color-red .merged-person {
-    color: #FF0000;
-}
-
-.merged-category.color-blue {
-    color: #0000FF;
-}
-
-.merged-category.color-blue .merged-person {
+.card-teachers .ct-inline.ct-color-blue {
     color: #0000FF;
 }
 

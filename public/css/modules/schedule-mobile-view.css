@@ -106,16 +106,95 @@
     white-space: nowrap;
 }
 
-/* 老师信息：按 teacher_id 顺序流式显示。姓名/类型各自是最小单位（nowrap），
-   但多组之间、以及合并标签的逗号处都允许自动换行，显示不完不裁切。 */
+/* 人员区：与 PC 卡片同一份三版式（buildCardTeacherArea），类名适配 msv-*。
+   - 单人/其它类型：每行「姓名 授课类型 + 右侧状态」（msv-teacher-row）
+   - 红/蓝族内联（msv-inline）：类型名在前，人名 nowrap 原子、自动换行
+   状态 chip 自带配色不受行色影响；html2canvas 兼容：不用 flex 居中。 */
 .msv-teacher-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* 行版式（单人 / 其它类型每行一位）：左「姓名 授课类型」，右状态 */
+.msv-teacher-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    color: #000000;
+}
+
+.msv-teacher-row .msv-row-left {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.msv-teacher-row .msv-row-right {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+/* 行内姓名与类型是原子单元不折行 */
+.msv-teacher-row .msc-person,
+.msv-teacher-row .msv-type {
+    white-space: nowrap;
+}
+
+/* 类型标签：灰字细体（与 PC 卡片 .ct-type 同口径） */
+.msv-teacher-row .msv-type {
+    color: #64748B;
+    font-weight: 400;
+}
+
+/* 红/蓝族内联行：block 容器 + inline 流（html2canvas 贪心换行同 PC）。 */
+.msv-inline {
+    display: block;
     line-height: 1.8;
     overflow-wrap: break-word;
     word-break: break-word;
+    color: #000000;
 }
 
-.msv-teacher-part {
-    display: inline;
+.msv-inline .msc-person {
+    display: inline-block;
+    font-weight: 400;
+    white-space: nowrap;
+    color: inherit;
+}
+
+.msv-inline .msc-person + .msv-status {
+    margin-left: 4px;
+}
+
+.msv-inline .msv-head {
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* 内联流式单元（其它类型多人）：「姓名 类型 状态」整体不折行，放不下整组换行 */
+.msv-inline .msv-teacher-unit {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.msv-inline .msv-teacher-unit .msv-type {
+    color: #64748B;
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+.msv-inline.msv-color-red {
+    color: #FF0000;
+}
+
+.msv-inline.msv-color-blue {
+    color: #0000FF;
 }
 
 /* 类型标签：去掉背景色，字体用与地点相同的灰色、细体 */
@@ -128,37 +207,8 @@
     white-space: nowrap;
 }
 
-/* 合并标签：颜色随导出文件（红 = 评审族 + 咨询族，蓝 = 集体活动，其余黑）。
-   block 容器 + 名字 inline-block 原子单元，浏览器与 html2canvas 都能贪心填满每行。 */
-.msv-merged-category {
-    display: block;
-    line-height: 1.8;
-    color: #000000 !important;
-}
-
-.msv-merged-category .msc-person {
-    display: inline-block;
-    color: inherit !important;
-}
-
-.msv-merged-category.color-red {
-    color: #FF0000 !important;
-}
-
-.msv-merged-category.color-red .msc-person {
-    color: #FF0000 !important;
-}
-
-.msv-merged-category.color-blue {
-    color: #0000FF !important;
-}
-
-.msv-merged-category.color-blue .msc-person {
-    color: #0000FF !important;
-}
-
 /* 仅「待确认」「已取消」显示状态：沿用前端 .chip.status-* 的字色，
-   用独立类避免被上面的合并标签颜色规则覆盖。
+   用独立类避免被上面的行颜色规则覆盖。
    居中方式：不设固定 height / line-height（html2canvas 会按基线把文字顶到
    胶囊上方），改用上下不对称 padding 做光学补偿，让墨迹视觉居中。 */
 .msv-status {
