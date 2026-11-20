@@ -588,45 +588,6 @@ function resolveDateTime(text) {
     };
 }
 
-/**
- * 排课预览临时存储（内存）
- * 生产环境应使用 Redis
- */
-const schedulePreviewStore = new Map();
-
-/**
- * 敏感操作确认临时存储（内存）
- * 用于存储待确认的删除、修改操作
- * 生产环境应使用 Redis
- */
-const pendingOperationStore = new Map();
-
-/** Map 最大条目数，防止内存泄漏 */
-const MAX_STORE_SIZE = 500;
-
-/**
- * 清理过期条目并限制 Map 大小
- */
-function pruneStore(store) {
-    const now = Date.now();
-    for (const [key, entry] of store) {
-        if (entry && entry.expireAt && now > entry.expireAt) {
-            store.delete(key);
-        }
-    }
-    // 如果仍然超过上限，删除最早的条目
-    while (store.size > MAX_STORE_SIZE) {
-        const firstKey = store.keys().next().value;
-        store.delete(firstKey);
-    }
-}
-
-// 每 5 分钟清理一次
-setInterval(() => {
-    pruneStore(schedulePreviewStore);
-    pruneStore(pendingOperationStore);
-}, 5 * 60 * 1000).unref();
-
 /* ============================================================
  * 数据查询工具集（全新设计）
  * ============================================================ */
@@ -2829,13 +2790,18 @@ const query = asyncHandler(async (req, res) => {
         thisWeekDateMap, nextWeekDateMap
     } = computeDateContext();
 
-    // 课程类型和教师名单决定后续工具参数是否合法；查询失败时不能让模型把故障误判为空数据。
-    const [ctResult, tResult] = await Promise.all([
-        db.query('SELECT name, description FROM schedule_types ORDER BY id'),
-        db.query("SELECT name FROM teachers WHERE status=1 ORDER BY id")
-    ]);
-    const courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
-    const teacherListStr = tResult.rows.map(r => r.name).join('、');
+    // 课程类型和教师名单决定 admin 分支的工具参数是否合法；查询失败时不能让模型把故障误判为空数据。
+    // 教师/学生的提示词用不到这两份清单，非 admin 角色不发这两条查询。
+    let courseTypeListStr = '';
+    let teacherListStr = '';
+    if (userType === 'admin') {
+        const [ctResult, tResult] = await Promise.all([
+            db.query('SELECT name, description FROM schedule_types ORDER BY id'),
+            db.query("SELECT name FROM teachers WHERE status=1 ORDER BY id")
+        ]);
+        courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
+        teacherListStr = tResult.rows.map(r => r.name).join('、');
+    }
 
     const systemPrompt = userType === 'admin'
         ? `你是 Plenzo 课程管理系统的排课助手，全程用中文、简洁作答。你的职责是理解管理员的自然语言，调用工具完成查询与排课，绝不臆造数据。\n` +
@@ -3152,9 +3118,9 @@ const query = asyncHandler(async (req, res) => {
     const rawImages = Array.isArray(images) ? images.filter(u => typeof u === 'string' && /^(data:image\/|https?:\/\/)/.test(u)).slice(0, 5) : [];
     const hasImages = rawImages.length > 0;
 
-    // 添加当前问题（注入日期上下文，确保 AI 不会忽略系统提示中的日期映射）
-    const dateContext = `[日期参考] 今日：${todayStr}（${currentWeekDay}）| 本周：${thisWeekDateMap} | 下周：${nextWeekDateMap}\n\n`;
-    const questionText = dateContext + (question || '请分析这些图片');
+    // 当前问题原样下发。日期映射只在系统提示 #1 出现一份——
+    // 这里不再重复注入（此前同一段日期文本进 prompt 两份，浪费 token 且弱模型会被两处表述带偏）。
+    const questionText = (question || '请分析这些图片');
 
     if (hasImages && caps.vision) {
         // 多模态：当前轮构造 OpenAI 形状的 content 块数组（aiService 内部会按协议翻译）
@@ -3493,9 +3459,82 @@ const testEndpoint = asyncHandler(async (req, res) => {
     return res.status(status).json(successResponse(body.data, { requestId: req.requestId }));
 });
 
+/**
+ * 快捷问题直连：固定结构化查询不过 LLM，直接执行数据工具，秒回且不耗 token。
+ * POST /api/ai/quick-query { key }
+ * key 与前端 QUICK_ACTIONS 一一对应（见 ai-assistant-redesign.js），
+ * 响应形状与 /query 完全一致（type/answer/structuredData），前端渲染零适配。
+ */
+const QUICK_ACTIONS = {
+    admin: {
+        week_overview: () => ({ tool: 'query_schedules', args: { startDate: mondayOfThisWeek(), endDate: fridayOfThisWeek() }, answer: '本周排课如下：' }),
+        pending_schedules: () => ({ tool: 'query_schedules', args: { status: 'pending' }, answer: '当前待确认的排课：' }),
+        teacher_stats: () => ({ tool: 'query_schedule_stats', args: { dimension: 'teacher' }, answer: '按教师统计（全部时间）：' }),
+    },
+    teacher: {
+        my_week: () => ({ tool: 'query_my_schedules', args: { startDate: mondayOfThisWeek(), endDate: sundayOfThisWeek() }, answer: '我本周的课表：' }),
+        my_overview: () => ({ tool: 'query_my_overview', args: {}, answer: '我的排课统计：' }),
+        my_pending: () => ({ tool: 'query_my_schedules', args: { status: 'pending' }, answer: '待确认的课：' }),
+    },
+    student: {
+        my_week: () => ({ tool: 'query_my_schedules', args: { startDate: mondayOfThisWeek(), endDate: sundayOfThisWeek() }, answer: '我本周的课表：' }),
+        my_stats: () => ({ tool: 'query_my_statistics', args: {}, answer: '我的课程统计：' }),
+        my_today: () => ({ tool: 'query_my_schedules', args: { startDate: todayStr(), endDate: todayStr() }, answer: '今日课程安排：' }),
+    }
+};
+
+function todayStr() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+function mondayOfThisWeek() {
+    const now = new Date();
+    // en-CA 给 YYYY-MM-DD；周一偏移 = (getDay()+6)%7
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    return monday.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+function fridayOfThisWeek() {
+    const d = new Date(mondayOfThisWeek() + 'T00:00:00+08:00');
+    d.setDate(d.getDate() + 4);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+function sundayOfThisWeek() {
+    const d = new Date(mondayOfThisWeek() + 'T00:00:00+08:00');
+    d.setDate(d.getDate() + 6);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+
+const quickQuery = asyncHandler(async (req, res) => {
+    const { key } = req.body || {};
+    if (!key || typeof key !== 'string') {
+        throw new AppError({ code: 'BAD_REQUEST', message: '缺少快捷查询标识' });
+    }
+
+    const userType = req.user.userType;
+    const actionFactory = (QUICK_ACTIONS[userType] || {})[key];
+    if (!actionFactory) {
+        throw new AppError({ code: 'FORBIDDEN', message: '该快捷查询不适用于当前角色' });
+    }
+
+    const { tool, args, answer } = actionFactory();
+    // executeDataTool 内部已按角色/权限校验（admin-only 工具对 teacher/student 直接 403）
+    const result = await executeDataTool(tool, args, req);
+
+    return res.json(successResponse({
+        type: result.type,
+        answer,
+        structuredData: result.data,
+        toolsUsed: [`quick:${tool}`]
+    }, { requestId: req.requestId }));
+});
+
 module.exports = {
     getStatus,
     query,
+    quickQuery,
     getConfig,
     getPresets,
     updateConfig,

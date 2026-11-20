@@ -34,6 +34,7 @@
 const { AppError } = require('../middleware/error');
 const axios = require('axios');
 const https = require('https');
+const logger = require('../utils/logger');
 const aiConfigStore = require('./ai-config-store');
 // 各 provider 的默认配置已抽到 services/ai-providers.js（单一来源）。
 const { PROVIDER_DEFAULTS } = require('./ai-providers');
