@@ -178,7 +178,7 @@ export function setupSettingsTabs() {
 const SCOPED_SECTIONS = new Set(['overview', 'schedule', 'finance', 'statistics', 'availability-mgmt']);
 
 function applyScopeBadge(sectionId) {
-    const headerTitle = document.querySelector('.dashboard-header h2');
+    const headerTitle = document.querySelector('.dashboard-header h1, .dashboard-header h2');
     if (!headerTitle) return;
     const stale = headerTitle.parentElement.querySelector('.scope-badge');
     if (stale) stale.remove();
@@ -188,7 +188,10 @@ function applyScopeBadge(sectionId) {
     const badge = document.createElement('span');
     badge.className = 'scope-badge';
     badge.textContent = '范围：我创建的排课';
-    badge.style.cssText = 'display:inline-block;margin-left:10px;padding:2px 10px;font-size: var(--fs-300);font-weight:400;border-radius:999px;background:#e0f2fe;color:#0369a1;vertical-align:middle;';
+    // 移动端顶栏是三列 grid（汉堡 / 标题 / 用户信息），徽章若作为 grid 子项会把整行挤成两行。
+    // 改成绝对定位到标题正下方，作为辅助说明而不占主行。
+    badge.style.cssText = 'position:absolute;left:0;top:100%;margin-top:2px;padding:1px 8px;font-size: var(--fs-200);font-weight:400;border-radius:999px;background:#e0f2fe;color:#0369a1;white-space:nowrap;z-index:1;';
+    headerTitle.style.position = 'relative';
     headerTitle.insertAdjacentElement('afterend', badge);
 }
 
@@ -309,7 +312,7 @@ export function showSection(sectionId) {
 // 设置头部标题
 export function setHeaderTitle(title) {
     // Also available in ui-helper.js, duplicated here temporarily for smooth transition
-    const headerTitle = document.querySelector('.dashboard-header h2');
+    const headerTitle = document.querySelector('.dashboard-header h1, .dashboard-header h2');
     if (headerTitle) headerTitle.textContent = title;
 }
 

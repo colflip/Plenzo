@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Plenzo 登录系统">
     <meta name="theme-color" content="#10b981">
     <title>登录 - Plenzo</title>
@@ -14,6 +14,7 @@
     <!-- Styles -->
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
     <link rel="stylesheet" href="/css/core/global.css">
+    <link rel="stylesheet" href="/css/modules/dashboard-dark.css">
 
     <style>
         body {
@@ -351,19 +352,19 @@
 
             <div class="login-form">
                 <div class="form-group">
-                    <span class="material-icons-round form-icon">person</span>
+                    <span class="material-icons-round form-icon" aria-hidden="true">person</span>
                     <input type="text" id="username" class="form-input" placeholder="用户名" aria-label="用户名">
                 </div>
 
                 <div class="form-group">
-                    <span class="material-icons-round form-icon">lock</span>
+                    <span class="material-icons-round form-icon" aria-hidden="true">lock</span>
                     <input type="password" id="password" class="form-input" placeholder="密码" aria-label="密码">
                 </div>
 
                 <div class="form-group">
-                    <span class="material-icons-round form-icon">badge</span>
+                    <span class="material-icons-round form-icon" aria-hidden="true">badge</span>
                     <!-- Hidden native select for form data -->
-                    <select id="userType" class="form-input" aria-label="用户类型" style="display: none;">
+                    <select id="userType" class="form-input" aria-hidden="true" tabindex="-1" style="display: none;">
                         <option value="teacher" selected>教师</option>
                         <option value="student">学生</option>
                         <option value="admin">管理员</option>
@@ -371,14 +372,21 @@
 
                     <!-- Custom Dropdown Trigger -->
                     <div class="custom-select-wrapper">
-                        <div class="custom-select-trigger form-input">
+                        <div class="custom-select-trigger form-input"
+                             id="userTypeTrigger"
+                             role="combobox"
+                             tabindex="0"
+                             aria-haspopup="listbox"
+                             aria-expanded="false"
+                             aria-controls="userTypeOptions"
+                             aria-label="用户类型">
                             <span id="customSelectText">教师</span>
-                            <span class="material-icons-round arrow">expand_more</span>
+                            <span class="material-icons-round arrow" aria-hidden="true">expand_more</span>
                         </div>
-                        <div class="custom-options">
-                            <div class="custom-option selected" data-value="teacher">教师</div>
-                            <div class="custom-option" data-value="student">学生</div>
-                            <div class="custom-option" data-value="admin">管理员</div>
+                        <div class="custom-options" id="userTypeOptions" role="listbox" aria-label="用户类型">
+                            <div class="custom-option selected" id="userTypeOptionTeacher" data-value="teacher" role="option" aria-selected="true">教师</div>
+                            <div class="custom-option" id="userTypeOptionStudent" data-value="student" role="option" aria-selected="false">学生</div>
+                            <div class="custom-option" id="userTypeOptionAdmin" data-value="admin" role="option" aria-selected="false">管理员</div>
                         </div>
                     </div>
                 </div>

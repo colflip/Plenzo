@@ -1,0 +1,230 @@
+/* ============================================================
+   深色模式组件补丁
+   theme.css 已反转语义令牌，但历史代码里仍有大量硬编码 #fff / #FFFFFF /
+   #1F2937 文字色。这里集中覆盖最外层的几个容器，让深色模式真正可见，
+   而不是散落到几十个模块里各改一遍。
+   只在系统偏好深色时生效；不影响浅色模式的任何既有样式。
+   ============================================================ */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --admin-bg: #111827;
+        --admin-surface: #1f2937;
+        --admin-text-main: #f3f4f6;
+        --admin-text-body: #d1d5db;
+        --admin-border: #374151;
+    }
+
+    html,
+    body {
+        background: #111827;
+        color: #f3f4f6;
+    }
+
+    /* 主容器与内容区 */
+    .dashboard-container,
+    .content-area,
+    .main-content {
+        background: #111827;
+        color: #f3f4f6;
+    }
+
+    /* 侧栏 */
+    .sidebar {
+        background: #1f2937 !important;
+        border-right-color: #374151 !important;
+        color: #f3f4f6 !important;
+    }
+    .sidebar .nav-item,
+    .sidebar a {
+        color: #d1d5db !important;
+    }
+    .sidebar .nav-item.active,
+    .sidebar a.active {
+        background: rgba(16, 185, 129, 0.15) !important;
+        color: #6ee7b7 !important;
+    }
+
+    /* 顶栏 */
+    .dashboard-header {
+        border-bottom-color: #374151 !important;
+        color: #f3f4f6 !important;
+    }
+    .dashboard-header h1,
+    .dashboard-header h2 {
+        color: #6ee7b7 !important;
+    }
+    .user-name,
+    .role-badge,
+    .logout-btn {
+        color: #f3f4f6 !important;
+    }
+
+    /* 卡片 / 统计卡 / 面板 */
+    .stat-card,
+    .summary-card,
+    .schedule-unified-card,
+    .overview-today-section,
+    .chart-card,
+    .chart-container,
+    .stats-view,
+    .panel,
+    .card {
+        background: #1f2937 !important;
+        border-color: #374151 !important;
+        color: #f3f4f6 !important;
+    }
+
+    /* 概览渐变卡：深色下换成低饱和暗色渐变，保留彩色层次但文字可读 */
+    .overview-gradient-card {
+        color: #f3f4f6 !important;
+    }
+
+    /* 顶部工具栏 */
+    .header-toolbar,
+    .schedule-controls,
+    .statistics-controls,
+    .overview-today-actions {
+        background: #1f2937 !important;
+        border-color: #374151 !important;
+    }
+
+    /* 表格 */
+    .weekly-schedule-table,
+    .today-schedule-table,
+    .data-table,
+    .table-container {
+        background: #1f2937 !important;
+        color: #f3f4f6 !important;
+    }
+    .weekly-schedule-table th,
+    .weekly-schedule-table td,
+    .today-schedule-table th,
+    .today-schedule-table td,
+    .data-table th,
+    .data-table td {
+        background: transparent !important;
+        color: #e5e7eb !important;
+        border-color: #374151 !important;
+    }
+    .weekly-schedule-table thead th,
+    .data-table thead th {
+        background: #111827 !important;
+        color: #f3f4f6 !important;
+    }
+    .weekly-schedule-table tbody tr:hover,
+    .today-schedule-table tbody tr:hover {
+        background: rgba(16, 185, 129, 0.08) !important;
+    }
+
+    /* 表单控件 */
+    input,
+    select,
+    textarea {
+        background: #111827 !important;
+        color: #f3f4f6 !important;
+        border-color: #374151 !important;
+    }
+    input::placeholder,
+    textarea::placeholder {
+        color: #9ca3af !important;
+    }
+    label,
+    .form-group label {
+        color: #e5e7eb !important;
+    }
+
+    /* 弹窗 / 浮层 */
+    .modal-container,
+    .export-dialog-container,
+    .ai-panel-overlay {
+        background: #1f2937 !important;
+        color: #f3f4f6 !important;
+        border-color: #374151 !important;
+    }
+    .modal-header,
+    .modal-footer,
+    .modal-body,
+    .modal-input {
+        background: transparent !important;
+        color: #f3f4f6 !important;
+        border-color: #374151 !important;
+    }
+    .modal-input {
+        background: #111827 !important;
+    }
+
+    /* 标签与状态：浅底深字在深底上反转为深底亮字，保持同类一致 */
+    .chip,
+    .status-pill,
+    .status-badge-sm,
+    .msv-status {
+        background: rgba(255, 255, 255, 0.06) !important;
+        color: #e5e7eb !important;
+        border-color: rgba(255, 255, 255, 0.12) !important;
+    }
+    .chip.status-pending,
+    .status-pill.pending,
+    .status-badge-sm.pending,
+    .msv-status-pending {
+        color: #fbbf24 !important;
+    }
+    .chip.status-cancelled,
+    .status-pill.cancelled,
+    .status-badge-sm.cancelled,
+    .msv-status-cancelled {
+        color: #f87171 !important;
+    }
+    .chip.status-confirmed,
+    .status-pill.confirmed,
+    .status-badge-sm.confirmed {
+        color: #34d399 !important;
+    }
+
+    /* 空状态 / 加载态 */
+    .today-empty-state,
+    .stats-loading-content {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border-color: #374151 !important;
+        color: #9ca3af !important;
+    }
+
+    /* 登录页 */
+    .login-card {
+        background: #1f2937 !important;
+        border-color: #374151 !important;
+        color: #f3f4f6 !important;
+    }
+    .login-card .brand-header h1,
+    .login-card .brand-header p {
+        color: #f3f4f6 !important;
+    }
+    .login-card .form-input,
+    .login-card .custom-select-trigger {
+        background: #111827 !important;
+        color: #f3f4f6 !important;
+        border-color: #374151 !important;
+    }
+    .login-card .custom-option {
+        color: #f3f4f6 !important;
+    }
+    .login-card .custom-option:hover,
+    .login-card .custom-option.active,
+    .login-card .custom-option.selected {
+        background: rgba(16, 185, 129, 0.15) !important;
+        color: #6ee7b7 !important;
+    }
+}
+
+/* 统计卡内的文字/图标色是内联 style 写死的浅蓝，深色下对比度不足。
+   用 !important 覆盖为亮色；同时给渐变卡补一层暗色底，消掉内联浅色渐变的残留。 */
+@media (prefers-color-scheme: dark) {
+    .overview-gradient-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+    }
+    .overview-gradient-card h3,
+    .overview-gradient-card p,
+    .overview-gradient-card .gradient-value,
+    .overview-gradient-card .gradient-bg-icon .material-icons-round {
+        color: #e2e8f0 !important;
+    }
+}

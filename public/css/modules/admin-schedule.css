@@ -311,7 +311,7 @@
 }
 
 .schedule-item .time {
-    font-weight: 700;
+    font-weight: 600;
     color: var(--sch-text-main);
     display: block;
     line-height: 1.4;
@@ -396,9 +396,9 @@
     color: #000000 !important;
 }
 
-/* 底部时间文本：黑色加粗，让时段更醒目 */
+/* 底部时间文本：黑色加粗，让时段更醒目（字重收敛到 600，与 dashboard.css 的 .time-text 一致） */
 .schedule-card-group .schedule-footer .time-text {
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     color: #000000 !important;
 }
 

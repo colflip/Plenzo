@@ -138,7 +138,7 @@
     }
 
     function statusText(s) {
-        return { pending: '待确认', confirmed: '已确认', completed: '已完成', cancelled: '已取消' }[s] || s || '-';
+        return { pending: '待确认', confirmed: '已确认', completed: '已完成', cancelled: '已取消', modified_away: '已调整' }[s] || s || '-';
     }
     function statusClass(s) { return `sstatus-${s || 'pending'}`; }
     // 课程状态标签：费用弹窗里要能看见「这节课上没上成」。配色沿用表格的 sstatus-*，

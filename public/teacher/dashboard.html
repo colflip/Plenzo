@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
     <title>教师仪表盘 - Plenzo</title>
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
@@ -12,7 +12,9 @@
     <link rel="stylesheet" href="/css/modules/dashboard.css">
     <link rel="stylesheet" href="/css/modules/schedule-mobile-view.css">
     <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
+    <link rel="stylesheet" href="/css/modules/ai-assistant.css">
     <link rel="stylesheet" href="/css/modules/statistics.css">
+    <link rel="stylesheet" href="/css/modules/dashboard-dark.css">
     <style>
         /* 全局样式 - Copied from Admin Dashboard */
         :root {
@@ -772,45 +774,45 @@
                 <span class="logo-text">Plenzo</span>
             </div>
             <nav class="nav-menu">
-                <a href="#" class="nav-item active" data-section="overview">
-                    <span class="material-icons-round">dashboard</span>
+                <a href="#mainContent" class="nav-item active" aria-current="page" data-section="overview">
+                    <span class="material-icons-round" aria-hidden="true">dashboard</span>
                     <span class="nav-text">总览</span>
                 </a>
-                <a href="#" class="nav-item" data-section="profile">
-                    <span class="material-icons-round">person</span>
+                <a href="#mainContent" class="nav-item" data-section="profile">
+                    <span class="material-icons-round" aria-hidden="true">person</span>
                     <span class="nav-text">个人信息</span>
                 </a>
-                <a href="#" class="nav-item" data-section="availability">
-                    <span class="material-icons-round">event_available</span>
+                <a href="#mainContent" class="nav-item" data-section="availability">
+                    <span class="material-icons-round" aria-hidden="true">event_available</span>
                     <span class="nav-text">时间安排</span>
                 </a>
-                <a href="#" class="nav-item" data-section="schedules">
-                    <span class="material-icons-round">calendar_today</span>
+                <a href="#mainContent" class="nav-item" data-section="schedules">
+                    <span class="material-icons-round" aria-hidden="true">calendar_today</span>
                     <span class="nav-text">课程安排</span>
                 </a>
-                <a href="#" class="nav-item" data-section="fees">
-                    <span class="material-icons-round">payments</span>
+                <a href="#mainContent" class="nav-item" data-section="fees">
+                    <span class="material-icons-round" aria-hidden="true">payments</span>
                     <span class="nav-text">费用管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="teaching-display">
-                    <span class="material-icons-round">analytics</span>
+                <a href="#mainContent" class="nav-item" data-section="teaching-display">
+                    <span class="material-icons-round" aria-hidden="true">analytics</span>
                     <span class="nav-text">数据统计</span>
                 </a>
 
                 <!-- 学生管理（班主任角色可见，展开时含二级菜单） -->
                 <div class="nav-group expanded-only" id="navStudentDataGroup" style="display: none;">
                     <a href="#" class="nav-group-header" id="navStudentDataHeader">
-                        <span class="material-icons-round">groups</span>
+                        <span class="material-icons-round" aria-hidden="true">groups</span>
                         <span class="nav-text">学生管理</span>
-                        <span class="material-icons-round nav-group-chevron">expand_more</span>
+                        <span class="material-icons-round nav-group-chevron" aria-hidden="true">expand_more</span>
                     </a>
                     <div class="nav-subgroup" id="navStudentDataSub">
                         <a href="#" class="nav-item nav-subitem" data-section="student-schedules">
-                            <span class="material-icons-round">calendar_today</span>
+                            <span class="material-icons-round" aria-hidden="true">calendar_today</span>
                             <span class="nav-text">学生排课管理</span>
                         </a>
                         <a href="#" class="nav-item nav-subitem" data-section="sd-fees">
-                            <span class="material-icons-round">payments</span>
+                            <span class="material-icons-round" aria-hidden="true">payments</span>
                             <span class="nav-text">学生费用管理</span>
                         </a>
                     </div>
@@ -818,17 +820,17 @@
 
                 <!-- 学生管理收起态：以两个独立一级菜单图标显示 -->
                 <a href="#" class="nav-item collapsed-only class-master-collapsed-item" data-section="student-schedules" style="display: none;">
-                    <span class="material-icons-round">calendar_today</span>
+                    <span class="material-icons-round" aria-hidden="true">calendar_today</span>
                     <span class="nav-text">学生排课管理</span>
                 </a>
                 <a href="#" class="nav-item collapsed-only class-master-collapsed-item" data-section="sd-fees" style="display: none;">
-                    <span class="material-icons-round">payments</span>
+                    <span class="material-icons-round" aria-hidden="true">payments</span>
                     <span class="nav-text">学生费用管理</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <button class="toggle-sidebar">
-                    <span class="material-icons-round">chevron_left</span>
+                <button class="toggle-sidebar" aria-label="收起或展开侧边栏">
+                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                 </button>
             </div>
         </div>
@@ -838,9 +840,9 @@
             <header class="dashboard-header">
                 <!-- 移动端菜单按钮 (moved inside header) -->
                 <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="打开菜单">
-                    <span class="material-icons-round">menu</span>
+                    <span class="material-icons-round" aria-hidden="true">menu</span>
                 </button>
-                <h2 id="pageTitle">教师仪表盘</h2>
+                <h1 id="pageTitle">教师仪表盘</h1>
                 <div class="user-info">
                     <span class="user-name" id="teacherName">教师</span>
                     <span class="role-badge" id="teacherRole">教师</span>
@@ -848,7 +850,7 @@
                 </div>
             </header>
 
-            <div class="content-area">
+            <main class="content-area" id="mainContent">
                 <!-- Overview Section -->
                 <section id="overview" class="dashboard-section active">
                     <div class="overview-stats-grid">
@@ -857,7 +859,7 @@
                             style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);"
                             data-tooltip="本周内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #0369a1;">menu_book</span></div>
+                                    style="color: #0369a1;" aria-hidden="true">menu_book</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #0369a1;">本周授课</h3>
                                 <p class="gradient-value" style="color: #0369a1;" id="weeklyLessons">--</p>
@@ -867,7 +869,7 @@
                             style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);"
                             data-tooltip="本月内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #15803d;">calendar_today</span></div>
+                                    style="color: #15803d;" aria-hidden="true">calendar_today</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #15803d;">本月授课</h3>
                                 <p class="gradient-value" style="color: #15803d;" id="monthlyLessons">--</p>
@@ -877,7 +879,7 @@
                             style="background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);"
                             data-tooltip="本年度内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #7c3aed;">auto_stories</span></div>
+                                    style="color: #7c3aed;" aria-hidden="true">auto_stories</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #7c3aed;">本年授课</h3>
                                 <p class="gradient-value" style="color: #7c3aed;" id="yearlyLessons">--</p>
@@ -889,7 +891,7 @@
                             style="background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);"
                             data-tooltip="当前等待您确认的课程">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #be185d;">notification_important</span></div>
+                                    style="color: #be185d;" aria-hidden="true">notification_important</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #be185d;">待我确认</h3>
                                 <p class="gradient-value" style="color: #be185d;" id="totalPending">--</p>
@@ -899,7 +901,7 @@
                             style="background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);"
                             data-tooltip="历史累计已顺利完成的课程总节数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #166534;">verified</span></div>
+                                    style="color: #166534;" aria-hidden="true">verified</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #166534;">已完成授课</h3>
                                 <p class="gradient-value" style="color: #166534;" id="totalCompleted">--</p>
@@ -909,7 +911,7 @@
                             style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);"
                             data-tooltip="历史累计已被取消的课程记录">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #475569;">cancel</span></div>
+                                    style="color: #475569;" aria-hidden="true">cancel</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #475569;">已取消记录</h3>
                                 <p class="gradient-value" style="color: #475569;" id="totalCancelled">--</p>
@@ -921,20 +923,20 @@
                     <div class="overview-today-section">
                         <div class="overview-today-header">
                             <div class="overview-today-title">
-                                <span class="material-icons-round">event_note</span>
+                                <span class="material-icons-round" aria-hidden="true">event_note</span>
                                 <h3 id="todayScheduleTitle">今日排课</h3>
                             </div>
                             <div class="overview-today-actions">
                                 <div class="overview-today-nav">
-                                    <button id="prevDayBtn" class="overview-today-refresh" type="button" title="上一天">
-                                        <span class="material-icons-round">chevron_left</span>
+                                    <button id="prevDayBtn" class="overview-today-refresh" type="button" title="上一天" aria-label="上一天">
+                                        <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                     </button>
-                                    <button id="nextDayBtn" class="overview-today-refresh" type="button" title="下一天">
-                                        <span class="material-icons-round">chevron_right</span>
+                                    <button id="nextDayBtn" class="overview-today-refresh" type="button" title="下一天" aria-label="下一天">
+                                        <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                     </button>
                                 </div>
                                 <button id="refreshTodaySchedulesBtn" class="overview-today-refresh">
-                                    <span class="material-icons-round">refresh</span> 刷新
+                                    <span class="material-icons-round" aria-hidden="true">refresh</span> 刷新
                                 </button>
                             </div>
                         </div>
@@ -971,7 +973,7 @@
                                 <div class="action-buttons" style="display:flex; gap:10px;">
                                     <button id="changePasswordBtn" class="search-btn"
                                         style="background:#ef4444; color: white;">
-                                        <span class="material-icons-round" style="font-size: 16px;">lock</span>
+                                        <span class="material-icons-round" style="font-size: 16px;" aria-hidden="true">lock</span>
                                         更改密码
                                     </button>
                                     <button id="profileEditBtn" class="info-btn">编辑</button>
@@ -1029,7 +1031,7 @@
                             <h3>管理关联学生</h3>
                             <button id="refreshStudentsBtn" class="info-btn"
                                 style="padding: 6px 12px; font-size: 13px;">
-                                <span class="material-icons-round" style="font-size: 16px;">refresh</span> 刷新
+                                <span class="material-icons-round" style="font-size: 16px;" aria-hidden="true">refresh</span> 刷新
                             </button>
                         </div>
                         <div id="studentListContainer" style="margin-top: 16px;">
@@ -1092,26 +1094,30 @@
                     <div class="header-toolbar schedule-controls">
                         <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
-                                <button id="prevWeekAvail" class="nav-btn">
-                                    <span class="material-icons-round">chevron_left</span>
+                                <button id="prevWeekAvail" class="nav-btn" aria-label="上一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                 </button>
                                 <span id="weekRangeAvail">加载中...</span>
-                                <button id="nextWeekAvail" class="nav-btn">
-                                    <span class="material-icons-round">chevron_right</span>
+                                <button id="nextWeekAvail" class="nav-btn" aria-label="下一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                 </button>
                             </div>
                             <button class="primary-btn" id="saveAvailability">
-                                <span class="material-icons-round" style="margin-right:4px;">save</span>
+                                <span class="material-icons-round" style="margin-right:4px;" aria-hidden="true">save</span>
                                 保存安排
                             </button>
                         </div>
                     </div>
 
                     <div class="schedule-unified-card">
-                        <table class="weekly-schedule-table">
-                            <thead id="weeklyHeaderAvail"></thead>
-                            <tbody id="weeklyBodyAvail"></tbody>
-                        </table>
+                        <div class="weekly-view">
+                            <div class="weekly-table-container">
+                                <table class="weekly-schedule-table">
+                                    <thead id="weeklyHeaderAvail"></thead>
+                                    <tbody id="weeklyBodyAvail"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                     <div id="availabilityFeedback" class="feedback" style="display:none;"></div>
                 </section>
@@ -1121,30 +1127,34 @@
                     <div class="header-toolbar schedule-controls">
                         <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
-                                <button id="prevWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_left</span>
+                                <button id="prevWeek" class="nav-btn" aria-label="上一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                 </button>
                                 <span id="weekRange">加载中...</span>
-                                <button id="nextWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_right</span>
+                                <button id="nextWeek" class="nav-btn" aria-label="下一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                 </button>
                             </div>
                             <button id="toggleTeacherShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" data-action="toggle-teacher-show-plan">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">visibility</span>
                                 <span id="teacherShowPlanBtnText">显示全部安排</span>
                             </button>
                             <button id="exportTeacherWeekViewBtn" class="primary-btn" style="margin-left:8px;" title="把当前这一周的课程安排复制成图片">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">download</span>
                                 导出本周视图
                             </button>
                         </div>
                     </div>
 
                     <div class="schedule-unified-card">
-                        <table class="weekly-schedule-table">
-                            <thead id="weeklyHeader"></thead>
-                            <tbody id="weeklyBody"></tbody>
-                        </table>
+                        <div class="weekly-view">
+                            <div class="weekly-table-container">
+                                <table class="weekly-schedule-table">
+                                    <thead id="weeklyHeader"></thead>
+                                    <tbody id="weeklyBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                     <div id="scheduleFeedback" class="feedback" style="display:none;"></div>
                 </section>
@@ -1166,7 +1176,7 @@
 
                                         <div class="action-group">
                                             <button class="search-btn primary-btn" id="teachingQueryBtn" title="查询该日期范围内的统计数据">
-                                                <span class="material-icons-round">search</span>
+                                                <span class="material-icons-round" aria-hidden="true">search</span>
                                                 <span class="btn-text">查询</span>
                                                 <span class="btn-loading">加载中...</span>
                                             </button>
@@ -1185,7 +1195,7 @@
                                             </div>
 
                                             <button id="teachingExportBtn" class="export-data-btn" title="导出统计数据">
-                                                <span class="material-icons-round">file_download</span>
+                                                <span class="material-icons-round" aria-hidden="true">file_download</span>
                                                 <span>导出数据</span>
                                             </button>
                                         </div>
@@ -1252,26 +1262,26 @@
                     <div class="header-toolbar schedule-controls">
                         <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
-                                <button id="ssPrevWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_left</span>
+                                <button id="ssPrevWeek" class="nav-btn" aria-label="上一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                 </button>
                                 <span id="ssWeekRange">加载中...</span>
-                                <button id="ssNextWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_right</span>
+                                <button id="ssNextWeek" class="nav-btn" aria-label="下一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                 </button>
                             </div>
                             <button id="toggleTeacherStudentShowPlanBtn" class="primary-btn schedule-visibility-toggle" aria-pressed="false" style="margin-left:8px;" data-action="toggle-teacher-student-show-plan">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">visibility</span>
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">visibility</span>
                                 <span id="teacherStudentShowPlanBtnText">显示全部安排</span>
                             </button>
                             <button id="exportTeacherStudentsBtn" class="primary-btn"
                                 style="margin-left: 8px;" data-action="export-teacher-students">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">download</span>
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">download</span>
                                 导出数据
                             </button>
                             <button id="exportWeeklyViewBtn" class="primary-btn"
                                 style="margin-left: 8px;" title="复制成图片：一名学生直接导出，多名学生先选择">
-                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;">file_download</span>
+                                <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">file_download</span>
                                 导出本周视图
                             </button>
                         </div>
@@ -1279,7 +1289,9 @@
                     <div id="ssScheduleFeedback" class="feedback" style="display:none;"></div>
 
                     <div class="schedule-unified-card">
-                        <table class="weekly-schedule-table" id="ssWeeklyTable">
+                        <div class="weekly-view">
+                            <div class="weekly-table-container">
+                                <table class="weekly-schedule-table" id="ssWeeklyTable">
                             <thead id="ssWeeklyHeader">
                                 <tr>
                                     <th class="date-header" style="width:auto;min-width:120px;text-align:center;padding:16px 12px;border-bottom:2px solid #E5E7EB;border-right:1px solid #E5E7EB;background-color:#F8F9FA;font-weight:600;color:#1F2937;">学生姓名</th>
@@ -1303,13 +1315,15 @@
                                     </td>
                                 </tr>
                             </tbody>
-                        </table>
+                                </table>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 批量保存费用按钮 -->
                     <div style="text-align: right; margin-top: 16px;">
                         <button id="batchSaveFeesBtn" class="primary-btn" style="display: none;">
-                            <span class="material-icons-round" style="font-size:18px; margin-right:4px;">save</span>
+                            <span class="material-icons-round" style="font-size:18px; margin-right:4px;" aria-hidden="true">save</span>
                             批量保存费用
                         </button>
                     </div>
@@ -1319,8 +1333,7 @@
                 <section id="sd-fees" class="dashboard-section">
                     <div id="teacherHeadFeeManagerMount"></div>
                 </section>
-
-            </div>
+            </main>
         </div>
     </div>
 
@@ -1330,8 +1343,8 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3>更改密码</h3>
-                <button class="modal-close" id="closePasswordModal">
-                    <span class="material-icons-round">close</span>
+                <button class="modal-close" id="closePasswordModal" aria-label="关闭">
+                    <span class="material-icons-round" aria-hidden="true">close</span>
                 </button>
             </div>
             <div class="modal-body">
@@ -1369,8 +1382,8 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3>费用管理</h3>
-                <button class="modal-close" id="closeFeeModal">
-                    <span class="material-icons-round">close</span>
+                <button class="modal-close" id="closeFeeModal" aria-label="关闭">
+                    <span class="material-icons-round" aria-hidden="true">close</span>
                 </button>
             </div>
             <div class="modal-body">

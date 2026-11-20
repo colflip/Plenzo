@@ -50,6 +50,8 @@ body {
     /* Removed min-height: 100vh to fix excessive whitespace */
     min-height: auto;
     height: 100vh;
+    /* 动态视口：移动端地址栏收起/展开时跟随可见高度，避免底部内容被裁 */
+    height: 100dvh;
     /* Set specific height to match viewport */
     overflow: hidden;
     /* Prevent global scroll */
@@ -85,6 +87,8 @@ body {
     position: sticky;
     top: 0;
     height: 100vh;
+    /* 动态视口兜底：与 .dashboard-container 一致，移动端地址栏变化时不裁切 */
+    height: 100dvh;
     overflow-y: auto;
     z-index: 100;
     /* Ensure it stays above other content if necessary */
@@ -1725,53 +1729,8 @@ tr:last-child td {
     border-radius: 999px;
 }
 
-/* 日历样式 */
-.calendar-container {
-    background-color: white;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-}
-
-.calendar-header {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    text-align: center;
-    font-weight: bold;
-    margin-bottom: 10px;
-}
-
-.calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 5px;
-}
-
-.calendar-day {
-    aspect-ratio: 1;
-    border: 1px solid #ddd;
-    padding: 5px;
-    text-align: center;
-    cursor: pointer;
-}
-
-.calendar-day.selected {
-    background-color: #e3f2fd;
-}
-
-/* 时间段选择器 */
-.time-slot-selector {
-    background-color: white;
-    border-radius: 12px;
-    padding: 20px;
-    margin-top: 20px;
-}
-
-.time-slots {
-    display: flex;
-    gap: 20px;
-    margin: 15px 0;
-}
+/* 日历与时间段选择器的旧样式已删除：这些类名在 JS/HTML 中零引用
+   （ teacher/time-slots.js 是模块文件名，不是 .time-slots 类）。 */
 
 /* 响应式布局 */
 .mobile-menu-toggle {
@@ -1841,6 +1800,7 @@ tr:last-child td {
         top: 140px !important;
         height: auto !important;
         max-height: calc(100vh - 180px) !important;
+        max-height: calc(100dvh - 180px) !important;
         z-index: 2000 !important;
         background: transparent !important;
         backdrop-filter: none !important;
@@ -2355,7 +2315,7 @@ tr:last-child td {
 .user-tabs .tab-btn:hover {
     background: #ECFDF5;
     border-color: #A7F3D0;
-    color: #065F46;
+    color: var(--status-confirmed-text);
     box-shadow: 0 4px 10px rgba(46, 204, 113, 0.28);
 }
 
@@ -3086,13 +3046,13 @@ tr:last-child td {
 }
 
 .chip.status-pending {
-    background: #FFEFD5;
-    color: #8A4B08;
+    background: var(--status-pending-bg);
+    color: var(--status-pending-text);
 }
 
 .chip.status-confirmed {
-    background: #D1FAE5;
-    color: #065F46;
+    background: var(--status-confirmed-bg);
+    color: var(--status-confirmed-text);
 }
 
 .chip.status-completed {
@@ -3101,48 +3061,64 @@ tr:last-child td {
 }
 
 .chip.status-cancelled {
-    background: #FEE2E2;
+    background: var(--status-cancelled-bg);
     color: #7F1D1D;
 }
 
 .chip.type-visit {
-    background: #FFE0B2;
-    color: #8A4B08;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-trial {
-    background: #BBDEFB;
-    color: #1E40AF;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-review {
-    background: #C5CAE9;
-    color: #3730A3;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-review-record {
-    background: #E1BEE7;
-    color: #6B21A8;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-half-visit {
-    background: #FFF59D;
-    color: #8A4B08;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-group-activity {
-    background: #C8E6C9;
-    color: #065F46;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-advisory {
-    background: #B2EBF2;
-    color: #006064;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 .chip.type-default {
-    background: #E5E7EB;
-    color: #111827;
+    /* 类型标签终态口径：无背景、黑灰字、细体（与移动端/导出版式一致） */
+    background: transparent;
+    color: #334155;
+    font-weight: 400;
 }
 
 /* 固定周视图表格的第一列（学生名） */
@@ -3241,8 +3217,10 @@ tr:last-child td {
 }
 
 @media (max-width: 480px) {
+    /* 横向滚动容器用常规圆角即可：999px 会把整个宽表格容器裁成胶囊形，
+       圆角处的内容被切掉，移动端观感与表格本体不一致。 */
     .weekly-table-container {
-        border-radius: 999px;
+        border-radius: var(--radius-md, 8px);
     }
 
     .schedule-item {
@@ -3829,21 +3807,10 @@ tr:last-child td {
     flex-wrap: wrap;
 }
 
-/* 按钮风格统一（兼容 user-management / teacher-dashboard 的 primary/secondary 按钮） */
-.btn,
-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid transparent;
-    transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
-}
-
+/* 说明：原先此处有一条 `.btn, button { … }` 全局块，是历史误闭合媒体块的遗留。
+   它与 global.css 的 .btn、本文件 1602/2724 行的 .btn 定义互相覆盖，且给所有裸 button
+   强行加了 padding/border-radius。现已移除；各组件（.form-actions button、.primary-btn、
+   .modal-btn、.error-state-btn 等）都有自己的样式，无需全局兜底。 */
 .statistics-controls .stats-date-group {
     display: flex;
     align-items: center;
@@ -3874,6 +3841,20 @@ button {
     height: 280px;
 }
 
+/* 断点顺序：宽→窄。原先把 768 写在 1200/992 之前，导致 ≤768 的 220px 被后面的
+   260px/240px 覆盖，移动端高度设置从未生效。现按 max-width 从宽到窄排列。 */
+@media (max-width: 1200px) {
+    .chart-card .chart-body {
+        height: 260px;
+    }
+}
+
+@media (max-width: 992px) {
+    .chart-card .chart-body {
+        height: 240px;
+    }
+}
+
 @media (max-width: 768px) {
     .statistics-controls {
         flex-direction: column;
@@ -3886,19 +3867,6 @@ button {
 
     .chart-card .chart-body {
         height: 220px;
-    }
-}
-
-/* 新增断点：992px与1200px优化图表高度与数据密度 */
-@media (max-width: 1200px) {
-    .chart-card .chart-body {
-        height: 260px;
-    }
-}
-
-@media (max-width: 992px) {
-    .chart-card .chart-body {
-        height: 240px;
     }
 }
 
@@ -4373,19 +4341,69 @@ button:hover,
 }
 
 
-/* 按钮风格统一（兼容 user-management / teacher-dashboard 的 primary/secondary 按钮） */
-.btn,
-button {
-    display: inline-flex;
+/* 按钮风格统一：同名的全局块已在上方移除，避免覆盖 global.css 与各组件自有样式。
+   .primary-btn 的样式见 556 行；其它按钮类各有归属。 */
+
+/* ==== 移动端 Action Sheet（teacher/utils.js showActionSheet 动态生成）====
+   原先按钮外观依赖已移除的全局 `.btn, button` 块兜底，这里给出组件自己的完整样式。 */
+.action-sheet-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 100002;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.action-sheet-overlay.visible { opacity: 1; }
+.action-sheet {
+    background: #fff;
+    width: 100%;
+    max-width: 480px;
+    border-radius: 16px 16px 0 0;
+    padding: 8px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.18);
+    transform: translateY(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.action-sheet-overlay.visible .action-sheet { transform: translateY(0); }
+.action-sheet-header {
+    padding: 12px 20px;
+    font-size: var(--fs-300);
+    font-weight: var(--font-weight-medium, 500);
+    color: #64748b;
+    text-align: center;
+}
+.action-sheet-options { display: flex; flex-direction: column; }
+.action-sheet-option {
+    display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-radius: 999px;
-    font-weight: 600;
+    min-height: 48px;
+    padding: 12px 20px;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: var(--fs-400);
     cursor: pointer;
-    border: 1px solid transparent;
-    transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
+    transition: background-color 0.15s ease;
+}
+.action-sheet-option:hover,
+.action-sheet-option:active { background: #f1f5f9; }
+.action-sheet-option.selected { color: var(--brand-primary, #2ecc71); font-weight: 600; }
+.action-sheet-cancel {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 20px;
+    margin-top: 8px;
+    border-top: 1px solid #f1f5f9;
+    font-size: var(--fs-400);
+    color: #64748b;
+    cursor: pointer;
 }
 
 .primary-btn {
@@ -4475,7 +4493,7 @@ button {
 .statistics-tabs .tab-btn:hover {
     background: #ECFDF5;
     border-color: #A7F3D0;
-    color: #065F46;
+    color: var(--status-confirmed-text);
 }
 
 .statistics-tabs .tab-btn.active {
@@ -4566,6 +4584,20 @@ button {
     height: 280px;
 }
 
+/* 断点顺序：宽→窄。原先把 768 写在 1200/992 之前，导致 ≤768 的 220px 被后面的
+   260px/240px 覆盖，移动端高度设置从未生效。现按 max-width 从宽到窄排列。 */
+@media (max-width: 1200px) {
+    .chart-card .chart-body {
+        height: 260px;
+    }
+}
+
+@media (max-width: 992px) {
+    .chart-card .chart-body {
+        height: 240px;
+    }
+}
+
 @media (max-width: 768px) {
     .statistics-controls {
         flex-direction: column;
@@ -4578,19 +4610,6 @@ button {
 
     .chart-card .chart-body {
         height: 220px;
-    }
-}
-
-/* 新增断点：992px与1200px优化图表高度与数据密度 */
-@media (max-width: 1200px) {
-    .chart-card .chart-body {
-        height: 260px;
-    }
-}
-
-@media (max-width: 992px) {
-    .chart-card .chart-body {
-        height: 240px;
     }
 }
 
@@ -5751,9 +5770,17 @@ svg {
 /* 移动端课程安排表 */
 @media (max-width: 768px) {
 
-    /* 隐藏PC端的周视图表格（通用选择器，适用于所有页面） */
-    /* 修改：不在排课管理(#schedule)、空闲时段(#availability, #student-availability)中隐藏 */
-    .weekly-schedule-table:not(#schedule .weekly-schedule-table):not(#availability .weekly-schedule-table):not(#student-availability .weekly-schedule-table) {
+    /* 隐藏PC端的周视图表格（通用选择器，适用于所有页面）
+       排除项 = 已经有替代版式的容器：
+       · #schedule               管理端排课管理（本来就用横向滚动的宽表格）
+       · #availability           空闲时段（学生/教师/管理端）
+       · #student-availability   管理端空闲时段
+       · #schedules              学生/教师「课程安排」
+       · #student-schedules      教师「学生排课管理」
+       后三个此前被一并隐藏，而页面上并没有渲染任何替代的移动版卡片
+       （renderMobileScheduleView 只用于导出截图），结果是手机端这三个视图整页空白。
+       现在改为显示表格本体，由外层 .weekly-table-container 做横向滚动。 */
+    .weekly-schedule-table:not(#schedule .weekly-schedule-table):not(#availability .weekly-schedule-table):not(#student-availability .weekly-schedule-table):not(#schedules .weekly-schedule-table):not(#student-schedules .weekly-schedule-table) {
         display: none !important;
     }
 
@@ -5890,8 +5917,8 @@ svg {
     }
 
     .chip.status-pending {
-        background: #fef3c7;
-        color: #92400e;
+        background: var(--status-pending-bg);
+        color: var(--status-pending-text);
     }
 
     .chip.status-completed {
@@ -6675,14 +6702,14 @@ svg {
 
 .status-badge-sm.pending,
 .status-select.pending {
-    background-color: #FFEDD5;
+    background-color: var(--status-pending-bg);
     color: #9A3412;
 }
 
 .status-badge-sm.cancelled,
 .status-select.cancelled {
     background-color: #FEE2E2;
-    color: #991B1B;
+    color: var(--status-cancelled-text);
     text-decoration: line-through;
     /* Keep for badge, select text maybe not supported */
 }
@@ -6770,7 +6797,7 @@ span.status-select {
 }
 
 .time-text {
-    font-weight: 700;
+    font-weight: 600;
     font-size: var(--fs-300);
     color: #000000;
     /* 黑色加粗，与 admin-schedule.css 的 !important 规则保持一致 */
@@ -6947,7 +6974,7 @@ span.status-select {
 }
 
 .today-schedule-slot.slot-morning {
-    color: #B45309;
+    color: var(--status-pending-text);
 }
 
 .today-schedule-slot.slot-afternoon {
@@ -7121,7 +7148,7 @@ span.status-select {
 
 .today-schedule-type.type-visit {
     background: #FEF3C7;
-    color: #B45309;
+    color: var(--status-pending-text);
 }
 
 .today-schedule-type.type-trial {
@@ -7154,8 +7181,8 @@ span.status-select {
 }
 
 .today-schedule-cell-main .status-pill.pending {
-    background: #FFFBEB;
-    color: #B45309;
+    background: var(--status-pending-bg);
+    color: var(--status-pending-text);
     border: 1px solid #FCD34D;
 }
 
@@ -7177,8 +7204,18 @@ span.status-select {
         padding: 12px 12px;
     }
 
-    .today-schedule-table .today-schedule-cell-main {
+    /* 窄屏下所有形态（含管理端 grouped）的排课内容都应贴在左侧。
+       必须显式写出 .grouped 变体：否则 specificity 0,3,0 的 `200px` 会压过这里的 0,2,0。 */
+    .today-schedule-table .today-schedule-cell-main,
+    .today-schedule-table.grouped .today-schedule-cell-main {
         padding-left: 8px;
+        line-height: 1.7;
+    }
+
+    /* 分组表格在窄屏靠背景线区分组，不再用 200px 缩进（那会把内容整体推到屏幕外） */
+    .today-schedule-table.grouped tbody td {
+        padding-left: 8px;
+        padding-right: 8px;
     }
 }
 
@@ -7343,7 +7380,8 @@ span.status-select {
 .weekly-schedule-table th .date-label {
     display: block !important;
     font-size: var(--fs-300) !important;
-    font-weight: 700 !important;
+    /* 日期表头与 th 基线（600）一致：原先比表头本身还重一档 */
+    font-weight: 600 !important;
     color: #1F2937 !important;
     margin-bottom: 2px !important;
     white-space: nowrap !important;
@@ -7593,7 +7631,7 @@ span.status-select {
 
 .time-text {
     font-size: var(--fs-300) !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     color: #000000 !important;
     margin-bottom: 2px !important;
 }
@@ -8288,8 +8326,8 @@ span.status-select {
 }
 
 .sstatus-pending {
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--status-pending-bg);
+    color: var(--status-pending-text);
 }
 
 .sstatus-confirmed {
@@ -9880,6 +9918,43 @@ span.status-select {
         padding: 2px 8px !important;
         /* 行高恰好填满内容盒（26 − 2×2 = 22px），原理同 base 规则处的注释 */
         line-height: 22px !important;
+    }
+
+    /* ---- 触控目标 ≥44px（Apple HIG / WCAG 2.5.8 建议）----
+       只抬「纯图标的小按钮」：桌面 32px 观感紧凑，但手指点不准。
+       用 pointer: coarse 判定而非窗口宽度，避免缩小桌面窗口时布局跳档。
+       .status-select 例外：它是排课卡片里的行内小胶囊，设计上刻意保持 26px 紧凑，
+       已在上面的规则里明确，不再纳入本组。 */
+    .week-navigation .search-btn,
+    .nav-btn,
+    .close-btn {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        width: auto !important;
+        height: auto !important;
+        padding: 8px !important;
+    }
+
+    .week-navigation .search-btn .material-icons-round {
+        font-size: var(--fs-500) !important;
+    }
+}
+
+/* ============================================================
+   刘海屏 / Home 指示条安全区
+   viewport meta 已加 viewport-fit=cover，全屏铺满后固定定位的元素必须自己
+   躲开安全区，否则在 iPhone 14/15（灵动岛、底部指示条）上会被遮住或误触手势。
+   ============================================================ */
+@media screen and (max-width: 768px) {
+    .mobile-menu-toggle {
+        top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+        left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+    }
+
+    /* 侧栏浮层菜单：左边距避开横屏刘海，顶部跟随状态栏 */
+    .sidebar {
+        left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+        top: calc(140px + env(safe-area-inset-top, 0px)) !important;
     }
 }
 

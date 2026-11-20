@@ -1853,7 +1853,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
         const status = (rec.status || 'pending').toLowerCase();
         const statusBadge = document.createElement('span');
         statusBadge.classList.add('status-badge-sm', status);
-        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消' };
+        const statusMap = { 'pending': '待确认', 'confirmed': '已确认', 'completed': '已完成', 'cancelled': '已取消', 'modified_away': '已调整' };
         statusBadge.textContent = statusMap[status] || status;
 
         // 点击 Badge 弹出状态修改菜单
