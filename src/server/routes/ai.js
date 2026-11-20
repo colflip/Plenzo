@@ -99,4 +99,8 @@ router.delete('/my-model', authMiddleware, anyAuthenticated, aiController.clearM
 // 其中的 baseUrl 来自客户端，服务端会过出站地址护栏（utils/ssrf-guard.js）后才发起请求。
 router.post('/query', authMiddleware, anyAuthenticated, aiLimiter, aiController.query);
 
+// 快捷问题直连：固定结构化查询不过 LLM，直接执行数据工具（不耗 token、秒回）。
+// key 是白名单标识（非自然语言），复用 /query 的限流与鉴权。
+router.post('/quick-query', authMiddleware, anyAuthenticated, aiLimiter, aiController.quickQuery);
+
 module.exports = router;
