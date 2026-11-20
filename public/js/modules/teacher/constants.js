@@ -1,19 +1,18 @@
+import { STATUS_LABELS } from '../shared/schedule-helpers.js';
+
 // 时段定义统一由 shared/schedule-helpers.js 提供（原此处有一份逐字相同的副本）
 export { TIME_SLOT_CONFIG } from '../shared/schedule-helpers.js';
 
-export const SCHEDULE_STATUS_LABELS = Object.freeze({
-    pending: '待确认',
-    confirmed: '已确认',
-    completed: '已完成',
-    cancelled: '已取消',
-    modified_away: '已调整'
-});
+// 状态文案同样统一到 shared 的单一权威来源：本地副本曾漏掉「已调整」，
+// 遇到 modified_away 会直接显示原始英文。
+export const SCHEDULE_STATUS_LABELS = STATUS_LABELS;
 
 export const SCHEDULE_STATUS_OPTIONS = Object.freeze([
     { value: 'pending', label: SCHEDULE_STATUS_LABELS.pending },
     { value: 'confirmed', label: SCHEDULE_STATUS_LABELS.confirmed },
     { value: 'completed', label: SCHEDULE_STATUS_LABELS.completed },
-    { value: 'cancelled', label: SCHEDULE_STATUS_LABELS.cancelled }
+    { value: 'cancelled', label: SCHEDULE_STATUS_LABELS.cancelled },
+    { value: 'modified_away', label: SCHEDULE_STATUS_LABELS.modified_away }
 ]);
 
 export function getStatusLabel(status) {

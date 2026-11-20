@@ -22,8 +22,12 @@ function applyUserType(value) {
     if (!option) return;
 
     hiddenSelect.value = value;
-    document.querySelectorAll('.custom-option').forEach(opt => opt.classList.remove('selected'));
+    document.querySelectorAll('.custom-option').forEach(opt => {
+        opt.classList.remove('selected');
+        opt.setAttribute('aria-selected', 'false');
+    });
     option.classList.add('selected');
+    option.setAttribute('aria-selected', 'true');
 
     const triggerText = document.getElementById('customSelectText');
     if (triggerText) triggerText.textContent = option.textContent;
@@ -31,6 +35,10 @@ function applyUserType(value) {
 
 /**
  * Initialize Custom Select Dropdown
+ *
+ * 原生 select 被 display:none 藏起，只做表单值载体；可访问性靠自定义 trigger 的
+ * combobox 语义 + 完整键盘操作（Enter/Space 展开、上下键移动、Enter 选中、Esc 关闭）。
+ * 焦点始终留在 trigger 上，用 aria-activedescendant 指向当前高亮项。
  */
 function initCustomSelect() {
     const wrapper = document.querySelector('.custom-select-wrapper');
@@ -40,6 +48,7 @@ function initCustomSelect() {
     const options = wrapper.querySelectorAll('.custom-option');
     const hiddenSelect = document.getElementById('userType');
     const triggerText = document.querySelector('#customSelectText');
+    if (!trigger) return;
 
     // Restore last selected user type from localStorage
     try {
@@ -49,39 +58,120 @@ function initCustomSelect() {
         }
     } catch (e) { /* ignore storage errors */ }
 
+    let activeIndex = 0;
+
+    const isOpen = () => wrapper.classList.contains('open');
+
+    const setActive = (index) => {
+        const list = Array.from(options);
+        if (list.length === 0) return;
+        activeIndex = (index + list.length) % list.length;
+        list.forEach((opt, i) => {
+            if (i === activeIndex) {
+                opt.classList.add('active');
+                trigger.setAttribute('aria-activedescendant', opt.id || '');
+            } else {
+                opt.classList.remove('active');
+            }
+        });
+    };
+
+    const open = () => {
+        wrapper.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+        const selected = Array.from(options).findIndex(o => o.classList.contains('selected'));
+        setActive(selected >= 0 ? selected : 0);
+    };
+
+    const close = () => {
+        wrapper.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.removeAttribute('aria-activedescendant');
+    };
+
+    const selectOption = (option) => {
+        if (!option) return;
+        const value = option.dataset.value;
+        const text = option.textContent;
+
+        // Update UI
+        triggerText.textContent = text;
+        close();
+
+        // Update active state
+        options.forEach(opt => {
+            opt.classList.remove('selected');
+            opt.setAttribute('aria-selected', 'false');
+        });
+        option.classList.add('selected');
+        option.setAttribute('aria-selected', 'true');
+
+        // Update hidden select
+        if (hiddenSelect) {
+            hiddenSelect.value = value;
+            // Trigger change event if needed
+            hiddenSelect.dispatchEvent(new Event('change'));
+        }
+    };
+
     // Toggle dropdown
     trigger.addEventListener('click', (e) => {
         e.stopPropagation();
-        wrapper.classList.toggle('open');
+        if (isOpen()) {
+            close();
+        } else {
+            open();
+        }
+    });
+
+    // Keyboard operation（外接键盘 / 读屏 / 开关控制）
+    trigger.addEventListener('keydown', (e) => {
+        switch (e.key) {
+            case 'Enter':
+            case ' ':
+            case 'Spacebar':
+                e.preventDefault();
+                if (isOpen()) {
+                    selectOption(options[activeIndex]);
+                } else {
+                    open();
+                }
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                if (!isOpen()) open(); else setActive(activeIndex + 1);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                if (!isOpen()) open(); else setActive(activeIndex - 1);
+                break;
+            case 'Escape':
+                if (isOpen()) {
+                    e.preventDefault();
+                    close();
+                }
+                break;
+            case 'Tab':
+                // Tab 离开时收起，焦点不留在浮层里
+                close();
+                break;
+            default:
+                break;
+        }
     });
 
     // Handle option selection
     options.forEach(option => {
         option.addEventListener('click', () => {
-            const value = option.dataset.value;
-            const text = option.textContent;
-
-            // Update UI
-            triggerText.textContent = text;
-            wrapper.classList.remove('open');
-
-            // Update active state
-            options.forEach(opt => opt.classList.remove('selected'));
-            option.classList.add('selected');
-
-            // Update hidden select
-            if (hiddenSelect) {
-                hiddenSelect.value = value;
-                // Trigger change event if needed
-                hiddenSelect.dispatchEvent(new Event('change'));
-            }
+            selectOption(option);
+            trigger.focus();
         });
     });
 
     // Close when clicking outside
     document.addEventListener('click', (e) => {
         if (!wrapper.contains(e.target)) {
-            wrapper.classList.remove('open');
+            close();
         }
     });
 }

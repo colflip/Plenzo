@@ -225,15 +225,17 @@
     vertical-align: middle;
 }
 
-/* 状态配色整体变浅，弱化于老师/时间等主信息 */
+/* 状态配色保持浅底（导出图里仍弱化于老师/时间等主信息），但字色调深以满足对比度：
+   原 pending #B98A5A on #FFF4E0 = 2.81:1、cancelled #B56A6A on #FDEDED = 3.54:1，
+   改用同色系的深阶后分别约 5.4:1 / 5.1:1，均过 WCAG AA。浅底 + 细体观感不变。 */
 .msv-status-pending {
-    background: #FFF4E0 !important;
-    color: #B98A5A !important;
+    background: var(--status-pending-bg) !important;
+    color: var(--status-pending-text) !important;
 }
 
 .msv-status-cancelled {
-    background: #FDEDED !important;
-    color: #B56A6A !important;
+    background: var(--status-cancelled-bg) !important;
+    color: var(--status-cancelled-text) !important;
 }
 
 /* 底部一行「时间 + 地点」：时间黑色、字重收敛到 600 */

@@ -873,7 +873,7 @@ function renderWeeklyBody(students, schedules, weekDates) {
         // 截图入口（P3-12）：原来只有双击，键盘用户完全用不了这两下。
         // 补 tabindex + role + Enter/Space，保留 dblclick；顺带修掉 title 被无条件覆盖
         // 「暂停」提示那一行（877 行原来在 870-873 之后执行，暂停说明根本没机会出现）。
-        const captureHint = '生成该学生本周课表图片（双击或按 Enter）';
+        const captureHint = '生成该学生本周课表图片（双击 / 长按，或按 Enter）';
         nameTd.title = String(student.status) === '0'
             ? `该学生处于暂停状态；${captureHint}`
             : captureHint;
@@ -883,7 +883,7 @@ function renderWeeklyBody(students, schedules, weekDates) {
         nameTd.setAttribute('aria-label', `复制 ${student.name} 的周课表图片`);
         const runCapture = (e) => {
             e.stopPropagation();
-            // 双击学生姓名：直接导出「该学生 + 移动端视图」，不弹窗、不让用户再选
+            // 双击/长按学生姓名：直接导出「该学生 + 移动端视图」，不弹窗、不让用户再选
             exportStudentMobileView({ id: student.id, name: student.name });
         };
         nameTd.addEventListener('dblclick', runCapture);
@@ -893,6 +893,33 @@ function renderWeeklyBody(students, schedules, weekDates) {
                 runCapture(e);
             }
         });
+
+        // 触屏没有 dblclick：长按 500ms 等价于双击。
+        // 短按（<500ms）不触发，保留行点击/选中行为；手指移动视为滚动，取消长按。
+        let longPressTimer = null;
+        let longPressFired = false;
+        const clearLongPress = () => {
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        };
+        nameTd.addEventListener('touchstart', (e) => {
+            longPressFired = false;
+            clearLongPress();
+            longPressTimer = setTimeout(() => {
+                longPressFired = true;
+                longPressTimer = null;
+                runCapture(e);
+            }, 500);
+        }, { passive: true });
+        nameTd.addEventListener('touchmove', clearLongPress, { passive: true });
+        nameTd.addEventListener('touchend', () => {
+            clearLongPress();
+            // 长按已触发时，紧随其后的 click 要吞掉，否则会连带触发行的点击逻辑
+            if (longPressFired) {
+                longPressFired = false;
+                nameTd.addEventListener('click', (ev) => { ev.stopPropagation(); ev.preventDefault(); }, { capture: true, once: true });
+            }
+        }, { passive: true });
+        nameTd.addEventListener('touchcancel', clearLongPress, { passive: true });
 
         tr.appendChild(nameTd);
 

@@ -74,7 +74,7 @@ window.ScheduleExportDialog = (function () {
 
         const box = document.createElement('div');
         box.style.cssText = [
-            'background: #ffffff', 'width: 380px', 'max-height: 78vh',
+            'background: #ffffff', 'width: min(380px, calc(100vw - 24px))', 'max-height: 78dvh',
             'border-radius: 16px', 'box-shadow: 0 20px 48px -12px rgba(0,0,0,0.28)',
             'display: flex', 'flex-direction: column', 'overflow: hidden',
             'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
@@ -89,10 +89,21 @@ window.ScheduleExportDialog = (function () {
         header.appendChild(title);
         const closeBtn = document.createElement('span');
         closeBtn.className = 'material-icons-round';
-        closeBtn.style.cssText = 'cursor: pointer; color: #94a3b8; font-size: 22px; line-height: 1; transition: color 0.15s;';
+        closeBtn.style.cssText = 'cursor: pointer; color: #94a3b8; font-size: 22px; line-height: 1; transition: color 0.15s; padding: 11px; margin: -11px; border-radius: 8px;';
         closeBtn.textContent = 'close';
+        // 关闭控件要能被键盘/读屏使用：span 本身没有按钮语义，补上 role/tabindex/名称。
+        // padding/margin 让可见图标仍为 22px，但命中区扩到 44px（移动端触控标准）。
+        closeBtn.setAttribute('role', 'button');
+        closeBtn.setAttribute('tabindex', '0');
+        closeBtn.setAttribute('aria-label', '关闭');
         closeBtn.onmouseover = () => closeBtn.style.color = '#475569';
         closeBtn.onmouseout = () => closeBtn.style.color = '#94a3b8';
+        closeBtn.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                closeBtn.click();
+            }
+        };
         header.appendChild(closeBtn);
         box.appendChild(header);
 

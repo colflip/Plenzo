@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
     <title>管理员仪表盘 - Plenzo</title>
     <!-- 同步鉴权守卫：在任意脚本/接口调用前执行，避免非管理员或令牌缺失时加载后台并触发 403 误报 -->
@@ -19,6 +19,8 @@
     <link rel="stylesheet" href="/css/modules/schedule-mobile-view.css">
     <link rel="stylesheet" href="/css/modules/admin-ai-models.css">
     <link rel="stylesheet" href="/css/modules/dashboard-mobile-fix.css">
+    <link rel="stylesheet" href="/css/modules/ai-assistant.css">
+    <link rel="stylesheet" href="/css/modules/dashboard-dark.css">
     <style>
         /* 全局样式 */
         :root {
@@ -460,38 +462,38 @@
                 <span class="logo-text">Plenzo</span>
             </div>
             <nav class="nav-menu">
-                <a href="#" class="nav-item active" data-section="overview">
-                    <span class="material-icons-round">dashboard</span>
+                <a href="#mainContent" class="nav-item active" aria-current="page" data-section="overview">
+                    <span class="material-icons-round" aria-hidden="true">dashboard</span>
                     <span class="nav-text">总览</span>
                 </a>
-                <a href="#" class="nav-item" data-section="users" data-min-level="2">
-                    <span class="material-icons-round">people</span>
+                <a href="#mainContent" class="nav-item" data-section="users" data-min-level="2">
+                    <span class="material-icons-round" aria-hidden="true">people</span>
                     <span class="nav-text">用户管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="availability-mgmt">
-                    <span class="material-icons-round">event_available</span>
+                <a href="#mainContent" class="nav-item" data-section="availability-mgmt">
+                    <span class="material-icons-round" aria-hidden="true">event_available</span>
                     <span class="nav-text">空闲时段管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="schedule">
-                    <span class="material-icons-round">event_note</span>
+                <a href="#mainContent" class="nav-item" data-section="schedule">
+                    <span class="material-icons-round" aria-hidden="true">event_note</span>
                     <span class="nav-text">排课管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="finance">
-                    <span class="material-icons-round">payments</span>
+                <a href="#mainContent" class="nav-item" data-section="finance">
+                    <span class="material-icons-round" aria-hidden="true">payments</span>
                     <span class="nav-text">费用管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="statistics">
-                    <span class="material-icons-round">insights</span>
+                <a href="#mainContent" class="nav-item" data-section="statistics">
+                    <span class="material-icons-round" aria-hidden="true">insights</span>
                     <span class="nav-text">数据统计</span>
                 </a>
-                <a href="#" class="nav-item" data-section="system-settings" data-min-level="1">
-                    <span class="material-icons-round">tune</span>
+                <a href="#mainContent" class="nav-item" data-section="system-settings" data-min-level="1">
+                    <span class="material-icons-round" aria-hidden="true">tune</span>
                     <span class="nav-text">系统设置</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <button class="toggle-sidebar">
-                    <span class="material-icons-round">chevron_left</span>
+                <button class="toggle-sidebar" aria-label="收起或展开侧边栏">
+                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                 </button>
             </div>
         </div>
@@ -500,9 +502,9 @@
         <div class="main-content">
             <header class="dashboard-header">
                 <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="打开菜单">
-                    <span class="material-icons-round">menu</span>
+                    <span class="material-icons-round" aria-hidden="true">menu</span>
                 </button>
-                <h2>管理员总览</h2>
+                <h1>管理员总览</h1>
                 <div class="user-info">
                     <span class="user-name" id="adminName">管理员</span>
                     <span class="role-badge" id="adminRole">(管理员)</span>
@@ -511,7 +513,7 @@
             </header>
 
             <!-- 内容部分 -->
-            <div class="content-area">
+            <main class="content-area" id="mainContent">
                 <!-- 总览部分 -->
                 <section id="overview" class="dashboard-section active">
                     <div class="stats-grid">
@@ -519,7 +521,7 @@
                             style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);"
                             data-tooltip="系统中注册的教师总人数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #0369a1;">person_outline</span></div>
+                                    style="color: #0369a1;" aria-hidden="true">person_outline</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #0369a1;">总教师数</h3>
                                 <p class="gradient-value" style="color: #0369a1;" id="teacherCount">--</p>
@@ -529,7 +531,7 @@
                             style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);"
                             data-tooltip="系统中注册的学生总人数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #15803d;">face</span></div>
+                                    style="color: #15803d;" aria-hidden="true">face</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #15803d;">总学生数</h3>
                                 <p class="gradient-value" style="color: #15803d;" id="studentCount">--</p>
@@ -539,7 +541,7 @@
                             style="background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);"
                             data-tooltip="本周内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #7c3aed;">date_range</span></div>
+                                    style="color: #7c3aed;" aria-hidden="true">date_range</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #7c3aed;">本周排课</h3>
                                 <p class="gradient-value" style="color: #7c3aed;" id="weeklySchedules">--</p>
@@ -549,7 +551,7 @@
                             style="background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);"
                             data-tooltip="本月内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #c2410c;">calendar_month</span></div>
+                                    style="color: #c2410c;" aria-hidden="true">calendar_month</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #c2410c;">本月排课</h3>
                                 <p class="gradient-value" style="color: #c2410c;" id="monthlySchedules">--</p>
@@ -559,7 +561,7 @@
                             style="background: linear-gradient(135deg, #e0f2fe 0%, #a5d8ff 100%);"
                             data-tooltip="本年度内所有已安排的课程总数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #0c4a6e;">auto_graph</span></div>
+                                    style="color: #0c4a6e;" aria-hidden="true">auto_graph</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #0c4a6e;">本年排课</h3>
                                 <p class="gradient-value" style="color: #0c4a6e;" id="yearlySchedules">--</p>
@@ -569,7 +571,7 @@
                             style="background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);"
                             data-tooltip="当前等待确认的课程申请">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #be185d;">hourglass_empty</span></div>
+                                    style="color: #be185d;" aria-hidden="true">hourglass_empty</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #be185d;">待确认排课</h3>
                                 <p class="gradient-value" style="color: #be185d;" id="pendingConfirmations">--</p>
@@ -579,7 +581,7 @@
                             style="background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);"
                             data-tooltip="历史累计已顺利完成的课程总节数">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #166534;">check_circle_outline</span></div>
+                                    style="color: #166534;" aria-hidden="true">check_circle_outline</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #166534;">已完成排课</h3>
                                 <p class="gradient-value" style="color: #166534;" id="completedSchedules">--</p>
@@ -589,7 +591,7 @@
                             style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);"
                             data-tooltip="历史累计已被取消的课程记录">
                             <div class="gradient-bg-icon"><span class="material-icons-round"
-                                    style="color: #475569;">block</span></div>
+                                    style="color: #475569;" aria-hidden="true">block</span></div>
                             <div class="gradient-content">
                                 <h3 style="color: #475569;">已取消排课</h3>
                                 <p class="gradient-value" style="color: #475569;" id="cancelledSchedules">--</p>
@@ -601,20 +603,20 @@
                     <div class="overview-today-section">
                         <div class="overview-today-header">
                             <div class="overview-today-title">
-                                <span class="material-icons-round">event_note</span>
+                                <span class="material-icons-round" aria-hidden="true">event_note</span>
                                 <h3 id="todayScheduleTitle">今日排课</h3>
                             </div>
                             <div class="overview-today-actions">
                                 <div class="overview-today-nav">
-                                    <button id="prevDayBtn" class="overview-today-refresh" type="button" title="上一天">
-                                        <span class="material-icons-round">chevron_left</span>
+                                    <button id="prevDayBtn" class="overview-today-refresh" type="button" title="上一天" aria-label="上一天">
+                                        <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                     </button>
-                                    <button id="nextDayBtn" class="overview-today-refresh" type="button" title="下一天">
-                                        <span class="material-icons-round">chevron_right</span>
+                                    <button id="nextDayBtn" class="overview-today-refresh" type="button" title="下一天" aria-label="下一天">
+                                        <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                     </button>
                                 </div>
                                 <button id="refreshTodaySchedulesBtn" class="overview-today-refresh">
-                                    <span class="material-icons-round">refresh</span> 刷新
+                                    <span class="material-icons-round" aria-hidden="true">refresh</span> 刷新
                                 </button>
                             </div>
                         </div>
@@ -640,7 +642,7 @@
                                 <button class="tab-btn" data-type="admin" title="查看管理员列表">管理员</button>
                             </div>
                             <button id="addUserBtn" class="add-btn" style="margin-left: 12px;">
-                                <span class="material-icons-round">add</span> 添加用户
+                                <span class="material-icons-round" aria-hidden="true">add</span> 添加用户
                             </button>
                         </div>
                     </div>
@@ -688,7 +690,7 @@
                                 <label for="userId">用户ID
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="留空则自动生成，可手动指定" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="留空则自动生成，可手动指定" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="number" id="userId" min="1">
                             </div>
@@ -711,7 +713,7 @@
                                 <label for="userNickname">昵称
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="选填，不超过50个字符" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="选填，不超过50个字符" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="text" id="userNickname" maxlength="50" placeholder="选填">
                             </div>
@@ -719,7 +721,7 @@
                                 <label for="userPermissionLevel">权限级别
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="请输入权限级别(1-3)" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="请输入权限级别(1-3)" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="number" id="userPermissionLevel" min="1" max="3">
                             </div>
@@ -735,7 +737,7 @@
                                 <label for="userProfession">职业
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="教师/学生职业信息" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="教师/学生职业信息" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="text" id="userProfession">
                             </div>
@@ -743,7 +745,7 @@
                                 <label for="userWorkLocation">工作地点
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="仅教师填写" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="仅教师填写" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="text" id="userWorkLocation">
                             </div>
@@ -755,7 +757,7 @@
                                 <label for="userVisitLocation">入户地点
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="仅学生填写" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="仅学生填写" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <input type="text" id="userVisitLocation">
                             </div>
@@ -773,7 +775,7 @@
                                 <label for="userRestriction">排课限制
                                     <span class="material-icons-round help-icon"
                                         style="font-size:16px;color:#94A3B8;cursor:pointer;vertical-align:text-bottom;margin-left:4px;"
-                                        data-action="toast" data-toast-msg="0=不限，1=需匹配空闲时段" data-toast-type="info">help_outline</span>
+                                        data-action="toast" data-toast-msg="0=不限，1=需匹配空闲时段" data-toast-type="info" aria-hidden="true">help_outline</span>
                                 </label>
                                 <select id="userRestriction">
                                     <option value="0">无限制 (0)</option>
@@ -816,28 +818,28 @@
                             <div class="settings-actions" id="settingsActions">
                                 <div class="settings-view-actions active" data-actions-for="schedule-types-view">
                                     <button id="addScheduleTypeBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 添加类型
+                                        <span class="material-icons-round" aria-hidden="true">add</span> 添加类型
                                     </button>
                                 </div>
                                 <div class="settings-view-actions" data-actions-for="holiday-config-view">
                                     <button id="addHolidayBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 添加节假日
+                                        <span class="material-icons-round" aria-hidden="true">add</span> 添加节假日
                                     </button>
                                     <button id="loadHolidaysBtn" class="add-btn">
-                                        <span class="material-icons-round">sync</span> 从 API 同步
+                                        <span class="material-icons-round" aria-hidden="true">sync</span> 从 API 同步
                                     </button>
                                 </div>
                                 <div class="settings-view-actions" data-actions-for="ai-models-view">
                                     <button id="addAIModelBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 添加模型
+                                        <span class="material-icons-round" aria-hidden="true">add</span> 添加模型
                                     </button>
                                     <button id="addEndpointBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 新增端点
+                                        <span class="material-icons-round" aria-hidden="true">add</span> 新增端点
                                     </button>
                                 </div>
                                 <div class="settings-view-actions" data-actions-for="feedback-view">
                                     <button id="addFeedbackBtn" class="add-btn">
-                                        <span class="material-icons-round">add</span> 提交反馈
+                                        <span class="material-icons-round" aria-hidden="true">add</span> 提交反馈
                                     </button>
                                 </div>
                             </div>
@@ -1187,23 +1189,23 @@
                         <!-- Left: Nav + Add Button -->
                         <div class="sch-controls-left" style="display:flex; gap:16px; align-items:center;">
                             <div class="week-navigation">
-                                <button id="prevWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_left</span>
+                                <button id="prevWeek" class="nav-btn" aria-label="上一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                 </button>
                                 <span id="weekRange">加载中...</span>
-                                <button id="nextWeek" class="nav-btn">
-                                    <span class="material-icons-round">chevron_right</span>
+                                <button id="nextWeek" class="nav-btn" aria-label="下一周">
+                                    <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                 </button>
                             </div>
                             <button id="addScheduleBtn" class="add-btn">
-                                <span class="material-icons-round">add</span> 添加排课
+                                <span class="material-icons-round" aria-hidden="true">add</span> 添加排课
                             </button>
                             <button id="toggleShowPlanBtn" class="add-btn schedule-visibility-toggle" aria-pressed="false" data-action="toggle-admin-show-plan" style="margin-left: 10px;">
-                        <span class="material-icons-round">visibility</span>
+                        <span class="material-icons-round" aria-hidden="true">visibility</span>
                         <span id="showPlanBtnText">显示全部安排</span>
                     </button>
                             <button id="exportAdminWeekViewBtn" class="add-btn" style="margin-left: 10px;" title="复制成图片：一名学生直接导出，多名学生先选择">
-                                <span class="material-icons-round">file_download</span> 导出本周视图
+                                <span class="material-icons-round" aria-hidden="true">file_download</span> 导出本周视图
                             </button>
                         </div>
 
@@ -1377,23 +1379,23 @@
                             <div class="availability-date-actions" id="availabilityDateActions">
                                 <div class="availability-date-nav active" data-date-for="student-availability-view">
                                     <div class="week-navigation">
-                                        <button id="avStudentPrevWeek" class="nav-btn">
-                                            <span class="material-icons-round">chevron_left</span>
+                                        <button id="avStudentPrevWeek" class="nav-btn" aria-label="上一周">
+                                            <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                         </button>
                                         <span id="avStudentWeekRange">加载中...</span>
-                                        <button id="avStudentNextWeek" class="nav-btn">
-                                            <span class="material-icons-round">chevron_right</span>
+                                        <button id="avStudentNextWeek" class="nav-btn" aria-label="下一周">
+                                            <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                         </button>
                                     </div>
                                 </div>
                                 <div class="availability-date-nav" data-date-for="teacher-availability-view">
                                     <div class="week-navigation">
-                                        <button id="avPrevWeek" class="nav-btn">
-                                            <span class="material-icons-round">chevron_left</span>
+                                        <button id="avPrevWeek" class="nav-btn" aria-label="上一周">
+                                            <span class="material-icons-round" aria-hidden="true">chevron_left</span>
                                         </button>
                                         <span id="avWeekRange">加载中...</span>
-                                        <button id="avNextWeek" class="nav-btn">
-                                            <span class="material-icons-round">chevron_right</span>
+                                        <button id="avNextWeek" class="nav-btn" aria-label="下一周">
+                                            <span class="material-icons-round" aria-hidden="true">chevron_right</span>
                                         </button>
                                     </div>
                                 </div>
@@ -1456,7 +1458,7 @@
                         </div>
                         <button id="openExportDialogBtn" class="export-data-btn" title="打开数据导出配置对话框"
                             data-min-level="2" style="margin-left: 12px;">
-                            <span class="material-icons-round">file_download</span>
+                            <span class="material-icons-round" aria-hidden="true">file_download</span>
                             <span>导出数据</span>
                         </button>
                     </div>
@@ -1477,7 +1479,7 @@
 
                                     <div class="action-group">
                                         <button class="search-btn" id="statisticsSearchBtn" title="查询该日期范围内的统计数据">
-                                            <span class="material-icons-round">search</span>
+                                            <span class="material-icons-round" aria-hidden="true">search</span>
                                             <span class="btn-text">查询</span>
                                             <span class="btn-loading">加载中...</span>
                                         </button>
@@ -1589,7 +1591,7 @@
                     </div>
                 </div>
             </section>
-        </div>
+            </main>
 
         <!-- 消息容器 -->
         <div id="messageContainer"></div>

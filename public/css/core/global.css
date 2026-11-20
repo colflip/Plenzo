@@ -533,6 +533,14 @@ label {
     border-color: var(--color-gray-300);
 }
 
+/* 键盘可达性：trigger 现在是 role=combobox 的可聚焦元素，必须有可见焦点环 */
+.custom-select-trigger:focus-visible {
+    outline: 2px solid var(--color-primary-500);
+    outline-offset: 2px;
+    background: white;
+    border-color: var(--color-gray-300);
+}
+
 .custom-select-wrapper.open .custom-select-trigger {
     border-color: var(--color-primary-500);
     box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
@@ -570,6 +578,12 @@ label {
 }
 
 .custom-option:hover {
+    background-color: var(--color-gray-50);
+    color: var(--color-primary-600);
+}
+
+/* 键盘上下键移动时的高亮项（aria-activedescendant 指向的就是它） */
+.custom-option.active {
     background-color: var(--color-gray-50);
     color: var(--color-primary-600);
 }

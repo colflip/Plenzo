@@ -51,7 +51,7 @@ export function setupSidebarToggle() {
  * 设置头部标题
  */
 export function setHeaderTitle(title) {
-    const headerTitle = document.querySelector('.dashboard-header h2');
+    const headerTitle = document.querySelector('.dashboard-header h1, .dashboard-header h2');
     if (headerTitle) headerTitle.textContent = title;
 }
 

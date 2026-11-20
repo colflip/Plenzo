@@ -1146,14 +1146,41 @@ window.ExportDialog = (function () {
 
             .export-dialog-container {
                 background: #fff;
-                width: 800px;
-                height: 520px;
+                width: min(800px, 94vw);
+                height: min(520px, 86dvh);
                 border-radius: 16px;
                 box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
                 display: flex;
                 overflow: hidden;
                 animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 font-family: 'Inter', system-ui, sans-serif;
+            }
+
+            /* 窄屏：侧栏折叠为顶部横向 tab，避免 260px 侧栏挤掉主内容 */
+            @media (max-width: 768px) {
+                .export-dialog-container {
+                    flex-direction: column;
+                    width: calc(100vw - 24px);
+                    height: min(520px, 86dvh);
+                }
+                .export-sidebar {
+                    width: 100%;
+                    flex-direction: row;
+                    align-items: center;
+                    overflow-x: auto;
+                    padding: 10px 12px;
+                    border-right: none;
+                    border-bottom: 1px solid #e2e8f0;
+                }
+                .export-sidebar-header h3 { margin: 0 12px 0 0; white-space: nowrap; }
+                .export-type-list {
+                    flex-direction: row;
+                    flex-wrap: nowrap;
+                }
+                .export-type-item { padding: 8px 12px; white-space: nowrap; flex-shrink: 0; }
+                .export-type-item .export-type-label { font-size: 14px; }
+                .export-body { padding: 12px; }
+                .export-footer { padding: 12px; flex-wrap: wrap; gap: 8px; }
             }
 
             /* 入口锁定单一导出类型时，隐藏类型侧栏，主内容区占满 */

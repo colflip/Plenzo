@@ -5,6 +5,37 @@
  */
 
 /**
+ * 背景滚动锁
+ * @description 弹窗打开时锁住背景滚动，移动端尤其重要：iOS 上背景可滚会让
+ *   fixed 遮罩随滚动抖动/露底，关闭后滚动位置也容易丢。
+ *   仪表盘页面的滚动容器不是 body 而是 .main-content（body 本身不滚），
+ *   所以两者都要锁。用引用计数支持多层弹窗叠加时正确解锁。
+ */
+const scrollLockState = { count: 0, saved: new Map() };
+
+function lockBackgroundScroll() {
+    const targets = [document.body];
+    const main = document.querySelector('.main-content');
+    if (main) targets.push(main);
+
+    targets.forEach((el) => {
+        if (!scrollLockState.saved.has(el)) {
+            scrollLockState.saved.set(el, el.style.overflow);
+            el.style.overflow = 'hidden';
+        }
+    });
+    scrollLockState.count++;
+}
+
+function unlockBackgroundScroll() {
+    if (scrollLockState.count === 0) return;
+    scrollLockState.count--;
+    if (scrollLockState.count > 0) return;
+    scrollLockState.saved.forEach((prev, el) => { el.style.overflow = prev; });
+    scrollLockState.saved.clear();
+}
+
+/**
  * Modal管理器
  */
 class ModalManager {
@@ -68,7 +99,9 @@ class ModalManager {
                 border-radius: var(--radius-xl, 12px);
                 box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
                 max-width: 90vw;
+                /* 动态视口：iOS 软键盘弹起时 vh 不收缩，输入框会被键盘盖住 */
                 max-height: 90vh;
+                max-height: 90dvh;
                 overflow: hidden;
                 display: flex;
                 flex-direction: column;
@@ -279,11 +312,35 @@ class ModalManager {
         const confirmBtn = overlay.querySelector('.modal-confirm');
         const cancelBtn = overlay.querySelector('.modal-cancel');
 
+        // 焦点管理：打开时记住触发元素并把焦点移入弹窗，关闭时归还。
+        // 否则键盘/读屏用户的焦点仍留在弹窗背后，可以「穿透」遮罩操作背景。
+        const previouslyFocused = document.activeElement;
+        const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+        const focusableIn = () => Array.from(container.querySelectorAll(FOCUSABLE))
+            .filter(el => el.offsetParent !== null || el === document.activeElement);
+
+        const onKeydown = (e) => {
+            if (e.key !== 'Tab') return;
+            const items = focusableIn();
+            if (items.length === 0) { e.preventDefault(); return; }
+            const first = items[0];
+            const last = items[items.length - 1];
+            const active = document.activeElement;
+            if (e.shiftKey && (active === first || !container.contains(active))) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && active === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        };
+        overlay.addEventListener('keydown', onKeydown);
+
         const closeModal = () => this.close(id);
 
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
-                onClose?.();
                 closeModal();
             });
         }
@@ -308,22 +365,45 @@ class ModalManager {
         if (closable) {
             overlay.addEventListener('click', (e) => {
                 if (e.target === overlay) {
-                    onClose?.();
                     closeModal();
                 }
             });
         }
 
         document.body.appendChild(overlay);
+        lockBackgroundScroll();
 
         // 触发动画
         requestAnimationFrame(() => overlay.classList.add('visible'));
+
+        // 焦点移入弹窗（首个可聚焦元素优先；没有则聚焦弹窗容器本身）
+        requestAnimationFrame(() => {
+            const items = focusableIn();
+            const target = items.find(el => el !== closeBtn) || items[0];
+            if (target) {
+                target.focus();
+            } else {
+                container.setAttribute('tabindex', '-1');
+                container.focus();
+            }
+        });
+
+        // onClose 只结算一次：关闭按钮、蒙层点击、Esc（经 closeTop）与代码调 close() 统一走这里，
+        // 避免 confirm/alert/prompt 的 Promise 因 Esc 关闭而永久 pending。
+        let closeSettled = false;
+        const settleClose = () => {
+            if (closeSettled) return;
+            closeSettled = true;
+            onClose?.();
+        };
 
         const modal = {
             id,
             overlay,
             body: overlay.querySelector('.modal-body'),
-            close: closeModal
+            close: closeModal,
+            settleClose,
+            previouslyFocused
         };
 
         this.modals.set(id, modal);
@@ -338,12 +418,28 @@ class ModalManager {
         const modal = this.modals.get(id);
         if (!modal) return;
 
+        // 幂等：同一弹窗可能被 close 按钮、Esc、外部代码几乎同时关闭。
+        // 若不做守卫，300ms 后的回调会执行两次，滚动锁引用计数被多减，
+        // 结果是其它仍打开的弹窗背景却已解锁。
+        if (modal.closing) return;
+        modal.closing = true;
+
+        // 无论从哪条路径关闭（按钮/蒙层/Esc/代码），都先结算 onClose 一次
+        modal.settleClose?.();
+
+        // 焦点归还给打开弹窗前的元素（若它还在文档中且可聚焦）
+        const prev = modal.previouslyFocused;
+        if (prev && prev.isConnected && typeof prev.focus === 'function') {
+            try { prev.focus({ preventScroll: true }); } catch (e) { prev.focus(); }
+        }
+
         modal.overlay.classList.remove('visible');
         setTimeout(() => {
             if (modal.overlay.parentNode) {
                 modal.overlay.parentNode.removeChild(modal.overlay);
             }
             this.modals.delete(id);
+            unlockBackgroundScroll();
         }, 300);
     }
 

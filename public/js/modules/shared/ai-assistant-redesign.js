@@ -4,8 +4,38 @@
  */
 
 const PANEL_ID = 'ai-assistant-panel';
+
+/**
+ * 展示层品牌名（用户可见文案统一取自这里；代码内标识符不受影响）
+ */
+const ASSISTANT_NAME = 'AI-assistant';
 const STORAGE_KEY = 'plenzo_ai_chat_v3';
 const MAX_HISTORY = 30;
+
+/**
+ * 品牌 logo 的唯一实现：描边双气泡 + 星芒。
+ * 浮标 / 窗口标题 / 消息头像 / 模型触发器 / 输入区模型行全部复用这里，
+ * 改样式只改这一处（此前 6 处各存一份 SVG，stroke-width 都不一致）。
+ * stroke-width 用 1.6：14px 小图标与 26px 浮标下粗细都合适。
+ */
+const LOGO_PATHS = (() => {
+    // 与 assistant-ui 官网 logo 一致：两个「只描边、内部留空」的圆角对话气泡。
+    // 左上大气泡的尾巴朝左下，右下小气泡的尾巴朝右下；两者轻微重叠但不合并轮廓。
+    // 关键：每条 path 显式 fill="none"，保证小尺寸下也不会糊成实心块。
+    const bubbleBack = '<path d="M7 3h4.5A2.5 2.5 0 0 1 14 5.5v5A2.5 2.5 0 0 1 11.5 13H7.5L4.5 15.5V5.5A2.5 2.5 0 0 1 7 3Z" '
+        + 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>';
+    const bubbleFront = '<path d="M11.5 9H18a2.5 2.5 0 0 1 2.5 2.5v7.5l-2.5-2.5h-6.5A2.5 2.5 0 0 1 9 14v-2.5A2.5 2.5 0 0 1 11.5 9Z" '
+        + 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>';
+    // 星芒：右上角，实心（星形填充才看得清）
+    const sparkle = '<path d="M17.6 0.6l0.55 1.75a1 1 0 0 0 0.7 0.7l1.75 0.55-1.75 0.55a1 1 0 0 0-0.7 0.7L17.6 6.6l-0.55-1.75a1 1 0 0 0-0.7-0.7L14.6 3.6l1.75-0.55a1 1 0 0 0 0.7-0.7L17.6 0.6z" fill="currentColor"/>';
+    return bubbleBack + bubbleFront + sparkle;
+})();
+const LOGO_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${LOGO_PATHS}</svg>`;
+/** 通用 AI 模型标识：一大一小两颗星（模型名显示不全时用它代替，与品牌双气泡 logo 区分） */
+const GENERIC_AI_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M11 2.5l1.9 5.6 5.6 1.9-5.6 1.9L11 17.5 9.1 11.9 3.5 10l5.6-1.9L11 2.5z" fill="currentColor"/>
+    <path d="M18 14.5l0.95 2.8 2.8 0.95-2.8 0.95L18 22l-0.95-2.8-2.8-0.95 2.8-0.95L18 14.5z" fill="currentColor"/>
+</svg>`;
 
 // 消息类型枚举
 const MessageType = {
@@ -50,1172 +80,27 @@ const state = {
 };
 
 /**
- * 快捷问题配置
+ * 快捷操作配置。query 有对应后端 key（/api/ai/quick-query 白名单），点击直接调接口，
+ * 不走 LLM —— 秒回、不耗 token；prompt 类（如批量排课输入引导）仍走完整 AI 管线。
  */
 const QUICK_QUESTIONS = {
     admin: [
-        '本周排课总览',
-        '下周批量排课',
-        '待确认的排课',
-        '按教师统计'
+        { label: '本周排课总览', query: 'week_overview' },
+        { label: '下周批量排课', prompt: '我想批量排课，请先告诉我输入格式' },
+        { label: '待确认的排课', query: 'pending_schedules' },
+        { label: '按教师统计', query: 'teacher_stats' }
     ],
     teacher: [
-        '我本周的课表',
-        '我的排课统计',
-        '待确认的课'
+        { label: '我本周的课表', query: 'my_week' },
+        { label: '我的排课统计', query: 'my_overview' },
+        { label: '待确认的课', query: 'my_pending' }
     ],
     student: [
-        '我本周的课表',
-        '我的课程统计',
-        '今日课程安排'
+        { label: '我本周的课表', query: 'my_week' },
+        { label: '我的课程统计', query: 'my_stats' },
+        { label: '今日课程安排', query: 'my_today' }
     ]
 };
-
-/**
- * 注入现代化样式
- */
-function injectStyles() {
-    if (document.getElementById('ai-assistant-styles')) {
-        document.getElementById('ai-assistant-styles').remove();
-    }
-    const style = document.createElement('style');
-    style.id = 'ai-assistant-styles';
-    style.textContent = `
-    /* ========================================
-       Design System Variables
-       ======================================== */
-    :root {
-        --ai-primary: #3b82f6;
-        --ai-primary-hover: #2563eb;
-        --ai-primary-light: #dbeafe;
-        --ai-surface: #ffffff;
-        --ai-background: #f8fafc;
-        --ai-border: #e2e8f0;
-        --ai-border-hover: #cbd5e1;
-        --ai-text-primary: #1e293b;
-        --ai-text-secondary: #64748b;
-        --ai-text-tertiary: #94a3b8;
-        --ai-success: #10b981;
-        --ai-danger: #ef4444;
-        --ai-warning: #f59e0b;
-        --ai-radius-sm: 8px;
-        --ai-radius-md: 12px;
-        --ai-radius-lg: 16px;
-        --ai-radius-xl: 20px;
-        --ai-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-        --ai-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.05);
-        --ai-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
-        --ai-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1), 0 10px 10px rgba(0, 0, 0, 0.04);
-    }
-
-    /* ========================================
-       Floating Action Button
-       ======================================== */
-    .ai-float-btn {
-        position: fixed;
-        right: 6%;
-        bottom: 6%;
-        width: 54px;
-        height: 54px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--ai-primary) 0%, #1d4ed8 100%);
-        border: none;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 100000;
-        box-shadow: var(--ai-shadow-lg);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        overflow: hidden;
-        user-select: none;
-        -webkit-user-select: none;
-        touch-action: none;   /* 触屏下禁止原生滚动手势，让 pointer 拖拽接管 */
-    }
-
-    .ai-float-btn.dragging {
-        transition: none;
-        cursor: grabbing;
-        box-shadow: 0 20px 30px rgba(59, 130, 246, 0.35), 0 10px 15px rgba(0, 0, 0, 0.15);
-    }
-
-    .ai-float-btn::before {
-        content: '';
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-
-    .ai-float-btn:hover {
-        transform: translateY(-4px) scale(1.05);
-        box-shadow: 0 20px 30px rgba(59, 130, 246, 0.3), 0 10px 15px rgba(0, 0, 0, 0.1);
-    }
-
-    .ai-float-btn:hover::before {
-        opacity: 1;
-    }
-
-    .ai-float-btn:active {
-        transform: translateY(-2px) scale(1.02);
-    }
-
-    .ai-float-btn svg {
-        width: 28px;
-        height: 28px;
-        color: white;
-        position: relative;
-        z-index: 1;
-        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
-    }
-
-    /* Pulse animation for status indicator */
-    @keyframes ai-pulse {
-        0%, 100% {
-            transform: scale(1);
-            opacity: 1;
-        }
-        50% {
-            transform: scale(1.1);
-            opacity: 0.8;
-        }
-    }
-
-    .ai-float-btn.offline {
-        background: linear-gradient(135deg, #64748b 0%, #475569 100%);
-    }
-
-    /* ========================================
-       Panel Container
-       ======================================== */
-    .ai-panel-overlay {
-        position: fixed;
-        right: 6%;
-        bottom: calc(6% + 70px);
-        width: calc(100vw * 3 / 7 * 1.25);
-        height: calc(50vh * 1.2);
-        background: var(--ai-surface);
-        border-radius: 16px;
-        box-shadow: var(--ai-shadow-xl);
-        z-index: 100001;
-        display: none;
-        flex-direction: column;
-        opacity: 0;
-        transform: translateY(20px) scale(0.95);
-        transition: opacity 0.3s, transform 0.3s;
-        overflow: hidden;
-        border: 1px solid var(--ai-border);
-    }
-
-    .ai-panel-overlay.resizing {
-        transition: none;
-    }
-
-    .ai-panel-overlay.open {
-        display: flex;
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-
-    .ai-panel-overlay.hidden {
-        display: none !important;
-    }
-
-    /* 拖拽调节手柄 */
-    .ai-resize-handle {
-        position: absolute;
-        z-index: 10;
-    }
-
-    .ai-resize-handle-top {
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 8px;
-        cursor: ns-resize;
-    }
-
-    .ai-resize-handle-right {
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: 8px;
-        cursor: ew-resize;
-    }
-
-    .ai-resize-handle-bottom {
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 8px;
-        cursor: ns-resize;
-    }
-
-    .ai-resize-handle-left {
-        top: 0;
-        left: 0;
-        bottom: 0;
-        width: 8px;
-        cursor: ew-resize;
-    }
-
-    .ai-resize-handle-top-left {
-        top: 0;
-        left: 0;
-        width: 16px;
-        height: 16px;
-        cursor: nwse-resize;
-    }
-
-    .ai-resize-handle-top-right {
-        top: 0;
-        right: 0;
-        width: 16px;
-        height: 16px;
-        cursor: nesw-resize;
-    }
-
-    .ai-resize-handle-bottom-left {
-        bottom: 0;
-        left: 0;
-        width: 16px;
-        height: 16px;
-        cursor: nesw-resize;
-    }
-
-    .ai-resize-handle-bottom-right {
-        bottom: 0;
-        right: 0;
-        width: 16px;
-        height: 16px;
-        cursor: nwse-resize;
-    }
-
-    /* ========================================
-       Header
-       ======================================== */
-    .ai-panel-header {
-        padding: 9px 20px;
-        border-bottom: 1px solid var(--ai-border);
-        background: linear-gradient(180deg, var(--ai-background) 0%, var(--ai-surface) 100%);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-shrink: 0;
-        border-radius: 16px 16px 0 0;
-    }
-
-    .ai-panel-title {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: var(--fs-300);
-        font-weight: 600;
-        color: var(--ai-text-primary);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
-    .ai-panel-title > div:first-child {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .ai-panel-title-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        background: linear-gradient(135deg, var(--ai-primary) 0%, #1d4ed8 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: var(--ai-shadow-sm);
-    }
-
-    .ai-panel-title-icon svg {
-        width: 18px;
-        height: 18px;
-        color: white;
-    }
-
-    .ai-status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 3px 8px;
-        background: var(--ai-primary-light);
-        color: var(--ai-primary);
-        border-radius: 9px;
-        font-size: var(--fs-300);
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-    }
-
-    .ai-status-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--ai-success);
-        animation: ai-pulse 2s ease-in-out infinite;
-    }
-
-    .ai-status-badge.offline .ai-status-dot {
-        background: var(--ai-text-tertiary);
-        animation: none;
-    }
-
-    /* 模型切换器：头部触发器 + 下拉清单 */
-    .ai-model-trigger {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        max-width: 180px;
-        padding: 3px 8px;
-        border: 1px solid var(--ai-border);
-        border-radius: 9px;
-        background: var(--ai-surface);
-        color: var(--ai-text-secondary);
-        font-size: var(--fs-300);
-        font-weight: 500;
-        font-family: inherit;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-
-    .ai-model-trigger:hover {
-        border-color: var(--ai-primary);
-        color: var(--ai-primary);
-    }
-
-    .ai-model-trigger.custom {
-        background: var(--ai-primary-light);
-        border-color: var(--ai-primary);
-        color: var(--ai-primary);
-    }
-
-    .ai-model-trigger-name {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .ai-model-trigger svg {
-        width: 12px;
-        height: 12px;
-        flex-shrink: 0;
-    }
-
-    .ai-model-menu {
-        display: none;
-        max-height: 320px;
-        overflow-y: auto;
-        padding: 6px;
-        border-bottom: 1px solid var(--ai-border);
-        background: var(--ai-surface);
-    }
-
-    .ai-model-menu.open {
-        display: block;
-    }
-
-    .ai-model-group + .ai-model-group,
-    .ai-model-group + .ai-model-reset {
-        margin-top: 4px;
-        padding-top: 4px;
-        border-top: 1px solid var(--ai-border);
-    }
-
-    .ai-model-group-label {
-        padding: 4px 8px;
-        font-size: var(--fs-200);
-        font-weight: 600;
-        color: var(--ai-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-    }
-
-    .ai-model-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 7px 8px;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--ai-text-primary);
-        font-size: var(--fs-300);
-        font-family: inherit;
-        text-align: left;
-        cursor: pointer;
-        transition: background 0.15s ease;
-    }
-
-    .ai-model-item:hover {
-        background: var(--ai-primary-light);
-    }
-
-    .ai-model-item.active {
-        color: var(--ai-primary);
-        font-weight: 600;
-    }
-
-    .ai-model-item-name {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .ai-model-item-tag {
-        flex-shrink: 0;
-        padding: 1px 6px;
-        border-radius: 6px;
-        background: var(--ai-primary-light);
-        color: var(--ai-primary);
-        font-size: var(--fs-200);
-        font-weight: 500;
-    }
-
-    .ai-model-item-check {
-        width: 14px;
-        height: 14px;
-        flex-shrink: 0;
-        color: var(--ai-primary);
-    }
-
-    /* 模型能力徽标：上下文 / 最大输出 / 视觉 / 工具 */
-    .ai-model-item-cap {
-        flex-shrink: 0;
-        padding: 1px 5px;
-        border-radius: 5px;
-        background: var(--ai-bg-tertiary, #f1f5f9);
-        color: var(--ai-text-tertiary, #94a3b8);
-        font-size: var(--fs-200);
-        font-weight: 400;
-        white-space: nowrap;
-    }
-
-    .ai-model-item-cap.vision {
-        background: #ecfdf5;
-        color: #059669;
-    }
-
-    .ai-panel-controls {
-        display: flex;
-        gap: 6px;
-    }
-
-    .ai-panel-controls button {
-        width: 48px;
-        height: 48px;
-        border-radius: 10px;
-        border: none;
-        background: transparent;
-        color: var(--ai-text-secondary);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-        position: relative;
-    }
-
-    .ai-panel-controls button svg {
-        width: 26px;
-        height: 26px;
-        transition: all 0.2s;
-    }
-
-    .ai-panel-controls button:hover {
-        background: var(--ai-background);
-        color: var(--ai-text-primary);
-        transform: translateY(-1px);
-    }
-
-    .ai-panel-controls button:active {
-        transform: translateY(0) scale(0.95);
-    }
-
-    #ai-clear-btn:hover {
-        color: var(--ai-danger);
-        background: #fef2f2;
-    }
-
-    #ai-minimize-btn:hover {
-        color: var(--ai-warning);
-        background: #fffbeb;
-    }
-
-    #ai-close-btn:hover {
-        color: var(--ai-danger);
-        background: #fef2f2;
-    }
-
-    /* ========================================
-       Quick Actions
-       ======================================== */
-    .ai-panel-quick {
-        padding: 13px 16px;
-        background: transparent;
-        border-bottom: none;
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        flex-shrink: 0;
-        position: relative;
-        z-index: 1;
-    }
-
-    .ai-quick-btn {
-        padding: 5px 12px;
-        background: transparent;
-        border: 1px solid var(--ai-border);
-        border-radius: 16px;
-        font-size: var(--fs-300);
-        color: var(--ai-text-secondary);
-        cursor: pointer;
-        transition: all 0.2s;
-        white-space: nowrap;
-        font-weight: 500;
-    }
-
-    .ai-quick-btn:hover {
-        background: transparent;
-        color: var(--ai-primary);
-        border-color: var(--ai-primary);
-        transform: translateY(-1px);
-        box-shadow: none;
-    }
-
-    /* ========================================
-       Messages Area
-       ======================================== */
-    .ai-panel-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 14px;
-        background: var(--ai-background);
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .ai-panel-body::-webkit-scrollbar {
-        width: 6px;
-    }
-
-    .ai-panel-body::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    .ai-panel-body::-webkit-scrollbar-thumb {
-        background: var(--ai-border);
-        border-radius: 3px;
-    }
-
-    .ai-panel-body::-webkit-scrollbar-thumb:hover {
-        background: var(--ai-border-hover);
-    }
-
-    /* ========================================
-       Message Bubbles
-       ======================================== */
-    .ai-msg {
-        display: flex;
-        flex-direction: column;
-        max-width: 85%;
-        animation: slideIn 0.3s ease-out;
-    }
-
-    @keyframes slideIn {
-        from {
-            opacity: 0;
-            transform: translateY(8px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    .ai-msg.user {
-        align-self: flex-end;
-        align-items: flex-end;
-        max-width: 85%;
-    }
-
-    .ai-msg.assistant {
-        align-self: flex-start;
-        max-width: 95%;
-    }
-
-    .ai-msg-bubble {
-        padding: 12px 16px;
-        border-radius: 16px;
-        font-size: var(--fs-300);
-        line-height: 1.6;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
-    .ai-msg.user .ai-msg-bubble {
-        background: linear-gradient(135deg, var(--ai-primary) 0%, #2563eb 100%);
-        color: white;
-        border-bottom-right-radius: 6px;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
-        border: none;
-    }
-
-    .ai-msg.assistant .ai-msg-bubble {
-        background: var(--ai-surface);
-        border: 1px solid var(--ai-border);
-        color: var(--ai-text-primary);
-        border-bottom-left-radius: 6px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    }
-
-    .ai-msg-bubble.error {
-        background: #fef2f2;
-        border-color: #fecaca;
-        color: #991b1b;
-    }
-
-    /* Markdown 渲染样式 */
-    .ai-msg-bubble h1,
-    .ai-msg-bubble h2,
-    .ai-msg-bubble h3 {
-        font-weight: 600;
-        margin: 8px 0 4px 0;
-        color: var(--ai-text-primary);
-        line-height: 1.3;
-    }
-
-    .ai-msg-bubble h1 { font-size: var(--fs-300); }
-    .ai-msg-bubble h2 { font-size: var(--fs-300); }
-    .ai-msg-bubble h3 { font-size: var(--fs-300); }
-
-    .ai-msg-bubble code {
-        background: var(--ai-background);
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-        font-size: var(--fs-300);
-        color: var(--ai-primary);
-        border: 1px solid var(--ai-border);
-    }
-
-    .ai-msg-bubble pre {
-        background: var(--ai-background);
-        padding: 8px;
-        border-radius: 6px;
-        overflow-x: auto;
-        margin: 6px 0;
-        border: 1px solid var(--ai-border);
-    }
-
-    .ai-msg-bubble pre code {
-        background: none;
-        padding: 0;
-        border: none;
-        font-size: var(--fs-300);
-        color: var(--ai-text-primary);
-    }
-
-    .ai-msg-bubble ul,
-    .ai-msg-bubble ol {
-        margin: 6px 0;
-        padding-left: 18px;
-    }
-
-    .ai-msg-bubble li {
-        margin: 3px 0;
-        font-size: var(--fs-300);
-    }
-
-    .ai-msg-bubble strong {
-        font-weight: 600;
-        color: var(--ai-text-primary);
-    }
-
-    .ai-msg-bubble em {
-        font-style: italic;
-    }
-
-    .ai-msg-bubble a {
-        color: var(--ai-primary);
-        text-decoration: none;
-        border-bottom: 1px solid var(--ai-primary);
-    }
-
-    .ai-msg-bubble a:hover {
-        color: var(--ai-primary-hover);
-        border-bottom-color: var(--ai-primary-hover);
-    }
-
-    /* Empty state */
-    .ai-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: 24px 16px;
-        color: var(--ai-text-secondary);
-        font-size: var(--fs-300);
-        line-height: 1.5;
-    }
-
-    .ai-empty .icon {
-        font-size: var(--fs-800);
-        margin-bottom: 10px;
-        opacity: 0.5;
-    }
-
-    .ai-tutorial {
-        text-align: left;
-        width: 100%;
-        max-width: 340px;
-    }
-
-    .ai-tutorial-title {
-        font-size: var(--fs-300);
-        font-weight: 600;
-        color: var(--ai-text-primary);
-        margin-bottom: 14px;
-        text-align: center;
-    }
-
-    .ai-tutorial-section {
-        margin-bottom: 10px;
-        padding: 8px 12px;
-        background: var(--ai-surface);
-        border: 1px solid var(--ai-border);
-        border-radius: 8px;
-    }
-
-    .ai-tutorial-section-title {
-        font-size: var(--fs-300);
-        font-weight: 600;
-        color: var(--ai-text-primary);
-        margin-bottom: 4px;
-    }
-
-    .ai-tutorial-section-content {
-        font-size: var(--fs-300);
-        color: var(--ai-text-secondary);
-        line-height: 1.7;
-    }
-
-    /* ========================================
-       Data Tables
-       ======================================== */
-    .ai-data-table {
-        margin-top: 7px;
-        background: transparent;
-        border: 1px solid var(--ai-border);
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: none;
-    }
-
-    .ai-data-table table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: var(--fs-300);
-    }
-
-    .ai-data-table th {
-        background: var(--ai-background);
-        padding: 8px 10px;
-        text-align: left;
-        font-weight: 600;
-        color: var(--ai-text-secondary);
-        border-bottom: 1px solid var(--ai-border);
-        font-size: var(--fs-300);
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-    }
-
-    .ai-data-table td {
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--ai-border);
-        color: var(--ai-text-primary);
-        font-size: var(--fs-300);
-    }
-
-    .ai-data-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .ai-data-table tbody tr:hover {
-        background: var(--ai-background);
-    }
-
-    /* ========================================
-       Typing Indicator
-       ======================================== */
-    .ai-typing {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 10px 14px;
-        align-self: flex-start;
-        background: var(--ai-surface);
-        border: 1px solid var(--ai-border);
-        border-radius: 10px;
-        border-bottom-left-radius: 4px;
-    }
-
-    .ai-typing .ai-typing-text {
-        font-size: var(--fs-300);
-        color: var(--ai-text-secondary);
-        margin-right: 4px;
-    }
-
-    .ai-typing span:not(.ai-typing-text) {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--ai-text-tertiary);
-        animation: typing 1.4s infinite;
-    }
-
-    .ai-typing span:nth-child(3) {
-        animation-delay: 0.2s;
-    }
-
-    .ai-typing span:nth-child(4) {
-        animation-delay: 0.4s;
-    }
-
-    @keyframes typing {
-        0%, 60%, 100% {
-            transform: translateY(0);
-            opacity: 0.7;
-        }
-        30% {
-            transform: translateY(-7px);
-            opacity: 1;
-        }
-    }
-
-    /* ========================================
-       Input Area
-       ======================================== */
-    .ai-panel-footer {
-        padding: 16px 20px;
-        border-top: 1px solid var(--ai-border);
-        background: linear-gradient(180deg, var(--ai-surface) 0%, var(--ai-background) 100%);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        flex-shrink: 0;
-        border-radius: 0 0 16px 16px;
-    }
-
-    .ai-image-preview {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        padding: 0;
-        max-height: 120px;
-        overflow-y: auto;
-    }
-
-    .ai-image-preview:empty {
-        display: none;
-    }
-
-    .ai-image-preview-item {
-        position: relative;
-        width: 80px;
-        height: 80px;
-        border-radius: 8px;
-        overflow: hidden;
-        border: 2px solid var(--ai-border);
-        background: var(--ai-surface);
-    }
-
-    .ai-image-preview-item img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .ai-image-preview-item .remove-image {
-        position: absolute;
-        top: 4px;
-        right: 4px;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        background: rgba(0, 0, 0, 0.6);
-        color: white;
-        border: none;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: var(--fs-300);
-        transition: all 0.2s;
-    }
-
-    .ai-image-preview-item .remove-image:hover {
-        background: rgba(239, 68, 68, 0.9);
-        transform: scale(1.1);
-    }
-
-    .ai-input-row {
-        display: flex;
-        gap: 12px;
-        align-items: flex-end;
-    }
-
-    .ai-image-btn {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        border: 2px solid var(--ai-border);
-        background: var(--ai-surface);
-        color: var(--ai-text-secondary);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-        flex-shrink: 0;
-    }
-
-    .ai-image-btn:hover {
-        border-color: var(--ai-primary);
-        color: var(--ai-primary);
-        background: rgba(59, 130, 246, 0.05);
-    }
-
-    .ai-image-btn svg {
-        width: 20px;
-        height: 20px;
-    }
-
-    .ai-panel-input {
-        flex: 1;
-        background: var(--ai-surface);
-        border: 2px solid var(--ai-border);
-        border-radius: 16px;
-        padding: 12px 16px;
-        color: var(--ai-text-primary);
-        font-size: var(--fs-300);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        resize: none;
-        min-height: 44px;
-        max-height: none;
-        outline: none;
-        transition: all 0.2s ease;
-        line-height: 1.5;
-    }
-
-    .ai-panel-input:focus {
-        border-color: var(--ai-primary);
-        background: var(--ai-surface);
-        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
-    }
-
-    .ai-panel-input::placeholder {
-        color: var(--ai-text-tertiary);
-    }
-
-    .ai-panel-send,
-    .ai-panel-stop {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        border: none;
-        background: linear-gradient(135deg, var(--ai-primary) 0%, #2563eb 100%);
-        color: white;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-        flex-shrink: 0;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .ai-panel-send svg,
-    .ai-panel-stop svg {
-        width: 22px;
-        height: 22px;
-        position: relative;
-        z-index: 1;
-        transition: all 0.25s;
-    }
-
-    .ai-panel-send::before,
-    .ai-panel-stop::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 0;
-        height: 0;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.3);
-        transform: translate(-50%, -50%);
-        transition: width 0.6s, height 0.6s;
-    }
-
-    .ai-panel-send:hover,
-    .ai-panel-stop:hover {
-        transform: translateY(-2px) scale(1.05);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-    }
-
-    .ai-panel-send:hover::before,
-    .ai-panel-stop:hover::before {
-        width: 100%;
-        height: 100%;
-    }
-
-    .ai-panel-send:hover svg {
-        transform: translateX(2px);
-    }
-
-    .ai-panel-send:active,
-    .ai-panel-stop:active {
-        transform: translateY(0) scale(0.98);
-        box-shadow: 0 1px 4px rgba(59, 130, 246, 0.3);
-    }
-
-    .ai-panel-send:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-    }
-
-    .ai-panel-send:disabled:hover {
-        transform: none;
-    }
-
-    .ai-panel-stop {
-        background: linear-gradient(135deg, var(--ai-danger) 0%, #dc2626 100%);
-        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
-    }
-
-    .ai-panel-stop:hover {
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-    }
-
-    .ai-panel-stop:active {
-        box-shadow: 0 1px 4px rgba(239, 68, 68, 0.3);
-    }
-
-    /* ========================================
-       Preview Cards
-       ======================================== */
-    .ai-preview-card {
-        margin-top: 7px;
-        background: var(--ai-surface);
-        border: 2px solid var(--ai-primary);
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: var(--ai-shadow-md);
-    }
-
-    .ai-preview-header {
-        padding: 14px;
-        background: var(--ai-primary-light);
-        border-bottom: 2px solid var(--ai-primary);
-    }
-
-    .ai-preview-title {
-        font-size: var(--fs-300);
-        font-weight: 600;
-        color: var(--ai-primary);
-        margin-bottom: 7px;
-        display: flex;
-        align-items: center;
-        gap: 7px;
-    }
-
-    .ai-preview-meta {
-        font-size: var(--fs-300);
-        color: var(--ai-text-secondary);
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-    }
-
-    .ai-preview-meta-item {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .ai-preview-meta-item strong {
-        color: var(--ai-text-primary);
-        font-weight: 600;
-    }
-
-    .ai-preview-actions {
-        padding: 14px;
-        background: var(--ai-background);
-        border-top: 1px solid var(--ai-border);
-        display: flex;
-        gap: 7px;
-    }
-
-    .ai-btn-confirm {
-        flex: 1;
-        padding: 8px 14px;
-        background: linear-gradient(135deg, var(--ai-success) 0%, #059669 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: var(--fs-300);
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-        box-shadow: var(--ai-shadow-sm);
-    }
-
-    .ai-btn-confirm:hover {
-        transform: translateY(-1px);
-        box-shadow: var(--ai-shadow-md);
-    }
-
-    .ai-btn-confirm:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    /* ========================================
-       Responsive Design
-       ======================================== */
-    @media (max-width: 768px) {
-        .ai-panel-overlay {
-            right: 12px;
-            bottom: 80px;
-            width: calc(100vw - 24px);
-            max-width: 420px;
-        }
-
-        .ai-float-btn {
-            right: 12px;
-            bottom: 12px;
-        }
-    }
-    `;
-    document.head.appendChild(style);
-}
 
 /**
  * 构建面板 DOM
@@ -1237,35 +122,23 @@ function buildPanel() {
         <div class="ai-resize-handle ai-resize-handle-bottom-right"></div>
         <div class="ai-panel-header">
             <div class="ai-panel-title">
-                <div class="ai-panel-title-icon">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 22.5l-.394-1.933a2.25 2.25 0 00-1.423-1.423L12.75 18.75l1.933-.394a2.25 2.25 0 001.423-1.423l.394-1.933.394 1.933a2.25 2.25 0 001.423 1.423l1.933.394-1.933.394a2.25 2.25 0 00-1.423 1.423z" fill="currentColor"/>
-                    </svg>
-                </div>
-                <div style="font-size: var(--fs-300); font-weight: 600;">AI 助手</div>
-                <div class="ai-status-badge">
-                    <span class="ai-status-dot"></span>
-                    <span>在线</span>
-                </div>
-                <button id="ai-model-trigger" class="ai-model-trigger" type="button" title="切换模型（仅对你生效）">
-                    <span class="ai-model-trigger-name">默认模型</span>
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <svg class="ai-panel-title-mark" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${LOGO_PATHS}</svg>
+                <span class="ai-panel-title-text">${ASSISTANT_NAME}</span>
+                <span class="ai-status-dot" title="在线"></span>
+                <span class="ai-panel-title-status"></span>
             </div>
             <div class="ai-panel-controls">
-                <button id="ai-clear-btn" title="清空对话">
+                <button id="ai-clear-btn" title="清空对话" aria-label="清空对话">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
-                <button id="ai-minimize-btn" title="最小化">
+                <button id="ai-minimize-btn" title="最小化" aria-label="最小化">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
                     </svg>
                 </button>
-                <button id="ai-close-btn" title="关闭">
+                <button id="ai-close-btn" title="关闭" aria-label="关闭">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
                     </svg>
@@ -1277,30 +150,35 @@ function buildPanel() {
         <div id="ai-panel-messages" class="ai-panel-body"></div>
         <div class="ai-panel-footer">
             <div id="ai-image-preview" class="ai-image-preview"></div>
-            <div class="ai-input-row">
-                <button id="ai-image-btn" class="ai-image-btn" title="上传图片">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
-                        <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-                        <path d="M21 15l-5-5L5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+            <div class="ai-composer">
                 <textarea
                     id="ai-panel-input"
                     class="ai-panel-input"
-                    placeholder="输入问题，按 Enter 发送..."
+                    placeholder="给 ${ASSISTANT_NAME} 发消息…"
                     rows="1"
                 ></textarea>
-                <button id="ai-send-btn" class="ai-panel-send">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M5 12h14m0 0l-6-6m6 6l-6 6" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
-                <button id="ai-stop-btn" class="ai-panel-stop" style="display: none;">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
-                    </svg>
-                </button>
+                <div class="ai-composer-bar">
+                    <button id="ai-image-btn" class="ai-composer-tool" type="button" title="添加图片" aria-label="添加附件">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <button id="ai-model-trigger" class="ai-model-trigger" type="button" title="切换模型（仅对你生效）" aria-label="切换模型">
+                        ${GENERIC_AI_SVG.replace('<svg ', '<svg class="ai-model-trigger-logo ai-model-trigger-generic" ')}
+                        <span class="ai-model-trigger-name"></span>
+                    </button>
+                    <div class="ai-composer-spacer"></div>
+                    <button id="ai-send-btn" class="ai-panel-send" type="button" title="发送" aria-label="发送">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 19V5m0 0l-6 6m6-6l6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <button id="ai-stop-btn" class="ai-panel-stop" type="button" title="停止" aria-label="停止" style="display: none;">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <input type="file" id="ai-image-input" accept="image/*" multiple style="display: none;">
         </div>
@@ -1334,8 +212,12 @@ function buildPanel() {
     imageInput.addEventListener('change', handleImageSelect);
 
     // 输入框事件
+    // 触屏设备上没有 Shift 键，Enter 直接发送会让用户无法换行（手机上多行输入是刚需）。
+    // 因此按 pointer: coarse 判定：触屏上 Enter 插入换行，发送交给发送按钮。
+    const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
     state.inputEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
+            if (isCoarsePointer) return; // 触屏：交回默认行为＝换行
             e.preventDefault();
             onSend();
         } else if (e.key === 'ArrowUp') {
@@ -1362,9 +244,12 @@ function buildPanel() {
  */
 function setupResizeHandles(panel) {
     const handles = panel.querySelectorAll('.ai-resize-handle');
+    // 缩放的上下限：太小没法用，太大盖满屏挡住主界面
+    const MIN_W = 320, MIN_H = 280, MAX_W_RATIO = 0.9, MAX_H_RATIO = 0.92;
 
     handles.forEach(handle => {
-        handle.addEventListener('mousedown', (e) => {
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.preventDefault();
             e.stopPropagation();
 
@@ -1372,13 +257,15 @@ function setupResizeHandles(panel) {
             const startY = e.clientY;
             const startWidth = panel.offsetWidth;
             const startHeight = panel.offsetHeight;
-            const startRight = parseInt(getComputedStyle(panel).right);
-            const startBottom = parseInt(getComputedStyle(panel).bottom);
+            const startRight = parseInt(getComputedStyle(panel).right, 10) || 0;
+            const startBottom = parseInt(getComputedStyle(panel).bottom, 10) || 0;
 
             const direction = handle.className.split(' ')[1].replace('ai-resize-handle-', '');
             panel.classList.add('resizing');
+            const pointerId = e.pointerId;
 
-            const onMouseMove = (moveEvent) => {
+            const onPointerMove = (moveEvent) => {
+                if (moveEvent.pointerId !== pointerId) return;
                 const deltaX = moveEvent.clientX - startX;
                 const deltaY = moveEvent.clientY - startY;
 
@@ -1407,21 +294,31 @@ function setupResizeHandles(panel) {
                     newBottom = startBottom + deltaY;
                 }
 
-                // 应用新尺寸（不限制边界）
+                // 边界限制：拖不出视口，也不缩成 0
+                const maxWidth = Math.floor(window.innerWidth * MAX_W_RATIO);
+                const maxHeight = Math.floor(window.innerHeight * MAX_H_RATIO);
+                newWidth = Math.min(Math.max(newWidth, MIN_W), maxWidth);
+                newHeight = Math.min(Math.max(newHeight, MIN_H), maxHeight);
+                newRight = Math.min(Math.max(newRight, 0), window.innerWidth - MIN_W);
+                newBottom = Math.min(Math.max(newBottom, 0), window.innerHeight - MIN_H);
+
                 panel.style.width = `${newWidth}px`;
                 panel.style.height = `${newHeight}px`;
                 panel.style.right = `${newRight}px`;
                 panel.style.bottom = `${newBottom}px`;
             };
 
-            const onMouseUp = () => {
+            const onPointerUp = (upEvent) => {
+                if (upEvent.pointerId !== pointerId) return;
                 panel.classList.remove('resizing');
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                document.removeEventListener('pointercancel', onPointerUp);
             };
 
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('pointercancel', onPointerUp);
         });
     });
 }
@@ -1439,82 +336,199 @@ function renderQuickQuestions() {
     questions.forEach(q => {
         const btn = document.createElement('button');
         btn.className = 'ai-quick-btn';
-        btn.textContent = q;
+        btn.textContent = q.label;
         btn.addEventListener('click', () => {
-            state.inputEl.value = q;
-            onSend();
+            if (q.query) {
+                sendQuickQuery(q.query, q.label);
+            } else {
+                // prompt 类（如批量排课引导）仍走完整 AI 管线
+                state.inputEl.value = q.prompt;
+                onSend();
+            }
         });
         container.appendChild(btn);
     });
 }
 
 /**
- * 渲染消息列表
+ * 快捷查询直连：POST /api/ai/quick-query，后端直接执行数据工具，不过 LLM。
+ * 响应形状与 /query 相同，渲染逻辑零适配。
+ */
+async function sendQuickQuery(key, label) {
+    if (state.loading) return;
+
+    const userMsg = { role: 'user', content: label };
+    state.messages.push(userMsg);
+    state.loading = true;
+    state.sendBtnEl.disabled = true;
+    state.sendBtnEl.style.display = 'none';
+    state.stopBtnEl.style.display = 'none';
+    updateTitle('查询中...');
+    showTyping('正在查询...');
+    renderMessages();
+    saveHistory();
+
+    try {
+        const resp = await window.apiUtils.post('/ai/quick-query', { key });
+        const data = resp;
+
+        const assistantMsg = {
+            role: 'assistant',
+            type: data.type || 'text',
+            answer: data.answer || '',
+            content: data.answer || '',
+            data: data.structuredData,
+            tools: data.toolsUsed
+        };
+        state.messages.push(assistantMsg);
+    } catch (err) {
+        state.messages.push({
+            role: 'assistant',
+            content: `查询失败：${err.message || '请稍后重试'}`,
+            isError: true,
+            retry: () => sendQuickQuery(key, label)
+        });
+    } finally {
+        hideTyping();
+        state.loading = false;
+        state.sendBtnEl.disabled = false;
+        state.stopBtnEl.style.display = 'none';
+        state.sendBtnEl.style.display = 'flex';
+        updateTitle('在线');
+        renderMessages();
+        saveHistory();
+        state.inputEl.focus();
+    }
+}
+
+/**
+ * 渲染消息列表（增量）：只 append 新消息，不重建已有 DOM。
+ * 全量重绘只发生在 clearHistory / loadHistory / 重试移除等结构性变化时
+ * （那些路径直接调 renderMessagesFull）。
  */
 function renderMessages() {
     const el = state.messagesEl;
     if (!el) return;
 
-    el.innerHTML = '';
-
-    if (state.messages.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'ai-empty';
-        const isAdmin = state.userRole === 'admin';
-        const isTeacher = state.userRole === 'teacher';
-
-        let sections = [];
-        if (isAdmin) {
-            sections = [
-                { title: '排课', content: '周四，19-22，[地点]，[学生]，[教师]，入户<br>批量排课（每行一条）：<br>周一晚上 [学生]入户（[教师]，[地点]）<br>周二晚上 [学生]入户（[教师]，[地点]）' },
-                { title: '修改排课', content: '把[学生]周四的课改到周五晚上' },
-                { title: '删除排课', content: '取消[学生]下周一的课' },
-                { title: '查询', content: '本月排课总数 / 按教师统计 / 查[教师]的课表' }
-            ];
-        } else if (isTeacher) {
-            sections = [
-                { title: '查询课表', content: '我本周的课表 / 我下周的安排' },
-                { title: '查询统计', content: '我本月排了多少课 / 我的排课统计' },
-                { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
-            ];
-        } else {
-            sections = [
-                { title: '查询课表', content: '我本周的课表 / 今日课程安排' },
-                { title: '查询统计', content: '我的课程统计 / 按月查看课程' },
-                { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
-            ];
-        }
-
-        const sectionsHtml = sections.map(s =>
-            `<div class="ai-tutorial-section">
-                <div class="ai-tutorial-section-title">${s.title}</div>
-                <div class="ai-tutorial-section-content">${s.content}</div>
-            </div>`
-        ).join('');
-
-        empty.innerHTML = `
-            <div class="ai-tutorial">
-                <div class="ai-tutorial-title">AI 助手使用指南</div>
-                ${sectionsHtml}
-            </div>
-        `;
-        el.appendChild(empty);
+    const renderedCount = el.querySelectorAll('.ai-msg').length;
+    // 消息变少了（清空/重试移除/历史加载）→ 回退到全量重建
+    if (renderedCount > state.messages.length) {
+        renderMessagesFull();
         return;
     }
+    // 空态教程卡片占位：有消息要显示时先清掉
+    if (renderedCount === 0 && state.messages.length > 0) {
+        el.innerHTML = '';
+    }
 
-    state.messages.forEach((msg, idx) => {
-        el.appendChild(renderMessage(msg, idx));
-    });
+    // 自动滚动到最新消息（仅当用户本来就在底部附近，上翻阅读时不去打扰）
+    // 必须在 append 之前判断：先 append 再算的话，新增的一条长回复（AI 回复几乎都
+    // 超过 120px）会把差值撑大，判定成「不在底部」，结果是回答出来了屏幕却停在原地。
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+
+    for (let idx = renderedCount; idx < state.messages.length; idx++) {
+        el.appendChild(renderMessage(state.messages[idx], idx));
+    }
 
     // 如果正在加载中，恢复打字提示
     if (state.loading) {
         showTyping();
     }
 
-    // 自动滚动到最新消息
-    setTimeout(() => {
+    if (nearBottom || state.loading) {
+        requestAnimationFrame(() => {
+            el.scrollTop = el.scrollHeight;
+        });
+    }
+}
+
+/** 全量重建消息列表（结构性变化专用） */
+function renderMessagesFull() {
+    const el = state.messagesEl;
+    if (!el) return;
+    el.innerHTML = '';
+
+    if (state.messages.length === 0) {
+        el.appendChild(buildEmptyTutorial());
+        return;
+    }
+
+    state.messages.forEach((msg, idx) => {
+        el.appendChild(renderMessage(msg, idx));
+    });
+    if (state.loading) showTyping();
+    requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
-    }, 50);
+    });
+}
+
+/** 空态使用指南卡片（按角色展示示例） */
+function buildEmptyTutorial() {
+    const empty = document.createElement('div');
+    empty.className = 'ai-empty';
+    const isAdmin = state.userRole === 'admin';
+    const isTeacher = state.userRole === 'teacher';
+
+    let sections = [];
+    if (isAdmin) {
+        sections = [
+            { title: '排课', content: '周四，19-22，[地点]，[学生]，[教师]，入户<br>批量排课（每行一条）：<br>周一晚上 [学生]入户（[教师]，[地点]）<br>周二晚上 [学生]入户（[教师]，[地点]）' },
+            { title: '修改排课', content: '把[学生]周四的课改到周五晚上' },
+            { title: '删除排课', content: '取消[学生]下周一的课' },
+            { title: '查询', content: '本月排课总数 / 按教师统计 / 查[教师]的课表' }
+        ];
+    } else if (isTeacher) {
+        sections = [
+            { title: '查询课表', content: '我本周的课表 / 我下周的安排' },
+            { title: '查询统计', content: '我本月排了多少课 / 我的排课统计' },
+            { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
+        ];
+    } else {
+        sections = [
+            { title: '查询课表', content: '我本周的课表 / 今日课程安排' },
+            { title: '查询统计', content: '我的课程统计 / 按月查看课程' },
+            { title: '其他问题', content: '系统使用帮助 / 课程类型有哪些' }
+        ];
+    }
+
+    const sectionsHtml = sections.map(s =>
+        `<div class="ai-tutorial-section">
+            <div class="ai-tutorial-section-title">${s.title}</div>
+            <div class="ai-tutorial-section-content">${s.content}</div>
+        </div>`
+    ).join('');
+
+    empty.innerHTML = `
+        <div class="ai-tutorial">
+            <div class="ai-tutorial-title">${ASSISTANT_NAME} 使用指南</div>
+            ${sectionsHtml}
+        </div>
+    `;
+    return empty;
+}
+
+/**
+ * 助手头像标记（assistant-ui 惯例：消息左侧小头像，用品牌 logo 作 fallback 图标）
+ */
+const ASSISTANT_AVATAR_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${LOGO_PATHS}</svg>`;
+
+/**
+ * 给 assistant 消息包上「头像 + 内容列」结构。
+ * 各渲染器只关心内容；头像与布局统一在这里加，避免每处重复。
+ */
+function withAssistantAvatar(wrapper) {
+    const content = document.createElement('div');
+    content.className = 'ai-msg-content';
+    while (wrapper.firstChild) content.appendChild(wrapper.firstChild);
+
+    const avatar = document.createElement('div');
+    avatar.className = 'ai-msg-avatar';
+    avatar.innerHTML = ASSISTANT_AVATAR_SVG;
+
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(content);
+    wrapper.classList.add('with-avatar');
+    return wrapper;
 }
 
 /**
@@ -1536,10 +550,16 @@ function renderMessage(msg, index) {
 
             msg.images.forEach(img => {
                 const imgEl = document.createElement('img');
-                imgEl.src = img.dataUrl;
+                if (img.dataUrl) {
+                    imgEl.src = img.dataUrl;
+                    imgEl.onclick = () => window.open(img.dataUrl, '_blank');
+                } else {
+                    // 历史消息的图片 base64 不落 localStorage，重载后显示占位
+                    imgEl.title = '图片未保留（历史消息）';
+                }
                 imgEl.alt = img.name;
-                imgEl.style.cssText = 'max-width: 200px; max-height: 200px; border-radius: 8px; cursor: pointer; object-fit: cover;';
-                imgEl.onclick = () => window.open(img.dataUrl, '_blank');
+                imgEl.style.cssText = 'max-width: 200px; max-height: 200px; border-radius: 8px; object-fit: cover;'
+                    + (img.dataUrl ? ' cursor: pointer;' : ' background:#e0e0e0; min-width:80px; min-height:80px;');
                 imagesContainer.appendChild(imgEl);
             });
 
@@ -1563,23 +583,36 @@ function renderMessage(msg, index) {
         bubble.className = 'ai-msg-bubble error';
         bubble.textContent = msg.content;
         wrapper.appendChild(bubble);
-        return wrapper;
+        // 可重试的错误展示一键重试（msg.retry 由 catch 埋入；「查询已停止」没有 retry）
+        if (typeof msg.retry === 'function') {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'ai-retry-btn';
+            retryBtn.textContent = '重试';
+            retryBtn.addEventListener('click', () => {
+                // 移除这条报错气泡后重新发起
+                state.messages.splice(index, 1);
+                renderMessagesFull();
+                msg.retry();
+            });
+            wrapper.appendChild(retryBtn);
+        }
+        return withAssistantAvatar(wrapper);
     }
 
-    // 根据消息类型渲染
+    // 根据消息类型渲染（统一包上助手头像）
     switch (msg.type) {
         case MessageType.DATA_TABLE:
-            return renderDataTableMessage(msg);
+            return withAssistantAvatar(renderDataTableMessage(msg));
         case MessageType.SCHEDULE_LIST:
-            return renderScheduleListMessage(msg);
+            return withAssistantAvatar(renderScheduleListMessage(msg));
         case MessageType.CHART_DATA:
-            return renderChartDataMessage(msg);
+            return withAssistantAvatar(renderChartDataMessage(msg));
         case MessageType.SCHEDULE_PREVIEW:
-            return renderSchedulePreviewMessage(msg);
+            return withAssistantAvatar(renderSchedulePreviewMessage(msg));
         case MessageType.SCHEDULE_OPERATION_PREVIEW:
-            return renderScheduleOperationPreviewMessage(msg);
+            return withAssistantAvatar(renderScheduleOperationPreviewMessage(msg));
         default:
-            return renderTextMessage(msg);
+            return withAssistantAvatar(renderTextMessage(msg));
     }
 }
 
@@ -1802,7 +835,7 @@ function renderScheduleListMessage(msg) {
             tr.appendChild(tdDate);
 
             const tdTime = document.createElement('td');
-            tdTime.textContent = `${schedule.start_time || '-'} - ${schedule.end_time || '-'}`;
+            tdTime.textContent = `${formatClock(schedule.start_time)} - ${formatClock(schedule.end_time)}`;
             tdTime.style.fontSize = 'var(--fs-100)';
             tr.appendChild(tdTime);
 
@@ -1992,7 +1025,7 @@ function renderSchedulePreviewMessage(msg) {
             tr.appendChild(tdDay);
 
             const tdTime = document.createElement('td');
-            tdTime.textContent = `${item.start_time || '-'} - ${item.end_time || '-'}`;
+            tdTime.textContent = `${formatClock(item.start_time)} - ${formatClock(item.end_time)}`;
             tr.appendChild(tdTime);
 
             const tdTeacher = document.createElement('td');
@@ -2082,7 +1115,7 @@ function buildScheduleTable(rows) {
         tr.appendChild(tdDay);
 
         const tdTime = document.createElement('td');
-        tdTime.textContent = `${schedule.startTime || '-'} - ${schedule.endTime || '-'}`;
+        tdTime.textContent = `${formatClock(schedule.startTime)} - ${formatClock(schedule.endTime)}`;
         tr.appendChild(tdTime);
 
         const tdTeacher = document.createElement('td');
@@ -2212,7 +1245,7 @@ function renderScheduleOperationPreviewMessage(msg) {
         // 调整课程：额外展示「新建课程」预览（后端 newSchedules）
         if (isAdjust && data.newSchedules && data.newSchedules.length > 0) {
             const newLabel = document.createElement('div');
-            newLabel.style.cssText = 'margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--ai-primary, #2f6fed);';
+            newLabel.style.cssText = 'margin: 10px 0 4px; font-size: 13px; font-weight: 600; color: var(--ai-primary, #047857);';
             // 调整 = 原记录归档 + 另建一条新记录（同学生/跨学生都一样）
             newLabel.textContent = data.newSchedules.some(n => n && n.crossStudent)
                 ? '➕ 调整后（新建一条记录并在新学生名下；原记录所有字段保持不变）'
@@ -2242,8 +1275,8 @@ function renderScheduleOperationPreviewMessage(msg) {
         const actions = document.createElement('div');
         actions.className = 'ai-preview-actions';
         const confirmBtn = document.createElement('button');
-        confirmBtn.className = isDelete ? 'ai-btn-confirm' : 'ai-btn-confirm';
-        confirmBtn.style.cssText = isDelete ? 'background: #ef4444;' : '';
+        confirmBtn.className = 'ai-btn-confirm';
+        if (isDelete) confirmBtn.style.cssText = 'background: var(--color-error-600, #dc2626);';
         confirmBtn.textContent = isDelete ? '✓ 确认删除' : isAdjust ? '✓ 确认调整' : '✓ 确认修改';
         confirmBtn.onclick = () => {
             const operationId = data.operationId;
@@ -2286,8 +1319,7 @@ function formatColumnName(key) {
 function formatCellValue(value) {
     if (value === null || value === undefined) return '-';
     if (typeof value === 'boolean') return value ? '是' : '否';
-    if (value === 0) return '禁用';
-    if (value === 1 && typeof value === 'number') return '启用';
+    // 数值（0/1 只是普通的计数或序号）原样输出；布尔语义的列由后端翻译成 true/false
     return String(value);
 }
 
@@ -2299,6 +1331,15 @@ function formatDate(dateStr) {
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+/**
+ * DB TIME 列原样是 HH:MM:SS，展示统一截到 HH:MM（与 utils/format.js 的 formatTime 同约定）
+ */
+function formatClock(timeStr) {
+    if (!timeStr) return '-';
+    const s = String(timeStr);
+    return s.length >= 5 ? s.slice(0, 5) : s;
 }
 
 function translateStatus(status) {
@@ -2415,22 +1456,45 @@ function clearSelectedImages() {
 }
 
 /**
+ * 是否停在消息区底部附近（判断依据在 append 之前取，避免长回复把差值撑大）
+ */
+function isNearBottom() {
+    const el = state.messagesEl;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+}
+
+/**
  * 显示 typing 动画（支持进度消息）
  */
 function showTyping(message) {
+    // 用户上翻看历史时不要把他拽回底部
+    const shouldFollow = isNearBottom();
     hideTyping();
-    const el = document.createElement('div');
-    el.className = 'ai-typing';
-    el.id = 'ai-typing-indicator';
+    const row = document.createElement('div');
+    row.className = 'ai-typing-row';
+    row.id = 'ai-typing-indicator';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'ai-msg-avatar';
+    avatar.innerHTML = ASSISTANT_AVATAR_SVG;
+    row.appendChild(avatar);
+
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-typing';
     const textSpan = document.createElement('span');
     textSpan.className = 'ai-typing-text';
     textSpan.textContent = message || '';
-    el.appendChild(textSpan);
-    el.appendChild(document.createElement('span'));
-    el.appendChild(document.createElement('span'));
-    el.appendChild(document.createElement('span'));
-    state.messagesEl.appendChild(el);
-    state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+    bubble.appendChild(textSpan);
+    bubble.appendChild(document.createElement('span'));
+    bubble.appendChild(document.createElement('span'));
+    bubble.appendChild(document.createElement('span'));
+    row.appendChild(bubble);
+
+    state.messagesEl.appendChild(row);
+    if (shouldFollow) {
+        state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+    }
 }
 
 function updateTyping(message) {
@@ -2438,7 +1502,10 @@ function updateTyping(message) {
     if (el) {
         const textEl = el.querySelector('.ai-typing-text');
         if (textEl) textEl.textContent = message;
-        state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+        // 进度消息频繁刷新，每次都强滚会把正在上翻的用户反复拽回底部
+        if (isNearBottom()) {
+            state.messagesEl.scrollTop = state.messagesEl.scrollHeight;
+        }
     }
 }
 
@@ -2459,7 +1526,7 @@ async function clearHistory() {
 
     state.messages = [];
     clearSelectedImages();
-    renderMessages();
+    renderMessagesFull();
     saveHistory();
 }
 
@@ -2500,8 +1567,11 @@ function navigateHistory(direction) {
  * 更新窗口标题
  */
 function updateTitle(text) {
-    const badge = state.panelEl?.querySelector('.ai-status-badge span:last-child');
-    if (badge) badge.textContent = text;
+    const statusEl = state.panelEl?.querySelector('.ai-panel-title-status');
+    if (!statusEl) return;
+    // 「在线」是常态，由状态点表达，不再重复写字；思考中/查询中才显示文字
+    statusEl.textContent = text === '在线' ? '' : text;
+    statusEl.classList.toggle('visible', text !== '在线' && !!text);
 }
 
 /**
@@ -2576,28 +1646,26 @@ async function onSend(action) {
     try {
         // 构建对话历史：排除当前轮刚 push 的用户消息（普通问题或确认气泡），避免重复。
         // 普通轮的文本由后端 question 注入；确认轮由 requestBody.action 注入，气泡仅用于展示。
+        // 报错/停止的气泡（isError）只是 UI 提示，不能作为 assistant 轮回传给模型。
         const historySource = state.messages.slice(0, -1);
-        const conversationHistory = historySource
-            .slice(-10)
-            .map(msg => {
-                if (msg.role === 'user' && msg.images && msg.images.length > 0) {
-                    return {
-                        role: msg.role,
-                        content: [
-                            { type: 'text', text: msg.content || '请分析这些图片' },
-                            ...msg.images.map(img => ({
-                                type: 'image_url',
-                                image_url: { url: img.dataUrl }
-                            }))
-                        ]
-                    };
-                } else {
-                    return {
-                        role: msg.role,
-                        content: msg.role === 'user' ? msg.content : (msg.answer || msg.content || '')
-                    };
-                }
-            });
+        const conversationHistory = historySource.map(msg => {
+            if (msg.role === 'user' && msg.images && msg.images.length > 0) {
+                return {
+                    role: msg.role,
+                    content: [
+                        { type: 'text', text: msg.content || '请分析这些图片' },
+                        ...msg.images.map(img => ({
+                            type: 'image_url',
+                            image_url: { url: img.dataUrl }
+                        }))
+                    ]
+                };
+            }
+            return {
+                role: msg.role,
+                content: msg.role === 'user' ? msg.content : (msg.answer || msg.content || '')
+            };
+        });
 
         const requestBody = {
             history: conversationHistory,
@@ -2746,7 +1814,9 @@ async function onSend(action) {
             state.messages.push({
                 role: 'assistant',
                 content: `查询失败：${err.message || '请稍后重试'}`,
-                isError: true
+                isError: true,
+                // 可重试的错误给用户一键重试（渲染层读 retry 回调）
+                retry: err.retryable === false ? null : () => onSend(action)
             });
         }
     } finally {
@@ -2816,9 +1886,16 @@ function closeCompletely() {
 function saveHistory() {
     try {
         const trimmed = state.messages.slice(-MAX_HISTORY);
+        // 图片 base64 不落 localStorage：体积大且只是展示用，重载后留缩略占位即可。
+        const slimmed = trimmed.map(msg => {
+            if (msg.role === 'user' && Array.isArray(msg.images) && msg.images.length > 0) {
+                return { ...msg, images: msg.images.map(img => ({ ...img, dataUrl: null })) };
+            }
+            return msg;
+        });
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
             role: state.userRole,
-            messages: trimmed
+            messages: slimmed
         }));
     } catch (_) { /* 容量满则忽略 */ }
 }
@@ -2839,34 +1916,24 @@ function loadHistory() {
  * 检查 AI 状态
  */
 async function refreshStatus() {
-    const badge = state.panelEl?.querySelector('.ai-status-badge');
+    // 状态点：在线=绿点，离线=灰点（标题栏上的小圆点，不占额外文字）
+    const dot = state.panelEl?.querySelector('.ai-status-dot');
     const floatBtn = state.floatBtnEl;
+    const setOnline = (online) => {
+        if (dot) {
+            dot.classList.toggle('offline', !online);
+            dot.title = online ? '在线' : '离线';
+        }
+        if (floatBtn) floatBtn.classList.toggle('offline', !online);
+    };
 
     try {
         const resp = await window.apiUtils.get('/ai/status');
         const data = resp;
-
-        if (data.enabled) {
-            if (badge) {
-                badge.classList.remove('offline');
-                badge.querySelector('span:last-child').textContent = '在线';
-            }
-            if (floatBtn) floatBtn.classList.remove('offline');
-            return true;
-        } else {
-            if (badge) {
-                badge.classList.add('offline');
-                badge.querySelector('span:last-child').textContent = '离线';
-            }
-            if (floatBtn) floatBtn.classList.add('offline');
-            return false;
-        }
+        setOnline(!!data.enabled);
+        return !!data.enabled;
     } catch (_) {
-        if (badge) {
-            badge.classList.add('offline');
-            badge.querySelector('span:last-child').textContent = '离线';
-        }
-        if (floatBtn) floatBtn.classList.add('offline');
+        setOnline(false);
         return false;
     }
 }
@@ -2969,34 +2036,30 @@ function renderModelMenu() {
 
     const { presets = [], presetId, modelId, isDefault } = state.modelPicker;
 
-    const groupsHtml = presets.map(group => {
-        const itemsHtml = group.models.map(model => {
-            const active = !isDefault && group.presetId === presetId && model.id === modelId;
-            return `
-                <button class="ai-model-item${active ? ' active' : ''}" type="button"
-                        data-preset-id="${group.presetId}" data-model-id="${model.id}"
-                        title="${escapeHtml(modelCapSummary(model))}">
-                    <span class="ai-model-item-name">${escapeHtml(model.name || model.id)}</span>
-                    ${model.isPresetDefault ? '<span class="ai-model-item-tag">渠道默认</span>' : ''}
-                    ${renderModelCapTags(model)}
-                    ${active ? '<svg class="ai-model-item-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
-                </button>
-            `;
-        }).join('');
+    // 每个模型一个图标：优先用渠道首字母小方块（与参考图一致的「一行一个模型」形态），
+    // 不展示能力标签/分组标题，靠图标 + 名称 + 选中对号表达。
+    const MODEL_ICON = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">${LOGO_PATHS}</svg>`;
 
+    const itemsHtml = presets.map(group => group.models.map(model => {
+        const active = !isDefault && group.presetId === presetId && model.id === modelId;
         return `
-            <div class="ai-model-group">
-                <div class="ai-model-group-label">${escapeHtml(group.presetName)}</div>
-                ${itemsHtml}
-            </div>
+            <button class="ai-model-item${active ? ' active' : ''}" type="button"
+                    data-preset-id="${group.presetId}" data-model-id="${model.id}"
+                    title="${escapeHtml(modelCapSummary(model))}">
+                <span class="ai-model-item-logo">${MODEL_ICON}</span>
+                <span class="ai-model-item-name">${escapeHtml(model.name || model.id)}</span>
+                ${active ? '<svg class="ai-model-item-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
+            </button>
         `;
-    }).join('');
+    }).join('')).join('');
 
     menu.innerHTML = `
-        ${groupsHtml}
+        ${itemsHtml}
+        <div class="ai-model-divider"></div>
         <button class="ai-model-item ai-model-reset${isDefault ? ' active' : ''}" type="button" data-reset="1">
+            <span class="ai-model-item-logo">${MODEL_ICON}</span>
             <span class="ai-model-item-name">跟随系统默认</span>
-            <span class="ai-model-item-tag">全局</span>
+            ${isDefault ? '<svg class="ai-model-item-check" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}
         </button>
     `;
 
@@ -3040,11 +2103,51 @@ function updateModelTrigger() {
             const hit = group.models.find(m => m.id === modelId && group.presetId === presetId);
             if (hit) { label = hit.name || hit.id; break; }
         }
-        if (!label) label = modelId;
+        if (!label && modelId) label = modelId;
+    } else {
+        // 跟随系统默认也要显示**实际在用的模型名**，而不是「默认模型」占位：
+        // 后端 /ai/selectable-models 的 defaultModel.modelId 就是全局生效的模型。
+        const fallbackId = state.modelPicker.defaultModel?.modelId;
+        if (fallbackId) {
+            for (const group of presets) {
+                const hit = group.models.find(m => m.id === fallbackId);
+                if (hit) { label = hit.name || hit.id; break; }
+            }
+            if (!label) label = fallbackId;
+        }
     }
-    if (!label) label = '默认模型';
+    // 兜底不用「默认模型」这种占位说法——规格要求触发器上显示的是**真实在用的模型名**。
+    // 清单已加载却解析不出名字，属于「后端没给出默认模型」，如实说明状态。
+    if (!label) label = '未选择模型';
 
-    if (nameEl) nameEl.textContent = label;
+    if (nameEl) {
+        nameEl.textContent = label;
+        // 按 composer 工具条的真实可用宽度判断「显示不全」——右侧 spacer 的空间本来就归触发器，
+        // 名称放得下就显示，别用拍脑袋的固定上限把放得下的名字藏掉。
+        // canvas 测文字宽度（不依赖 DOM 反馈，避免测量→缩窄→再测量的循环）。
+        const cs = getComputedStyle(nameEl);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily || 'sans-serif'}`;
+        const textWidth = ctx.measureText(label).width + 12;  // 12px = 触发器自身左右 padding
+
+        // 可用宽度 = 触发器左缘到发送按钮左缘（中间的 spacer 是弹性区，触发器可占用）
+        let available = 240;   // 面板未打开时的兜底值
+        const bar = trigger.closest('.ai-composer-bar');
+        const send = bar?.querySelector('.ai-panel-send');
+        if (trigger.offsetParent && send) {
+            const triggerRect = trigger.getBoundingClientRect();
+            const sendRect = send.getBoundingClientRect();
+            available = Math.max(0, sendRect.left - triggerRect.left - 16);
+        }
+        const isTruncated = textWidth > available;
+        trigger.classList.toggle('truncated', isTruncated);
+        // 截断时按真实可用宽度省略名称（保留名称可见，而不是只留一个星形图标）
+        if (nameEl) {
+            nameEl.style.maxWidth = isTruncated ? `${Math.max(24, available)}px` : '';
+        }
+    }
+    trigger.title = label;
     trigger.classList.toggle('custom', !!localConfig || !isDefault);
 }
 
@@ -3054,16 +2157,36 @@ function updateModelTrigger() {
 function toggleModelMenu() {
     const menu = document.getElementById('ai-model-menu');
     if (!menu) return;
+    const trigger = document.getElementById('ai-model-trigger');
 
     const willOpen = !menu.classList.contains('open');
     menu.classList.toggle('open', willOpen);
+    if (trigger) trigger.classList.toggle('menu-open', willOpen);
 
+    if (willOpen) {
+        // 定位到触发器正上方：底边贴触发器顶边留 6px，右缘与触发器右缘对齐；
+        // 窄屏时菜单比触发器宽，右缘对齐会让左侧越界 —— 按面板左右各留 8px 钳制。
+        if (trigger && state.panelEl) {
+            const panelRect = state.panelEl.getBoundingClientRect();
+            const triggerRect = trigger.getBoundingClientRect();
+            const menuWidth = menu.offsetWidth || 280;
+            const margin = 8;
+            let right = Math.max(margin, panelRect.right - triggerRect.right);
+            const menuLeft = panelRect.right - right - menuWidth;
+            if (menuLeft < panelRect.left + margin) {
+                right = Math.max(margin, panelRect.width - menuWidth - margin);
+            }
+            menu.style.right = `${right}px`;
+            menu.style.bottom = `${panelRect.bottom - triggerRect.top + 6}px`;
+        }
+    }
     if (willOpen) {
         // 只在打开时挂一次：点击面板其他位置收起下拉，再点一次才收起面板
         const closeOnOutside = (ev) => {
             const trigger = document.getElementById('ai-model-trigger');
             if (menu.contains(ev.target) || (trigger && trigger.contains(ev.target))) return;
             menu.classList.remove('open');
+            trigger?.classList.remove('menu-open');
             document.removeEventListener('click', closeOnOutside, true);
         };
         setTimeout(() => document.addEventListener('click', closeOnOutside, true), 0);
@@ -3083,8 +2206,10 @@ async function selectUserModel(presetId, modelId) {
 
         const check = await window.apiUtils.post('/ai/my-model/check', { presetId, modelId });
         if (!check || check.available === false) {
-            // 不动 state：菜单重新渲染后高亮仍停在原选择上
+            // 不动 state：菜单重新渲染后高亮仍停在原选择上；收起菜单，原因用 toast 说明
             renderModelMenu();
+            document.getElementById('ai-model-menu')?.classList.remove('open');
+            document.getElementById('ai-model-trigger')?.classList.remove('menu-open');
             apiUtils.showToast(check?.error || '该模型当前不可用，已保留原选择', 'error');
             return;
         }
@@ -3099,6 +2224,7 @@ async function selectUserModel(presetId, modelId) {
         updateModelTrigger();
         renderModelMenu();
         menu?.classList.remove('open');
+        document.getElementById('ai-model-trigger')?.classList.remove('menu-open');
 
         // 能力可能随模型改变（如视觉），刷新图片按钮可见性
         fetchModelCapabilities();
@@ -3124,6 +2250,7 @@ async function resetUserModel() {
         updateModelTrigger();
         renderModelMenu();
         menu?.classList.remove('open');
+        document.getElementById('ai-model-trigger')?.classList.remove('menu-open');
 
         fetchModelCapabilities();
 
@@ -3166,27 +2293,13 @@ export function open(role) {
         }
     }
 
-    injectStyles();
     buildPanel();
     loadHistory();
     renderQuickQuestions();
-    renderMessages();
+    renderMessagesFull();
     refreshStatus();
     fetchModelCapabilities();  // 获取模型能力
     loadModelPicker();         // 加载用户自选模型 + 可选清单
-
-    // 权限落地（Phase 3）：受限级别提示 AI 数据范围（仅 admin L3，非持久化，不写入会话历史）
-    try {
-        if (state.userRole === 'admin' && window.permissionUtils
-            && typeof window.permissionUtils.getLevel === 'function'
-            && window.permissionUtils.getLevel() === 3 && state.messagesEl && !document.getElementById('ai-scope-tip')) {
-            const tip = document.createElement('div');
-            tip.id = 'ai-scope-tip';
-            tip.textContent = '数据范围：统计与明细仅覆盖您创建的排课';
-            tip.style.cssText = 'margin:0 14px 8px;padding:6px 10px;font-size:12px;border-radius:8px;background:#e0f2fe;color:#0369a1;';
-            state.messagesEl.parentNode.insertBefore(tip, state.messagesEl);
-        }
-    } catch (_) { /* 提示注入失败不影响功能 */ }
 
     if (state.panelEl) {
         state.panelEl.classList.remove('hidden');
@@ -3264,12 +2377,8 @@ export function init(opts = {}) {
     const btn = document.createElement('button');
     btn.id = 'ai-assistant-trigger';
     btn.className = 'ai-float-btn';
-    btn.title = 'AI 助手';
-    btn.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 22.5l-.394-1.933a2.25 2.25 0 00-1.423-1.423L12.75 18.75l1.933-.394a2.25 2.25 0 001.423-1.423l.394-1.933.394 1.933a2.25 2.25 0 001.423 1.423l1.933.394-1.933.394a2.25 2.25 0 00-1.423 1.423z" fill="currentColor"/>
-        </svg>
-    `;
+    btn.title = ASSISTANT_NAME;
+    btn.innerHTML = LOGO_SVG;
     btn.addEventListener('click', () => toggle(state.userRole));
 
     state.floatBtnEl = btn;
@@ -3286,7 +2395,6 @@ export function init(opts = {}) {
     // 图标拖拽：按住鼠标左键移动图标（右上角锚定），松开后持久化位置
     setupFloatBtnDrag(btn);
 
-    injectStyles();
 }
 
 /** 从 localStorage 恢复拖拽后的位置；无记录或已越界则保持默认（right/bottom）位置 */
@@ -3320,31 +2428,37 @@ const AI_FLOAT_POS_KEY = 'ai-float-btn-pos';
 const DRAG_THRESHOLD = 5;
 
 function setupFloatBtnDrag(btn) {
-    let startX = 0, startY = 0, moved = false, dragging = false;
+    let startX = 0, startY = 0, moved = false, dragging = false, pointerId = null;
 
-    btn.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return; // 仅左键
-        e.preventDefault(); // 防止拖拽选中文案/图片
+    // Pointer Events 统一鼠标与触屏：touch-action:none 已在 CSS 声明
+    btn.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return; // 仅左键
+        e.preventDefault(); // 防止拖拽选中文案/图片，也阻止触屏的合成 click 滚动
         const pos = btn.getBoundingClientRect();
         startX = e.clientX - pos.left;
         startY = e.clientY - pos.top;
         moved = false;
         dragging = true;
+        pointerId = e.pointerId;
         state.floatBtnDragging = true;
         btn.classList.add('dragging');
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
     });
 
     function onMove(e) {
-        if (!dragging) return;
+        if (!dragging || e.pointerId !== pointerId) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        if (!moved && Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) < 2 && Math.hypot(dx, dy) < DRAG_THRESHOLD) {
+        if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) {
             // 尚未超过阈值，还属于「点击」
             return;
         }
-        if (!moved) moved = true; // 超过阈值 → 进入拖拽模式，点击不再触发 toggle
+        if (!moved) {
+            moved = true; // 超过阈值 → 进入拖拽模式，点击不再触发 toggle
+            try { btn.setPointerCapture(pointerId); } catch (_) { /* 忽略 */ }
+        }
 
         const vw = window.innerWidth;
         const vh = window.innerHeight;
@@ -3360,14 +2474,16 @@ function setupFloatBtnDrag(btn) {
     }
 
     function onUp(e) {
-        if (!dragging) return;
+        if (!dragging || e.pointerId !== pointerId) return;
         dragging = false;
+        pointerId = null;
         state.floatBtnDragging = false;
         btn.classList.remove('dragging');
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
         if (moved) {
-            // 拖拽结束：持久化位置；同时阻止这次 mousedown 之后的 click 打开面板
+            // 拖拽结束：持久化位置；同时阻止这次 pointerdown 之后的 click 打开面板
             e.preventDefault();
             e.stopPropagation();
             const rect = btn.getBoundingClientRect();

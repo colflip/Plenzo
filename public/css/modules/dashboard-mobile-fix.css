@@ -119,70 +119,10 @@
         gap: 12px !important;
     }
 
-    .today-card-modern .today-card-time .time-range {
-        font-size: var(--fs-100) !important;
-        font-weight: 700 !important;
-        color: #1F2937 !important;
-        margin-bottom: 3px !important;
-        text-align: center !important;
-        line-height: 1.2 !important;
-    }
-
-    .today-card-modern .status-pill {
-        font-size: var(--fs-100) !important;
-        padding: 5px 10px !important;
-        border-radius: 12px !important;
-        font-weight: 400 !important;
-        text-align: center !important;
-        line-height: 1.2 !important;
-        border: 1px solid currentColor !important;
-    }
-
-    .today-card-modern .status-pill.confirmed {
-        background: #ECFDF5 !important;
-        color: #059669 !important;
-        border-color: #6EE7B7 !important;
-    }
-
-    .today-card-modern .status-pill.pending {
-        background: #FFFBEB !important;
-        color: #D97706 !important;
-        border-color: #FCD34D !important;
-    }
-
-    .today-card-modern .status-pill.completed {
-        background: #F3F4F6 !important;
-        color: #6B7280 !important;
-        border-color: #D1D5DB !important;
-    }
-
-    .today-card-modern .status-pill.cancelled {
-        background: #FEF2F2 !important;
-        color: #DC2626 !important;
-        border-color: #FCA5A5 !important;
-    }
-
-    .today-card-modern .today-card-detail-item.location {
-        display: flex !important;
-        align-items: center !important;
-        gap: 4px !important;
-    }
-
-    .today-card-modern .today-card-detail-item .material-icons-round {
-        font-size: var(--fs-300) !important;
-        vertical-align: middle !important;
-        color: #9CA3AF !important;
-    }
-
-    /* 跑马灯效果：图标与文本一体化 */
-    .today-card-modern .today-card-bottom .location {
-        white-space: nowrap !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important; /* 默认靠右 */
-        width: 100% !important;
-        min-width: 0 !important;
-    }
+    /* 注：原先此处有一整段 .today-card-modern 样式（时间行、状态胶囊、地点跑马灯）。
+       该类名在 JS 与三个 dashboard.html 中都没有出现——今日排课实际渲染的是
+       .today-schedule-cell-main 里的 .status-pill（dashboard.css 7189 行起），
+       配色对比度也已达标。因此这段是死样式，删除以免与真实样式混淆。 */
 
     .animate-marquee {
         justify-content: flex-start !important;
@@ -563,5 +503,201 @@
         background-color: rgba(0, 0, 0, 0.05) !important;
         transform: scale(0.98);
         transition: transform 0.1s ease;
+    }
+}
+/* ============================================================
+   6. 顶栏与功能按钮区统一（移动端）
+   目标：汉堡按钮不遮挡标题；标题与用户信息同一行；各页顶部功能按钮
+   使用同一套紧凑规格，不再出现「田字格 + 巨型圆角」的拼贴感。
+   桌面样式不动，这里只在 ≤768px 生效。
+   ============================================================ */
+@media (max-width: 768px) {
+    /* 顶栏：把汉堡从 fixed 流里让出空间，三栏同行 */
+    .dashboard-header {
+        display: grid !important;
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+        align-items: center !important;
+        gap: 10px;
+        padding: calc(10px + env(safe-area-inset-top, 0px)) 0 12px !important;
+        margin-bottom: 16px !important;
+        min-height: 64px;
+    }
+
+    .dashboard-header .mobile-menu-toggle {
+        position: static !important;
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+        grid-column: 1;
+    }
+
+    /* 标题：沿用主题绿，去掉被截断风险 */
+    .dashboard-header h1,
+    .dashboard-header h2 {
+        grid-column: 2;
+        margin: 0 !important;
+        font-size: var(--fs-500) !important;
+        font-weight: 600 !important;
+        color: var(--brand-primary, #2ECC71) !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* 用户信息：与标题同行，压缩为「姓名 · 角色 + 退出」 */
+    .dashboard-header .user-info {
+        position: static !important;
+        grid-column: 3;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px;
+        white-space: nowrap;
+    }
+
+    .dashboard-header .user-name {
+        margin-right: 0 !important;
+        font-size: var(--fs-300) !important;
+        font-weight: 500 !important;
+        color: var(--text-primary, #1F2937) !important;
+        max-width: 84px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dashboard-header .role-badge {
+        font-size: var(--fs-200) !important;
+        padding: 2px 6px !important;
+        border-radius: 999px !important;
+        background: var(--color-primary-50, #ecfdf5) !important;
+        color: var(--color-primary-700, #047857) !important;
+    }
+
+    .dashboard-header .logout-btn {
+        min-height: 36px !important;
+        padding: 0 12px !important;
+        border-radius: 999px !important;
+        font-size: var(--fs-300) !important;
+        border: 1px solid var(--admin-border, #E9ECEF) !important;
+        background: #fff !important;
+        color: var(--text-primary, #1F2937) !important;
+    }
+
+    /* 顶部功能按钮区统一：卡片式容器 + 单行/可换行的紧凑胶囊按钮 */
+    .header-toolbar,
+    .schedule-controls,
+    .statistics-controls,
+    .overview-today-actions {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 8px !important;
+        padding: 10px 12px !important;
+        min-height: 0 !important;
+        border-radius: 12px !important;
+        background: var(--bg-surface, #fff) !important;
+        border: 1px solid var(--border-muted, #E9ECEF) !important;
+        box-shadow: none !important;
+    }
+
+    .overview-today-header {
+        flex-wrap: wrap !important;
+        gap: 10px !important;
+        margin-bottom: 16px !important;
+    }
+
+    .overview-today-actions {
+        margin-left: auto;
+    }
+
+    /* 统一按钮外观：只针对功能按钮，不动 .primary-btn 等强调按钮 */
+    .header-toolbar button,
+    .schedule-controls button,
+    .statistics-controls button,
+    .overview-today-actions button {
+        min-height: 40px !important;
+        height: 40px !important;
+        padding: 0 14px !important;
+        border-radius: 10px !important;
+        border: 1px solid var(--border-muted, #E9ECEF) !important;
+        background: var(--bg-surface, #fff) !important;
+        color: var(--text-primary, #1F2937) !important;
+        font-size: var(--fs-300) !important;
+        font-weight: 500 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 6px !important;
+    }
+
+    /* 强调类按钮保持品牌色，但统一圆角与高度 */
+    .header-toolbar .primary-btn,
+    .header-toolbar .btn-primary,
+    .schedule-controls .primary-btn,
+    .statistics-controls .primary-btn,
+    .overview-today-actions .primary-btn {
+        background: var(--brand-primary, #2ECC71) !important;
+        color: #fff !important;
+        border-color: transparent !important;
+    }
+
+    /* 日期导航：居中的浅底胶囊，按钮与日期同一视觉组 */
+    .week-navigation,
+    .overview-today-nav {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        padding: 4px !important;
+        border-radius: 10px !important;
+        background: var(--bg-subtle, #F8FAFC) !important;
+        width: auto !important;
+    }
+
+    .week-navigation .nav-btn,
+    .week-navigation .search-btn,
+    .overview-today-nav button {
+        min-width: 40px !important;
+        min-height: 36px !important;
+        height: 36px !important;
+        padding: 0 8px !important;
+        border: none !important;
+        background: transparent !important;
+    }
+}
+
+/* 窄屏顶栏再精简：用户信息只保留姓名 + 退出图标，保证标题完整显示 */
+@media (max-width: 480px) {
+    .dashboard-header {
+        grid-template-columns: 44px minmax(0, 1fr) auto !important;
+        gap: 8px !important;
+    }
+    .dashboard-header .role-badge { display: none !important; }
+    .dashboard-header .user-name { max-width: 72px !important; }
+    .dashboard-header .logout-btn {
+        padding: 0 10px !important;
+        font-size: 0 !important;      /* 隐藏文字，用伪元素图标代替 */
+        min-width: 36px !important;
+        width: 36px !important;
+    }
+    .dashboard-header .logout-btn::before {
+        content: 'logout';
+        font-family: 'Material Icons Round';
+        font-size: 20px !important;
+        line-height: 1;
+    }
+    .dashboard-header h1,
+    .dashboard-header h2 { font-size: var(--fs-400) !important; }
+}
+
+/* 今日排课分组表格：窄屏下分隔线从内容左缘(8px)通栏到右侧，
+   不再沿用 PC 的 100px 起点 / calc(100%-200px)，否则会留下一段悬空短线。 */
+@media (max-width: 768px) {
+    .today-schedule-table.grouped tbody tr:not(:first-child) td,
+    .today-schedule-table.grouped tbody tr:first-child:not(:last-child) td,
+    .today-schedule-table.grouped tbody tr:last-child:not(:first-child) td,
+    .today-schedule-table.grouped tbody tr.today-schedule-group-start:last-child td,
+    .today-schedule-table.grouped tbody tr:only-child td {
+        background-position-x: 8px !important;
+        background-size: calc(100% - 16px) 1px, calc(100% - 16px) 1px !important;
     }
 }
