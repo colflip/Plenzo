@@ -1504,6 +1504,32 @@ body {
     line-height: var(--lh-tight);  /* 原为 line-height: 1；中文字形几乎占满 em 框，等于字号的行高会挤掉上下伸部 */
 }
 
+/* 顶栏退出登录按钮：全局 `.btn, button` 兜底块移除后这是唯一没有任何自有
+   盒模型的按钮，会直接落到浏览器 UA 默认（浅灰底 + 2px outset 边框 + 黑字）。
+   样式与同区域的次级操作按钮（.overview-today-refresh）对齐：浅底描边胶囊。
+   深色令牌见 dashboard-dark.css 的 .logout-btn 覆盖。 */
+.logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border: 1px solid var(--color-gray-300, #d1d5db);
+    border-radius: 999px;
+    background: var(--color-gray-50, #f9fafb);
+    color: var(--color-gray-700, #374151);
+    font-size: var(--fs-300);
+    font-weight: var(--font-weight-medium, 500);
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+    white-space: nowrap;
+}
+
+.logout-btn:hover {
+    background: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-400, #9ca3af);
+    color: var(--color-gray-900, #111827);
+}
+
 /* 统计卡片网格 */
 /* 统计卡片网格 */
 .stats-grid {
@@ -3811,6 +3837,34 @@ tr:last-child td {
    它与 global.css 的 .btn、本文件 1602/2724 行的 .btn 定义互相覆盖，且给所有裸 button
    强行加了 padding/border-radius。现已移除；各组件（.form-actions button、.primary-btn、
    .modal-btn、.error-state-btn 等）都有自己的样式，无需全局兜底。 */
+
+/* 移除全局兜底的回归补偿：学生端多处按钮只挂 .search-btn（改密码、导出本周、
+   弹窗取消等），admin/teacher 端由 statistics.css 提供完整样式，但学生页不加载它，
+   PC 端落到 UA 默认就是 outset 灰按钮。这里按 statistics.css 的权威口径补一份
+   全断点基础样式，teacher/admin 加载 statistics.css 后值一致，仅学生页生效。 */
+.search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background: #2ECC71;
+    color: #fff;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: var(--fs-300);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(46, 204, 113, 0.2);
+    transition: background-color .15s ease, box-shadow .12s ease, transform .06s ease;
+}
+
+.search-btn:hover {
+    background: #27AE60;
+    transform: translateY(-1px);
+}
+
 .statistics-controls .stats-date-group {
     display: flex;
     align-items: center;
