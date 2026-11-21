@@ -54,9 +54,22 @@
         color: #6ee7b7 !important;
     }
     .user-name,
-    .role-badge,
-    .logout-btn {
+    .role-badge {
         color: #f3f4f6 !important;
+    }
+    /* 退出按钮深色态：浅底描边胶囊翻转为深底浅描边。选择器带 .dashboard-header
+       是为了压过 dashboard-mobile-fix.css ≤768px 里写死的 background:#fff !important。 */
+    .logout-btn,
+    .dashboard-header .logout-btn {
+        background: #1f2937 !important;
+        border-color: #4b5563 !important;
+        color: #f3f4f6 !important;
+    }
+    .logout-btn:hover,
+    .dashboard-header .logout-btn:hover {
+        background: #374151 !important;
+        border-color: #6b7280 !important;
+        color: #ffffff !important;
     }
 
     /* 卡片 / 统计卡 / 面板 */
