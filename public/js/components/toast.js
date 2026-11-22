@@ -85,12 +85,12 @@ class ToastManager {
                 color: var(--color-error-800, #991b1b);
             }
             .toast-warning {
-                background: #fffbeb;
-                color: #92400e;
+                background: var(--color-warning-50, #fffbeb);
+                color: var(--color-warning-800, #92400e);
             }
             .toast-info {
-                background: #eff6ff;
-                color: #1e40af;
+                background: var(--color-info-50, #eff6ff);
+                color: var(--color-info-800, #1e40af);
             }
             .toast-icon {
                 display: flex;
@@ -124,15 +124,42 @@ class ToastManager {
                 white-space: nowrap;
             }
             .toast-action-btn:hover { opacity: 1; }
+            /* 关闭按钮：必须显式清掉 UA 默认的按钮外观（灰底 + outset 边框 + 黑字）。
+               全局 .btn / button 兜底块已在 3c2b9d2 移除，动态创建的 toast 当时不在
+               页面上，逃过了那轮扫描，于是这个按钮一直是浏览器默认样式。
+               现在按站内 .modal-close 的口径做成图标按钮：透明底、继承文字色、
+               仅用透明度表达层级。 */
             .toast-close {
-                margin-left: auto;
+                flex-shrink: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                /* 28px 点击区，用负 margin 抵消，避免把 toast 撑高 */
+                width: 28px;
+                height: 28px;
+                margin: -4px -6px -4px auto;
+                padding: 0;
+                border: 0;
+                border-radius: var(--radius-md, 6px);
+                background: transparent;
+                color: inherit;
+                font: inherit;
+                line-height: 1;
                 cursor: pointer;
-                opacity: 0.5;
-                font-size: var(--fs-500);
-                padding: 0 2px;
+                opacity: 0.55;
                 transition: opacity 0.2s;
+                -webkit-tap-highlight-color: transparent;
             }
             .toast-close:hover { opacity: 1; }
+            .toast-close:focus-visible {
+                opacity: 1;
+                outline: 2px solid currentColor;
+                outline-offset: 2px;
+            }
+            .toast-close svg {
+                width: 15px;
+                height: 15px;
+            }
             @keyframes toastSlideIn {
                 from { transform: translateX(100%); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
@@ -230,8 +257,8 @@ class ToastManager {
             const closeButton = document.createElement('button');
             closeButton.type = 'button';
             closeButton.className = 'toast-close';
-            closeButton.textContent = '×';
             closeButton.setAttribute('aria-label', '关闭通知');
+            closeButton.appendChild(this._createIcon('close'));
             closeButton.addEventListener('click', () => this.hide(toast));
             toast.appendChild(closeButton);
         }
@@ -256,7 +283,8 @@ class ToastManager {
             success: '<polyline points="20 6 9 17 4 12"/>',
             error: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
             warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
-            info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'
+            info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+            close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
         };
         const template = document.createElement('template');
         template.innerHTML =

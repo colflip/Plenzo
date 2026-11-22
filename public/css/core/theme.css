@@ -39,6 +39,17 @@
     --color-error-700: #b91c1c;
     --color-error-800: #991b1b;
 
+    /* Warning / Info scale —— 与 error 同构的状态提示令牌（50 底色 100 描边 700 标题 800 正文）。
+       Toast 等组件从这里取值；深色模式的整体翻转见下方 @media 块。 */
+    --color-warning-50: #fffbeb;
+    --color-warning-100: #fef3c7;
+    --color-warning-700: #b45309;
+    --color-warning-800: #92400e;
+    --color-info-50: #eff6ff;
+    --color-info-100: #dbeafe;
+    --color-info-700: #1d4ed8;
+    --color-info-800: #1e40af;
+
     /* Typography — 字体栈
        中文产品：Latin 交给系统 UI 字体，CJK 靠 per-glyph 回退命中 PingFang / 雅黑。
        原先的栈以 'Inter' 开头，但 Inter 只在 index.html 里加载，三个 dashboard 从未加载它，
@@ -185,5 +196,21 @@
         --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
 
         --overlay-bg: rgba(0, 0, 0, 0.7);
+
+        /* 状态提示 scale：深底翻成暗底亮字，与主色阶同构。
+           Toast 深色模式原本只有 success 翻转（因为只有 primary 令牌有深色覆盖），
+           error/warning/info 仍用浅底浅字，在深色页面上是一块刺眼的亮斑。 */
+        --color-error-50: #450a0a;
+        --color-error-100: #7f1d1d;
+        --color-error-700: #fca5a5;
+        --color-error-800: #fecaca;
+        --color-warning-50: #451a03;
+        --color-warning-100: #78350f;
+        --color-warning-700: #fcd34d;
+        --color-warning-800: #fde68a;
+        --color-info-50: #172554;
+        --color-info-100: #1e3a8a;
+        --color-info-700: #93c5fd;
+        --color-info-800: #bfdbfe;
     }
 }
