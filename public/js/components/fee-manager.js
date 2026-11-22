@@ -360,12 +360,21 @@
     }
 
     // 批量面板：范围（本周全部 / 当前筛选结果）+ 目标状态 + 备注
+    // 面板是 mount() 里一次性生成的常驻节点，loadData() 只换表格，不会重建它。
+    // 因此收起时必须显式清掉提示文字，否则「处理中...」会在下一次展开时继续显示。
+    function closeBatchBar(bar) {
+        if (!bar) return;
+        bar.style.display = 'none';
+        bar.dataset.fmBatchOpen = '0';
+        const msg = bar.querySelector('[data-fm="batchMsg"]');
+        if (msg) msg.textContent = '';
+    }
+
     function toggleBatchBar(config, mountEl) {
         const bar = mountEl.querySelector('[data-fm="batchBar"]');
         if (!bar) return;
         if (bar.style.display !== 'none' && bar.dataset.fmBatchOpen === '1') {
-            bar.style.display = 'none';
-            bar.dataset.fmBatchOpen = '0';
+            closeBatchBar(bar);
             return;
         }
         const filterOpt = config.feeStatusFilter
@@ -442,6 +451,9 @@
             const successMessage = updated === null ? '批量更新成功' : `已更新 ${updated} 条排课的费用状态`;
             if (window.apiUtils && window.apiUtils.showToast) window.apiUtils.showToast(successMessage, 'success');
             else if (window.showToast) window.showToast(successMessage, 'success');
+            // 面板只在 mount() 时生成一次，loadData 不会重建它：
+            // 不清空 msg / 不收面板，「处理中...」会一直挂在页面上。
+            closeBatchBar(bar);
             loadData(config, mountEl);
         } catch (err) {
             msg.textContent = '失败：' + (err.message || '未知错误');
