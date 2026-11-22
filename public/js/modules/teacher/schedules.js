@@ -189,7 +189,6 @@ export async function loadSchedules(baseDate, showLoading = true) {
 
     // 1. 先渲染表头，以便加载动画能正确探测高度
     renderHeader(weekDates);
-    }
 
     // 2. 显示加载动画
     if (showLoading && tableContainer) {

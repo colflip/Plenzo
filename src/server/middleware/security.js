@@ -39,6 +39,8 @@ const securityHeaders = helmet({
             ],
             connectSrc: [
                 "'self'",
+                // version-badge.js 实时读仓库最新 commit 用（CSP 不放行会被浏览器拦掉）
+                'https://api.github.com',
                 'https://*.neon.tech',
                 'https://*.vercel.app',
                 'https://*.onrender.com',
