@@ -558,6 +558,19 @@
             display: flex;
         }
 
+        /* 个人相关管理与学生管理之间的分割线 */
+        .nav-divider {
+            height: 1px;
+            margin: 8px 20px;
+            background: var(--admin-border, #E9ECEF);
+        }
+
+        /* 收起态下与圆形图标菜单居中对齐 */
+        .sidebar.collapsed .nav-divider {
+            width: 40px;
+            margin: 8px auto;
+        }
+
         /* 侧边栏宽度与管理端保持一致：管理端 admin-desktop.css 在 ≥769px 固定 220px，
            而 dashboard.css 的 >1441px 断点会把未覆盖的教师端放宽到 260px。此处补齐同一口径。 */
         @media (min-width: 769px) {
@@ -690,6 +703,13 @@
                 display: none !important;
             }
 
+            /* 移动端菜单为卡片列表，分割线通栏，收起态样式不适用 */
+            .sidebar .nav-divider,
+            .sidebar.collapsed .nav-divider {
+                width: auto;
+                margin: 0;
+            }
+
             .sidebar .nav-group-header,
             .sidebar .nav-subitem {
                 display: flex !important;
@@ -798,6 +818,9 @@
                     <span class="material-icons-round" aria-hidden="true">analytics</span>
                     <span class="nav-text">数据统计</span>
                 </a>
+
+                <!-- 个人相关管理与学生管理之间的分割线（班主任角色可见） -->
+                <div class="nav-divider" id="navSectionDivider" style="display: none;" aria-hidden="true"></div>
 
                 <!-- 学生管理（班主任角色可见，展开时含二级菜单） -->
                 <div class="nav-group expanded-only" id="navStudentDataGroup" style="display: none;">
@@ -1205,9 +1228,11 @@
                                 <!-- Teaching Type Stats Cards Area -->
                                 <div class="stats-component-card"
                                     style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <h3 class="stats-converted-title">折算后授课统计</h3>
                                     <div id="teachingTypeStats" class="stats-grid">
                                         <!-- Dynamic Stats -->
                                     </div>
+                                    <div id="teachingStatsBreakdown" class="stats-breakdown" hidden></div>
                                 </div>
 
                                 <!-- Daily Statistics Bar Chart Area -->

@@ -229,10 +229,14 @@ function ensureStudentDataGroupOpen() {
 
 function toggleClassMasterNav(userData) {
     const group = document.getElementById('navStudentDataGroup');
+    const divider = document.getElementById('navSectionDivider');
     const collapsedItems = document.querySelectorAll('.class-master-collapsed-item');
     const shouldShow = !!(userData && userData.student_ids && userData.student_ids.length > 0);
     if (group) {
         group.style.display = shouldShow ? '' : 'none';
+    }
+    if (divider) {
+        divider.style.display = shouldShow ? '' : 'none';
     }
     collapsedItems.forEach(item => {
         item.style.display = shouldShow ? '' : 'none';
