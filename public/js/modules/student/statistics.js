@@ -4,7 +4,15 @@
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { setButtonLoading, showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
-import { setupDateRangePickers, formatDate, getLegendColor, ensureChartReady } from '../shared/stats-view-utils.js';
+import {
+    setupDateRangePickers,
+    formatDate,
+    getLegendColor,
+    ensureChartReady,
+    renderConvertedTypeCards,
+    renderStatsBreakdown,
+    aggregatePersonStats
+} from '../shared/stats-view-utils.js';
 import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 
 import { API_ENDPOINTS, STATUS_LABELS, getScheduleTypeLabel } from './constants.js';
@@ -206,6 +214,12 @@ export async function loadLearningStats() {
                 });
             }
         }
+        // 失败时不要保留上一周期的折算明细
+        const breakdown = document.getElementById('teachingStatsBreakdown');
+        if (breakdown) {
+            breakdown.textContent = '';
+            breakdown.hidden = true;
+        }
         if (chartCard) {
             renderChartError(error);
         }
@@ -231,72 +245,21 @@ export async function loadLearningStats() {
  * Update the display with learning stats and detailed table
  */
 async function updateDisplay(data) {
-    // 使用与教师端一致的淡色渐变卡片样式
-    const statsGrid = document.getElementById('teachingTypeStats');
-    if (statsGrid) {
-        window.SecurityUtils.safeSetHTML(statsGrid, '');
+    // 主卡片只展示折算后的口径桶；原始类型计数与分老师明细见下方 breakdown
+    renderConvertedTypeCards('teachingTypeStats', data.typeStats, {
+        emptyTitle: '折算后总上课数'
+    });
 
-        const uiColors = [
-            { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
-            { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
-            { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
-            { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
-            { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
-            { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
-        ];
+    const persons = aggregatePersonStats(data.schedules, {
+        nameOf: row => row.teacher_name,
+        typeOf: row => row.schedule_type_cn || row.schedule_type
+    });
 
-        const types = Object.keys(data.typeStats);
-        if (types.length === 0) {
-            const emptyCard = document.createElement('div');
-            emptyCard.className = 'stat-card';
-            emptyCard.style.background = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
-            emptyCard.style.border = 'none';
-            emptyCard.style.position = 'relative';
-            emptyCard.style.overflow = 'hidden';
-            emptyCard.style.display = 'flex';
-            emptyCard.style.flexDirection = 'column';
-            emptyCard.style.justifyContent = 'center';
-            emptyCard.style.minHeight = '120px';
-            emptyCard.innerHTML = `
-                <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
-                    <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
-                </div>
-                <div style="position: relative; z-index: 1;">
-                    <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">总学习次数</h3>
-                    <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
-                </div>
-            `;
-            statsGrid.appendChild(emptyCard);
-        } else {
-            types.forEach((type, index) => {
-                const count = data.typeStats[type];
-                const colorConfig = uiColors[index % uiColors.length];
-                const card = document.createElement('div');
-                card.className = 'stat-card scale-hover';
-                card.style.background = colorConfig.bg;
-                card.style.border = 'none';
-                card.style.position = 'relative';
-                card.style.overflow = 'hidden';
-                card.style.display = 'flex';
-                card.style.flexDirection = 'column';
-                card.style.justifyContent = 'center';
-                card.style.minHeight = '120px';
-
-                const cardHtml = `
-                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
-                        <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
-                    </div>
-                    <div style="position: relative; z-index: 1;">
-                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">${type}</h3>
-                        <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
-                    </div>
-                `;
-                if (window.SecurityUtils) window.SecurityUtils.safeSetHTML(card, cardHtml);
-                else card.innerHTML = cardHtml;
-                statsGrid.appendChild(card);
-            });
-        }
-    }
+    renderStatsBreakdown('teachingStatsBreakdown', {
+        typeStats: data.typeStats,
+        persons,
+        personLabel: '分老师（折算）'
+    });
 
     // Render daily chart（图表库按需下载，失败由调用方 catch 落到区域错误态）
     await renderDailyLearningChart(data.schedules);

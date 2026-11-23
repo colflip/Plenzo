@@ -4,11 +4,25 @@
  */
 import { generateDateRange } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading, setButtonLoading } from '../shared/loading-ui.js';
-import { setupDateRangePickers, formatDate, getLegendColor, ensureChartReady } from '../shared/stats-view-utils.js';
+import {
+    setupDateRangePickers,
+    formatDate,
+    getLegendColor,
+    ensureChartReady,
+    renderConvertedTypeCards,
+    renderStatsBreakdown,
+    aggregatePersonStats
+} from '../shared/stats-view-utils.js';
 import { renderErrorState, renderTableErrorRow } from '../shared/error-ui.js';
 import { initRewardEasterEgg } from './reward-easter-egg.js';
 
 let currentTeachingData = null;
+
+// 明细接口单页上限 1000（服务端 Math.min(1000, limit)）；分学生折算需要完整数据，
+// 不能像以前那样只取前 500 行。多页上限只是防跑飞的保险，正常一个月远到不了。
+const DETAIL_PAGE_SIZE = 1000;
+const DETAIL_MAX_PAGES = 10;
+const INACTIVE_STATUSES = new Set(['cancelled', 'modified_away']);
 
 /**
  * Initialize the statistics section
@@ -158,6 +172,41 @@ function setupEventListeners() {
 }
 
 /**
+ * 拉取完整授课明细（分页取全）。
+ * 分学生折算必须基于完整数据；原实现固定 limit=500，超过后分学生数字会少算。
+ */
+async function fetchAllDetailedSchedules(startDate, endDate) {
+    if (!window.apiUtils) {
+        throw new Error('API 客户端尚未加载');
+    }
+
+    const all = [];
+    for (let page = 0; page < DETAIL_MAX_PAGES; page++) {
+        const offset = page * DETAIL_PAGE_SIZE;
+        const batch = await window.apiUtils.get(
+            `/teacher/detailed-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=${DETAIL_PAGE_SIZE}&offset=${offset}`,
+            {},
+            { timeoutMs: 20000, suppressErrorToast: true }
+        );
+        if (!Array.isArray(batch)) {
+            throw new Error('授课明细响应格式无效');
+        }
+        all.push(...batch);
+        if (batch.length < DETAIL_PAGE_SIZE) break;
+    }
+    return all;
+}
+
+/** 分学生折算：过滤掉已取消 / 已调整的 pair，与 statistics 接口的活跃 pair 口径一致 */
+function buildStudentBreakdown(schedules) {
+    return aggregatePersonStats(schedules, {
+        nameOf: row => row.student_name,
+        typeOf: row => row.schedule_type_cn || row.schedule_type,
+        isActive: row => !INACTIVE_STATUSES.has(String(row.status || '').toLowerCase())
+    });
+}
+
+/**
  * Load teaching data from API (using schedules endpoint for detailed info)
  */
 export async function loadTeachingCount() {
@@ -173,23 +222,19 @@ export async function loadTeachingCount() {
     }
 
     try {
-        if (!window.apiUtils) {
-            throw new Error('API 客户端尚未加载');
-        }
-        const schedules = await window.apiUtils.get(
-            `/teacher/detailed-schedules?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=500`,
-            {},
-            { timeoutMs: 20000, suppressErrorToast: true }
-        );
-        if (!Array.isArray(schedules)) {
-            throw new Error('授课明细响应格式无效');
-        }
+        const schedules = await fetchAllDetailedSchedules(startDate, endDate);
 
-        // Preserve typeStats and dailyStats from the summary fetch if available
         currentTeachingData = currentTeachingData || {};
         currentTeachingData.schedules = schedules;
+        currentTeachingData.persons = buildStudentBreakdown(schedules);
 
-        updateDisplay(currentTeachingData, startDate, endDate);
+        renderStatsBreakdown('teachingStatsBreakdown', {
+            typeStats: currentTeachingData.typeStats || {},
+            persons: currentTeachingData.persons,
+            personLabel: '分学生（折算）'
+        });
+
+        updateDisplay(currentTeachingData);
     } catch (error) {
         const tbody = document.getElementById('teachingDetailsBody');
         if (tbody) {
@@ -202,6 +247,13 @@ export async function loadTeachingCount() {
                 retryText: '重试'
             });
         }
+        // 主卡片与原始计数仍可用，只把分学生区域标成失败，避免误读成「没有学生数据」
+        renderStatsBreakdown('teachingStatsBreakdown', {
+            typeStats: currentTeachingData?.typeStats || {},
+            persons: null,
+            personLabel: '分学生（折算）',
+            pendingText: '分学生数据加载失败，请重试'
+        });
     } finally {
         // 隐藏列表加载动画
         const tableCard = document.getElementById('teachingDetailsCard');
@@ -229,6 +281,9 @@ function renderTeachingSummaryErrors(error) {
 
     if (statsGrid) statsGrid.hidden = true;
     if (chartCanvas?.parentElement) chartCanvas.parentElement.hidden = true;
+    // 汇总失败时下方明细没有可信的原始计数可展示，整块隐藏，避免上一周期的旧数字残留
+    const breakdown = document.getElementById('teachingStatsBreakdown');
+    if (breakdown) breakdown.hidden = true;
 
     const regions = [
         {
@@ -315,7 +370,7 @@ export async function loadTeachingSummary(showLoading = true) {
         clearTeachingSummaryErrors();
 
         // Update UI using aggregated data
-        await updateDisplayFromAggregates(currentTeachingData, startDate, endDate);
+        await updateDisplayFromAggregates(currentTeachingData);
     } catch (error) {
         if (dailyChartInstance) {
             dailyChartInstance.destroy();
@@ -337,63 +392,18 @@ export async function loadTeachingSummary(showLoading = true) {
 /**
  * Update display using aggregated data (avoids iterating full schedule list)
  */
-async function updateDisplayFromAggregates(data, startDate, endDate) {
-    // 使用淡色渐变卡片渲染课程类型统计
-    const statsGrid = document.getElementById('teachingTypeStats');
-    if (statsGrid) {
-        window.SecurityUtils.safeSetHTML(statsGrid, '');
-        const types = Object.keys(data.typeStats || {});
-        if (types.length === 0) {
-            const emptyHtml = `
-                <div class="stat-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: none; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
-                    <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
-                        <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
-                    </div>
-                    <div style="position: relative; z-index: 1;">
-                        <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">总授课数</h3>
-                        <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
-                    </div>
-                </div>
-            `;
-            window.SecurityUtils.safeSetHTML(statsGrid, emptyHtml);
-        } else {
-            const uiColors = [
-                { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
-                { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
-                { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
-                { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
-                { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
-                { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
-            ];
+async function updateDisplayFromAggregates(data) {
+    // 主卡片只展示折算后的口径桶；原始类型计数与分学生明细见下方 breakdown
+    renderConvertedTypeCards('teachingTypeStats', data.typeStats || {}, {
+        emptyTitle: '折算后总授课数'
+    });
 
-            types.forEach((type, index) => {
-                const count = data.typeStats[type];
-                const colorConfig = uiColors[index % uiColors.length];
-                const card = document.createElement('div');
-                card.className = 'stat-card scale-hover';
-                card.style.background = colorConfig.bg;
-                card.style.border = 'none';
-                card.style.position = 'relative';
-                card.style.overflow = 'hidden';
-                card.style.display = 'flex';
-                card.style.flexDirection = 'column';
-                card.style.justifyContent = 'center';
-                card.style.minHeight = '120px';
-
-                card.innerHTML = '';
-                window.SecurityUtils.safeSetHTML(card, `
-                    <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
-                        <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
-                    </div>
-                    <div style="position: relative; z-index: 1;">
-                        <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">${type}</h3>
-                        <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
-                    </div>
-                `);
-                statsGrid.appendChild(card);
-            });
-        }
-    }
+    renderStatsBreakdown('teachingStatsBreakdown', {
+        typeStats: data.typeStats || {},
+        persons: data.persons || null,
+        personLabel: '分学生（折算）',
+        pendingText: '正在统计分学生数据...'
+    });
 
     // dailyStats 是当前查询周期的权威结果；为空时清空图表，不能回退到可能属于上一周期的明细缓存。
     if (data.dailyStats && data.dailyStats.length > 0) {
@@ -407,9 +417,6 @@ async function updateDisplayFromAggregates(data, startDate, endDate) {
         }
     }
 
-    // Mark summary as rendered so detailed fetch doesn't overwrite it
-    data.summaryRendered = true;
-
     // Clear or show placeholder in details table until detailed fetch completes
     const tbody = document.getElementById('teachingDetailsBody');
     if (tbody && !data.schedules) {
@@ -418,73 +425,9 @@ async function updateDisplayFromAggregates(data, startDate, endDate) {
 }
 
 /**
- * Update the display with teaching stats and detailed table
+ * Update the display with detailed rows (table only; cards/breakdown come from the summary + person aggregation)
  */
-function updateDisplay(data, startDate, endDate) {
-    if (!data.summaryRendered) {
-        // 回退：使用淡色渐变卡片渲染
-        const statsGrid = document.getElementById('teachingTypeStats');
-        if (statsGrid) {
-            window.SecurityUtils.safeSetHTML(statsGrid, '');
-
-            const types = Object.keys(data.typeStats || {});
-            if (types.length === 0) {
-                if (window.SecurityUtils) {
-                    window.SecurityUtils.safeSetHTML(statsGrid, `
-                    <div class="stat-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: none; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-height: 120px;">
-                        <div style="position: absolute; right: 10px; opacity: 0.1; transform: scale(3) translate(-10%, 10%);">
-                            <span class="material-icons-round" style="color: #64748b;">sentiment_dissatisfied</span>
-                        </div>
-                        <div style="position: relative; z-index: 1;">
-                            <h3 style="color: #475569; opacity: 0.9; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">总授课数</h3>
-                            <div class="count-value" style="color: #475569; font-size: 32px; font-weight: 700;">0</div>
-                        </div>
-                    </div>
-                `);
-                } else { statsGrid.textContent = ''; }
-            } else {
-                const uiColors = [
-                    { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', text: '#0369a1', icon: 'school' },
-                    { bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', text: '#15803d', icon: 'check_circle' },
-                    { bg: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)', text: '#a16207', icon: 'star' },
-                    { bg: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)', text: '#be185d', icon: 'favorite' },
-                    { bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', text: '#4338ca', icon: 'assessment' },
-                    { bg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', text: '#c2410c', icon: 'emoji_events' }
-                ];
-
-                types.forEach((type, index) => {
-                    const count = data.typeStats[type];
-                    const colorConfig = uiColors[index % uiColors.length];
-                    const card = document.createElement('div');
-                    card.className = 'stat-card scale-hover';
-                    card.style.background = colorConfig.bg;
-                    card.style.border = 'none';
-                    card.style.position = 'relative';
-                    card.style.overflow = 'hidden';
-                    card.style.display = 'flex';
-                    card.style.flexDirection = 'column';
-                    card.style.justifyContent = 'center';
-                    card.style.minHeight = '120px';
-
-                    card.innerHTML = '';
-                    window.SecurityUtils.safeSetHTML(card, `
-                        <div style="position: absolute; right: 10px; top: 10px; opacity: 0.15; transform: scale(3.5) translate(-15%, 15%); pointer-events: none;">
-                            <span class="material-icons-round" style="color: ${colorConfig.text};">${colorConfig.icon}</span>
-                        </div>
-                        <div style="position: relative; z-index: 1;">
-                            <h3 style="color: ${colorConfig.text}; opacity: 0.95; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-300);">${type}</h3>
-                            <p style="color: ${colorConfig.text}; margin: 0; font-size: 32px; font-weight: 700; line-height: 1;">${count}</p>
-                        </div>
-                    `);
-                    statsGrid.appendChild(card);
-                });
-            }
-        }
-
-        // Summary statistics are rendered only from the dedicated aggregate endpoint.
-        // Detailed rows must not synthesize a second, potentially different metric.
-    }
-
+function updateDisplay(data) {
     // Update details table
     const tbody = document.getElementById('teachingDetailsBody');
     if (tbody) {
