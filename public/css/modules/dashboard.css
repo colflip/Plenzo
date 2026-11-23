@@ -467,13 +467,20 @@ body {
     }
 }
 
+.dashboard-header h1,
 .dashboard-header h2 {
-    color: #2ECC71;
     margin: 0;
     font-weight: 600;
     display: flex;
     align-items: center;
 }
+
+/* h2 是旧的彩色标题（渐变/图标配色场景）；h1 走 global.css 的正文深色，
+   不能被 h2 的主题绿带走。 */
+.dashboard-header h2 {
+    color: #2ECC71;
+}
+
 
 .dashboard-header h2 .material-icons-round {
     margin-right: 8px;

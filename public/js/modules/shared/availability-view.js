@@ -255,10 +255,10 @@ export function createAvailabilityView(config) {
                 const cell = createElement('td', 'availability-cell');
                 const isActive = state.get(iso)?.[slot.id] ?? false;
 
+                // 格子只放图标：时段文字在表头列已有，这里不再重复（aria-label 保留供读屏）。
                 const iconContainer = createElement('div', `icon-slot-container ${isActive ? 'active' : ''}`);
                 iconContainer.innerHTML = `
                     <span class="material-icons-round icon-slot">${slot.icon}</span>
-                    <span class="icon-slot-text">${slot.label}</span>
                 `;
 
                 // 原来是个纯 div + click，键盘和读屏都到不了（P3-12）。不换 <button> 是因为
@@ -358,7 +358,6 @@ export function createAvailabilityView(config) {
                 const iconContainer = createElement('div', `icon-slot-container ${isActive ? 'active' : ''}`);
                 iconContainer.innerHTML = `
                     <span class="material-icons-round icon-slot">${slot.icon}</span>
-                    <span class="icon-slot-text">${slot.label}</span>
                 `;
 
                 // 同上：div + click 对键盘不可达（P3-12），补 role/tabindex/aria-pressed 与 Enter/Space
