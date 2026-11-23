@@ -599,7 +599,24 @@
             margin-bottom: 20px;
         }
 
-        /* Teacher Specific Tweaks */
+        /* Dashboard Specific Tweaks */
+        /* 页面标题降一档：global.css 的 h1 用 --fs-800(30px) 是 KPI 数值字号，
+           页面标题统一 22px（与教师端同口径，无现成令牌用字面值）。 */
+        h1#pageTitle {
+            font-size: 22px;
+            line-height: 26px;
+        }
+
+        /* 顶栏与首卡片间距收紧：只动学生页，不影响管理端/教师端同名元素。 */
+        .main-content {
+            padding-top: 20px;
+        }
+
+        .dashboard-header {
+            margin-bottom: 25px;
+            padding: 15px 10px;
+        }
+
         .profile-layout {
             display: grid;
             grid-template-columns: 300px 1fr;

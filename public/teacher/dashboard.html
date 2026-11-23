@@ -490,6 +490,36 @@
         }
 
         /* Teacher Specific Tweaks */
+        /* 页面标题降一档：global.css 的 h1 用 --fs-800(30px) 是 KPI 数值字号，
+           页面标题统一 22px（无现成令牌，theme 的 --fs-700 是 24px，介于两档之间用字面值）。 */
+        h1#pageTitle {
+            font-size: 22px;
+            line-height: 26px;
+        }
+
+        /* 教师端顶栏与首卡片间距收紧：只动教师页，
+           不影响管理端/学生端同名的 .dashboard-header 与 .main-content。 */
+        .main-content {
+            padding-top: 20px;
+        }
+
+        .dashboard-header {
+            margin-bottom: 25px;
+            padding: 15px 10px;
+        }
+
+        /* 空闲时段页：各功能区块（工具栏→表格卡片）之间间距统一 10px，
+           与顶栏口径一致；schedule-controls 是共享类，限定在 #availability 内。 */
+        #availability .header-toolbar {
+            margin-bottom: 10px;
+        }
+
+        /* 班主任费用页：工具栏卡片与表格卡片贴紧（fm-table-card 非 scoped，
+           管理端共用，所以限定在教师端费用挂载点内） */
+        #teacherHeadFeeManagerMount .fm-table-card {
+            margin-top: 0;
+        }
+
         .profile-layout {
             display: grid;
             grid-template-columns: 300px 1fr;

@@ -36,15 +36,28 @@
            内部横向滚动承担。 */
         min-width: 0 !important;
         max-width: 100% !important;
-        padding: 24px !important;
+        padding: 20px 24px 24px !important;
         overflow-x: auto !important;
     }
 
     /* 4. Restore Desktop Header */
     .dashboard-header {
         justify-content: center !important;
-        padding-bottom: 16px !important;
-        margin-bottom: 24px !important;
+        margin-bottom: 25px !important;
+        padding: 15px 10px !important;
+    }
+
+    /* 页面标题统一 22px（教师/学生端内联覆盖同口径；--fs-700=24px 偏大一档，
+       22px 无现成令牌，用字面值）。 */
+    .dashboard-header h1 {
+        font-size: 22px !important;
+        line-height: 26px;
+    }
+
+    /* 费用页：工具栏卡片与表格卡片贴紧（fm-table-card 非 scoped、两端共用，
+       此处只覆盖管理端桌面；教师端在 teacher/dashboard.html 内联块里同步）。 */
+    #feeManagerMount .fm-table-card {
+        margin-top: 0 !important;
     }
 
     .dashboard-header h2 {
