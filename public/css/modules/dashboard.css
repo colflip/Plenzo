@@ -6101,6 +6101,134 @@ svg {
     }
 }
 
+/* ============================================
+   折算口径：主卡片标题 + 卡片下方明细区
+   教师端「授课展示」/ 学生端「学习统计」共用。
+   外层 stats-component-card 是内联的浅色背景（#f8fafc，深色模式也不翻转），
+   所以这里按浅色底取色，与同卡片里的内联标题保持同一套可读性。
+   ============================================ */
+#teaching-display .stats-converted-title {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+#teaching-display .stats-breakdown {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: var(--fs-300);
+    color: #475569;
+}
+
+#teaching-display .stats-breakdown[hidden] {
+    display: none;
+}
+
+#teaching-display .stats-breakdown-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 14px;
+}
+
+#teaching-display .stats-breakdown-label {
+    flex: none;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+#teaching-display .stats-breakdown-total {
+    flex: none;
+    padding: 1px 9px;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: #475569;
+    font-size: var(--fs-200);
+    font-weight: 600;
+}
+
+#teaching-display .stats-raw-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+}
+
+#teaching-display .stats-raw-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+#teaching-display .stats-raw-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+}
+
+#teaching-display .stats-person-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    width: 100%;
+}
+
+#teaching-display .stats-person-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #e8eef5;
+}
+
+#teaching-display .stats-person-name {
+    font-weight: 600;
+    color: #1e293b;
+}
+
+#teaching-display .stats-person-total {
+    font-size: var(--fs-200);
+    color: #64748b;
+}
+
+#teaching-display .stats-person-converted {
+    color: #475569;
+}
+
+#teaching-display .stats-breakdown-pending {
+    color: #94a3b8;
+}
+
+#teaching-display .stats-breakdown-note {
+    margin: 0;
+    font-size: var(--fs-200);
+    line-height: 1.5;
+    color: #94a3b8;
+}
+
+@media (max-width: 768px) {
+    #teaching-display .stats-converted-title {
+        font-size: var(--fs-300);
+        margin-bottom: 8px;
+    }
+
+    /* 窄屏：姓名 / 原始节数 / 折算结果各占一行，避免长折算文本把行挤爆 */
+    #teaching-display .stats-person-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+    }
+}
+
 /* Statistics Loading State */
 .stats-loading .stat-card {
     position: relative;
