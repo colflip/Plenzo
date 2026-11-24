@@ -1,6 +1,8 @@
-// L5：结构化日志封装（替代散落的 console.*）
-// 零依赖：生产环境输出 JSON 结构化行（含 ts/level/message/meta），开发环境输出可读文本。
-// 使用 process.stdout/stderr 直接写出，避免在源码中残留 console.*，也防止与 logger 递归。
+/**
+ * 结构化日志封装
+ * @description 零依赖：生产输出 JSON 结构化行（ts/level/message/meta），开发输出可读文本；
+ *              直接写 process.stdout/stderr，避免源码里残留 console.* 与递归调用。
+ */
 const isProduction = process.env.NODE_ENV === 'production';
 
 function serialize(args) {

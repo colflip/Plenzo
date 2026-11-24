@@ -1,6 +1,8 @@
 /**
- * Version metadata service.
- * Prefer GitHub repository metadata, then fall back to the local Git checkout.
+ * 版本元数据服务
+ * @description 优先读 GitHub 仓库元数据，读不到时回退本地 Git 检出；结果带 TTL 缓存，
+ *              并据此判定当前运行环境（vercel / render / cloudzyro）。
+ * @module services/version-service
  */
 
 const { execFile } = require('child_process');

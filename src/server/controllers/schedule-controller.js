@@ -1,7 +1,7 @@
 /**
  * 排课管理控制器
  * @description 处理排课相关的 HTTP 请求，协调 Service 层完成业务
- * @module controllers/scheduleController
+ * @module controllers/schedule-controller
  */
 
 const scheduleService = require('../services/schedule-service');

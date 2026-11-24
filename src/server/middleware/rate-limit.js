@@ -1,7 +1,7 @@
 /**
  * API速率限制中间件
  * @description 防止暴力破解和DoS攻击
- * @module middleware/rateLimit
+ * @module middleware/rate-limit
  */
 
 const rateLimit = require('express-rate-limit');

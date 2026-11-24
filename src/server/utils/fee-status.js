@@ -1,5 +1,8 @@
-// 费用报销状态：枚举、流转校验与审计（管理员 / 班主任 / 教师三档权限）
-// 与前端 public/js/components/fee-manager.js 的 FEE_STATUS 展示名保持一致。
+/**
+ * 费用报销状态
+ * @description 状态枚举、流转合法性校验与审计写入；权限分管理员 / 班主任 / 教师三档，
+ *              展示名与前端 public/js/components/fee-manager.js 的 FEE_STATUS 保持一致。
+ */
 
 const SchemaHelper = require('./schema-helper');
 const logger = require('./logger');

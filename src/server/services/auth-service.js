@@ -2,7 +2,7 @@ const logger = require('../utils/logger.js');
 /**
  * 认证服务
  * @description 处理登录、注册、密码管理等核心认证逻辑
- * @module services/authService
+ * @module services/auth-service
  */
 
 const bcrypt = require('bcrypt');
@@ -66,7 +66,7 @@ function getJwtExpiresIn(rememberMe = false) {
 
 /**
  * 验证密码格式 (Bcrypt)
- * @param {string} val 
+ * @param {string} val
  * @returns {boolean}
  * @private
  */
@@ -76,7 +76,7 @@ function isBcryptHash(val) {
 
 /**
  * 获取密码字段 (兼容旧数据)
- * @param {object} user 
+ * @param {object} user
  * @returns {string|null}
  * @private
  */
@@ -187,10 +187,10 @@ class AuthService {
 
     /**
      * 修改密码
-     * @param {string} username 
-     * @param {string} oldPassword 
-     * @param {string} newPassword 
-     * @param {string} userType 
+     * @param {string} username
+     * @param {string} oldPassword
+     * @param {string} newPassword
+     * @param {string} userType
      */
     async changePassword(username, oldPassword, newPassword, userType) {
         const table = getTable(userType);

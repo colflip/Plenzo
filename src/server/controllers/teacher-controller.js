@@ -1,3 +1,9 @@
+/**
+ * 教师控制器
+ * @description 教师端的资料、可用时段、排课（确认 / 状态变更）、统计与导出；
+ *              班主任视角的关联学生排课也在这里。
+ * @module controllers/teacher-controller
+ */
 const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const { pipeline, scheduleQueries } = require('../services/export');

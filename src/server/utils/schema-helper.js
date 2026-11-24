@@ -2,7 +2,7 @@ const logger = require('./logger.js');
 /**
  * Schema 助手
  * @description 统一的数据库 schema 检测工具，消除各控制器中的重复实现
- * @module utils/schemaHelper
+ * @module utils/schema-helper
  */
 
 const db = require('../db/db');

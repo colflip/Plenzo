@@ -5,7 +5,7 @@ const { AppError } = require('../middleware/error');
 /**
  * 统一导出控制器
  * @description 四端（管理员、教师、班主任、学生）共用的导出逻辑
- * @module controllers/exportController
+ * @module controllers/export-controller
  */
 
 const db = require('../db/db');

@@ -5,7 +5,7 @@
  *              getAvailableModels / getModelCapabilities。
  *              统一沿用「{status, body}」适配器模式；AppError 向上抛出，由全局错误中间件收口。
  *              LLM 调用层仍在 ai-service（chat/configOverride）；持久化仍在 ai-config-manager。
- * @module services/aiConfigService
+ * @module services/ai-config-service
  */
 
 const fs = require('fs');

@@ -1,3 +1,9 @@
+/**
+ * 数据库连接层
+ * @description pg Pool 为主、连接类错误时按 DB_CONNECTION_TYPE 回退 Neon HTTP；
+ *              内置连接熔断（阈值 / 冷却 / 半开探测）、日志节流与启动连通性探测。
+ *              失败语义与可重试判定集中在这里，不要在调用侧另写一份。
+ */
 const logger = require('../utils/logger.js');
 const { loadEnv } = require('../utils/env-loader.js');
 loadEnv();

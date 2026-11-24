@@ -1,7 +1,7 @@
 /**
  * 认证验证规则
  * @description 登录、注册、密码修改等认证相关的Joi验证规则
- * @module validators/auth
+ * @module validators/auth-validator
  */
 
 const Joi = require('joi');

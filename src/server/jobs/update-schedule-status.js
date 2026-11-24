@@ -1,3 +1,8 @@
+/**
+ * 排课状态自动推进作业
+ * @description 把到期的已确认课程批量推进为已完成，分批提交并校验路径谓词；
+ *              既被常驻进程的 scheduler 调用，也被 /api/cron 端点触发。
+ */
 const logger = require('../utils/logger.js');
 const db = require('../db/db');
 const crypto = require('crypto');

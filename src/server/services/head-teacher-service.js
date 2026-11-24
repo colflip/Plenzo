@@ -6,7 +6,7 @@
  *
  * 返回契约（D1）：只返回领域数据；业务错误抛 AppError，由 controller 统一封装 HTTP 响应。
  * 未识别的异常原样向上抛，交给全局 errorHandler 归类（数据库不可用 → 503）。
- * @module services/headTeacherService
+ * @module services/head-teacher-service
  */
 
 const db = require('../db/db');

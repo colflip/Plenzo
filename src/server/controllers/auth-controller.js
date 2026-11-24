@@ -1,7 +1,7 @@
 /**
  * 认证控制器
  * @description 处理用户认证相关的 HTTP 请求
- * @module controllers/authController
+ * @module controllers/auth-controller
  */
 
 const authService = require('../services/auth-service');

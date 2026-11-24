@@ -1,7 +1,7 @@
 /**
  * 智能排课服务 (Schedule Service)
  * @description 处理排课核心业务逻辑，包括时间冲突检测、智能匹配、排课创建与状态管理
- * @module services/scheduleService
+ * @module services/schedule-service
  *
  * 返回契约（D1）：只返回领域数据；业务错误抛 AppError，由 controller 统一封装 HTTP 响应。
  * 未识别的异常原样向上抛，交给全局 errorHandler 归类（数据库不可用 → 503）。

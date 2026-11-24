@@ -2,7 +2,7 @@ const logger = require('./logger.js');
 /**
  * 服务端共享工具函数
  * @description 消除控制器和服务层之间的重复代码
- * @module utils/sharedUtils
+ * @module utils/shared-utils
  */
 
 /**

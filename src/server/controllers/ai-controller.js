@@ -2,7 +2,7 @@ const logger = require('../utils/logger.js');
 /**
  * AI 控制器 (AI Controller) - 全新重构版本
  * @description 处理 AI 相关请求：数据查询、智能排课
- * @module controllers/aiController
+ * @module controllers/ai-controller
  */
 
 const { successResponse, errorResponse } = require('../utils/response');

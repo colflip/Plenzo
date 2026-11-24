@@ -1,3 +1,8 @@
+/**
+ * 用户列表路由
+ * @description GET /api/users?type=…：按角色返回教师 / 学生 / 管理员列表，仅管理员可访问。
+ * @module routes/users
+ */
 const logger = require('../utils/logger.js');
 const express = require('express');
 const router = express.Router();
@@ -13,7 +18,7 @@ const { AppError } = require('../middleware/error');
 router.get('/', authMiddleware, adminOnly, async (req, res, next) => {
     try {
         const { type } = req.query;
-        
+
         if (!type) {
             // 获取所有类型的用户
             // 若存在 status 列则排除删除账号，否则直接返回
@@ -33,7 +38,7 @@ router.get('/', authMiddleware, adminOnly, async (req, res, next) => {
                 db.query(studentsSql),
                 db.query('SELECT id, name, username, \'admin\' as type FROM administrators')
             ]);
-            
+
             const allUsers = [...teachersResult.rows, ...studentsResult.rows, ...adminsResult.rows];
 
             res.json(successResponse({ users: allUsers }));

@@ -1,7 +1,7 @@
 /**
  * 中间件索引
  * @description 统一导出所有中间件模块
- * @module middleware
+ * @module middleware/index
  */
 
 const { authMiddleware, getJwtSecret } = require('./auth');

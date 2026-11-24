@@ -8,7 +8,7 @@
  *
  *              对上层 (controller) 始终暴露 OpenAI 形状的响应（choices[0].message + tool_calls），
  *              messages 协议在本模块内部做双向翻译，controller 无需感知差异。
- * @module services/aiService
+ * @module services/ai-service
  *
  * 环境变量:
  *   AI_ENABLED   (true/false)   AI 总开关，false 时 isAvailable() 返回 false

@@ -1,5 +1,7 @@
 /**
- * Application metadata routes.
+ * 应用元数据路由
+ * @description GET /api/meta/version：返回版本徽章所需的提交与环境信息。
+ * @module routes/meta
  */
 
 const express = require('express');

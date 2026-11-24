@@ -1,7 +1,7 @@
 /**
  * 验证规则索引
  * @description 统一导出所有验证规则模块
- * @module validators
+ * @module validators/index
  */
 
 const authValidator = require('./auth-validator');
