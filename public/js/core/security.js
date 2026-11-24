@@ -296,13 +296,13 @@ function safeSetAttribute(element, name, value) {
     const lowerName = name.toLowerCase();
 
     if (dangerousAttrs.includes(lowerName)) {
-        
+
         return;
     }
 
     if (lowerName === 'href' || lowerName === 'src') {
         if (!isSafeUrl(value)) {
-            
+
             return;
         }
     }

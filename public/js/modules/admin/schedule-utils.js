@@ -194,7 +194,7 @@ export async function updateScheduleStatus(sessionId, teacherUid, newStatus) {
             if (typeof window.loadTodaySchedules === 'function') window.loadTodaySchedules();
         }
     } catch (error) {
-        
+
         if (window.apiUtils.showToast) window.apiUtils.showToast('状态更新失败', 'error');
         // 可选：如果失败，刷新页面以恢复原状
         if (typeof window.loadSchedules === 'function') window.loadSchedules();

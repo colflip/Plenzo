@@ -20,11 +20,11 @@ window.ExportDialog = (function () {
      */
     function getCurrentUser() {
         if (window.currentUser && window.currentUser.userType) return window.currentUser;
-        
+
         try {
             const userType = localStorage.getItem('userType');
             if (userType) return { userType };
-            
+
             const userData = localStorage.getItem('userData');
             if (userData) {
                 const user = JSON.parse(userData);
@@ -34,7 +34,7 @@ window.ExportDialog = (function () {
                 }
             }
         } catch (e) { }
-        
+
         return { userType: 'admin' };
     }
 
@@ -169,7 +169,7 @@ window.ExportDialog = (function () {
         if (state.isExporting && !force) {
             return;
         }
-        
+
         if (modalOverlay) modalOverlay.style.display = 'none';
         if (dialogElement) dialogElement.style.display = 'none';
         document.body.style.overflow = '';
@@ -683,7 +683,7 @@ window.ExportDialog = (function () {
             return;
         }
         state.isExporting = true;
-        
+
         // 显式显示加载遮罩层
         const overlay = document.getElementById('exportLoadingOverlay');
         if (overlay) overlay.style.display = 'flex';
@@ -819,7 +819,7 @@ window.ExportDialog = (function () {
                 progressMsg.appendChild(wrapper);
             }
             showToast(`导出失败: ${error.message}`, 'error');
-            
+
             state.isExporting = false;
             // 恢复按钮状态
             const exportBtn = document.getElementById('exportBtn');
@@ -988,7 +988,7 @@ window.ExportDialog = (function () {
         // 根据角色过滤导出类型
         const currentUser = getCurrentUser();
         const userType = currentUser.userType || 'admin';
-        
+
         let filteredTypes = Object.entries(EXPORT_TYPE_CONFIG);
         if (userType === 'teacher') {
             // 教师可见：自身授课记录 + 班主任学生入户记录
@@ -1001,7 +1001,7 @@ window.ExportDialog = (function () {
             filteredTypes = filteredTypes.filter(([id]) =>
                 id !== EXPORT_TYPES.TEACHER_SCHEDULE && id !== EXPORT_TYPES.TEACHER_HOMEROOM && id !== EXPORT_TYPES.STUDENT_SCHEDULE);
         }
-        
+
         const html = `
             <div id="exportDialogOverlay" class="export-dialog-overlay" style="display: none;">
                 <div id="exportDialog" class="export-dialog-container">

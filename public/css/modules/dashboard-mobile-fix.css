@@ -97,7 +97,7 @@
         min-height: 80px; /* 稍微压缩高度适应两列 */
         padding: 12px !important;
     }
-    
+
     .gradient-bg-icon span {
         font-size: var(--fs-700) !important;
     }
@@ -148,14 +148,14 @@
     }
 
     /* 强制产生横向滚动，避免挤压 */
-    .schedule-table, 
+    .schedule-table,
     .schedule-records-table table,
     .weekly-schedule-table {
-        min-width: 700px !important; 
+        min-width: 700px !important;
     }
 
     /* 优化单元格高度，方便触摸 */
-    .schedule-table td, 
+    .schedule-table td,
     .schedule-table th {
         padding: 12px 10px !important;
         font-size: var(--fs-200);
@@ -246,7 +246,7 @@
         padding: 6px;
         border-radius: 20px;
     }
-    
+
     .nav-btn {
         padding: 4px 10px !important;
         min-height: 38px !important;
@@ -254,10 +254,10 @@
         align-items: center;
     }
 
-    #weekRangeAvail, 
-    #weekRange, 
-    #ssWeekRange, 
-    #avWeekRange, 
+    #weekRangeAvail,
+    #weekRange,
+    #ssWeekRange,
+    #avWeekRange,
     #avStudentWeekRange {
         min-width: unset !important;
         font-size: var(--fs-400) !important; /* 强制统一为 15px */
@@ -267,10 +267,10 @@
     }
 
     /* 保存/添加按钮：如果空间足够则并排显示，否则换行 */
-    .schedule-controls .primary-btn, 
+    .schedule-controls .primary-btn,
     .sch-controls-left .primary-btn,
     .schedule-controls .export-btn {
-        width: auto !important; 
+        width: auto !important;
         min-width: 100px;
         flex: 0 1 auto; /* 允许根据内容缩放 */
     }
@@ -282,7 +282,7 @@
     }
 
     /* 课程卡片中的费用按钮靠右显示 (图4) */
-    .schedule-footer, 
+    .schedule-footer,
     div[style*="justify-content: flex-end"] {
         justify-content: flex-end !important;
         width: 100% !important;
@@ -329,7 +329,7 @@
         align-self: center !important;
         margin: 4px auto !important;
     }
-    
+
     .query-section .action-group {
         display: flex !important;
         flex-direction: column !important;
@@ -373,7 +373,7 @@
         justify-content: center;
         align-items: center;
     }
-    
+
     #teachingTypeStats .stat-card h3 {
         font-size: var(--fs-100) !important;
         margin-bottom: 2px !important;
@@ -449,10 +449,10 @@
     /* 针对柱状图 canvas，取消固定 1000px，由 JS 动态计算宽度 */
     #dailyStatsChart,
     .chart-container canvas {
-        min-width: 100% !important; 
+        min-width: 100% !important;
         height: 300px !important;
     }
-    
+
     /* 饼图/环形图不需要横向滚动 */
     #scheduleTypeChart {
         min-width: unset !important;

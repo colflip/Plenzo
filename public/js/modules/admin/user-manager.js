@@ -398,7 +398,7 @@ export async function loadUsers(type, opts = {}) {
             // 第一页正在加载中，直接返回
             return;
         }
-        
+
         if (!state.hasMore && !opts.reset && state.page > 1) {
             // 非第一页且没有更多数据，不加载
             return;
@@ -409,7 +409,7 @@ export async function loadUsers(type, opts = {}) {
         // 先清空tbody，确保动画位置一致
         if (state.page === 1 && !opts.append) {
             window.SecurityUtils.safeSetHTML(tbody, '');
-            
+
             const typeLabels = {
                 teacher: '教师',
                 student: '学生',
@@ -444,7 +444,7 @@ export async function loadUsers(type, opts = {}) {
         if (!opts.append) {
             window.SecurityUtils.safeSetHTML(tbody, '');
         }
-        
+
         // 隐藏加载动画
         hideTableLoading(tableContainer);
 
@@ -488,7 +488,7 @@ export async function loadUsers(type, opts = {}) {
         state.loading = false;
         const tableContainer = document.querySelector('#users.dashboard-section .table-container');
         hideTableLoading(tableContainer);
-        
+
         const tbody = document.getElementById('usersTableBody');
         const typeLabels = {
             teacher: '教师',
@@ -497,7 +497,7 @@ export async function loadUsers(type, opts = {}) {
         };
         const errorMsg = err?.message || '网络错误';
         const errorText = `加载${typeLabels[state.type] || ''}用户数据失败`;
-        
+
         if (tbody) {
             // 统一错误态：原实现用 tbody.innerHTML 拼入 err.message，存在 XSS 风险，
             // 且硬编码 #ef4444。改用 renderTableErrorRow（textContent + 重试回调）。
@@ -508,7 +508,7 @@ export async function loadUsers(type, opts = {}) {
                 onRetry: () => loadUsers(state.type, { reset: true })
             });
         }
-        
+
         if (window.apiUtils) {
             window.apiUtils.showToast(`${errorText}：${errorMsg}`, 'error');
         }
@@ -1131,7 +1131,7 @@ export async function deleteUser(userType, userId) {
         ]);
         if (window.apiUtils) window.apiUtils.showSuccessToast('删除成功');
     } catch (err) {
-        
+
         if (window.apiUtils) window.apiUtils.showToast('删除失败', 'error');
     }
 }

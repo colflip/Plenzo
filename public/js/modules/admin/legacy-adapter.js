@@ -485,7 +485,7 @@ function computeStatsFromCache(schedules, startDate, endDate) {
             const mapped = (window.ScheduleTypesStore && window.ScheduleTypesStore.getById)
                 ? (function () {
                     // Try to match name or description?
-                    // Actually logic in backend might be complex. 
+                    // Actually logic in backend might be complex.
                     // Let's stick to using the schedule_type_cn if available or schedule_types string
                     return s.schedule_type_cn || type;
                 })()
@@ -950,11 +950,11 @@ async function loadStatistics() {
         if (activeView === 'teacher') {
             const chartGrid = document.getElementById('teacherChartsContainer');
             if (chartGrid) chartGrid.innerHTML = ''; // 清理旧内容，重置高度
-            
+
             const teacherContainer = document.querySelector('.teacher-charts-container');
             if (teacherContainer && window.UIHelper) {
                 window.UIHelper.showTableLoading(teacherContainer, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
-                
+
                 // Reset animations
                 const chartContainers = teacherContainer.querySelectorAll('.chart-container');
                 chartContainers.forEach(el => {
@@ -971,7 +971,7 @@ async function loadStatistics() {
             const studentContainer = document.querySelector('.student-charts-container');
             if (studentContainer && window.UIHelper) {
                 window.UIHelper.showTableLoading(studentContainer, '正在加载统计数据...', undefined, { minVisibleMs: STATS_LOADING_MIN_MS });
-                
+
                 // Reset animations
                 const chartContainers = studentContainer.querySelectorAll('.chart-container');
                 chartContainers.forEach(el => {
@@ -1128,10 +1128,10 @@ async function loadStatistics() {
                 if (studentContainerEl && window.UIHelper) {
                     window.UIHelper.hideTableLoading(studentContainerEl);
                 }
-                
+
                 // 确保同步移除外层容器的加载类
                 if (activeWrapper) activeWrapper.classList.remove('stats-loading');
-                
+
                 // 隐藏反馈
                 if (statsFeedback) {
                     statsFeedback.style.display = 'none';
@@ -1159,7 +1159,7 @@ async function loadStatistics() {
         // activeView / activeWrapper 已在函数顶部计算，此处复用（视图在加载期间不会变化）
         if (activeWrapper) {
             activeWrapper.classList.remove('stats-loading');
-            
+
             // 全局兜底：隐藏所有可能的加载遮罩
             if (window.UIHelper) {
                 const containers = [
@@ -1430,7 +1430,7 @@ function getLegendColor(label) {
 
 
 
-// --- Stats logic has been moved to stats-logic.js --- 
+// --- Stats logic has been moved to stats-logic.js ---
 
 // 加载类型筛选器选项（按课程类型）
 async function loadScheduleFilterOptions() {
@@ -2064,10 +2064,10 @@ if (!window.__weeklyAutoRefreshInit) {
 // 用户管理相关函数
 
 
-// --- User logic has been moved to user-logic.js --- 
+// --- User logic has been moved to user-logic.js ---
 
 
-// --- Schedule UI logic has been moved to schedule-logic.js --- 
+// --- Schedule UI logic has been moved to schedule-logic.js ---
 
 // --- Rest of stats logic moved to stats-logic.js ---
 

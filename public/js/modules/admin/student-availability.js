@@ -188,7 +188,7 @@ function renderStudentAvailabilityCell(data, studentId, dateKey) {
         evening: data.evening
     });
 
-    return `<div id="idx-student-cell-${studentId}-${dateKey}" class="slot-container" 
+    return `<div id="idx-student-cell-${studentId}-${dateKey}" class="slot-container"
         data-orig-m="${data.morning === true}" 
         data-orig-a="${data.afternoon === true}" 
         data-orig-e="${data.evening === true}">
@@ -344,7 +344,7 @@ window.saveStudentAvailabilityChanges = async function () {
         });
 
     } catch (e) {
-        
+
         window.apiUtils.showToast('保存失败: ' + e.message, 'error');
     } finally {
         const btn = document.getElementById('saveStudentAvailabilityBtn');
@@ -386,11 +386,11 @@ function ensureStudentFloatingBar() {
         bar.id = 'studentAvailabilitySaveBar';
         // Reuse style from teacher bar, just ID differs
         // Copying styles or assuming shared class?
-        // legacy-adapter creates a specific style block. 
-        // We should reuse the styles if possible. 
+        // legacy-adapter creates a specific style block.
+        // We should reuse the styles if possible.
         // The previous styles for #availabilitySaveBar are ID specific in legacy-adapter.js line 6728.
         // We need to add style for this new ID or modify legacy-adapter to use class.
-        // Since I can't easily modify legacy-adapter style injection without replacing big chunk, 
+        // Since I can't easily modify legacy-adapter style injection without replacing big chunk,
         // I'll inject style here for this specific ID.
 
         bar.style.cssText = `

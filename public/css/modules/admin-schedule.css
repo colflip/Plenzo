@@ -442,7 +442,7 @@
    ========================================================================== */
 
 /* Loading状态的卡片 - 已禁用 */
-/* 
+/*
 .optimistic-loading {
     opacity: 0.7;
     position: relative;
@@ -471,7 +471,7 @@
 */
 
 /* 临时添加的卡片样式 - 已禁用 */
-/* 
+/*
 .temp-schedule {
     background: linear-gradient(135deg, rgba(46, 204, 113, 0.05) 0%, rgba(39, 174, 96, 0.1) 100%);
     border: 1px dashed rgba(46, 204, 113, 0.3) !important;
@@ -485,7 +485,7 @@
 */
 
 /* 删除动画过渡 - 已禁用 */
-/* 
+/*
 .schedule-card {
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
@@ -553,10 +553,10 @@
    ============================================ */
 @media (max-width: 768px) {
 
-    /* 
+    /*
        Original: ~20px height (12px font * 1.4 + 4px padding)
        Target: ~12px height (40% reduction)
-       New: 10px font * 1 line-height + 2px padding = 12px 
+       New: 10px font * 1 line-height + 2px padding = 12px
     */
     .schedule-item .type {
         font-size: var(--fs-100) !important;

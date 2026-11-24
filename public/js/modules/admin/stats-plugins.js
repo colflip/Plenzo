@@ -551,7 +551,7 @@
 
       // 可选：添加总计折线图叠加
       if (opts.showTotalLine) {
-        
+
 
         // 计算每日总数
         const totalPerDay = formattedLabels.map((_, dayIdx) => {
@@ -842,7 +842,7 @@
           }
           chart.resize();
         } catch (err) {
-          
+
         }
       };
 
@@ -860,7 +860,7 @@
       return chart;
 
     } catch (error) {
-      
+
 
       // 隐藏加载状态并显示错误
       const loadingContainer = document.getElementById(`${canvasId}-loading`);

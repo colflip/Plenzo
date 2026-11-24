@@ -406,7 +406,7 @@ export const WeeklyDataStore = {
                 // Check if data changed? For now just overwrite
                 this.schedules.set(key, { rows, loadedAt: Date.now() });
                 this._saveToLocal(key, rows);
-                // Dispatch event or callback if needed to re-render, 
+                // Dispatch event or callback if needed to re-render,
                 // but usually we let the next interaction pick it up or re-render explicitely if critical.
                 // For this implementation, we can trigger a re-render if the user is currently viewing the schedule.
                 if (window.__currentView === 'schedule') {
@@ -589,7 +589,7 @@ window.WeeklyDataStore = WeeklyDataStore;
 
 /**
  * 局部刷新特定单元格
- * @param {number|string} studentId 
+ * @param {number|string} studentId
  * @param {string} dateKey (ISO 格式)
  */
 export async function refreshCell(studentId, dateKey) {
@@ -1088,7 +1088,7 @@ function buildAdminScheduleCard(group, student, dateKey) {
             'line-height: 1',
             'user-select: none',
         ].join(';');
-        
+
         watermark.textContent = watermarkText;
         card.appendChild(watermark);
     }
@@ -1902,7 +1902,7 @@ export async function setupScheduleEventListeners() {
                 // 局部更新流程：
                 // 1. 对于新增或修改，通常我们会收到完整的 record。
                 // 2. 如果后端只返回了 ID，我们需要根据 ID 全量拉取一次或在此处通过 API 获取单条，
-                //    但为了最快响应且保持逻辑简单，我们在操作成功后执行一次静默的 getAllSchedules(true) 
+                //    但为了最快响应且保持逻辑简单，我们在操作成功后执行一次静默的 getAllSchedules(true)
                 //    并仅重绘变动的单元格。
 
                 // 由于后端目前只返回 ID，我们先强制同步内存，但不触发全局 UI 重载
