@@ -1,3 +1,7 @@
+/**
+ * 教师端通用工具
+ * @description DOM 断言与文本设置、ISO 日期与展示格式（时区固定 Asia/Shanghai）。
+ */
 import { getWeekStart } from '../shared/schedule-helpers.js';
 
 const TIME_ZONE = 'Asia/Shanghai';

@@ -1,3 +1,7 @@
+/**
+ * 日期区间工具（经典脚本，挂 window.DateRangeUtils）
+ * @description 周 / 月 / 年窗口换算、ISO 周号、区间文案与预设按钮同步，时区 Asia/Shanghai。
+ */
 (function () {
   const TIME_ZONE = 'Asia/Shanghai';
   function toStartOfDay(date) {

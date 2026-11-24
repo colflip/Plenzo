@@ -1,3 +1,8 @@
+/**
+ * 节假日日期标注（经典脚本，挂 window.ScheduleDateLabels）
+ * @description 按年份硬编码假期区间，把日期文本中的假期段落包成带样式的标签；
+ *              新增年份需要在此补数据，不要指望运行时推断。
+ */
 (function () {
     const HOLIDAY_RANGES_BY_YEAR = {
         2025: [

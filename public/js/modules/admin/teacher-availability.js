@@ -1,3 +1,8 @@
+/**
+ * 管理端教师空闲时段
+ * @description 按「日期列 × 教师行」渲染教师空闲时段表，含加载、表头与表体渲染、
+ *              单元格内容拼装。学生端同名功能见 student-availability.js。
+ */
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
@@ -22,7 +27,7 @@ export function initTeacherAvailability() {
     const weekRangeSpan = document.getElementById('avWeekRange');
     const prevBtn = document.getElementById('avPrevWeek');
     const nextBtn = document.getElementById('avNextWeek');
-    
+
     if (!tableBody || !weekRangeSpan) {
         return;
     }
@@ -228,7 +233,7 @@ export function renderAvailabilityCell(data, teacherId, dateKey) {
         evening: data.evening
     });
 
-    return `<div id="cell-${teacherId}-${dateKey}" class="slot-container" 
+    return `<div id="cell-${teacherId}-${dateKey}" class="slot-container"
         data-orig-m="${data.morning === true}" 
         data-orig-a="${data.afternoon === true}" 
         data-orig-e="${data.evening === true}">

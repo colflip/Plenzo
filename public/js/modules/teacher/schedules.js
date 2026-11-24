@@ -1,3 +1,7 @@
+/**
+ * 教师端课表
+ * @description 按周加载课表、周导航、课程确认 / 状态更新、截图与导出。
+ */
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
@@ -249,10 +253,10 @@ function renderHeader(weekDates) {
 
         const th = createElement('th', 'date-header');
         th.dataset.date = iso;
-        
+
         const dateLabel = createElement('div', 'date-label');
         dateLabel.textContent = `${month}月${day}日`;
-        
+
         const dayLabel = createElement('div', 'day-label', { textContent: weekday });
         th.appendChild(dateLabel);
         th.appendChild(dayLabel);

@@ -1,4 +1,7 @@
-// public/js/modules/teacher/student-schedules.js
+/**
+ * 教师端关联学生课表
+ * @description 班主任 / 教师查看关联学生的周课表，含视图切换、截图与导出。
+ */
 
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { showTableLoading, hideTableLoading } from '../shared/loading-ui.js';

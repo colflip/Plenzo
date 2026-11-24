@@ -1,3 +1,7 @@
+/**
+ * 教师端个人资料
+ * @description 资料展示与编辑、账号状态文案映射，保存成功后同步会话中的用户数据。
+ */
 import { getStatusLabel } from './constants.js';
 import { formatDateTimeDisplay, setText } from './utils.js';
 import { updateSessionUserData } from '../shared/dashboard-kit.js';
@@ -333,7 +337,7 @@ async function handlePasswordChange(event) {
         window.apiUtils.showSuccessToast('密码修改成功');
         closePasswordModal();
     } catch (error) {
-        
+
         window.apiUtils.showErrorToast(error);
     }
 }
@@ -407,11 +411,11 @@ async function saveProfile() {
 
 function bindStudentManagementActions() {
     elements.refreshStudentsBtn()?.addEventListener('click', loadAssociatedStudents);
-    
+
     elements.closeStudentEditModal()?.addEventListener('click', closeStudentEditModalFn);
     elements.cancelStudentEdit()?.addEventListener('click', closeStudentEditModalFn);
     elements.saveStudentEdit()?.addEventListener('click', handleSaveStudentEdit);
-    
+
     const modal = elements.studentEditModal();
     if (modal) {
         modal.addEventListener('click', (e) => {
@@ -420,7 +424,7 @@ function bindStudentManagementActions() {
             }
         });
     }
-    
+
     const modalContent = modal?.querySelector('.modal-content');
     if (modalContent) {
         modalContent.addEventListener('click', (e) => {
@@ -494,9 +498,9 @@ function renderStudentList(students) {
             </tbody>
         </table>
     `;
-    
+
     window.SecurityUtils.safeSetHTML(container, tableHTML);
-    
+
     container.querySelectorAll('.edit-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const studentId = parseInt(btn.dataset.studentId);
@@ -551,7 +555,7 @@ function closeStudentEditModalFn() {
 async function handleSaveStudentEdit() {
     const studentId = elements.editStudentId()?.value;
     const nameInput = elements.editStudentName();
-    
+
     try {
         window.apiUtils.validate.required(nameInput?.value, '姓名');
     } catch (validationError) {

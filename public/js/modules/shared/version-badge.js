@@ -1,3 +1,8 @@
+/**
+ * 顶栏版本徽章
+ * @description 优先读服务端 /api/meta/version 的提交元数据，读不到时回退 GitHub API；
+ *              只渲染实际拿到的字段，全部缺失则隐藏徽章，不显示占位文字。
+ */
 (function () {
     const BADGE_ID = 'appVersionBadge';
     const REPO = 'colflip/Plenzo';

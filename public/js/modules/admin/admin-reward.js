@@ -1,5 +1,7 @@
-
-// Admin Reward Logic
+/**
+ * 管理端奖励弹窗
+ * @description 创建并展示奖励浮层与彩带效果，与教师端 reward-view 是两套实现。
+ */
 
 // 创建管理员端奖励弹窗
 export function createAdminRewardModal() {
@@ -99,11 +101,11 @@ setTimeout(() => {
             const realStore = window.WeeklyDataStore;
             window.WeeklyDataStore = realStore;
         } else {
-            
-            
+
+
         }
     } else {
-        
+
     }
 }, 0);
 

@@ -1,3 +1,8 @@
+/**
+ * 管理端课程类型管理
+ * @description 加载 / 渲染课程类型表、新增与编辑弹窗、删除确认；每次写操作后同步
+ *              ScheduleTypesStore 并广播 scheduleType:changed，供其他模块刷新缓存。
+ */
 
 import { showTableLoading, hideTableLoading } from './ui-helper.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';
@@ -146,7 +151,7 @@ export async function handleDeleteScheduleType(id) {
         await loadScheduleTypes();
         if (window.apiUtils) window.apiUtils.showSuccessToast('删除成功');
     } catch (error) {
-        
+
         if (window.apiUtils) window.apiUtils.showToast(error.message || '删除失败', 'error');
     }
 }
@@ -206,7 +211,7 @@ export function setupScheduleTypeListeners() {
                     window.apiUtils.showSuccessToast(mode === 'add' ? '添加成功' : '更新成功');
                 }
             } catch (error) {
-                
+
                 if (window.apiUtils) {
                     // 处理后端返回的错误信息(如名称重复)
                     const msg = error.message || '保存失败';

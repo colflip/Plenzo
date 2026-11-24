@@ -1,5 +1,8 @@
-// Extracted User Management Logic
-// Delegates to UserManager and handles some legacy table rendering
+/**
+ * 管理端用户表格逻辑
+ * @description 表头按类型动态生成、追加用户行（列随操作者权限级别裁剪），
+ *              并把加载请求转发给 UserManager。
+ */
 
 import { USER_FIELDS, FIELD_LABELS, TIME_ZONE, getUserStatusClass, getUserStatusLabel } from './constants.js';
 
@@ -155,7 +158,7 @@ export async function loadUsers(type, opts = {}) {
     if (window.UserManager && window.UserManager.loadUsers) {
         return window.UserManager.loadUsers(type, opts);
     }
-    
+
 }
 
 // 用户管理：委托给 UserManager
@@ -169,7 +172,7 @@ export function closeUserFormModal() {
     if (window.UserManager) window.UserManager.closeUserFormModal();
 }
 export function toggleContactFields(type) {
-    
+
     // If needed, we can call a method if exposed. Usually not needed globally.
 }
 export function openUserFormModal(c, o) {

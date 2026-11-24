@@ -1,3 +1,7 @@
+/**
+ * 教师端概览
+ * @description 概览统计卡片、按分组的今日排课列表与奖励弹窗；加载失败走统一错误态。
+ */
 import { setText } from './utils.js';
 import { createInlineLoading } from '../shared/loading-ui.js';
 import { renderErrorState } from '../shared/error-ui.js';

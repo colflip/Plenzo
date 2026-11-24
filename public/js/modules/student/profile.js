@@ -1,3 +1,8 @@
+/**
+ * 学生端个人资料
+ * @description 资料展示与编辑、修改密码弹窗（含两次输入一致性校验），
+ *              保存成功后同步会话中的用户数据。
+ */
 import { API_ENDPOINTS } from './constants.js';
 import { showToast, handleApiError, setText, formatDateTimeDisplay } from './utils.js';
 import { updateSessionUserData } from '../shared/dashboard-kit.js';
@@ -171,7 +176,7 @@ async function handlePasswordChange(event) {
         showToast('密码修改成功', 'success');
         closePasswordModalFn();
     } catch (error) {
-        
+
         showToast(error.message || '密码修改失败', 'error');
     }
 }

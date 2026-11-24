@@ -1,3 +1,8 @@
+/**
+ * 排课标记策略（UMD：浏览器挂 window.ScheduleMarkerPolicy，服务端可 require）
+ * @description 归一化 '+' / '⁺' / '~' 标记，并把带标记的展示文本切分为可渲染片段；
+ *              服务端测试直接 require 本文件，改动要同步跑 schedule-marker-policy 套件。
+ */
 (function (root, factory) {
     const policy = factory();
 

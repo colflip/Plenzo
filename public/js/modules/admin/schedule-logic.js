@@ -1,4 +1,7 @@
-// Extracted Schedule Management UI Logic
+/**
+ * 管理端排课表单逻辑
+ * @description 新增 / 编辑 / 删除排课的表单弹窗与提交，依赖 schedule-manager 的列表加载。
+ */
 import { loadSchedules } from './schedule-manager.js';
 
 function setScheduleFormOptionsState(ready, error = null) {
@@ -46,13 +49,13 @@ function setScheduleFormOptionsState(ready, error = null) {
 
 // 排课管理相关函数
 export async function showAddScheduleModal() {
-    
+
     const formContainer = document.getElementById('scheduleFormContainer');
     const form = document.getElementById('scheduleForm');
     const title = document.getElementById('scheduleFormTitle');
     const overlay = document.getElementById('modalOverlay');
     if (!formContainer || !form) {
-        
+
         return;
     }
     if (overlay) overlay.style.display = 'block';
@@ -356,7 +359,7 @@ export async function editSchedule(scheduleId) {
         if (overlay) overlay.style.display = 'block';
         formContainer.style.display = 'block';
     } catch (error) {
-        
+
         if (window.apiUtils && typeof window.apiUtils.handleError === 'function') {
             window.apiUtils.handleError(error);
         }

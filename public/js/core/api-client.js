@@ -1,3 +1,9 @@
+/**
+ * 前端 API 客户端（经典脚本，挂 window.apiUtils）
+ * @description 全站统一请求封装：解析 { ok, data, error, meta } 信封、把认证类错误码
+ *              统一处理成跳转登录页、以 ApiError / ValidationError 携带 code/status/details。
+ *              同时暴露 window.ApiError / window.ValidationError 供调用侧做类型判定。
+ */
 const AUTH_ERROR_CODES = new Set([
     'AUTH_REQUIRED',
     'AUTH_INVALID',

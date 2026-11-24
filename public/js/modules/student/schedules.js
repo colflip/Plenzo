@@ -1,3 +1,7 @@
+/**
+ * 学生端课表
+ * @description 按周加载课表、周导航、切换「计划」视图，以及周表截图复制与导出。
+ */
 import { API_ENDPOINTS } from './constants.js';
 import { getScheduleWatermarkText } from '../shared/schedule-helpers.js';
 import { renderTableErrorRow } from '../shared/error-ui.js';

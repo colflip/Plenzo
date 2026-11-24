@@ -1,3 +1,8 @@
+/**
+ * 通用格式化（经典脚本，挂 window.formatUtils）
+ * @description 日期与时间的展示格式化，时区固定 Asia/Shanghai；末尾按旧全局名再暴露
+ *              formatDate / formatTime / formatDateTimeDisplay 供存量调用点使用。
+ */
 window.formatUtils = {
     TIME_ZONE: 'Asia/Shanghai',
     formatDate: function (date) {
