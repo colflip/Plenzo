@@ -107,7 +107,7 @@
 }
 
 /* 人员区：与 PC 卡片同一份三版式（buildCardTeacherArea），类名适配 msv-*。
-   - 单人/其它类型：每行「姓名 授课类型 + 右侧状态」（msv-teacher-row）
+   - 单人/其它类型：每行「姓名 授课类型 状态」顺序排列（msv-teacher-row）
    - 红/蓝族内联（msv-inline）：类型名在前，人名 nowrap 原子、自动换行
    状态 chip 自带配色不受行色影响；html2canvas 兼容：不用 flex 居中。 */
 .msv-teacher-list {
@@ -116,12 +116,13 @@
     gap: 2px;
 }
 
-/* 行版式（单人 / 其它类型每行一位）：左「姓名 授课类型」，右状态 */
+/* 行版式（单人 / 其它类型每行一位）：「姓名 授课类型 状态」紧随其后顺序排列，
+   不把状态推到行尾；行内放不下时整个状态块换到下一行，不在姓名与类型之间折断。 */
 .msv-teacher-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    gap: 6px;
+    gap: 2px 0;
     color: #000000;
 }
 
@@ -129,13 +130,13 @@
     display: flex;
     align-items: baseline;
     gap: 6px;
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
 }
 
 .msv-teacher-row .msv-row-right {
-    flex-shrink: 0;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
 }
