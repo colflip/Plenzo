@@ -293,9 +293,9 @@ async function migrateLegacySchema() {
 
         // 检查是否需要添加 updated_at 列
         const result = await db.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' 
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
               AND table_name = 'teacher_daily_availability'
               AND column_name = 'updated_at'
         `);
