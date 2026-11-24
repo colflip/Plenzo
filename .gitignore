@@ -1,10 +1,24 @@
+# ============================================================
+# .gitignore —— 仓库只收录「部署运行时必需」的文件 + 根目录 README
+# ============================================================
+# 原则：远程仓库 = 生产部署产物 + 一份给访问者看的 README。实际入库的只有：
+#   .gitignore · LICENSE · README.md · package.json · package-lock.json · vercel.json
+#   api/ · src/ · public/ · workers/plenzo-router/{package.json,src,wrangler.toml}
+# 其余（docs/ 下的设计文档、测试、脚本、本地配置、参考 SQL、环境变量模板）一律只留本机。
+#
+# 由此产生的既定代价（有意接受，不是待修的缺陷）：
+#   - 干净检出后 `npm test` 找不到用例（jest.config.js 与测试源码都不入库）；
+#   - `npm --prefix workers/plenzo-router test` 同理；
+#   - docs/ 与 scripts/ 在 GitHub 上不存在，只能从作者本机取。
+# 别为了「方便」解除这些排除 —— 那会把测试、脚本和文档重新塞进生产构建产物。
+
 # Dependencies
 node_modules/
 
-# Environment and local secrets
+# 环境变量：.env / .env.local / .env.deploy / .env.example 全部本地化
+# （.env.example 是键名参照，不参与运行，也不需要随部署分发）
 .env
 .env.*
-!.env.example
 
 # Local assistant project data (keep locally; never commit)
 .workbuddy/
@@ -35,14 +49,12 @@ dist/
 build/
 .vercel/
 
-# Test sources and test config. 只留在本地，不入远程仓库 —— 远程仓库只保留
-# 部署运行所需的文件集合加 README。此前测试源码是入库的（配 .github/workflows 跑
-# npm test），现在整条链路一起移出：测试源码、jest.config.js、CI workflow。
-# 代价是干净检出后 npm test 不可用（jest 找不到用例），本地开发不受影响。
+# Test sources and test config
 tests/
 **/__tests__/
 jest.config.js
 .github/
+workers/**/test/
 
 # Test artifacts
 coverage/
@@ -52,10 +64,12 @@ test-results/
 blob-report/
 backstop_data/
 
-# Documentation (local only; entire folder ignored)
+# Documentation（docs/ 与其余 *.md 只留本机；README 必须入库，GitHub 首页要显示）
+*.md
 docs/
 CHANGELOG.md
 CONTRIBUTING.md
+!/README.md
 
 # Local maintenance scripts
 scripts/
