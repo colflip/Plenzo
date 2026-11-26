@@ -45,6 +45,21 @@ const { STATUS_MAP: STATUS_MAPPING, getStatusLabel: translateStatus, splitStatus
     toDateKey, normTime, slotKeyOf } = require('../utils/shared-utils');
 const { requiresOwnDataScope, canTouchRecord } = require('../utils/admin-permissions');
 const aiOperationStore = require('../services/ai-operation-store');
+const headTeacherService = require('../services/head-teacher-service');
+const aiChatService = require('../services/ai-chat-service');
+
+/**
+ * 同一工具连续失败多少次后熔断（不再执行，直接回失败给模型）。
+ * 即使有轮数上限（默认 12），没有熔断的话模型也能在 12 轮里反复打同一个坏工具，
+ * 每轮都白跑一次库和一次上游 LLM。
+ */
+const MAX_TOOL_FAILURES = 2;
+
+/**
+ * 工具调用循环的默认轮数上限。
+ * 不设兜底的话，一个陷入循环的模型会让 messages 无限增长直到进程 OOM。
+ */
+const DEFAULT_MAX_TOOL_ROUNDS = 12;
 
 /**
  * 课程类型映射缓存。缓存的是 **Promise** 而不是结果值 ——
@@ -838,7 +853,7 @@ const DATA_TOOLS = {
                                 classDate: { type: 'string', description: '新日期 YYYY-MM-DD（整场生效）' },
                                 startTime: { type: 'string', description: '新开始时间 HH:MM:SS（整场生效）' },
                                 endTime: { type: 'string', description: '新结束时间 HH:MM:SS（整场生效）' },
-                                status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed', 'modified_away'], description: '新状态（作用于指定的 pair；未指名就是本场全部在职 pair）' },
+                                status: { type: 'string', enum: ['pending', 'confirmed', 'cancelled', 'completed'], description: '新状态（作用于指定的 pair；未指名就是本场全部在职 pair）。不要传 modified_away —— 改内容属性时后端会自动按调整课程处理' },
                                 courseType: { type: 'string', description: '新课程类型名称（schedule_types.name，如 visit/half_visit/review/review_record/advisory/advisory_record/trial/group_activity）' },
                                 familyParticipants: { type: 'integer', description: '家长参与人数（整场或指名那位学生）' },
                                 transportFee: { type: 'number', description: '交通费（这趟课只有一位学生时才能改；多位学生同上一趟课时金额要说得清属于谁，请让用户去费用报销页逐位填写）' },
@@ -923,8 +938,10 @@ const DATA_TOOLS = {
         {
             type: 'function',
             function: {
-                name: 'query_students',
-                description: '查询学生列表，返回 id, name, nickname, profession, status。可通过姓名或昵称模糊搜索学生。',
+                name: 'query_my_students',
+                description: '查询与我相关联的学生，返回 id, name, nickname, profession, status。' +
+                    '「相关联」= 与我有排课记录的学生，加上班主任绑定的学生。' +
+                    '可通过姓名或昵称模糊搜索。查不到全校学生列表，需要全校数据请让管理员查询。',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -978,6 +995,49 @@ const DATA_TOOLS = {
 };
 
 /**
+ * 查询类工具的统一返回契约。
+ *
+ * scope 是这次查询**实际生效**的条件（人 / 日期区间 / 状态 / 关键字），
+ * 空的也要给：模型只有拿到 scope 才能区分「这个条件下真的没有记录」和
+ * 「我查错了范围」—— 没有 scope 时它只能二选一，而选错的代价是用户
+ * 拿着一条不存在的信息去跟人对账。
+ *
+ * note 用于把「结果为空」这件事说清楚，避免模型把空数组当成「不存在」。
+ */
+function queryResult(type, title, data, scope, extra = {}) {
+    const isEmpty = Array.isArray(data) ? data.length === 0
+        : (data && typeof data === 'object' && Object.keys(data).length === 0);
+    return {
+        type,
+        title,
+        data,
+        scope: scope || {},
+        note: extra.note || (isEmpty ? '该查询条件下没有记录' : ''),
+        ...extra
+    };
+}
+
+/**
+ * 把 scope 对象渲染成一句人能读的话，供 note / prompt 使用。
+ */
+function describeScope(scope) {
+    if (!scope || typeof scope !== 'object') return '';
+    const parts = [];
+    if (scope.teacherName) parts.push(`教师「${scope.teacherName}」`);
+    else if (scope.teacherId != null) parts.push(`教师ID ${scope.teacherId}`);
+    if (scope.studentName) parts.push(`学生「${scope.studentName}」`);
+    else if (scope.studentId != null) parts.push(`学生ID ${scope.studentId}`);
+    if (scope.startDate || scope.endDate) {
+        parts.push(`日期区间 ${scope.startDate || '不限'} ~ ${scope.endDate || '不限'}`);
+    }
+    if (scope.status != null && scope.status !== '') parts.push(`状态 ${scope.status}`);
+    if (scope.dimension) parts.push(`统计维度 ${scope.dimension}`);
+    if (scope.keyword) parts.push(`关键字「${scope.keyword}」`);
+    if (scope.relation) parts.push(scope.relation);
+    return parts.join('、');
+}
+
+/**
  * 工具执行逻辑（全新实现）
  */
 async function executeDataTool(toolName, args, req) {
@@ -1010,16 +1070,12 @@ async function executeDataTool(toolName, args, req) {
             `, scopeParams);
             const row = (r.rows || [])[0] || {};
 
-            return {
-                type: 'data_table',
-                title: '系统总览',
-                data: {
-                    teacherCount: parseInt(row.teacher_count || 0),
-                    studentCount: parseInt(row.student_count || 0),
-                    monthSchedules: parseInt(row.month_schedules || 0),
-                    pendingSchedules: parseInt(row.pending_schedules || 0)
-                }
-            };
+            return queryResult('data_table', '系统总览', {
+                teacherCount: parseInt(row.teacher_count || 0),
+                studentCount: parseInt(row.student_count || 0),
+                monthSchedules: parseInt(row.month_schedules || 0),
+                pendingSchedules: parseInt(row.pending_schedules || 0)
+            }, { relation: selfScoped ? '自己创建 + 无主存量的排课' : '全部排课' });
         }
 
         case 'query_schedules': {
@@ -1064,15 +1120,29 @@ async function executeDataTool(toolName, args, req) {
             // 先按「场」分页取最多 50 个 session_id，再回取这些场的全部 pair。
             // 以前 LIMIT 直接挂在这条交叉积查询上：一场 4 位教师 × 1 位学生就占 4 行，
             // 50 行折完只剩约 12 场，模型据此判断「这门课不存在」—— 静默少返回。
+            // 取 51 条：第 51 条只用来判定 hasMore，不为省一次 COUNT 查询多发一次远程往返。
             const pageRows = await db.query(
                 `SELECT ca.session_id ${fromClause}${whereClause} ` +
                 `GROUP BY ca.session_id ` +
-                `ORDER BY max(ca.class_date) DESC, max(ca.start_time) DESC LIMIT 50`,
+                `ORDER BY max(ca.class_date) DESC, max(ca.start_time) DESC LIMIT 51`,
                 params
             );
             const pageSessionIds = pageRows.rows.map(r => r.session_id);
+            // 命中 51 条说明还有更多；真返回给模型的只有前 50 场
+            const hasMore = pageSessionIds.length > 50;
+            if (hasMore) pageSessionIds.length = 50;
+            const scope = {
+                teacherId: args.teacherId,
+                studentId: args.studentId,
+                startDate: args.startDate,
+                endDate: args.endDate,
+                status: args.status,
+                relation: selfScoped ? '自己创建 + 无主存量的排课' : '全部排课'
+            };
             if (!pageSessionIds.length) {
-                return { type: 'schedule_list', title: '排课列表', data: [] };
+                return queryResult('schedule_list', '排课列表', [], scope, {
+                    note: `没有找到排课记录（查询条件：${describeScope(scope) || '无筛选'}）`
+                });
             }
 
             let query = 'SELECT ca.session_id, ca.class_date, ca.start_time, ca.end_time, ' +
@@ -1091,10 +1161,7 @@ async function executeDataTool(toolName, args, req) {
             const sessions = collapsePairsToSessions(result.rows);
 
             // 一场课一行：教师/学生名册原样带出（含 uid），状态取本场在职 pair
-            return {
-                type: 'schedule_list',
-                title: '排课列表',
-                data: sessions.map(session => {
+            return queryResult('schedule_list', '排课列表', sessions.map(session => {
                     const row = toMergedDisplayRow(session, session.teachers, session.students);
                     return {
                         id: row.id,
@@ -1120,8 +1187,14 @@ async function executeDataTool(toolName, args, req) {
                             family_participants: s.family_participants
                         }))
                     };
-                })
-            };
+                }), scope, {
+                // 截断必须对模型可见：hasMore=true 时它知道还有更多，
+                // 回复里要带上「仅显示最近 50 场」（QUERY_RESULT_RULES 第 2 条）
+                hasMore,
+                note: hasMore
+                    ? '匹配的场次超过 50 场，仅显示最近的 50 场；请让用户缩小范围（按日期或指定教师/学生）'
+                    : `共 ${sessions.length} 场排课`
+            });
         }
 
         case 'query_teachers': {
@@ -1149,11 +1222,75 @@ async function executeDataTool(toolName, args, req) {
             query += ' ORDER BY id';
             const result = await db.query(query, params);
 
-            return {
-                type: 'data_table',
-                title: '教师列表',
-                data: result.rows
+            const scope = {
+                status: args.status,
+                keyword: args.name || '',
+                relation: '全部教师'
             };
+            return queryResult('data_table', '教师列表', result.rows, scope, {
+                note: result.rows.length
+                    ? `共 ${result.rows.length} 位教师`
+                    : `没有匹配的教师（查询条件：${describeScope(scope) || '无筛选'}）`
+            });
+        }
+
+        case 'query_my_students': {
+            // 教师专用：只看与自己相关联的学生（有排课记录 ∪ 班主任绑定）。
+            // 教师端正式接口本来就没有「全校学生列表」，这里不能比正式 UI 更宽。
+            if (userType !== 'teacher') throw new AppError({ code: 'FORBIDDEN', message: '权限不足' });
+
+            const conditions = [];
+            const params = [];
+            // 占位符编号从 3 起：$1 = teacher_id，$2 = 班主任绑定学生 id 数组
+            let paramCount = 3;
+
+            if (args.status !== undefined) {
+                conditions.push(`s.status=$${paramCount++}`);
+                params.push(args.status);
+            }
+            if (args.name) {
+                conditions.push(`s.name LIKE $${paramCount++}`);
+                params.push(`%${args.name}%`);
+            }
+            if (args.nickname) {
+                conditions.push(`s.nickname LIKE $${paramCount++}`);
+                params.push(`%${args.nickname}%`);
+            }
+
+            const whereSql = conditions.length > 0 ? ' AND ' + conditions.join(' AND ') : '';
+            const limitParam = `$${paramCount++}`;
+
+            // 「与我相关」= 与我有排课记录的学生 ∪ 班主任绑定的学生。
+            // 排课来源排除被调走的原课（sqlNotMovedAway）—— 与教师端正式接口的
+            // 「关联学生」口径一致，否则 AI 会把已调整掉的历史学生也列出来。
+            const notMovedAway = courseSessionService.sqlNotMovedAway('ca');
+            const { studentIds: boundIds } = await headTeacherService.getBoundStudentIds(userId);
+            const result = await db.query(`
+                SELECT DISTINCT s.id, s.name, s.nickname, s.profession, s.status
+                FROM students s
+                WHERE (
+                    s.id IN (
+                        SELECT DISTINCT ca.student_id
+                        FROM v_session_pairs ca
+                        WHERE ca.teacher_id = $1 AND ${notMovedAway}
+                    )
+                    OR s.id = ANY($2::int[])
+                )${whereSql}
+                ORDER BY s.name
+                LIMIT ${limitParam}
+            `, [userId, boundIds, ...params, 200]);
+
+            const scope = {
+                relation: '与我排课相关联的学生',
+                status: args.status,
+                keyword: args.name || args.nickname || ''
+            };
+
+            return queryResult('data_table', '我关联的学生', result.rows, scope, {
+                note: result.rows.length
+                    ? `共 ${result.rows.length} 名与你相关联的学生（与你排课相关或你是其班主任）`
+                    : '没有与你相关联的学生（既没有排课记录，也没有班主任绑定）'
+            });
         }
 
         case 'query_students': {
@@ -1186,11 +1323,17 @@ async function executeDataTool(toolName, args, req) {
             query += ' ORDER BY id';
             const result = await db.query(query, params);
 
-            return {
-                type: 'data_table',
-                title: '学生列表',
-                data: result.rows
+            const scope = {
+                status: args.status,
+                keyword: args.name || args.nickname || '',
+                relation: '全校学生'
             };
+
+            return queryResult('data_table', '学生列表', result.rows, scope, {
+                note: result.rows.length
+                    ? `共 ${result.rows.length} 名学生${describeScope(scope) ? `（${describeScope(scope)}）` : ''}`
+                    : `没有匹配的学生${describeScope(scope) ? `（${describeScope(scope)}）` : ''}`
+            });
         }
 
         case 'query_schedule_stats': {
@@ -1234,11 +1377,18 @@ async function executeDataTool(toolName, args, req) {
             query += ' GROUP BY category ORDER BY count DESC LIMIT 20';
             const result = await db.query(query, params);
 
-            return {
-                type: 'chart_data',
-                title: `按${dimension === 'type' ? '课程类型' : dimension === 'teacher' ? '教师' : '学生'}统计`,
-                data: result.rows
+            const dimensionLabel = dimension === 'type' ? '课程类型' : dimension === 'teacher' ? '教师' : '学生';
+            const scope = {
+                dimension: dimensionLabel,
+                startDate: args.startDate,
+                endDate: args.endDate,
+                relation: selfScoped ? '自己创建 + 无主存量的排课' : '全部排课'
             };
+            return queryResult('chart_data', `按${dimensionLabel}统计`, result.rows, scope, {
+                note: result.rows.length
+                    ? `按${dimensionLabel}维度统计，共 ${result.rows.length} 组`
+                    : `该条件下没有可统计的数据（查询条件：${describeScope(scope) || '无筛选'}）`
+            });
         }
 
         case 'query_my_overview': {
@@ -1246,32 +1396,31 @@ async function executeDataTool(toolName, args, req) {
 
             const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
 
-            // 6 个计数用一条语句的条件聚合算完（原来是 6 条并发查询，占 6 条连接）
+            // 6 个计数用一条语句的条件聚合算完（原来是 6 条并发查询，占 6 条连接）。
+            // v_session_pairs 是「教师 pair × 学生 pair」的交叉积：一场 2 教师 × 2 学生
+            // 的课会占 4 行，直接 COUNT(*) 数的是「人次」不是「场次」。按 DISTINCT
+            // session_id 折回场次口径，与教师端正式接口的统计一致。
             const r = await db.query(`
                 SELECT
-                    COUNT(*) FILTER (WHERE class_date >= CURRENT_DATE - 7) AS week_count,
-                    COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
+                    COUNT(DISTINCT session_id) FILTER (WHERE class_date >= CURRENT_DATE - 7) AS week_count,
+                    COUNT(DISTINCT session_id) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)
                                        AND EXTRACT(MONTH FROM class_date)=EXTRACT(MONTH FROM CURRENT_DATE)) AS month_count,
-                    COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)) AS year_count,
-                    COUNT(*) FILTER (WHERE status='pending') AS pending_count,
-                    COUNT(*) FILTER (WHERE status='confirmed') AS confirmed_count,
-                    COUNT(*) FILTER (WHERE status='cancelled') AS cancelled_count
+                    COUNT(DISTINCT session_id) FILTER (WHERE EXTRACT(YEAR FROM class_date)=EXTRACT(YEAR FROM CURRENT_DATE)) AS year_count,
+                    COUNT(DISTINCT session_id) FILTER (WHERE status='pending') AS pending_count,
+                    COUNT(DISTINCT session_id) FILTER (WHERE status='confirmed') AS confirmed_count,
+                    COUNT(DISTINCT session_id) FILTER (WHERE status='cancelled') AS cancelled_count
                   FROM v_session_pairs WHERE ${idField}=$1
             `, [userId]);
             const row = (r.rows || [])[0] || {};
 
-            return {
-                type: 'data_table',
-                title: '我的总览',
-                data: {
-                    weekSchedules: parseInt(row.week_count || 0),
-                    monthSchedules: parseInt(row.month_count || 0),
-                    yearSchedules: parseInt(row.year_count || 0),
-                    pending: parseInt(row.pending_count || 0),
-                    confirmed: parseInt(row.confirmed_count || 0),
-                    cancelled: parseInt(row.cancelled_count || 0)
-                }
-            };
+            return queryResult('data_table', '我的总览', {
+                weekSchedules: parseInt(row.week_count || 0),
+                monthSchedules: parseInt(row.month_count || 0),
+                yearSchedules: parseInt(row.year_count || 0),
+                pending: parseInt(row.pending_count || 0),
+                confirmed: parseInt(row.confirmed_count || 0),
+                cancelled: parseInt(row.cancelled_count || 0)
+            }, { relation: `${userType === 'teacher' ? '我' : '我'}的排课（按场次计，不含人次重复）` });
         }
 
         case 'query_my_schedules': {
@@ -1279,14 +1428,19 @@ async function executeDataTool(toolName, args, req) {
 
             const idField = userType === 'teacher' ? 'teacher_id' : 'student_id';
             const joinField = userType === 'teacher' ? 's.name as student_name' : 't.name as teacher_name';
+            // 教师端正式接口（schedule-service.teacherListSchedules）默认排除「被调走的
+            // 原课」（sqlNotMovedAway）—— AI 侧此前没有这个过滤，会把归档的原课也列出来，
+            // 用户在 AI 里看到的课表和正式课表对不上。此处对齐正式接口口径。
+            const notMovedAway = courseSessionService.sqlNotMovedAway('ca');
 
-            let query = `SELECT ca.id, ca.class_date, ca.start_time, ca.end_time, ca.status,
+            let query = `SELECT ca.id, ca.session_id, ca.class_date, ca.start_time, ca.end_time,
+                        ca.location, ca.teacher_uid, ca.student_uid, ca.status,
                         ${joinField}, st.name as course_type
                         FROM v_session_pairs ca
                         JOIN teachers t ON ca.teacher_id=t.id
                         JOIN students s ON ca.student_id=s.id
                         JOIN schedule_types st ON ca.type_id=st.id
-                        WHERE ca.${idField}=$1`;
+                        WHERE ca.${idField}=$1 AND ${notMovedAway}`;
             const params = [userId];
             let paramCount = 2;
 
@@ -1303,8 +1457,11 @@ async function executeDataTool(toolName, args, req) {
                 params.push(args.status);
             }
 
-            query += ' ORDER BY ca.class_date DESC, ca.start_time DESC LIMIT 50';
+            // 取 51 判定 hasMore；个人课表量级小，但口径与 query_schedules 保持一致
+            query += ' ORDER BY ca.class_date DESC, ca.start_time DESC LIMIT 51';
             const result = await db.query(query, params);
+            const hasMore = result.rows.length > 50;
+            if (hasMore) result.rows.length = 50;
 
             // 翻译课程类型和状态为中文
             const translatedData = await Promise.all(result.rows.map(async row => ({
@@ -1313,11 +1470,19 @@ async function executeDataTool(toolName, args, req) {
                 status_cn: translateStatus(row.status)
             })));
 
-            return {
-                type: 'schedule_list',
-                title: '我的课程',
-                data: translatedData
+            const scope = {
+                startDate: args.startDate,
+                endDate: args.endDate,
+                status: args.status,
+                relation: userType === 'teacher' ? '我的排课（已排除被调走的原课）' : '我的课程（已排除被调走的原课）'
             };
+
+            return queryResult('schedule_list', '我的课程', translatedData, scope, {
+                hasMore,
+                note: translatedData.length === 0
+                    ? `没有找到课程记录（查询条件：${describeScope(scope) || '我的全部课程'}）`
+                    : (hasMore ? '匹配的课程超过 50 场，仅显示最近 50 场，请缩小日期范围' : `共 ${translatedData.length} 场课`)
+            });
         }
 
         case 'query_my_statistics': {
@@ -1358,15 +1523,15 @@ async function executeDataTool(toolName, args, req) {
                 typeMap.get(key).count += parseInt(r.count, 10) || 0;
             });
 
-            return {
-                type: 'chart_data',
-                title: '学习统计',
-                data: {
-                    typeStats: mergedTypeStats,
-                    monthlyStats: monthlyStats.rows,
-                    period: { startDate, endDate }
-                }
-            };
+            return queryResult('chart_data', '学习统计', {
+                typeStats: mergedTypeStats,
+                monthlyStats: monthlyStats.rows,
+                period: { startDate, endDate }
+            }, {
+                startDate: args.startDate,
+                endDate: args.endDate,
+                relation: '我的课程统计'
+            });
         }
 
         case 'resolve_datetime': {
@@ -1818,8 +1983,34 @@ async function executeDataTool(toolName, args, req) {
                 if (person.status !== 1) throw new AppError({ code: 'BAD_REQUEST', message: `学生 ${person.name} 已被禁用` });
             }
 
-            // 调整课程：status=modified_away → 原记录归档 + 另建一条新记录
-            const isAdjust = fields.status === 'modified_away';
+            // 归档 or 覆盖：**后端独占判定**，不依赖模型是否记得传标记。
+            //
+            // 业务规则：凡改【内容属性】（日期/时间/地点/课程类型/名册/家长人数），
+            // 一律留痕（原记录归档 + 另建）。这条不能交给模型自觉：模型漏传标记时
+            // 原记录被直接覆盖，留痕凭空消失且无人察觉。prompt #8 与工具 schema 的
+            // description 也向模型承诺了「改内容属性会自动按调整处理」，实现必须一致。
+            //
+            // status:'modified_away' 不是合法的可设置状态（validation 层的
+            // LIFECYCLES_SETTABLE 一直这么规定），这里当「要留痕」的兼容信号，
+            // 并从 fields 里摘掉，不让它进入后续的状态写入。
+            const CONTENT_FIELDS = [
+                'classDate', 'startTime', 'endTime', 'location', 'courseType',
+                'teachers', 'students', 'familyParticipants'
+            ];
+            const hasContentChange = CONTENT_FIELDS.some(k => fields[k] !== undefined);
+            const legacyAdjustFlag = fields.status === 'modified_away';
+
+            if (legacyAdjustFlag) {
+                delete fields.status;
+                if (Object.keys(fields).length === 0) {
+                    throw new AppError({
+                        code: 'BAD_REQUEST',
+                        message: 'modified_away 不是可设置的状态；请直接传要修改的字段（改日期/时间/地点/课程类型/名册/家长人数会自动按调整课程处理并留痕）'
+                    });
+                }
+            }
+
+            const isAdjust = hasContentChange;
 
             // 每场的生效名册只算一次，预览与确认存的是同一口径。
             // newTeachers：调整后新记录实际会带上的教师（同位调整只带指名那位）。
@@ -1945,6 +2136,12 @@ async function executeDataTool(toolName, args, req) {
                 const anyCrossStudent = resolved.some(r => r.studentChanged);
                 const anyPartial = !!targetTeacherUid && resolved.some(r =>
                     r.newTeachers.length < (r.session.teachers || []).filter(t => isAdjustableStatus(t.status_code)).length);
+                changes.unshift({
+                    field: '处理方式',
+                    newValue: legacyAdjustFlag
+                        ? '检测到内容属性变更，按「调整课程」处理：原记录归档（留痕）+ 另建新课程'
+                        : '检测到内容属性变更，已自动按「调整课程」处理（原记录归档留痕 + 另建新课程）—— 无需你特意指定'
+                });
                 changes.push({
                     field: '原记录',
                     newValue: '所有字段保持不变，归档为已调整 (modified_away)'
@@ -2201,8 +2398,12 @@ async function executeDataTool(toolName, args, req) {
                             ).map(t => ({
                                 teacher_id: Number(t.teacher_id),
                                 type_id: Number(t.course_type_id),
-                                // 调整后是一条新的待确认记录（与原 adjusted.pending 的含义一致）
-                                lifecycle: 'pending',
+                                // 新课程状态：用户显式给了 status 就用它，否则沿用调整记录的默认（待确认）。
+                                // 以前这里硬编码 pending —— 那时只有传 status:'modified_away' 才走 adjust，
+                                // status 是意图信号不该落库；现在改内容属性也会走 adjust，
+                                // 用户同时传 status:'confirmed' 却硬编码 pending 就是静默丢字段。
+                                lifecycle: ['pending', 'confirmed', 'completed'].includes(fields.status)
+                                    ? fields.status : 'pending',
                                 // 类别位落 adjusted：前端据此给新记录显示「调」水印
                                 category: 'adjusted'
                             }));
@@ -2680,15 +2881,44 @@ function safeHostOf(baseUrl) {
     }
 }
 
-function isWeakModel(modelId) {
-    // 启发式：小型/flash/lite 类模型对复杂中文多步推理不稳定，批量排课需提示用户可切换更强模型。
+/**
+ * 强度分级：strong / standard / weak。
+ * 只用于「批量排课这类多步中文推理」要不要提示用户换模型。
+ *
+ * 判据不能用模型名里的 flash/lite/small —— 目录里 agnes-3.0-flash 是主力模型
+ * （524K 上下文、支持 vision），mistral-small 才是弱档，两者的名字关键词一模一样。
+ * 已知模型一律按目录声明的 reasoning / contextLength 判定；
+ * 未知模型（自定义网关）只把明确的弱档名（mini/nano/tiny/1.5）判弱。
+ */
+const STRENGTH_CONTEXT_BANDS = [
+    { min: 100000, strength: 'strong' },
+    { min: 32768, strength: 'standard' }
+];
+
+function strengthFromKnownModel(model) {
+    if (model.capabilities && model.capabilities.reasoning) return 'strong';
+    const ctx = Number(model.contextLength);
+    // contextLength 为 null 的目录条目不参与分档，按「够用」处理
+    if (!Number.isFinite(ctx) || ctx <= 0) return 'standard';
+    for (const band of STRENGTH_CONTEXT_BANDS) {
+        if (ctx >= band.min) return band.strength;
+    }
+    return 'weak';
+}
+
+function strengthFromModelId(modelId) {
     const id = String(modelId || '').toLowerCase();
-    if (/large|medium|opus|sonnet|deepseek-v4/.test(id)) return false;
-    return /small|flash|lite|mini|tiny|1\.5/.test(id);
+    return /mini|nano|tiny|1\.5/.test(id) ? 'weak' : 'standard';
 }
 
 function resolveModelCapabilities(modelId) {
-    const fallback = { vision: false, tools: true, reasoning: false, _known: false, _weak: isWeakModel(modelId) };
+    const fallback = {
+        vision: false,
+        tools: true,
+        reasoning: false,
+        strength: strengthFromModelId(modelId),
+        _known: false
+    };
     if (!modelId) return fallback;
     try {
         const modelsFilePath = path.join(__dirname, '../data/ai-models.json');
@@ -2697,14 +2927,15 @@ function resolveModelCapabilities(modelId) {
             _modelsCache = { mtimeMs: stat.mtimeMs, models: JSON.parse(fs.readFileSync(modelsFilePath, 'utf8')) };
         }
         for (const models of Object.values(_modelsCache.models)) {
+            if (!Array.isArray(models)) continue;
             const m = models.find(x => x.id === modelId);
             if (m && m.capabilities) {
                 return {
                     vision: !!m.capabilities.vision,
                     tools: !!m.capabilities.tools,
                     reasoning: !!m.capabilities.reasoning,
-                    _known: true,
-                    _weak: isWeakModel(modelId)
+                    strength: strengthFromKnownModel(m),
+                    _known: true
                 };
             }
         }
@@ -2782,6 +3013,23 @@ const query = asyncHandler(async (req, res) => {
         : `question="${(question || '').slice(0, 120).replace(/\n/g, ' ')}" history=${Array.isArray(history) ? history.length : 0} images=${Array.isArray(images) ? images.length : 0}`);
 
 
+    // 会话落库（质量闭环）：失败绝不影响主流程 —— 记日志后照常回答。
+    // action（确认类）不走 LLM，不作为问答轮落库。
+    let chatSessionId = null;
+    try {
+        if (!isAction) {
+            const session = await aiChatService.getOrCreateSession(userType, req.user.id);
+            chatSessionId = session.id;
+            await aiChatService.appendMessage({
+                sessionId: chatSessionId, role: 'user',
+                content: (question || '').slice(0, 2000),
+                userType, userId: req.user.id
+            });
+        }
+    } catch (err) {
+        logger.warn('[AI][chat-log] 记录用户提问失败（不影响回答）:', err.message);
+    }
+
     const tools = DATA_TOOLS[userType] || DATA_TOOLS.teacher;
 
     // 计算当前时间上下文（东八区）——统一走 computeDateContext，与 resolve_datetime 工具同源
@@ -2802,6 +3050,13 @@ const query = asyncHandler(async (req, res) => {
         courseTypeListStr = ctResult.rows.map(r => `${r.name}（${r.description}）`).join(' | ');
         teacherListStr = tResult.rows.map(r => r.name).join('、');
     }
+
+    // 查询结果的三条硬规则，三个角色的提示词共用一份 —— 没有这些规则时，
+    // 模型面对空数组只能在「不存在」和「查错了」之间瞎猜，猜错用户就被误导。
+    const QUERY_RESULT_RULES = `\n规则（查询结果必须遵守）：\n` +
+        `1. 结果为空时，如实告知"没有找到记录"并**复述查询条件**（结果里的 scope 字段），不要断言数据不存在。\n` +
+        `2. 结果带 hasMore=true 时，必须说明"仅显示了部分记录"，并建议用户缩小范围（按日期或指定教师/学生）。\n` +
+        `3. 工具返回 error 时，如实转述失败原因，不要编造数据，也不要暗示是数据不存在。`;
 
     const systemPrompt = userType === 'admin'
         ? `你是 Plenzo 课程管理系统的排课助手，全程用中文、简洁作答。你的职责是理解管理员的自然语言，调用工具完成查询与排课，绝不臆造数据。\n` +
@@ -2887,60 +3142,34 @@ const query = asyncHandler(async (req, res) => {
           `  不传就是对整场课生效（本场全部在职 pair），系统不会替你猜某一位。\n` +
           `· 增删本场的参与者用 fields.teachers / fields.students 名册（替换语义：带 uid 的沿用、不带 uid 的新增、名册里没写的被移出）。\n` +
           `\n============================\n` +
-          `# 8. 调整课程流程（改期/换教师/换地点，保留原记录归档）\n` +
+          `# 8. 调整课程（改期/换教师/换地点/换学生——后端自动留痕）\n` +
           `============================\n` +
-          `定义：「调整课程」= 原课程记录**所有字段保持不变**、状态归档为「已调整」，同时按新条件**另建一条新课程记录**。\n` +
-          `原记录的教师、教室、学生、时间段、类型、地点全部不动；新记录复制原记录后再应用本次修改。` +
-          `同学生调整与跨学生调整完全同一套语义，区别只是新记录的学生不同。\n` +
-          `与普通改课的区别：普通改课（不带 status）直接覆盖原记录字段；调整课程（fields.status="modified_away"）` +
-          `会把原记录整体归档、新条件落到一条新记录上；原记录不再占时段、不再计入统计，但可在「全部安排/报销单」视图回看。\n` +
-          `后端处理逻辑（系统自动完成，你无需手写 SQL）：\n` +
-          `1. 原场次：本场在职教师 pair 生命周期改为 modified_away（类别位保留），**不追加任何增补 pair**；` +
-          `header、学生、地点、备注原样保留；\n` +
-          `2. 新场次：按 fields 的日期/时间/教师/学生/地点另建一条 normal 记录，状态为待确认；\n` +
-          `3. 归档与新建在同一个事务里，中途出错整批回滚，不会留下「原记录已归档但新记录没建」的空洞；\n` +
-          `4. 时段与其它课重叠**不会拦**：业务上允许一位教师/学生出现在重叠的两节课里，` +
-          `预览行会标 ⚠，你如实提示用户即可，不要因为它而自行改时段或换教师。\n` +
-          `何时使用（默认规则·关键）：只要对已有课程的【内容属性】做任何修改——改日期/改时间/换教师/换学生/换地点/换课程类型——一律走本「调整课程」，fields 必须带 status:"modified_away"。这是修改课程的默认方式，无需用户特意要求"保留痕迹"。\n` +
-          `作用范围：调整默认对**整场课**生效 —— 本场全部在职教师归档，另建一条整场的新记录。` +
-          `只调某一位教师时传 teacherUid 指名那一位：只有他归档并进入新记录，其余教师留在原场次。\n` +
-          `跨学生调整（换学生）：要调整的是**原学生**名下的那节课，scheduleIds 必须按「原学生 + 原时段」` +
-          `查出来；新学生只写进 fields.students（替换名册），不要拿新学生现有的课当 scheduleIds，` +
-          `也不要先把原记录改成新学生。原记录留在原学生名下、内容不变；新记录落新学生名下。\n` +
-          `例外：仅当用户只修改【状态】本身（如 pending→confirmed、标记 completed/cancelled）且没有改任何内容属性时，才用 # 9 普通改课（不传 status，直接覆盖原记录）。\n` +
-          `操作步骤：\n` +
-          `(1) query_schedules 查到目标排课 ID。\n` +
-          `(2) 涉及改时间时调用 resolve_datetime 得精确日期时间。\n` +
-          `(3) preview_schedule_update(scheduleIds:[id], fields:{ 需修改的字段, status:"modified_away" }) 生成调整预览。\n` +
-          `(4) 系统返回预览（原记录归档 + 新课程对比），交由用户点击确认按钮执行。\n` +
-          `【正例】"把浩浩下周四 19-21 的入户调整到周五同一时段"：\n` +
-          `  → query_schedules 找到该排课 id；resolve_datetime("下周五 19-21") 得 date=下周五, 19:00:00-21:30:00\n` +
-          `  → preview_schedule_update(scheduleIds:[id], fields:{ classDate:"下周五", status:"modified_away" })\n` +
-          `  → 确认后：原记录归档为已调整，新建一条下周五 19-21 的入户（教师/学生/地点等沿用原记录）。\n` +
-          `【正例·跨学生】"把学生1周三12-15点半次入户调整为学生2周三12-17点入户"：\n` +
-          `  → query_schedules 按「学生1 + 周三 12-15」找到原排课 id（原学生才是被调整的那节）；\n` +
-          `  → query_students 查到学生2 的真实 ID；\n` +
-          `  → preview_schedule_update(scheduleIds:[原排课id], fields:{ students:[{studentUid:原学生uid, studentId:学生2ID}],` +
-          ` startTime:"12:00:00", endTime:"17:00:00", courseType:"visit", status:"modified_away" })\n` +
-          `  → 确认后：学生1名下保留原记录（12-15 半次入户，归档为已调整），学生2名下新建 12-17 入户。\n` +
-          `【反例·跨学生】不要因为"新学生2也要上课"就去查学生2的排课、把学生2现有的课拿去调整 —— 那会把学生2的课归档掉，学生1的原课反而没动。\n` +
-          `【反例】不要用普通改课（不传 status）来"调整"——那会直接覆盖原记录，丢失原排课痕迹，且不会生成新课程。\n` +
+          `改【内容属性】（日期/时间/教师/学生/地点/课程类型/家长人数）时，后端**自动**按「调整课程」处理：\n` +
+          `原记录所有字段原样保留并归档为「已调整」，新条件落到一条新建记录（状态待确认）。\n` +
+          `你不需要（也不被允许）传 status:"modified_away" 来表达这个意图 —— 只传要改的字段即可。\n` +
+          `· 默认对整场课生效；只调某一位教师时传 teacherUid 指名。\n` +
+          `· 跨学生调整：scheduleIds 按【原学生 + 原时段】查；新学生写进 fields.students（替换名册）。\n` +
+          `  不要拿新学生现有的课当 scheduleIds。\n` +
+          `· 时段与其它课重叠**不会拦**：预览行标 ⚠，如实提示用户即可，不要自行改时段或换教师。\n` +
+          `例外：只改【状态】（如 pending→confirmed、标记 completed/cancelled）时按普通改课处理（# 9），直接覆盖。\n` +
           `\n============================\n` +
           `# 9. 改课 / 删课流程\n` +
           `============================\n` +
-          `改课：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
-          `  · 整场改（时间/地点/状态/全部教师的类型）不给 teacherUid；只改本场某一位教师时用 query_schedules 里该教师的 uid 传 teacherUid。\n` +
+          `改课（状态 / 费用 / 名册增减）：query_schedules 查到目标 → preview_schedule_update(scheduleIds, fields) → 用户按钮确认。\n` +
+          `  · 只改状态：fields 只带 status。改内容属性会被后端自动升级为「调整课程」（# 8），无需干预。\n` +
+          `  · 整场改不给 teacherUid；只改本场某一位教师时用 query_schedules 里该教师的 uid 传 teacherUid。\n` +
           `  · 加/减参与者用 fields.teachers / fields.students 名册（替换语义），不要把一个人的名册当成整场名册提交。\n` +
           `改费用：交通费/其他费用只有「这一趟只有一位学生」时才改得了；多位学生同上一趟课时一个数说不清属于谁，` +
-          `请直接告诉用户去费用报销页逐位学生填写，不要重试。\n` +
-          `  同场多位教师时也必须用 teacherUid 指明这笔钱记在哪位教师头上。\n` +
+          `请直接告诉用户去费用报销页逐位学生填写，不要重试。` +
+          `同场多位教师时也必须用 teacherUid 指明这笔钱记在哪位教师头上。\n` +
           `删课：query_schedules 查到目标 → preview_schedule_deletion(scheduleIds) → 用户按钮确认。\n` +
           `  · 只想把某一位教师或某一位学生从本场移出去（其余人保留）时，传 teacherUids / studentUids；不传就是删除整场课。\n` +
           `\n============================\n` +
           `# 10. 回复格式\n` +
           `============================\n` +
           `文本简短（1-2 句），不要长篇解释。表格数据由系统渲染，你无需在文本里重复罗列。\n` +
-          `支持多轮上下文："他/那个"指代前文的教师/学生/课程；追问可补充信息（如先"取消浩浩周四的课"再"改成周五"=改期）。`
+          `支持多轮上下文："他/那个"指代前文的教师/学生/课程；追问可补充信息（如先"取消浩浩周四的课"再"改成周五"=改期）。\n` +
+          QUERY_RESULT_RULES
         : userType === 'student'
         ? `你是 Plenzo 课程管理系统 AI 助手，用中文简洁回答。\n` +
           `用户是学生 (id=${req.user.id})。\n` +
@@ -2952,7 +3181,8 @@ const query = asyncHandler(async (req, res) => {
           `- query_my_schedules：查询个人课表（支持按日期范围筛选）\n` +
           `- query_my_statistics：查询个人学习统计\n` +
           `- query_my_overview：查询个人总览\n` +
-          `\n规则：数据查询务必调用工具，一般性对话可直接回答。工具失败说明原因。支持多轮上下文。`
+          `\n规则：数据查询务必调用工具，一般性对话可直接回答。支持多轮上下文。\n` +
+          QUERY_RESULT_RULES
         : `你是 Plenzo 课程管理系统 AI 助手，用中文简洁回答。\n` +
           `用户是教师 (id=${req.user.id})。\n` +
           `\n当前时间：${currentDateTime}（${currentWeekDay}），时区东八区(UTC+8)，每周第一天是周一。今日：${todayStr}\n` +
@@ -2962,8 +3192,9 @@ const query = asyncHandler(async (req, res) => {
           `\n可用工具：\n` +
           `- query_my_schedules：查询个人课表（支持按日期范围筛选）\n` +
           `- query_my_overview：查询个人总览\n` +
-          `- query_students：查询学生列表（支持按姓名/昵称搜索）\n` +
-          `\n规则：数据查询务必调用工具，一般性对话可直接回答。工具失败说明原因。支持多轮上下文。`;
+          `- query_my_students：查询与我相关联的学生（支持按姓名/昵称搜索）\n` +
+          `\n规则：数据查询务必调用工具，一般性对话可直接回答。支持多轮上下文。\n` +
+          QUERY_RESULT_RULES;
 
     /* ============================================================
      * 确认类操作：独立 action 字段（不依赖 LLM，不再正则匹配自然语言）
@@ -3175,11 +3406,29 @@ const query = asyncHandler(async (req, res) => {
     let llmResp = await aiService.chat(messages, chatTools ? { ...chatOptions, tools: chatTools, toolChoice: 'auto' } : chatOptions);
     let toolCalls = toolsEnabled ? aiService.extractToolCalls(llmResp) : [];
 
-    // 循环执行工具调用（AI_MAX_TOOL_ROUNDS 轮，支持智能排课的多步操作；
-    // 未配置 / <=0 表示不限制轮数，由模型自行决定何时停止调用工具）
-    const maxToolRounds = limitFromEnv('AI_MAX_TOOL_ROUNDS', 0);
+    // token 用量累计：上游 usage 是**单次请求**用量（OpenAI/Anthropic 都不跨请求累计），
+    // 多轮工具调用时每轮都重发完整 messages，只取最后一轮会严重低估成本。
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let hasUsage = false;
+    const accumulateUsage = (resp) => {
+        const u = aiChatService.normalizeTokenUsage(resp && resp.usage);
+        if (u.promptTokens != null || u.completionTokens != null) {
+            hasUsage = true;
+            totalPromptTokens += u.promptTokens || 0;
+            totalCompletionTokens += u.completionTokens || 0;
+        }
+    };
+    accumulateUsage(llmResp);
+
+    // 循环执行工具调用（AI_MAX_TOOL_ROUNDS 轮，支持智能排课的多步操作）。
+    // 0 不是「不限」而是「用默认值」：不限轮数时一个陷入循环的模型会让 messages
+    // 无限增长直到进程 OOM（2026-11-26 实测炸到 2GB）。要放开就显式设一个大数。
+    const maxToolRounds = limitFromEnv('AI_MAX_TOOL_ROUNDS', DEFAULT_MAX_TOOL_ROUNDS) || DEFAULT_MAX_TOOL_ROUNDS;
+    // 同一工具连续失败的次数：用于熔断，避免模型在失败工具上反复空转
+    const toolFailures = new Map();
     let rounds = 0;
-    while (toolsEnabled && toolCalls.length > 0 && (maxToolRounds <= 0 || rounds < maxToolRounds)) {
+    while (toolsEnabled && toolCalls.length > 0 && rounds < maxToolRounds) {
         rounds++;
         messages.push(llmResp.choices[0].message);
 
@@ -3196,41 +3445,90 @@ const query = asyncHandler(async (req, res) => {
             try {
                 args = JSON.parse(call.function.arguments || '{}');
             } catch (err) {
-                throw new AppError({
-                    code: 'AI_UPSTREAM_BAD_RESPONSE',
-                    message: 'AI 返回的工具参数不是有效 JSON',
-                    cause: err
-                });
+                // 参数不是合法 JSON 是模型侧的格式问题：回给它让它自己纠正，
+                // 而不是把整轮对话炸掉（用户会看到一句无意义的 500）。
+                // 也要计入熔断：弱模型会稳定生成坏 JSON，不计入的话它能在 12 轮里
+                // 反复触发解析失败，用户等满 12 轮才拿到兜底回答。
+                const total = (toolFailures.get(name) || 0) + 1;
+                toolFailures.set(name, total);
+                log(`round ${rounds} tool "${name}" args parse FAILED (${total}): ${err.message}`);
+                return {
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({
+                        error: { code: 'AI_UPSTREAM_BAD_RESPONSE', message: '工具参数不是有效 JSON，请用合法 JSON 重新调用' }
+                    })
+                };
             }
-            toolsUsed.push(name);
+
+            const fails = (toolFailures.get(name) || 0);
+            if (fails >= MAX_TOOL_FAILURES) {
+                log(`round ${rounds} tool "${name}" SKIPPED (already failed ${fails}x)`);
+                return {
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({
+                        error: {
+                            code: 'AI_TOOL_CIRCUIT_OPEN',
+                            message: `工具 ${name} 已连续失败 ${fails} 次，已停止调用；请基于已有信息回答或说明失败原因`
+                        }
+                    })
+                };
+            }
 
             try {
                 const result = await executeDataTool(name, args, req);
+                toolFailures.delete(name);
+                toolsUsed.push(name);
                 toolResults.push({ tool: name, args, result });
                 // 超长结果做「结构化摘要」而非字符硬切，保证回传给模型的 JSON 仍合法可解析
                 return { role: 'tool', tool_call_id: call.id, content: summarizeToolResult(result) };
             } catch (err) {
-                log(`round ${rounds} tool "${name}" FAILED: ${err.message}`);
-                throw err;
+                // 工具失败不冒泡出整轮请求：把失败原因作为 tool 结果回给模型，
+                // 由它决定是如实告知用户、换个工具、还是换个参数重试。
+                // 「查不到」与「查失败」在模型侧因此可区分 —— 前者 data 为空，后者带 error。
+                const total = fails + 1;
+                toolFailures.set(name, total);
+                log(`round ${rounds} tool "${name}" FAILED (${total}): ${err.message}`);
+                return {
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({
+                        error: {
+                            code: err.code || 'AI_TOOL_FAILED',
+                            message: err.message || '工具执行失败'
+                        }
+                    })
+                };
             }
         }));
         messages.push(...toolCallResults);
 
         sendSSE('progress', { step: 'thinking', message: '正在整理结果...' });
         llmResp = await aiService.chat(messages, { ...chatOptions, tools: chatTools, toolChoice: 'auto' });
+        accumulateUsage(llmResp);
         toolCalls = aiService.extractToolCalls(llmResp);
     }
 
-    let answer = aiService.extractText(llmResp) || '抱歉，我暂时无法回答这个问题。';
-    log(`done: rounds=${rounds} toolsUsed=[${toolsUsed.join(',')}] answerLen=${answer.length}`);
+    // 轮数耗尽时 llmResp 还停在 tool_calls 响应上，extractText 为空。
+    // 给用户看的兜底文案要说明「工具调用轮数已达上限」（而不是含糊的「无法回答」），
+    // 落库到 history 时模型也能看懂为什么这一轮没有实质结论。
+    const toolRoundsExhausted = !!llmResp && aiService.extractToolCalls(llmResp).length > 0;
+    let answer = aiService.extractText(llmResp)
+        || (toolRoundsExhausted
+            ? `抱歉，这次操作需要的查询步骤过多（已达 ${maxToolRounds} 步上限），未完成。请简化问题或缩小范围后重试。`
+            : '抱歉，我暂时无法回答这个问题。');
+    log(`done: rounds=${rounds} toolsUsed=[${toolsUsed.join(',')}] answerLen=${answer.length} exhausted=${toolRoundsExhausted}`);
 
-    // 阶段3.3：批量排课 + 弱模型时，附带切换建议（后端兜底逻辑照常执行，不阻塞）。
+    // 批量排课 + 模型档位偏低时，附带切换建议（后端兜底逻辑照常执行，不阻塞）。
     // 判定「批量」：输入含多行排课，或本轮生成了多个预览分组。
+    // 档位由 resolveModelCapabilities 按模型目录的 contextLength/reasoning 判定，
+    // 不按模型名里的 flash/lite 猜 —— agnes-3.0-flash 是主力模型，不该被提示。
     const looksLikeBatch = !isAction && typeof question === 'string' &&
         (question.split('\n').filter(l => l.trim()).length >= 3 ||
          toolResults.filter(r => r.result.type === 'schedule_preview').length > 1);
-    if (looksLikeBatch && caps._weak) {
-        answer += `\n\n（提示：批量排课较复杂，当前模型能力有限，如遇解析不准可在系统设置切换到更强模型，如 Mistral Large / DeepSeek V4，获得更稳定结果。）`;
+    if (looksLikeBatch && caps.strength === 'weak') {
+        answer += `\n\n（提示：批量排课的解析步骤较多，当前模型档位偏低，若发现日期或时段解析有偏差，可在系统设置里切换到上下文更大的模型以获得更稳定的结果。）`;
     }
 
     // 判断返回类型（基于工具结果）
@@ -3281,20 +3579,54 @@ const query = asyncHandler(async (req, res) => {
         }
     }
 
+    // 落库助手回答：在写响应之前做，这样 SSE result 能带上 messageId 供前端「没用」按钮关联。
+    // 失败绝不影响回答本身。token 用量是各轮 usage 的累计值（上游 usage 是单次请求的）。
+    let assistantMessageId = null;
+    try {
+        if (chatSessionId) {
+            // 用累计值（每轮 usage 之和），不是最后一轮 —— 上游 usage 是单次请求的。
+            const promptTokens = hasUsage ? totalPromptTokens : null;
+            const completionTokens = hasUsage ? totalCompletionTokens : null;
+            const saved = await aiChatService.appendMessage({
+                sessionId: chatSessionId, role: 'assistant', content: answer,
+                toolsUsed, model: currentModel,
+                promptTokens, completionTokens,
+                userType, userId: req.user.id
+            });
+            assistantMessageId = saved && saved.id;
+        }
+    } catch (err) {
+        logger.warn('[AI][chat-log] 记录助手回答失败（不影响回答）:', err.message);
+    }
+
     if (useStream) {
         sendSSE('progress', { step: 'done', message: '完成' });
-        res.write(`data: ${JSON.stringify({ type: 'result', data: { type: responseType, answer, structuredData, toolsUsed } })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'result', data: { type: responseType, answer, structuredData, toolsUsed, sessionId: chatSessionId, messageId: assistantMessageId } })}\n\n`);
         res.end();
     } else {
         res.json(successResponse({
             type: responseType,
             answer,
             structuredData,
-            toolsUsed
+            toolsUsed,
+            sessionId: chatSessionId,
+            messageId: assistantMessageId
         }, { requestId: req.requestId }));
     }
 
     } catch (err) {
+        // 用户提问已经落库：异常路径也补一条 assistant 错误消息，
+        // 否则会话里留下「有问无答」的残轮，下次恢复历史时用户看到问题却没看到失败原因。
+        try {
+            if (chatSessionId) {
+                await aiChatService.appendMessage({
+                    sessionId: chatSessionId, role: 'assistant',
+                    content: `查询失败：${err.message || '请稍后重试'}`,
+                    userType, userId: req.user.id
+                });
+            }
+        } catch (_) { /* 落库失败绝不影响错误处理 */ }
+
         if (useStream && res.headersSent) {
             try {
                 return writeSSEError(res, err, req.requestId);
@@ -3531,10 +3863,61 @@ const quickQuery = asyncHandler(async (req, res) => {
     }, { requestId: req.requestId }));
 });
 
+/* ============================================================
+ * AI 助手会话 / 消息 / 反馈（质量闭环）
+ * ============================================================ */
+
+/**
+ * 我的 AI 会话列表
+ * GET /api/ai/chat/sessions
+ */
+const listChatSessions = asyncHandler(async (req, res) => {
+    const data = await aiChatService.listSessions(req.user.userType, req.user.id, req.query.limit);
+    return res.json(successResponse({ sessions: data }, { requestId: req.requestId }));
+});
+
+/**
+ * 某会话的消息（归属校验由 service/store 下推到 SQL）
+ * GET /api/ai/chat/sessions/:id/messages
+ */
+const listChatMessages = asyncHandler(async (req, res) => {
+    const data = await aiChatService.listMessages(req.params.id, req.user.userType, req.user.id, req.query.limit);
+    return res.json(successResponse({ messages: data }, { requestId: req.requestId }));
+});
+
+/**
+ * 标记「没用」
+ * POST /api/ai/chat/messages/:id/feedback
+ */
+const markChatFeedback = asyncHandler(async (req, res) => {
+    const data = await aiChatService.markUnhelpful(
+        req.params.id, req.body.feedback, req.user.userType, req.user.id
+    );
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
+/**
+ * 清空当前会话（前端「清空对话」）。sessionId 可选：不传则清该用户最近的会话。
+ * DELETE /api/ai/chat/sessions/:id  （:id 为 'current' 时取最近会话）
+ */
+const clearChatSession = asyncHandler(async (req, res) => {
+    let sessionId = req.params.id;
+    if (sessionId === 'current') {
+        const sessions = await aiChatService.listSessions(req.user.userType, req.user.id, 1);
+        sessionId = sessions && sessions[0] && sessions[0].id;
+    }
+    const data = await aiChatService.clearSession(sessionId, req.user.userType, req.user.id);
+    return res.json(successResponse(data, { requestId: req.requestId }));
+});
+
 module.exports = {
     getStatus,
     query,
     quickQuery,
+    listChatSessions,
+    listChatMessages,
+    markChatFeedback,
+    clearChatSession,
     getConfig,
     getPresets,
     updateConfig,
@@ -3559,8 +3942,11 @@ module.exports = {
         resolveDateTime,
         parseClock,
         summarizeToolResult,
-        isWeakModel,
+        strengthFromKnownModel,
+        strengthFromModelId,
         resolveModelCapabilities,
+        queryResult,
+        describeScope,
         // 集成测试用：驱动 preview_schedule_update / confirm_operation 完整链路
         executeDataTool,
         aiOperationStore
