@@ -1287,3 +1287,28 @@
     background: var(--ai-danger);
     color: #fff;
 }
+
+/* 助手回答下方的「没用」反馈按钮：低调、跟内容列对齐，不喧宾夺主 */
+.ai-feedback-btn {
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 2px 6px;
+    border: none;
+    border-radius: var(--ai-radius-sm, 4px);
+    background: transparent;
+    color: var(--ai-text-muted, #888);
+    font-size: 11px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+}
+
+.ai-feedback-btn:hover:not(:disabled) {
+    color: var(--ai-danger);
+    background: var(--ai-surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.ai-feedback-btn:disabled {
+    cursor: default;
+    opacity: 0.7;
+}

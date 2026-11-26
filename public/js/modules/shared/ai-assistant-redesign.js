@@ -11,6 +11,13 @@ const PANEL_ID = 'ai-assistant-panel';
 const ASSISTANT_NAME = 'AI-assistant';
 const STORAGE_KEY = 'plenzo_ai_chat_v3';
 const MAX_HISTORY = 30;
+/**
+ * 随请求回传后端的对话历史条数上限。
+ * 必须与后端 ai-controller 的硬校验（history.length > 20 → 400）一致：
+ * 以前前端发 30 条，后端只收 20 条，长会话整轮 400 且用户看不出原因。
+ * 后端是权威；这里内联同一数字并留注释指路。
+ */
+const MAX_REQUEST_HISTORY = 20;
 
 /**
  * 品牌 logo 的唯一实现：描边双气泡 + 星芒。
@@ -56,6 +63,7 @@ const state = {
     floatBtnEl: null,
     stopBtnEl: null,
     messages: [],
+    sessionId: null,     // 当前服务端会话 id（loadServerHistory / 首轮问答时写入）
     loading: false,
     userRole: 'admin',
     isHidden: false,
@@ -357,7 +365,7 @@ function renderQuickQuestions() {
 async function sendQuickQuery(key, label) {
     if (state.loading) return;
 
-    const userMsg = { role: 'user', content: label };
+    const userMsg = { id: makeMsgId(), role: 'user', content: label };
     state.messages.push(userMsg);
     state.loading = true;
     state.sendBtnEl.disabled = true;
@@ -532,11 +540,68 @@ function withAssistantAvatar(wrapper) {
 }
 
 /**
+ * 消息稳定 id：localStorage / 服务端会话 / DOM 三者靠它对齐。
+ * 服务端返回的消息带后端 messageId（chat_…/msg_…），本地生成的用 m_ 前缀。
+ */
+function makeMsgId() {
+    return `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * 给一条助手消息挂「这条回答没用」按钮。
+ * 只有带 messageId（已落库）的消息才有意义 —— quick-query 不过 LLM、不落库，
+ * 没有 messageId，就不显示按钮，免得点了个无处反馈的按钮。
+ * 按钮挂在 .ai-msg-content 末尾（withAssistantAvatar 会把内容搬进这一列），
+ * 不能挂 wrapper 上 —— 那样会跑到头像旁边、内容列外面。
+ */
+function appendFeedbackButton(wrapper, msg) {
+    const content = wrapper.querySelector('.ai-msg-content') || wrapper;
+    if (!msg.messageId) return wrapper;
+
+    const btn = document.createElement('button');
+    btn.className = 'ai-feedback-btn';
+    btn.type = 'button';
+    btn.title = '这条回答没用';
+    btn.setAttribute('aria-label', '这条回答没用');
+
+    if (msg.feedback === 'unhelpful') {
+        btn.textContent = '已反馈没用';
+        btn.disabled = true;
+    } else {
+        btn.textContent = '没用';
+        btn.addEventListener('click', async () => {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.textContent = '反馈中…';
+            try {
+                await window.apiUtils.post(`/ai/chat/messages/${encodeURIComponent(msg.messageId)}/feedback`, {
+                    feedback: 'unhelpful'
+                });
+                msg.feedback = 'unhelpful';
+                btn.textContent = '已反馈没用';
+                saveHistory();
+            } catch (err) {
+                // 反馈失败不该让按钮永久卡在「反馈中」：恢复可点并提示
+                btn.disabled = false;
+                btn.textContent = '没用';
+                if (window.Toast && typeof window.Toast.show === 'function') {
+                    window.Toast.show('反馈提交失败，请稍后再试', { type: 'error' });
+                }
+            }
+        });
+    }
+    content.appendChild(btn);
+    return wrapper;
+}
+
+/**
  * 渲染单条消息
  */
 function renderMessage(msg, index) {
     const wrapper = document.createElement('div');
     wrapper.className = `ai-msg ${msg.role}`;
+    if (msg.id) wrapper.dataset.msgId = msg.id;
+    if (msg.messageId) wrapper.dataset.serverMsgId = msg.messageId;
 
     if (msg.role === 'user') {
         const bubble = document.createElement('div');
@@ -577,6 +642,15 @@ function renderMessage(msg, index) {
         return wrapper;
     }
 
+    // Assistant 消息统一出口：包头像 + 挂反馈按钮（错误消息不挂，没意义）
+    const finalizeAssistant = (w) => {
+        const out = withAssistantAvatar(w);
+        if (msg.id) out.dataset.msgId = msg.id;
+        if (msg.messageId) out.dataset.serverMsgId = msg.messageId;
+        if (!msg.isError) appendFeedbackButton(out, msg);
+        return out;
+    };
+
     // Assistant 消息
     if (msg.isError) {
         const bubble = document.createElement('div');
@@ -596,23 +670,23 @@ function renderMessage(msg, index) {
             });
             wrapper.appendChild(retryBtn);
         }
-        return withAssistantAvatar(wrapper);
+        return finalizeAssistant(wrapper);
     }
 
     // 根据消息类型渲染（统一包上助手头像）
     switch (msg.type) {
         case MessageType.DATA_TABLE:
-            return withAssistantAvatar(renderDataTableMessage(msg));
+            return finalizeAssistant(renderDataTableMessage(msg));
         case MessageType.SCHEDULE_LIST:
-            return withAssistantAvatar(renderScheduleListMessage(msg));
+            return finalizeAssistant(renderScheduleListMessage(msg));
         case MessageType.CHART_DATA:
-            return withAssistantAvatar(renderChartDataMessage(msg));
+            return finalizeAssistant(renderChartDataMessage(msg));
         case MessageType.SCHEDULE_PREVIEW:
-            return withAssistantAvatar(renderSchedulePreviewMessage(msg));
+            return finalizeAssistant(renderSchedulePreviewMessage(msg));
         case MessageType.SCHEDULE_OPERATION_PREVIEW:
-            return withAssistantAvatar(renderScheduleOperationPreviewMessage(msg));
+            return finalizeAssistant(renderScheduleOperationPreviewMessage(msg));
         default:
-            return withAssistantAvatar(renderTextMessage(msg));
+            return finalizeAssistant(renderTextMessage(msg));
     }
 }
 
@@ -1524,6 +1598,13 @@ async function clearHistory() {
 
     if (!await Modal.confirm('确定要清空所有对话记录吗？', { title: '清空对话', confirmText: '清空', confirmStyle: 'danger' })) return;
 
+    // 服务端也清：否则下次打开 loadServerHistory 会把刚清空的对话原样拉回来。
+    // 失败不阻断本地清空（本地是用户立刻看到的结果），只记日志。
+    try {
+        await window.apiUtils.delete(`/ai/chat/sessions/${encodeURIComponent(state.sessionId || 'current')}`);
+    } catch (_) { /* 服务端不可用时仅清本地 */ }
+    state.sessionId = null;
+
     state.messages = [];
     clearSelectedImages();
     renderMessagesFull();
@@ -1613,11 +1694,13 @@ async function onSend(action) {
     // 添加用户消息气泡：普通输入显示文本/图片；确认类操作显示确认提示文本
     if (isAction) {
         state.messages.push({
+            id: makeMsgId(),
             role: 'user',
             content: action.label || '已确认'
         });
     } else {
         state.messages.push({
+            id: makeMsgId(),
             role: 'user',
             content: text,
             images: images.length > 0 ? images : undefined
@@ -1647,7 +1730,9 @@ async function onSend(action) {
         // 构建对话历史：排除当前轮刚 push 的用户消息（普通问题或确认气泡），避免重复。
         // 普通轮的文本由后端 question 注入；确认轮由 requestBody.action 注入，气泡仅用于展示。
         // 报错/停止的气泡（isError）只是 UI 提示，不能作为 assistant 轮回传给模型。
-        const historySource = state.messages.slice(0, -1);
+        // 只回传最近 MAX_REQUEST_HISTORY 条：后端对超长 history 直接 400，
+        // 本地 MAX_HISTORY(30) 只是展示上限，比请求上限大。
+        const historySource = state.messages.slice(0, -1).slice(-MAX_REQUEST_HISTORY);
         const conversationHistory = historySource.map(msg => {
             if (msg.role === 'user' && msg.images && msg.images.length > 0) {
                 return {
@@ -1793,13 +1878,19 @@ async function onSend(action) {
             }
         }
 
+        if (data.sessionId) state.sessionId = data.sessionId;
+
         const assistantMsg = {
+            id: makeMsgId(),
             role: 'assistant',
             type: data.type || MessageType.TEXT,
             answer: answerText,
             content: answerText,
             data: data.structuredData,
-            tools: data.toolsUsed
+            tools: data.toolsUsed,
+            // 服务端落库后回传的 id：反馈按钮靠它关联这条回答
+            messageId: data.messageId || null,
+            sessionId: data.sessionId || null
         };
 
         state.messages.push(assistantMsg);
@@ -1910,6 +2001,45 @@ function loadHistory() {
             state.messages = parsed.messages;
         }
     } catch (_) { /* 忽略损坏数据 */ }
+}
+
+/**
+ * 从服务端拉回当前会话的消息，覆盖本地缓存（服务端为准）。
+ * 本地缓存只用于首屏秒显；服务端才是事实来源（跨设备、跨实例、带反馈标记与 token 用量）。
+ * 服务端消息是纯文本回放（不重放预览卡片/工具调用链），足够做历史回顾与反馈。
+ * 失败静默：离线或接口异常时保留本地缓存，不让面板变空。
+ */
+async function loadServerHistory() {
+    // 竞态守卫：这两个 GET 往返期间用户可能已经发了消息（SSE result 会设置
+    // state.sessionId 并 push 新消息）。那种情况下绝不能用拉回的旧会话覆盖。
+    const startedWithSession = state.sessionId;
+    try {
+        const sessionsResp = await window.apiUtils.get('/ai/chat/sessions');
+        if (state.sessionId !== startedWithSession || state.loading) return;
+        const sessions = (sessionsResp && sessionsResp.sessions) || [];
+        if (!sessions.length) return; // 还没有落库过会话，保留本地缓存
+        const sessionId = sessions[0].id;
+        if (state.sessionId || state.loading) return; // 期间已确定会话/正在提问，不覆盖
+        state.sessionId = sessionId;
+        const msgResp = await window.apiUtils.get(`/ai/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
+        if (state.sessionId !== sessionId || state.loading) return; // 二次检查
+        const messages = (msgResp && msgResp.messages) || [];
+        if (!messages.length) return;
+
+        const restored = messages.map(m => ({
+            id: m.id,
+            messageId: m.id,
+            role: m.role,
+            type: MessageType.TEXT,
+            answer: m.content || '',
+            content: m.content || '',
+            tools: (() => { try { return m.tools_used ? JSON.parse(m.tools_used) : []; } catch (_) { return []; } })(),
+            feedback: m.feedback || ''
+        }));
+        state.messages = restored.slice(-MAX_HISTORY);
+        renderMessagesFull();
+        saveHistory();
+    } catch (_) { /* 服务端不可用时保留本地缓存 */ }
 }
 
 /**
@@ -2296,7 +2426,9 @@ export function open(role) {
     buildPanel();
     loadHistory();
     renderQuickQuestions();
-    renderMessagesFull();
+    renderMessagesFull();   // 本地缓存秒显
+    // 服务端为准：异步拉回会话覆盖本地（失败静默，保留缓存）
+    void loadServerHistory();
     refreshStatus();
     fetchModelCapabilities();  // 获取模型能力
     loadModelPicker();         // 加载用户自选模型 + 可选清单
