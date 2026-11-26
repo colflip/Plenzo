@@ -263,6 +263,66 @@ async function dropSessionAuditForeignKeys() {
     }
 }
 
+/**
+ * 第七批：AI 助手会话与消息（质量闭环）。
+ *
+ * 独立于操作态批次（v2）：v2 的表是 5 分钟过期的短时预览态，这批是长期会话资产，
+ * 保留期 90 天由每日 cron 清理。混在一起会让「已经标记过 v2 的库」永远建不出会话表。
+ *
+ * 两张表都不带 REFERENCES：user_id 是三张角色表共用的多态 id，
+ * messages → sessions 的级联删除改由 ai-chat-store 显式执行（见该模块 sweepExpired）。
+ */
+const AI_CHAT_SCHEMA_KEY = 'plenzo_ai_chat_v1';
+
+async function migrateAiChatTables() {
+    try {
+        if (await isApplied(AI_CHAT_SCHEMA_KEY)) return;
+
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.ai_chat_sessions (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                user_type VARCHAR(20) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expire_at TIMESTAMPTZ,
+                CONSTRAINT uq_ai_chat_sessions_owner UNIQUE (user_id, user_type)
+            )
+        `);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_chat_sessions_user ON public.ai_chat_sessions(user_id, user_type)`);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_chat_sessions_expire ON public.ai_chat_sessions(expire_at)`);
+
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS public.ai_chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                user_type VARCHAR(20) NOT NULL,
+                role VARCHAR(20) NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                tools_used TEXT,
+                model VARCHAR(100),
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                feedback VARCHAR(20) NOT NULL DEFAULT '',
+                feedback_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_session ON public.ai_chat_messages(session_id, created_at)`);
+        await db.query(`CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_feedback ON public.ai_chat_messages(feedback)`);
+
+        await db.query(`COMMENT ON TABLE public.ai_chat_sessions IS 'AI 助手会话（跨实例共享，长期资产）'`);
+        await db.query(`COMMENT ON TABLE public.ai_chat_messages IS 'AI 助手消息、token 用量与没用反馈'`);
+
+        await markApplied(AI_CHAT_SCHEMA_KEY);
+        logger.log(`数据库迁移完成：${AI_CHAT_SCHEMA_KEY}（AI 会话与消息表）`);
+    } catch (error) {
+        // 迁移失败不阻断启动；下次启动重试（没写标记）。
+        // 表不存在时 ai-chat-store 降级到内存，反馈丢失但 AI 主流程不受影响。
+        logger.error('AI 会话表迁移失败:', db.describeError(error));
+    }
+}
+
 async function runDatabaseMigrations() {
     // course_sessions 先跑，并独占一个 try/catch。
     // 下面那一批历史迁移共用一个「记日志但不中断启动」的 catch，任何一条语句报错都会
@@ -283,6 +343,7 @@ async function runDatabaseMigrations() {
     await migrateAiUserModelScope();
     await migrateAuditAndExportLogs();
     await dropSessionAuditForeignKeys();
+    await migrateAiChatTables();
 }
 
 async function migrateLegacySchema() {

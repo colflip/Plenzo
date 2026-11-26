@@ -752,6 +752,14 @@ const aiUserModelValidation = Joi.object({
         .messages({ 'any.required': '缺少 modelId', 'string.min': 'modelId 不能为空' })
 });
 
+// AI 助手会话反馈（POST /api/ai/chat/messages/:id/feedback）。
+// 只接受 'unhelpful' 一种：当前只有一个「没用」按钮，不预留其它枚举以防未来漂移。
+// validate 用 stripUnknown:true，未声明的键会被静默剥掉，所以 feedback 必须显式声明。
+const aiChatFeedbackValidation = Joi.object({
+    feedback: Joi.string().valid('unhelpful').required()
+        .messages({ 'any.required': '缺少 feedback', 'any.only': '不支持的反馈类型' })
+});
+
 // AI 渠道端点（渠道 → 端点 → 模型）。apiKey 允许 null：语义是「清除端点独立凭证、继承渠道」，
 // 而不是「空字符串密钥」，所以不能简单用 empty('') 归一化掉。
 const aiEndpointCreateValidation = Joi.object({
@@ -950,6 +958,7 @@ module.exports = {
     exportScheduleValidation,
     associatedStudentUpdateValidation,
     aiUserModelValidation,
+    aiChatFeedbackValidation,
     aiEndpointCreateValidation,
     aiEndpointUpdateValidation,
     teacherAvailabilitySetValidation,

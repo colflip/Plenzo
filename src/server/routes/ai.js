@@ -17,6 +17,7 @@ const {
     aiConfigUpdateValidation,
     aiConfigTestValidation,
     aiUserModelValidation,
+    aiChatFeedbackValidation,
     aiEndpointCreateValidation,
     aiEndpointUpdateValidation
 } = require('../middleware/validation');
@@ -102,5 +103,14 @@ router.post('/query', authMiddleware, anyAuthenticated, aiLimiter, aiController.
 // 快捷问题直连：固定结构化查询不过 LLM，直接执行数据工具（不耗 token、秒回）。
 // key 是白名单标识（非自然语言），复用 /query 的限流与鉴权。
 router.post('/quick-query', authMiddleware, anyAuthenticated, aiLimiter, aiController.quickQuery);
+
+// 会话与反馈（质量闭环）：所有角色可用，只读写本人的会话/消息。
+// 列表/详情是只读，用 aiLimiter 防止被当爬虫刷；反馈同样限流。
+router.get('/chat/sessions', authMiddleware, anyAuthenticated, aiLimiter, aiController.listChatSessions);
+router.get('/chat/sessions/:id/messages', authMiddleware, anyAuthenticated, aiLimiter, aiController.listChatMessages);
+router.post('/chat/messages/:id/feedback', authMiddleware, anyAuthenticated, aiLimiter,
+    validate(aiChatFeedbackValidation), aiController.markChatFeedback);
+// 清空对话：只清本人会话；'current' 表示最近一个会话
+router.delete('/chat/sessions/:id', authMiddleware, anyAuthenticated, aiLimiter, aiController.clearChatSession);
 
 module.exports = router;

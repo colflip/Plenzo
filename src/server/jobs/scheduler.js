@@ -2,6 +2,7 @@ const logger = require('../utils/logger.js');
 const cron = require('node-cron');
 const updateScheduleStatus = require('./update-schedule-status');
 const aiOperationStore = require('../services/ai-operation-store');
+const aiChatService = require('../services/ai-chat-service');
 
 /**
  * Initializes all background jobs.
@@ -21,6 +22,8 @@ function initScheduler() {
         // 顺带清理过期的 AI 操作态：这一天本来就要唤醒数据库，不为清理单独制造唤醒
         // （清理器为什么不再自循环，见 ai-operation-store.js 里 SWEEP_INTERVAL_MS 的说明）。
         await aiOperationStore.sweepExpired();
+        // 90 天前的 AI 会话与消息同一并清理（同一唤醒，不额外制造成本）
+        await aiChatService.sweepExpired();
     }, {
         scheduled: true,
         timezone: "Asia/Shanghai"

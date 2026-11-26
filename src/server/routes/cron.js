@@ -19,6 +19,7 @@ const router = express.Router();
 const logger = require('../utils/logger.js');
 const updateScheduleStatus = require('../jobs/update-schedule-status');
 const aiOperationStore = require('../services/ai-operation-store');
+const aiChatService = require('../services/ai-chat-service');
 const { asyncHandler, AppError } = require('../middleware');
 const { successResponse, errorResponse } = require('../utils/response');
 
@@ -89,6 +90,8 @@ router.get('/update-schedule-status', asyncHandler(async (req, res) => {
     // 顺带清理过期的 AI 操作态（与 jobs/scheduler.js 挂同一处节奏）：清理幂等、
     // 失败不抛出，也不进响应体 —— 本端点的响应契约保持不变。
     await aiOperationStore.sweepExpired();
+    // 90 天前的 AI 会话与消息同一并清理（幂等、失败不抛、不进响应体）
+    await aiChatService.sweepExpired();
 
     logger.log(`[cron] update-schedule-status 完成，更新 ${result.updatedCount} 个教师 pair`);
     return res.json(successResponse({
